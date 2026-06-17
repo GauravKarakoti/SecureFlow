@@ -1,7 +1,3 @@
-
-"use client";
-
-import { MOCK_AUDIT_LOGS } from "@/lib/mock-data";
 import { 
   Table, 
   TableBody, 
@@ -11,10 +7,26 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Search, Filter, Download, User, Activity, Database } from "lucide-react";
+import prisma from "@/lib/prisma";
 
-export default function AuditPage() {
+export default async function AuditPage() {
+  // Fetch real logs from the DB
+  const logs = await prisma.auditLog.findMany({
+    orderBy: { timestamp: 'desc' },
+    take: 100, // Limit to 100 recent logs for performance
+  });
+
+  // Calculate stats dynamically
+  const activeAdminsCount = await prisma.user.count();
+  
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const actions24hCount = await prisma.auditLog.count({
+    where: { timestamp: { gte: yesterday } }
+  });
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
       <div className="flex justify-between items-end">
@@ -36,7 +48,7 @@ export default function AuditPage() {
           </div>
           <div>
             <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Active Admins</div>
-            <div className="text-lg font-bold">4 Users</div>
+            <div className="text-lg font-bold">{activeAdminsCount} Users</div>
           </div>
         </div>
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
@@ -45,7 +57,7 @@ export default function AuditPage() {
           </div>
           <div>
             <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">System Actions</div>
-            <div className="text-lg font-bold">14,208 (24h)</div>
+            <div className="text-lg font-bold">{actions24hCount.toLocaleString()} (24h)</div>
           </div>
         </div>
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
@@ -86,35 +98,43 @@ export default function AuditPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {MOCK_AUDIT_LOGS.map((log) => (
-                <TableRow key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                  <TableCell className="py-4">
-                    <span className="font-bold text-sm">{log.action}</span>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[8px] font-bold">
-                        {log.user[0].toUpperCase()}
+              {logs.map((log) => {
+                const displayUser = log.userId || "System";
+                return (
+                  <TableRow key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <TableCell className="py-4">
+                      <span className="font-bold text-sm">{log.action}</span>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[8px] font-bold">
+                          {displayUser[0].toUpperCase()}
+                        </div>
+                        <span className="text-xs font-medium">{displayUser}</span>
                       </div>
-                      <span className="text-xs font-medium">{log.user}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <span className="text-xs text-muted-foreground font-mono">{log.resource}</span>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge variant={
-                      log.decision === 'BLOCK' ? 'destructive' : 
-                      log.decision === 'SUCCESS' ? 'default' : 'secondary'
-                    } className="text-[10px] tracking-widest px-1.5">
-                      {log.decision}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-4 text-right">
-                    <span className="text-[10px] text-muted-foreground font-mono">{log.timestamp}</span>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <span className="text-xs text-muted-foreground font-mono">{log.resource}</span>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge variant={
+                        log.decision === 'BLOCK' ? 'destructive' : 
+                        log.decision === 'SUCCESS' ? 'default' : 'secondary'
+                      } className="text-[10px] tracking-widest px-1.5">
+                        {log.decision || 'INFO'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-4 text-right">
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Intl.DateTimeFormat('en-US', { 
+                          dateStyle: 'medium', 
+                          timeStyle: 'short' 
+                        }).format(new Date(log.timestamp))}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>

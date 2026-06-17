@@ -1,13 +1,16 @@
-
-"use client";
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Lock, AlertCircle, ShieldCheck, HelpCircle, Plus } from "lucide-react";
+import prisma from "@/lib/prisma";
 
-export default function PoliciesPage() {
+export default async function PoliciesPage() {
+  // Fetch real policies from the DB
+  const policies = await prisma.policy.findMany({
+    orderBy: { createdAt: 'desc' }
+  });
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
       <div className="flex justify-between items-end">
@@ -21,50 +24,29 @@ export default function PoliciesPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <PolicyCard 
-          title="Secret Prevention Gate"
-          description="Automatically block any PR containing API keys or private credentials."
-          isActive={true}
-          severity="CRITICAL"
-          action="BLOCK"
-          rules={[
-            "Block when secret-scan finds findings with severity > LOW",
-            "Require manual override for .env modifications"
-          ]}
-        />
-        <PolicyCard 
-          title="Dependency Guard"
-          description="Flag outdated packages or known security vulnerabilities in package.json."
-          isActive={true}
-          severity="HIGH"
-          action="REVIEW REQUIRED"
-          rules={[
-            "Flag findings with CVSS score > 7.0",
-            "Approve if vulnerability has no fix available (audit only)"
-          ]}
-        />
-        <PolicyCard 
-          title="Infra-as-Code Audit"
-          description="Scan Terraform and CloudFormation for misconfigurations."
-          isActive={false}
-          severity="MEDIUM"
-          action="REVIEW REQUIRED"
-          rules={[
-            "Require review for public S3 bucket changes",
-            "Block overly permissive IAM policies"
-          ]}
-        />
-        <PolicyCard 
-          title="Production Freeze"
-          description="Temporarily block all non-critical patches during high-risk windows."
-          isActive={false}
-          severity="NONE"
-          action="BLOCK"
-          rules={[
-            "Block all merges except 'hotfix' labels",
-            "Enforce during scheduled maintenance windows"
-          ]}
-        />
+        {policies.length === 0 && (
+          <div className="col-span-2 text-center text-muted-foreground p-8 border border-dashed border-white/10 rounded-xl">
+            No policies found. Create your first policy to get started.
+          </div>
+        )}
+        
+        {policies.map((policy) => {
+          // Parse the JSON rules field based on our expected metadata structure
+          // Prisma types Json as any/JsonValue, so we safely cast to extract info
+          const rulesMeta = (policy.rules as any) || {};
+          
+          return (
+            <PolicyCard 
+              key={policy.id}
+              title={policy.name}
+              description={rulesMeta.description || "Custom automated logic rule."}
+              isActive={policy.isActive}
+              severity={rulesMeta.severity || "MEDIUM"}
+              action={rulesMeta.action || "REVIEW REQUIRED"}
+              rules={rulesMeta.conditions || []}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -73,7 +55,8 @@ export default function PoliciesPage() {
 function PolicyCard({ title, description, isActive, severity, action, rules }: any) {
   return (
     <Card className={`glass-card relative overflow-hidden ${!isActive && 'opacity-60'}`}>
-      <div className="absolute top-0 right-0 p-6">
+      <div className="absolute top-0 right-0 p-6 z-10">
+        {/* Note: Connecting the Switch to update the DB will require wrapping it in a client component or using a Next.js Server Action */}
         <Switch checked={isActive} />
       </div>
       <CardHeader>
@@ -88,12 +71,14 @@ function PolicyCard({ title, description, isActive, severity, action, rules }: a
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          {rules.map((rule: string, i: number) => (
+          {rules.length > 0 ? rules.map((rule: string, i: number) => (
             <div key={i} className="flex items-start gap-3 text-xs text-muted-foreground p-3 bg-white/5 border border-white/5 rounded-lg">
               <ShieldCheck className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
               {rule}
             </div>
-          ))}
+          )) : (
+            <div className="text-xs text-muted-foreground italic">No conditions defined.</div>
+          )}
         </div>
         <div className="pt-4 flex items-center justify-between border-t border-white/5 text-[10px] font-bold uppercase text-muted-foreground">
           <div className="flex items-center gap-2">
