@@ -1,18 +1,18 @@
-
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { 
   LayoutDashboard, 
   GitPullRequest, 
   ShieldAlert, 
-  Settings, 
   History, 
   Package,
-  FileCode,
-  Lock
+  Lock,
+  LogOut
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -68,22 +68,45 @@ export function DashboardSidebar() {
   );
 }
 
-export function DashboardHeader() {
+// Accept the user object as a prop
+export function DashboardHeader({ 
+  user 
+}: { 
+  user?: { name?: string | null; email?: string | null; image?: string | null } 
+}) {
   return (
     <header className="h-16 border-b border-white/5 px-8 flex items-center justify-between glass-card sticky top-0 z-40">
       <div className="flex items-center gap-4">
         <div className="text-sm text-muted-foreground">
-          <span className="text-white font-medium">User</span> / Acme Corp
+          {/* Display the logged-in user's name dynamically */}
+          <span className="text-white font-medium">User</span> / {user?.name || "User"}
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-bold">
-          JD
-        </div>
+        {/* Profile Picture or Fallback Initials */}
+        {user?.image ? (
+          <Image 
+            src={user.image} 
+            alt={user.name || "Profile"} 
+            width={32} 
+            height={32} 
+            className="rounded-full border border-primary/30"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-bold text-white">
+            {user?.name ? user.name.slice(0, 2).toUpperCase() : "NA"}
+          </div>
+        )}
+        
+        {/* Logout Button */}
+        <button 
+          onClick={() => signOut({ callbackUrl: "/" })}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+          title="Log out"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );
 }
-
-import { Search } from "lucide-react";import Image from "next/image";
-
