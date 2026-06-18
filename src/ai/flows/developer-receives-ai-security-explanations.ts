@@ -58,7 +58,11 @@ ${validatedInput.codeSnippet}
 """
 
 Please provide a plain-English explanation and specific remediation suggestions based on the above finding.
-Respond strictly in JSON format with exactly two keys: "explanation" and "remediationSuggestions".`;
+Respond strictly in JSON format. The response MUST exactly match this structure, where both values are plain strings:
+{
+  "explanation": "<string containing the plain-English explanation>",
+  "remediationSuggestions": "<string containing the actionable steps>"
+}`;
 
   // Make the API call to Groq
   const chatCompletion = await groq.chat.completions.create({

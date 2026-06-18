@@ -4,7 +4,14 @@ import { Github, Shield } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}) {
+  // Await the searchParams to extract the callbackUrl
+  const { callbackUrl } = await searchParams;
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden px-4">
       {/* Background Gradients to match landing page */}
@@ -31,7 +38,8 @@ export default function LoginPage() {
           className="w-full"
           action={async () => {
             "use server";
-            await signIn("github", { redirectTo: "/dashboard" });
+            // Dynamically redirect to the setup callback URL, or fallback to the dashboard
+            await signIn("github", { redirectTo: callbackUrl || "/dashboard" });
           }}
         >
           <Button 
