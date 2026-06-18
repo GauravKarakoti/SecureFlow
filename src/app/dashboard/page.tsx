@@ -1,6 +1,5 @@
 import prisma from "@/lib/prisma";
 import DashboardClient from "./dashboard-client";
-import { MOCK_CHART_DATA } from "@/lib/mock-data"; 
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
@@ -28,8 +27,12 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } } 
   });
   
+  // FIX: Categorize all variation of secrets
   const secretsDetected = await prisma.finding.count({ 
-    where: { type: 'Secret', scanResult: { pullRequest: { repository: { userId } } } } 
+    where: { 
+      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] }, 
+      scanResult: { pullRequest: { repository: { userId } } } 
+    } 
   });
 
   // 2. Fetch Recent Pull Requests
@@ -54,6 +57,34 @@ export default async function OverviewPage() {
     where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } } } 
   });
 
+  // 4. FIX: Generate real Chart Data (Last 7 days of scans)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  sevenDaysAgo.setHours(0, 0, 0, 0);
+
+  const recentScans = await prisma.scanResult.findMany({
+    where: {
+      createdAt: { gte: sevenDaysAgo },
+      pullRequest: { repository: { userId } }
+    },
+    select: { createdAt: true }
+  });
+
+  // Group scans by date
+  const scansByDate = recentScans.reduce((acc: Record<string, number>, scan) => {
+    const date = scan.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    acc[date] = (acc[date] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Create an array representing the last 7 days sequentially
+  const chartData = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { name: dateStr, scans: scansByDate[dateStr] || 0 };
+  });
+
   const stats = { totalScans, blockedPRs, approvedPRs, secretsDetected };
   const distribution = { critical, high, medium, low };
 
@@ -62,7 +93,7 @@ export default async function OverviewPage() {
       stats={stats} 
       prs={recentPRs} 
       distribution={distribution} 
-      chartData={MOCK_CHART_DATA} 
+      chartData={chartData} 
     />
   );
 }

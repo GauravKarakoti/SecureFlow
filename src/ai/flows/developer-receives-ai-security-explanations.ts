@@ -1,37 +1,24 @@
 'use server';
-/**
- * @fileOverview A Groq-powered flow that generates plain-English explanations and remediation suggestions for security findings.
- *
- * - developerReceivesAISecurityExplanations - A function that handles the AI explanation process.
- * - AISecurityExplanationInput - The input type for the developerReceivesAISecurityExplanations function.
- * - AISecurityExplanationOutput - The return type for the developerReceivesAISecurityExplanations function.
- */
 
 import { z } from 'zod';
 import Groq from 'groq-sdk';
+import "dotenv/config";
 
 const AISecurityExplanationInputSchema = z.object({
-  findingType: z
-    .string()
-    .describe('The type of security finding (e.g., Hardcoded OpenAI API key).'),
-  severity: z.string().describe('The severity of the finding (e.g., CRITICAL, HIGH, MEDIUM, LOW).'),
-  description: z.string().describe('A detailed description of the security issue from the scanner.'),
-  fileLocation: z.string().describe('The file path and line number where the finding was detected.'),
-  codeSnippet: z.string().describe('The relevant code snippet related to the finding.'),
+  findingType: z.string(),
+  severity: z.string(),
+  description: z.string(),
+  fileLocation: z.string(),
+  codeSnippet: z.string(),
 });
 export type AISecurityExplanationInput = z.infer<typeof AISecurityExplanationInputSchema>;
 
 const AISecurityExplanationOutputSchema = z.object({
-  explanation: z
-    .string()
-    .describe('A plain-English explanation of the security finding, easily understandable by a developer.'),
-  remediationSuggestions: z
-    .string()
-    .describe('Actionable and practical remediation steps to fix the security issue.'),
+  explanation: z.string(),
+  remediationSuggestions: z.string(),
 });
 export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOutputSchema>;
 
-// Initialize Groq client
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
@@ -39,13 +26,13 @@ const groq = new Groq({
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput
 ): Promise<AISecurityExplanationOutput> {
-  // Validate the input
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
 
-  const prompt = `You are a security expert. Your task is to explain a security finding in plain English and provide practical remediation suggestions.
+  const prompt = `You are a security expert auditing a Pull Request. Your task is to briefly explain a finding and provide highly actionable remediation steps.
 
-The explanation should be concise, clear, and easy for a developer to understand. Focus on the impact and risk.
-The remediation suggestions should be actionable, specific steps to fix the issue, including best practices.
+CRITICAL LENGTH CONSTRAINTS:
+- Explanation: Must be maximum 2 sentences long. State only the direct impact.
+- Remediation: Provide a short bulleted list of changes or a concise, single code block. Do NOT write an introduction, multiple phases, or an essay.
 
 Security Finding Details:
 Type: ${validatedInput.findingType}
@@ -57,26 +44,38 @@ Code Snippet:
 ${validatedInput.codeSnippet}
 """
 
-Please provide a plain-English explanation and specific remediation suggestions based on the above finding.
-Respond strictly in JSON format. The response MUST exactly match this structure, where both values are plain strings:
-{
-  "explanation": "<string containing the plain-English explanation>",
-  "remediationSuggestions": "<string containing the actionable steps>"
-}`;
+You MUST respond strictly using the following structural tag markers to enclose your answers:
 
-  // Make the API call to Groq
+<explanation_block>
+Concise explanation (max 2 sentences)...
+</explanation_block>
+
+<remediation_block>
+Short, bulleted remediation or single compact code snippet here...
+</remediation_block>`;
+
   const chatCompletion = await groq.chat.completions.create({
     messages: [
-      { role: 'system', content: 'You are a helpful assistant that strictly outputs JSON.' },
+      { 
+        role: 'system', 
+        content: 'You are an elite application security assistant. Keep all outputs ultra-short, concise, and populate the requested blocks.' 
+      },
       { role: 'user', content: prompt }
     ],
-    model: 'llama-3.3-70b-versatile', 
-    response_format: { type: 'json_object' },
+    // model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant'
   });
 
-  const responseText = chatCompletion.choices[0]?.message?.content || '{}';
-  const result = JSON.parse(responseText);
+  const responseText = chatCompletion.choices[0]?.message?.content || '';
 
-  // Validate the Groq output against the expected schema before returning
-  return AISecurityExplanationOutputSchema.parse(result);
+  const explanationMatch = responseText.match(/<explanation_block>([\s\S]*?)<\/explanation_block>/);
+  const remediationMatch = responseText.match(/<remediation_block>([\s\S]*?)<\/remediation_block>/);
+
+  const explanation = explanationMatch ? explanationMatch[1].trim() : 'No explanation provided.';
+  const remediationSuggestions = remediationMatch ? remediationMatch[1].trim() : 'No remediation suggestions provided.';
+
+  return AISecurityExplanationOutputSchema.parse({
+    explanation,
+    remediationSuggestions
+  });
 }

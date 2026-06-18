@@ -7,9 +7,8 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-// Swapped User for Shield
-import { Search, Filter, Download, Shield, Activity, Database } from "lucide-react"; 
+import { Card, CardContent } from "@/components/ui/card";
+import { Shield, Activity, Database } from "lucide-react"; 
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
@@ -30,7 +29,14 @@ export default async function AuditPage() {
     take: 100, 
   });
   
-  // REPLACED global user count with user-specific active repositories count
+  // FIX: Fetch User details to map User IDs to User Names/Emails
+  const uniqueUserIds = [...new Set(logs.map(l => l.userId).filter((id): id is string => id !== null))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: uniqueUserIds } },
+    select: { id: true, name: true, email: true }
+  });
+  const userMap = new Map(users.map(u => [u.id, u.name || u.email || 'Unknown User']));
+  
   const activeReposCount = await prisma.repository.count({
     where: { 
       userId,
@@ -55,15 +61,9 @@ export default async function AuditPage() {
           <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">Audit Logs</h1>
           <p className="text-muted-foreground">Comprehensive trail of all security decisions and system actions.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-muted-foreground hover:text-white transition-colors">
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* REPLACED the Active Admins card with Monitored Repositories */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
             <Shield className="w-5 h-5" />
@@ -80,36 +80,12 @@ export default async function AuditPage() {
           </div>
           <div>
             <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">System Actions</div>
-            <div className="text-lg font-bold">{actions24hCount.toLocaleString()} (24h)</div>
-          </div>
-        </div>
-        
-        <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-            <Database className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Data Retention</div>
-            <div className="text-lg font-bold">90 Days</div>
+            <div className="text-lg font-bold">{actions24hCount.toLocaleString()}</div>
           </div>
         </div>
       </div>
 
       <Card className="glass-card">
-        <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input 
-              className="bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-xs w-80 focus:outline-none" 
-              placeholder="Filter by user, action or PR..."
-            />
-          </div>
-          <div className="flex gap-2">
-            <button className="p-2 rounded-lg bg-white/5 border border-white/10 text-muted-foreground hover:text-white">
-              <Filter className="w-4 h-4" />
-            </button>
-          </div>
-        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader className="bg-white/5">
@@ -123,7 +99,8 @@ export default async function AuditPage() {
             </TableHeader>
             <TableBody>
               {logs.map((log) => {
-                const displayUser = log.userId || "System";
+                // FIX: Retrieve user name from Map instead of rendering ID
+                const displayUser = log.userId ? (userMap.get(log.userId) || log.userId) : "System";
                 return (
                   <TableRow key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                     <TableCell className="py-4">
@@ -131,9 +108,6 @@ export default async function AuditPage() {
                     </TableCell>
                     <TableCell className="py-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[8px] font-bold">
-                          {displayUser[0].toUpperCase()}
-                        </div>
                         <span className="text-xs font-medium">{displayUser}</span>
                       </div>
                     </TableCell>

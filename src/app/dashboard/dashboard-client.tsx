@@ -42,7 +42,6 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
-                {/* ... Keep your existing AreaChart implementation ... */}
                 <Area type="monotone" dataKey="scans" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#colorScans)" />
               </AreaChart>
             </ResponsiveContainer>

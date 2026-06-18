@@ -16,9 +16,9 @@ model User {
   accounts      Account[]
   sessions      Session[]
   
-  // Add these relation fields
+  // Updated relation field
   repositories  Repository[]
-  policies      Policy[]
+  policyToggles UserPolicyToggle[] // Replaced 'policies Policy[]'
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -65,7 +65,7 @@ model VerificationToken {
 
 model Repository {
   id           String        @id @default(cuid())
-  githubId     Int           @unique
+  githubId     BigInt        @unique  // Changed from Int
   fullName     String
   owner        String
   isActive     Boolean       @default(true)
@@ -78,10 +78,38 @@ model Repository {
   createdAt    DateTime      @default(now())
 }
 
+model PolicyTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  severity    String   @default("HIGH")
+  action      String   @default("REVIEW REQUIRED")
+  rules       Json     // Stores the conditions/glob patterns
+  isDefault   Boolean  @default(false) // Whether it is toggled ON by default for new users
+
+  activeToggles UserPolicyToggle[]
+  createdAt   DateTime @default(now())
+}
+
+model UserPolicyToggle {
+  id               String         @id @default(cuid())
+  userId           String
+  policyTemplateId String
+  isActive         Boolean        @default(true)
+  
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template         PolicyTemplate @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)
+  
+  // Ensure a user can only have one toggle record per template
+  @@unique([userId, policyTemplateId])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
 model PullRequest {
   id           String        @id @default(cuid())
-  githubId     Int           @unique
-  prNumber     Int
+  githubId     BigInt        @unique  // Changed from Int
+  prNumber     Int                    // Int is fine here since PR numbers are sequential per repo
   title        String
   state        String        // open, closed, merged
   status       String        // PASS, REVIEW_REQUIRED, BLOCKED
@@ -112,19 +140,6 @@ model Finding {
   explanation  String?
   remediation  String?
   createdAt    DateTime   @default(now())
-}
-
-model Policy {
-  id        String   @id @default(cuid())
-  name      String
-  rules     Json
-  isActive  Boolean  @default(true)
-  
-  // Link to the User
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  createdAt DateTime @default(now())
 }
 
 model AuditLog {

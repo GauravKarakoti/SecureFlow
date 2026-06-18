@@ -123,7 +123,7 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard 
               icon={<Search className="text-primary w-6 h-6" />}
-              title="ArmorClaw Scanner"
+              title="ArmorIQ Scanner"
               description="Deep-context scanning for API keys, AWS credentials, and thousands of known vulnerability signatures."
             />
             <FeatureCard 

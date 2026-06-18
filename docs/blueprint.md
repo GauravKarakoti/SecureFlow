@@ -3,7 +3,7 @@
 ## Core Features:
 
 - GitHub App Integration: Streamlined GitHub OAuth flow for repository selection and automated pull request webhook listeners.
-- ArmorClaw Scanner: High-fidelity security scan implementation that identifies hardcoded secrets, vulnerable dependencies, and insecure code patterns during PR cycles.
+- ArmorIQ Scanner: High-fidelity security scan implementation that identifies hardcoded secrets, vulnerable dependencies, and insecure code patterns during PR cycles.
 - AI Reasoner Tool: An AI tool that applies logical reasoning to scanner findings to provide human-readable risk summaries and direct remediation advice in plain English.
 - ArmorIQ Policy Engine: Logic engine for automated risk evaluation, mapping findings to customizable policy states: Pass, Review Required, or Blocked.
 - Executive Security Dashboard: Centralized workspace featuring high-level risk trends, PR status visualizations, and active vulnerability metrics built with shadcn/ui and Recharts.

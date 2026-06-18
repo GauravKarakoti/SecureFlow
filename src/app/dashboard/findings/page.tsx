@@ -14,10 +14,10 @@ export default async function FindingsPage() {
   
   const userId = session.user.id;
 
-  // 1. Fetch dynamic stats scoped to the user
+  // FIX: Map arrays of similar types to capture all variations 
   const criticalSecrets = await prisma.finding.count({
     where: { 
-      type: 'Secret', 
+      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] }, 
       severity: 'CRITICAL',
       scanResult: { pullRequest: { repository: { userId } } }
     }
@@ -25,19 +25,19 @@ export default async function FindingsPage() {
   
   const vulnerabilities = await prisma.finding.count({
     where: { 
-      type: 'Vulnerability',
+      type: { in: ['Vulnerability', 'Logic Flaw'] },
       scanResult: { pullRequest: { repository: { userId } } }
     }
   });
 
   const misconfigs = await prisma.finding.count({
     where: { 
-      type: 'Misconfig',
+      type: { in: ['Misconfig', 'Potential Misconfig'] },
       scanResult: { pullRequest: { repository: { userId } } }
     }
   });
 
-  // 2. Fetch the actual findings for this user's repos
+  // Fetch the actual findings for this user's repos
   const findings = await prisma.finding.findMany({
     where: {
       scanResult: { pullRequest: { repository: { userId } } }
