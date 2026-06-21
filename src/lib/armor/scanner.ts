@@ -277,9 +277,9 @@ CRITICAL RULES:
   }
 }
 
-async function vulnerable_test(userInput: string) {
-  await prisma.$queryRawUnsafe(`SELECT * FROM users WHERE name = ${userInput}`);
-  console.log(process.env.GROQ_API_KEY);
-}
+// async function vulnerable_test(userInput: string) {
+//   await prisma.$queryRawUnsafe(`SELECT * FROM users WHERE name = ${userInput}`);
+//   console.log(process.env.GROQ_API_KEY);
+// }
 
 export const scanner = new ArmorIQScanner();
