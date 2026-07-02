@@ -129,7 +129,51 @@ export class ArmorIQScanner {
       policyInstructions += `\n\nCRITICAL: DO NOT focus on or flag general vulnerabilities like SQL injection, XSS, or logic flaws. ONLY FOCUS ON THE DEFAULT SECRET-RELATED ISSUES ABOVE.`;
     }
 
-    const processBatch = async (batchContent: string, batchFiles: string[]): Promise<ScanFinding[]> => {
+    for (const file of files) {
+      if (shouldIgnore(file.filename)) {
+        console.log(`🛡️ Skipping ignored file: ${file.filename}`);
+        continue;
+      }
+
+      const addedLines = extractAddedLines(file.patch || '');
+      
+      if (!addedLines.trim()) {
+        continue;
+      }
+
+      let fileContext = "";
+      const lowerFile = file.filename.toLowerCase();
+      
+      if (lowerFile.includes('.env.example') || lowerFile.includes('.env.sample')) {
+        fileContext = "THIS IS A TEMPLATE. SECRETS ARE MOCK PLACEHOLDERS. ONLY FLAG REAL, HIGH-ENTROPY KEYS.";
+      } else if (lowerFile.includes('seed.ts')) {
+        fileContext = "THIS IS A DATABASE SEED SCRIPT. It contains string descriptions of security policies. DO NOT flag the text inside 'name', 'description', or 'conditions' strings as vulnerabilities.";
+      } else if (lowerFile.includes('schema.prisma')) {
+        fileContext = "THIS IS A DATABASE SCHEMA. It does not execute logic. Do not flag data types (like Int) or relation queries as logic flaws.";
+      }
+
+      const fileContentChunk = `<file name="${file.filename}" context_warning="${fileContext}">\n${addedLines}\n</file>\n\n`;
+
+      if (currentBatch.length + fileContentChunk.length > MAX_COMBINED_LENGTH && currentBatch.length > 0) {
+        const batchFindings = await processBatch(currentBatch, currentBatchFiles);
+        allFindings.push(...batchFindings);
+        
+        currentBatch = '';
+        currentBatchFiles = [];
+      }
+
+      currentBatch += fileContentChunk;
+      currentBatchFiles.push(file.filename);
+    }
+
+    if (currentBatch.length > 0) {
+      const batchFindings = await processBatch(currentBatch, currentBatchFiles);
+      allFindings.push(...batchFindings);
+    }
+
+    return allFindings;
+
+    async function processBatch(batchContent: string, batchFiles: string[]): Promise<ScanFinding[]> {
       if (!batchContent.trim()) return [];
 
       const prompt = `Analyze the following aggregated code changes from a Pull Request for security vulnerabilities.
@@ -236,51 +280,7 @@ CRITICAL RULES:
       }
 
       return findings;
-    };
-
-    for (const file of files) {
-      if (shouldIgnore(file.filename)) {
-        console.log(`🛡️ Skipping ignored file: ${file.filename}`);
-        continue;
-      }
-
-      const addedLines = extractAddedLines(file.patch || '');
-      
-      if (!addedLines.trim()) {
-        continue;
-      }
-
-      let fileContext = "";
-      const lowerFile = file.filename.toLowerCase();
-      
-      if (lowerFile.includes('.env.example') || lowerFile.includes('.env.sample')) {
-        fileContext = "THIS IS A TEMPLATE. SECRETS ARE MOCK PLACEHOLDERS. ONLY FLAG REAL, HIGH-ENTROPY KEYS.";
-      } else if (lowerFile.includes('seed.ts')) {
-        fileContext = "THIS IS A DATABASE SEED SCRIPT. It contains string descriptions of security policies. DO NOT flag the text inside 'name', 'description', or 'conditions' strings as vulnerabilities.";
-      } else if (lowerFile.includes('schema.prisma')) {
-        fileContext = "THIS IS A DATABASE SCHEMA. It does not execute logic. Do not flag data types (like Int) or relation queries as logic flaws.";
-      }
-
-      const fileContentChunk = `<file name="${file.filename}" context_warning="${fileContext}">\n${addedLines}\n</file>\n\n`;
-
-      if (currentBatch.length + fileContentChunk.length > MAX_COMBINED_LENGTH && currentBatch.length > 0) {
-        const batchFindings = await processBatch(currentBatch, currentBatchFiles);
-        allFindings.push(...batchFindings);
-        
-        currentBatch = '';
-        currentBatchFiles = [];
-      }
-
-      currentBatch += fileContentChunk;
-      currentBatchFiles.push(file.filename);
     }
-
-    if (currentBatch.length > 0) {
-      const batchFindings = await processBatch(currentBatch, currentBatchFiles);
-      allFindings.push(...batchFindings);
-    }
-
-    return allFindings;
   }
 }
 
