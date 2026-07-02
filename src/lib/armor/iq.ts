@@ -34,7 +34,6 @@ export class ArmorIQService {
     if (!ArmorIQService.client) {
       ArmorIQService.client = new ArmorIQClient({
         apiKey: process.env.ARMORIQ_API_KEY || '', 
-        // @ts-ignore - bypassing strict TS checks if the SDK types are out of sync
         userId: process.env.USER_ID,
         agentId: process.env.AGENT_ID
       });
