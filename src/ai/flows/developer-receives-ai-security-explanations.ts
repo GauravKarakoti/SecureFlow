@@ -44,38 +44,35 @@ Code Snippet:
 ${validatedInput.codeSnippet}
 """
 
-You MUST respond strictly using the following structural tag markers to enclose your answers:
-
-<explanation_block>
-Concise explanation (max 2 sentences)...
-</explanation_block>
-
-<remediation_block>
-Short, bulleted remediation or single compact code snippet here...
-</remediation_block>`;
+You MUST respond strictly with a valid JSON object containing exactly two keys: "explanation" and "remediationSuggestions". Do not include any other text.`;
 
   const chatCompletion = await groq.chat.completions.create({
     messages: [
       { 
         role: 'system', 
-        content: 'You are an elite application security assistant. Keep all outputs ultra-short, concise, and populate the requested blocks.' 
+        content: 'You are an elite application security assistant. Keep all outputs ultra-short, concise, and output ONLY a valid JSON object containing the keys "explanation" and "remediationSuggestions".' 
       },
       { role: 'user', content: prompt }
     ],
     // model: 'llama-3.3-70b-versatile',
-    model: 'llama-3.1-8b-instant'
+    model: 'llama-3.1-8b-instant',
+    response_format: { type: 'json_object' }
   });
 
-  const responseText = chatCompletion.choices[0]?.message?.content || '';
-
-  const explanationMatch = responseText.match(/<explanation_block>([\s\S]*?)<\/explanation_block>/);
-  const remediationMatch = responseText.match(/<remediation_block>([\s\S]*?)<\/remediation_block>/);
-
-  const explanation = explanationMatch ? explanationMatch[1].trim() : 'No explanation provided.';
-  const remediationSuggestions = remediationMatch ? remediationMatch[1].trim() : 'No remediation suggestions provided.';
+  const responseText = chatCompletion.choices[0]?.message?.content || '{}';
+  let parsedContent;
+  
+  try {
+    parsedContent = JSON.parse(responseText);
+  } catch (error) {
+    parsedContent = {
+      explanation: 'No explanation provided.',
+      remediationSuggestions: 'No remediation suggestions provided.'
+    };
+  }
 
   return AISecurityExplanationOutputSchema.parse({
-    explanation,
-    remediationSuggestions
+    explanation: parsedContent.explanation || 'No explanation provided.',
+    remediationSuggestions: parsedContent.remediationSuggestions || 'No remediation suggestions provided.'
   });
 }
