@@ -3,7 +3,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { scanner } from '@/lib/armor/scanner';
 import { iq } from '@/lib/armor/iq';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
-import { App } from 'octokit';
+import { App, Octokit } from 'octokit';
+import { throttling } from '@octokit/plugin-throttling';
 import prisma from '@/lib/prisma';
 
 
@@ -185,19 +186,64 @@ export async function POST(req: NextRequest) {
       const appId = process.env.GITHUB_APP_ID!;
       const privateKey = process.env.GITHUB_PRIVATE_KEY!.replace(/\\n/g, '\n'); 
 
-      const appClient = new App({ appId, privateKey });
+      const ThrottledOctokit = Octokit.plugin(throttling);
+      
+      const appClient = new App({ 
+        appId, 
+        privateKey,
+        Octokit: ThrottledOctokit.defaults({
+          throttle: {
+            onRateLimit: (retryAfter: number, options: any) => {
+              console.warn(`⚠️ Request quota exhausted for request ${options.method} ${options.url}`);
+              if (options.request.retryCount === 0) {
+                console.warn(`Retrying after ${retryAfter} seconds!`);
+                return true;
+              }
+            },
+            onSecondaryRateLimit: (retryAfter: number, options: any) => {
+              console.warn(`⚠️ Secondary rate limit triggered for ${options.method} ${options.url}`);
+              if (options.request.retryCount === 0) {
+                console.warn(`Retrying after ${retryAfter} seconds!`);
+                return true;
+              }
+            }
+          }
+        })
+      });
       const octokit = await appClient.getInstallationOctokit(installation.id);
 
-      const pullRequestFiles = await octokit.paginate(
-        octokit.rest.pulls.listFiles,
-        {
-          owner: repository.owner.login,
-          repo: repository.name,
-          pull_number: pull_request.number,
-          per_page: 100,
+      let pullRequestFiles;
+      try {
+        pullRequestFiles = await octokit.paginate(
+          octokit.rest.pulls.listFiles,
+          {
+            owner: repository.owner.login,
+            repo: repository.name,
+            pull_number: pull_request.number,
+            per_page: 100,
+          }
+        );
+      } catch (error: any) {
+        if (error.status === 403 || error.status === 429 || (error.message && error.message.toLowerCase().includes('rate limit'))) {
+          console.error('GitHub API rate limit exceeded while fetching PR files:', error);
+          
+          await octokit.rest.checks.create({
+            owner: repository.owner.login,
+            repo: repository.name,
+            name: 'SecureFlow Scan',
+            head_sha: pull_request.head.sha,
+            status: 'completed',
+            conclusion: 'failure',
+            output: {
+              title: `Scan Failed: API Rate Limit`,
+              summary: `Scan failed due to GitHub API rate limits. Please try again later.`,
+            }
+          });
+          
+          return NextResponse.json({ success: false, message: 'Rate limit exceeded, check run updated to failure' }, { status: 429 });
         }
-      );
-
+        throw error;
+      }
 
       const fileChanges = pullRequestFiles
         .filter((file: any) => file.patch && file.status !== 'removed') 
