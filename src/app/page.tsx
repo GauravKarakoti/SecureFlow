@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Shield, Lock, Github, ArrowRight, CheckCircle, Search, Cpu } from 'lucide-react';
+import { Shield, Lock, Github, ArrowRight, CheckCircle, Search, Cpu, ChevronDown, GitPullRequest, ScanSearch, GitMerge } from 'lucide-react';
 import Image from 'next/image';
 import { LoginButton } from '@/components/ui/login-button';
 
@@ -52,14 +52,19 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/dashboard">
-              <Button size="lg" className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 glow-primary font-semibold">
-                Get Started for Free
-                <ArrowRight className="ml-2 w-5 h-5" />
+              <Button
+               size="lg"
+               className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-semibold"
+>              Get Started for Free
+               <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
             </Link>
             <Link href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs" target="_blank" rel="noopener noreferrer">
-              <Button size="lg" variant="ghost" className="h-14 px-8 text-lg border border-transparent hover:border-white/10">
-                View Documentation
+              <Button
+               size="lg"
+               variant="ghost"
+               className="h-14 px-8 text-lg border border-transparent hover:border-primary/30 hover:bg-primary/5 hover:scale-105 transition-all duration-300"
+>              View Documentation
               </Button>
             </Link>
           </div>
@@ -111,6 +116,15 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
+          <div className="flex justify-center mt-10 animate-bounce">
+          <a
+            href="#features"
+            className="text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ChevronDown className="w-8 h-8" />
+          </a>
+         </div>
+      
       </section>
 
       {/* Features Grid */}
@@ -139,6 +153,53 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <section className="py-20 px-6">
+  <div className="max-w-6xl mx-auto">
+    <div className="text-center mb-16">
+      <h2 className="font-headline text-3xl md:text-5xl font-bold mb-4">
+        How SecureFlow Works
+      </h2>
+      <p className="text-muted-foreground text-lg">
+        Secure every pull request in three simple steps.
+      </p>
+    </div>
+
+    <div className="grid md:grid-cols-3 gap-8">
+
+      <div className="glass-card p-8 rounded-2xl border border-white/5 hover:border-primary/20 transition-all duration-300 hover:-translate-y-2">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+          <GitPullRequest className="w-7 h-7 text-primary" />
+        </div>
+        <h3 className="text-xl font-bold mb-3">1. Open a Pull Request</h3>
+        <p className="text-muted-foreground">
+          Developers create a pull request as part of their normal workflow.
+        </p>
+      </div>
+
+      <div className="glass-card p-8 rounded-2xl border border-white/5 hover:border-primary/20 transition-all duration-300 hover:-translate-y-2">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+          <ScanSearch className="w-7 h-7 text-primary" />
+        </div>
+        <h3 className="text-xl font-bold mb-3">2. Automated Security Scan</h3>
+        <p className="text-muted-foreground">
+          SecureFlow detects secrets, vulnerabilities, and risky code before merging.
+        </p>
+      </div>
+
+      <div className="glass-card p-8 rounded-2xl border border-white/5 hover:border-primary/20 transition-all duration-300 hover:-translate-y-2">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+          <GitMerge className="w-7 h-7 text-primary" />
+        </div>
+        <h3 className="text-xl font-bold mb-3">3. Merge with Confidence</h3>
+        <p className="text-muted-foreground">
+          Only secure pull requests move forward, helping teams ship safely.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
 
       {/* Footer */}
       <footer className="mt-auto border-t border-white/5 px-6 py-12 bg-background">
@@ -170,12 +231,16 @@ export default function LandingPage() {
 
 function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
   return (
-    <div className="p-8 rounded-2xl glass-card border border-white/5 hover:border-primary/20 transition-all group">
+    <div className="p-8 rounded-2xl glass-card border border-white/5 hover:border-primary/20 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/20 hover:scale-[1.02] transition-all duration-300 group">
       <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-6 group-hover:bg-primary/10 transition-colors">
         {icon}
       </div>
+
       <h3 className="font-headline text-xl font-bold mb-3">{title}</h3>
-      <p className="text-muted-foreground leading-relaxed">{description}</p>
+
+      <p className="text-muted-foreground leading-relaxed">
+        {description}
+      </p>
     </div>
   );
 }
