@@ -72,7 +72,7 @@ export default async function PoliciesPage() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">ArmorIQ Policies</h1>
+          <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">Policies</h1>
           <p className="text-muted-foreground">Toggle automated guardrails used to protect your main branch.</p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export default async function PoliciesPage() {
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">ArmorIQ Programmatic Policy</CardTitle>
+            <CardTitle className="text-lg">Programmatic Policy</CardTitle>
           </div>
           <CardDescription>
             Your active rules below are compiled dynamically into this execution guardrail for the agent scope: <strong className="text-white">{userEmail}</strong>.

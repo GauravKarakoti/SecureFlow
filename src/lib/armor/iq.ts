@@ -1,6 +1,6 @@
 import { ArmorIQClient, IntentToken } from '@armoriq/sdk';
 import { ScanFinding } from './scanner';
-import prisma from '../prisma';
+import prisma from '@/lib/prisma';
 import { z } from 'zod';
 
 const armorIQConfigSchema = z.object({
@@ -14,7 +14,6 @@ const armorIQConfig = armorIQConfigSchema.parse({
   userId: process.env.USER_ID || undefined,
   agentId: process.env.AGENT_ID || undefined,
 });
-import prisma from '@/lib/prisma';
 
 export type PolicyResult = 'PASS' | 'REVIEW REQUIRED' | 'BLOCKED';
 
@@ -44,14 +43,6 @@ export class ArmorIQPolicyEngine {
       return 0;
     }
   }
-  const result = await prisma.scanResult.aggregate({
-    _avg: {
-      riskScore: true,
-    },
-  });
-
-  return result._avg.riskScore ?? 0;
-}
 }
 
 export const iq = new ArmorIQPolicyEngine();
