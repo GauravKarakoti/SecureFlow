@@ -34,7 +34,7 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <Card className="lg:col-span-2 glass-card">
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center justify-between">Scan Activity</CardTitle>
@@ -66,20 +66,21 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
         <CardContent>
           <div className="space-y-4">
             {prs.map((pr) => (
-              <div key={pr.id} className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                <div className="flex items-center gap-4">
-                  <GitPullRequest className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <div className="font-bold text-sm mb-1 flex items-center gap-2">
-                      {pr.title} <Badge variant="secondary" className="text-[10px] py-0">#{pr.prNumber}</Badge>
+              <div key={pr.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex items-start sm:items-center gap-3">
+                  <GitPullRequest className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5 sm:mt-0" />
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm mb-1 flex flex-wrap items-center gap-2">
+                      <span className="truncate">{pr.title}</span>
+                      <Badge variant="secondary" className="text-[10px] py-0 shrink-0">#{pr.prNumber}</Badge>
                     </div>
-                    <div className="text-[10px] text-muted-foreground flex items-center gap-3">
+                    <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-2">
                       <span>{new Date(pr.createdAt).toLocaleDateString()}</span>
-                      <span className="text-primary">{pr.repository.fullName}</span>
+                      <span className="text-primary truncate max-w-[180px] sm:max-w-none">{pr.repository.fullName}</span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center pl-8 sm:pl-0">
                   <span className={`text-xs font-bold ${pr.status === 'BLOCKED' ? 'text-red-400' : pr.status === 'PASS' ? 'text-green-400' : 'text-yellow-400'}`}>
                     {pr.status}
                   </span>
