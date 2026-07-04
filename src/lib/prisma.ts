@@ -7,8 +7,6 @@ import { PrismaPg } from '@prisma/adapter-pg';
 // to be serialized safely in API responses.
 if (!(BigInt.prototype as any).toJSON) {
   (BigInt.prototype as any).toJSON = function (this: bigint) {
-if (typeof (BigInt.prototype as any).toJSON === 'undefined') {
-  (BigInt.prototype as any).toJSON = function () {
     return this.toString();
   };
 }

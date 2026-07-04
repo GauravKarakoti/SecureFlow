@@ -51,17 +51,7 @@ export default function LandingPage() {
             SecureFlow scans every Pull Request for secrets, vulnerabilities, and risky code patterns before they ever reach your production branch.
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto">
-            <Link href="/dashboard">
-
-              <Button size="lg" className="h-14 w-full sm:w-auto px-8 text-base sm:text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-semibold">
-                Get Started for Free
-                <ArrowRight className="ml-2 w-5 h-5" />
-              </Button>
-            </Link>
             <Link href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs" target="_blank" rel="noopener noreferrer">
-              <Button size="lg" variant="ghost" className="h-14 w-full sm:w-auto px-8 text-base sm:text-lg border border-transparent hover:border-primary/30 hover:bg-primary/5 hover:scale-105 transition-all duration-300">
-                View Documentation
-
               <Button
                size="lg"
                className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-semibold"
