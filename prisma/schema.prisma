@@ -138,6 +138,7 @@ model ScanResult {
   createdAt      DateTime    @default(now())
 
   @@index([pullRequestId])
+  @@index([pullRequestId, createdAt(sort: Desc)])
 }
 
 model Finding {
@@ -165,6 +166,7 @@ model AuditLog {
   timestamp DateTime @default(now())
 
   @@index([userId])
+  @@index([userId, timestamp(sort: Desc)])
 }
 
 model WebhookEvent {

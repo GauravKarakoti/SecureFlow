@@ -14,7 +14,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export default async function AuditPage() {
+export default async function AuditPage({ searchParams }: { searchParams: { cursor?: string } }) {
   const session = await auth();
   
   if (!session?.user?.id) {
@@ -23,11 +23,14 @@ export default async function AuditPage() {
   
   const userId = session.user.id;
 
+  const cursor = searchParams?.cursor;
+
   // Fetch real logs belonging to the user
   const logs = await prisma.auditLog.findMany({
     where: { userId },
     orderBy: { timestamp: 'desc' },
-    take: 100, 
+    take: 10, 
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
   
   // FIX: Fetch User details to map User IDs to User Names/Emails
