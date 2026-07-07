@@ -152,7 +152,7 @@ export default async function AuditPage() {
                                 />
                                 {/* Share Button with absolute URL placeholder for Twitter scraping */}
                                 <a 
-                                  href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=https://secureflow.vercel.app/api/og/heist?project=${encodeURIComponent(log.resource || 'The Royal Mint')}`}
+                                  href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=https://secure-flow-six.vercel.app/api/og/heist?project=${encodeURIComponent(log.resource || 'The Royal Mint')}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"
