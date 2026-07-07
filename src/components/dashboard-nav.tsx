@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  VenetianMask,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -140,7 +141,7 @@ export function DashboardHeader({
   user,
   onMenuClick,
 }: {
-  user?: { name?: string | null; email?: string | null; image?: string | null };
+  user?: { name?: string | null; email?: string | null; image?: string | null; codename?: string | null };
   onMenuClick?: () => void;
 }) {
   return (
@@ -157,14 +158,18 @@ export function DashboardHeader({
 
         <div className="text-sm text-muted-foreground">
           <span className="text-white font-medium">User</span> /{" "}
-          {user?.name || "User"}
+          {user?.codename || "Recruit"}
         </div>
       </div>
 
       <div className="flex items-center gap-3 sm:gap-4">
         <ThemeToggle />
 
-        {user?.image ? (
+        {user?.codename ? (
+          <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+            <VenetianMask className="w-5 h-5 text-red-500" />
+          </div>
+        ) : user?.image ? (
           <Image
             src={user.image}
             alt={user.name || "Profile"}

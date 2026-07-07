@@ -3,8 +3,21 @@ import GitHub from "next-auth/providers/github"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "@/lib/prisma" 
 
+const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  adapter: {
+    ...PrismaAdapter(prisma),
+    createUser: async (user: any) => {
+      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
+      return prisma.user.create({
+        data: {
+          ...user,
+          codename,
+        },
+      }) as any;
+    },
+  },
   session: {
     strategy: "jwt",
     maxAge: 15 * 60, // 15 minutes short-lived access token
@@ -35,6 +48,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
           userId: user.id,
+          codename: user.codename,
         };
       }
 
@@ -70,13 +84,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Fall back to old refresh token
         };
       } catch (error) {
-        console.error("Error refreshing access token", error);
         return { ...token, error: "RefreshAccessTokenError" };
       }
     },
     async session({ session, token }: any) {
       if (session?.user) {
         session.user.id = token.userId;
+        session.user.codename = token.codename;
       }
       return {
         ...session,
