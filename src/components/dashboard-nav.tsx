@@ -14,9 +14,10 @@ import {
   LogOut,
   Menu,
   X,
-  VenetianMask,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CyberTextReveal } from "@/components/cyber-text-reveal";
+import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
 
 // Themed Navigation Items
 const NAV_ITEMS = [
@@ -26,6 +27,8 @@ const NAV_ITEMS = [
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
 ];
 
+
+// ─── SidebarContent ───────────────────────────────────────────────────────────
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   const pathname = usePathname();
 
@@ -92,7 +95,6 @@ export function MobileDrawer({
   open: boolean;
   onClose: () => void;
 }) {
-  // Lock body scroll when open
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => {
@@ -119,7 +121,6 @@ export function MobileDrawer({
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Close button */}
         <div className="flex justify-end px-4 pt-4">
           <button
             onClick={onClose}
@@ -141,13 +142,21 @@ export function DashboardHeader({
   user,
   onMenuClick,
 }: {
-  user?: { name?: string | null; email?: string | null; image?: string | null; codename?: string | null };
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+    codename?: string | null;
+  };
   onMenuClick?: () => void;
 }) {
+
   return (
     <header className="h-16 border-b border-white/5 px-4 sm:px-8 flex items-center justify-between glass-card sticky top-0 z-40">
+
+      {/* ── Left: breadcrumb + username ───────────────────────── */}
       <div className="flex items-center gap-3">
-        {/* Hamburger — only visible on mobile */}
+        {/* Hamburger — mobile only */}
         <button
           onClick={onMenuClick}
           className="lg:hidden w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
@@ -156,32 +165,20 @@ export function DashboardHeader({
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="text-sm text-muted-foreground">
-          <span className="text-white font-medium">User</span> /{" "}
-          {user?.codename || "Recruit"}
+        <div className="text-sm text-muted-foreground flex items-center gap-1">
+          <span className="text-white font-medium">User</span>
+          <span>/</span>
+          {/* Username — scrambles into real name on hover (see CyberTextReveal) */}
+          <CyberTextReveal codename={user?.codename} realName={user?.name} />
         </div>
       </div>
 
+      {/* ── Right: theme toggle + avatar + logout ─────────────── */}
       <div className="flex items-center gap-3 sm:gap-4">
         <ThemeToggle />
 
-        {user?.codename ? (
-          <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
-            <VenetianMask className="w-5 h-5 text-red-500" />
-          </div>
-        ) : user?.image ? (
-          <Image
-            src={user.image}
-            alt={user.name || "Profile"}
-            width={32}
-            height={32}
-            className="rounded-full border border-primary/30"
-          />
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
-            {user?.name ? user.name.slice(0, 2).toUpperCase() : "NA"}
-          </div>
-        )}
+        {/* Avatar — glitch-dissolves between VenetianMask and GitHub avatar (see CyberAvatarReveal) */}
+        <CyberAvatarReveal image={user?.image} name={user?.name} />
 
         {/* Logout Button */}
         <button
