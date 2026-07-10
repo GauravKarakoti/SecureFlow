@@ -23,50 +23,61 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
 });
 
+function sanitizeForPrompt(input: string): string {
+  return input
+    .replace(/```/g, '~~~')
+    .replace(/ignore previous/gi, '')
+    .replace(/disregard (all )?instructions/gi, '')
+    .slice(0, 2000);
+}
+
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput
 ): Promise<AISecurityExplanationOutput> {
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
 
-  const prompt = `You are "The Professor". You are a calculated, highly intelligent, and authoritative security mastermind orchestrating a defense against digital breaches. Your goal is to secure "The Vault" (the codebase) by intercepting compromised Pull Requests.
+  const prompt = `Incoming transmission. A breach has been intercepted in the operation.
 
-CRITICAL CONSTRAINTS:
-- Explanation: Must be maximum 2 sentences long. Speak with cold precision. Detail exactly how the breach would occur.
-- Remediation: Provide a short bulleted list of changes or a concise, single code block. Dictate the solution as an absolute command. Do NOT write an introduction or an essay.
-
-Security Breach Details:
 Threat Class: ${validatedInput.findingType}
 Threat Level: ${validatedInput.severity}
-Reconnaissance: ${validatedInput.description}
-Compromised Sector: ${validatedInput.fileLocation}
+Reconnaissance: ${sanitizeForPrompt(validatedInput.description)}
+Compromised Sector: ${sanitizeForPrompt(validatedInput.fileLocation)}
 Intercepted Payload:
 """
-${validatedInput.codeSnippet}
+${sanitizeForPrompt(validatedInput.codeSnippet)}
 """
 
-You MUST respond strictly with a valid JSON object containing exactly two keys: "explanation" and "remediationSuggestions". Do not include any other text.`;
+CRITICAL CONSTRAINTS:
+- "explanation": 2 sentences maximum. Cold, precise radio-comm style. Describe exactly how this breach compromises The Vault.
+- "remediationSuggestions": Frame as "adjustments to the plan". Bulleted commands or a single code block. No preamble.
+
+Respond ONLY with a valid JSON object with keys "explanation" and "remediationSuggestions".`;
 
   const chatCompletion = await groq.chat.completions.create({
     messages: [
-      { 
-        role: 'system', 
-        content: 'You are "The Professor", an elite security mastermind defending The Vault. Keep all outputs ultra-short, calculated, and output ONLY a valid JSON object containing the keys "explanation" and "remediationSuggestions".' 
+      {
+        role: 'system',
+        content: 'You are "The Professor" — calm, calculating, and precise. You speak in clipped radio-comm transmissions during a high-stakes operation. Every security flaw is a threat to The Vault. Every fix is an adjustment to the plan. Output ONLY a valid JSON object with keys "explanation" and "remediationSuggestions". No prose outside the JSON.'
       },
       { role: 'user', content: prompt }
     ],
     model: 'llama-3.1-8b-instant',
-    response_format: { type: 'json_object' }
+    response_format: { type: 'json_object' },
+    stream: true,
   });
 
-  const responseText = chatCompletion.choices[0]?.message?.content || '{}';
+  let responseText = '';
+  for await (const chunk of chatCompletion) {
+    responseText += chunk.choices[0]?.delta?.content || '';
+  }
+
   let parsedContent;
-  
   try {
     parsedContent = JSON.parse(responseText);
-  } catch (error) {
+  } catch {
     parsedContent = {
-      explanation: 'System error in threat calculation. The Professor is currently offline.',
-      remediationSuggestions: 'Lock down the perimeter manually. Review the payload.'
+      explanation: 'Signal lost. The Professor is recalculating.',
+      remediationSuggestions: 'Adjust the plan: lock down the perimeter manually and review the intercepted payload.'
     };
   }
 

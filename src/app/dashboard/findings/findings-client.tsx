@@ -48,7 +48,7 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                     <div className="space-y-6">
                       <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 relative overflow-hidden group">
                         <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-3 flex items-center gap-2">
-                          <Cpu className="w-3 h-3" /> AI Security Explanation
+                          <Cpu className="w-3 h-3" /> Radio Comms
                         </h4>
                         <p className="text-sm leading-relaxed text-foreground/90 italic">
                           &quot;{finding.explanation || 'No explanation provided.'}&quot;
