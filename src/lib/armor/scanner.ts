@@ -154,6 +154,27 @@ function shouldIgnore(filename: string, customIgnores: RegExp[] = []): boolean {
   return false;
 }
 
+function decode(str: string): string {
+  if (!str) return '';
+  return str.replace(/&[#\w]+;/g, (entity) => {
+    if (entity === '&lt;') return '<';
+    if (entity === '&gt;') return '>';
+    if (entity === '&amp;') return '&';
+    if (entity === '&quot;') return '"';
+    if (entity === '&apos;') return "'";
+    
+    if (entity.startsWith('&#x')) {
+      const hex = entity.slice(3, -1);
+      return String.fromCharCode(parseInt(hex, 16));
+    }
+    if (entity.startsWith('&#')) {
+      const dec = entity.slice(2, -1);
+      return String.fromCharCode(parseInt(dec, 10));
+    }
+    return entity;
+  });
+}
+
 function decodeOneLayer(input: string): string {
   let out = decode(input);
 
@@ -208,26 +229,7 @@ export function extractAddedLines(patch: string): string {
   return processedLines.join('\n');
 }
 
-/**
- * Split oversized file contents into newline-aware chunks.
- */
-function splitIntoChunks(text: string, maxChunkSize: number): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-  while (start < text.length) {
-    let end = Math.min(start + maxChunkSize, text.length);
-    // Prefer splitting at the last newline instead of the middle of a line
-    if (end < text.length) {
-      const lastNewline = text.lastIndexOf("\n", end);
-      if (lastNewline > start) {
-        end = lastNewline;
-      }
-    }
-    chunks.push(text.slice(start, end));
-    start = end;
-  }
-  return chunks;
-}
+// splitIntoChunks is removed since truncation now happens at the file level during batching.
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -283,7 +285,7 @@ export class ArmorIQScanner {
     let currentBatchFiles: string[] = [];
     const allFindings: ScanFinding[] = [];
     const ABSOLUTE_MAX_FILE_SIZE = 50000;
-    const MAX_COMBINED_LENGTH = 8000; 
+    const MAX_COMBINED_LENGTH = 32000;
 
     const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
@@ -343,54 +345,43 @@ export class ArmorIQScanner {
       } else if (lowerFile.endsWith('.sol') || lowerFile.endsWith('.leo') || lowerFile.endsWith('.rs')) {
         fileContext = "THIS IS A SMART CONTRACT OR PRIVACY-PRESERVING ZERO-KNOWLEDGE CIRCUIT. Analyze it with decentralized architecture patterns in mind and reduce false positives for decentralized logic.";
       }
-      const wrapperOverhead =
-        `<file name="${file.filename}" context_warning="${fileContext}"></file>\n\n`.length;
-
+      const sanitizedLines = sanitizeRecursively(addedLines);
+      const wrapperOverhead = `<file name="${file.filename}" context_warning="${fileContext}">\n\n</file>\n\n`.length;
       const maxContentSize = MAX_COMBINED_LENGTH - wrapperOverhead;
 
-      const sanitizedLines = sanitizeRecursively(addedLines);
+      let fileContent = sanitizedLines;
+      if (fileContent.length > maxContentSize) {
+        const truncationMsg = "\n\n...[TRUNCATED FOR SIZE]...";
+        const targetLimit = maxContentSize - truncationMsg.length;
+        const lastNewline = fileContent.lastIndexOf("\n", targetLimit);
+        const truncateIndex = lastNewline > 0 ? lastNewline : targetLimit;
+        fileContent = fileContent.substring(0, truncateIndex) + truncationMsg;
+      }
 
-      const chunks =
-        sanitizedLines.length > maxContentSize
-          ? splitIntoChunks(sanitizedLines, maxContentSize)
-          : [sanitizedLines];
-
-      for (let i = 0; i < chunks.length; i++) {
-
-        const partSuffix =
-          chunks.length > 1
-            ? ` (part ${i + 1}/${chunks.length})`
-            : "";
-
-        const fileContentChunk =
-`<file name="${file.filename}${partSuffix}" context_warning="${fileContext}">
-${chunks[i]}
+      const fileContentBlock = `<file name="${file.filename}" context_warning="${fileContext}">
+${fileContent}
 </file>
 
 `;
 
-        if (
-          currentBatch.length + fileContentChunk.length > MAX_COMBINED_LENGTH &&
-          currentBatch.length > 0
-        ) {
+      if (
+        currentBatch.length + fileContentBlock.length > MAX_COMBINED_LENGTH &&
+        currentBatch.length > 0
+      ) {
 
-          const batchFindings = await processBatch(
-            currentBatch,
-            currentBatchFiles
-          );
-
-          allFindings.push(...batchFindings);
-
-          currentBatch = "";
-          currentBatchFiles = [];
-        }
-
-        currentBatch += fileContentChunk;
-
-        currentBatchFiles.push(
-          `${file.filename}${partSuffix}`
+        const batchFindings = await processBatch(
+          currentBatch,
+          currentBatchFiles
         );
+
+        allFindings.push(...batchFindings);
+
+        currentBatch = "";
+        currentBatchFiles = [];
       }
+
+      currentBatch += fileContentBlock;
+      currentBatchFiles.push(file.filename);
     }
 
     async function processBatch(batchContent: string, batchFiles: string[]): Promise<ScanFinding[]> {
