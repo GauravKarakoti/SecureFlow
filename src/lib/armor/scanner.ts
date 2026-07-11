@@ -163,60 +163,6 @@ function splitIntoChunks(text: string, maxChunkSize: number): string[] {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Decodes one layer of common obfuscation techniques used to smuggle instruction-like text
-// past keyword-based filters: HTML/numeric entities, zero-width and other invisible unicode
-// characters, and unicode confusable normalization (NFKC — e.g. fullwidth "ｉｇｎｏｒｅ" folds
-// to "ignore"). Returns the input unchanged if none of these apply.
-function decodeOneLayer(input: string): string {
-  let out = input;
-
-  // Named HTML entities relevant to prior escaping/obfuscation
-  out = out.replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#0*39;|&apos;/gi, "'");
-
-  // Numeric HTML entities: decimal (&#105;) and hex (&#x69;)
-  out = out.replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-    const code = parseInt(hex, 16);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : _;
-  });
-  out = out.replace(/&#(\d+);/g, (_, dec) => {
-    const code = parseInt(dec, 10);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : _;
-  });
-
-  // Zero-width / invisible characters sometimes used to split up flagged keywords
-  // (ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP, soft hyphen, word joiner, and other format-control chars).
-  out = out.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, '');
-
-  // Fold unicode confusables/compatibility variants (e.g. fullwidth or stylized letters) down
-  // to their canonical ASCII-equivalent form.
-  out = out.normalize('NFKC');
-
-  return out;
-}
-
-/**
- * Repeatedly decodes obfuscation layers until the text stops changing (a fixed point) or a
- * safety cap is hit, then escapes `<`/`>` once for safe embedding inside the <file> wrapper
- * tags used downstream. Bounded by MAX_SANITIZE_ITERATIONS (in case of pathological input that
- * never stabilizes) and MAX_SANITIZED_LENGTH (in case decoding causes the text to grow, e.g. a
- * dense run of numeric entities expanding into multi-byte codepoints).
- */
-export function sanitizeRecursively(input: string): string {
-  let current = input.length > MAX_SANITIZED_LENGTH ? input.slice(0, MAX_SANITIZED_LENGTH) : input;
-
-  for (let i = 0; i < MAX_SANITIZE_ITERATIONS; i++) {
-    if (current.length > MAX_SANITIZED_LENGTH) {
-      current = current.slice(0, MAX_SANITIZED_LENGTH);
-      break;
-    }
-    const next = decodeOneLayer(current);
-    if (next === current) break; // fixed point reached, no further obfuscation layers to peel
-    current = next;
-  }
-
-  return current.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 function filterFalsePositives(findings: ScanFinding[]): ScanFinding[] {
   const safePlaceholders = [
     'your_', 'actual_', 'secret_here', 'placeholder', 
