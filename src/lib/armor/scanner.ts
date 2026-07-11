@@ -16,6 +16,44 @@ export interface FileChange {
   patch: string;
 }
 
+// Redact high-entropy strings and known secret formats
+export function maskSecrets(text: string): string {
+  if (!text) return text;
+  let sanitized = text;
+
+  // 1. Anthropic API keys (e.g., sk-ant-api03-...)
+  sanitized = sanitized.replace(/sk-ant-api\d*-[a-zA-Z0-9-_]+/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 2. GitHub Personal Access Tokens (classic and fine-grained)
+  sanitized = sanitized.replace(/ghp_[a-zA-Z0-9]{36,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+  sanitized = sanitized.replace(/github_pat_[a-zA-Z0-9_]{82,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+  sanitized = sanitized.replace(/gh[oprs]_[a-zA-Z0-9]{36,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 3. JSON Web Tokens (JWT)
+  sanitized = sanitized.replace(/eyJhbGciOi[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+/g, '[REDACTED_BY_THE_PROFESSOR]');
+  sanitized = sanitized.replace(/eyJhbGciOi[a-zA-Z0-9-_]{20,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 4. OpenAI / Generic sk- API keys (e.g., sk-proj-...)
+  sanitized = sanitized.replace(/sk-[a-zA-Z0-9-_]{32,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+  sanitized = sanitized.replace(/sk-proj-[a-zA-Z0-9-_]{20,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 5. Stripe API keys (e.g., sk_live_...)
+  sanitized = sanitized.replace(/[sr]k_(?:live|test)_[a-zA-Z0-9]{24,}/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 6. Slack API tokens (e.g., xoxb-...)
+  sanitized = sanitized.replace(/xox[baprs]-[a-zA-Z0-9-]+/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 7. AWS credentials
+  sanitized = sanitized.replace(/AKIA[A-Z0-9]{16}/g, '[REDACTED_BY_THE_PROFESSOR]');
+
+  // 8. Database passwords in URI format
+  sanitized = sanitized.replace(/(mongodb(?:\+srv)?|postgres(?:ql)?|mysql):\/\/[^/\s:]+:([^/\s@]+)@/g, (match, protocol, pwd) => {
+    return match.replace(`:${pwd}@`, ':[REDACTED_BY_THE_PROFESSOR]@');
+  });
+
+  return sanitized;
+}
+
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
 });
@@ -388,7 +426,11 @@ CRITICAL RULES:
             };
           });
 
-          findings = filterFalsePositives(sanitizedFindings);
+          findings = filterFalsePositives(sanitizedFindings).map((f) => ({
+            ...f,
+            description: maskSecrets(f.description),
+            codeSnippet: maskSecrets(f.codeSnippet),
+          }));
           success = true;
         } catch (error: any) {
           lastError = error;
