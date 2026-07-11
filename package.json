@@ -20,6 +20,7 @@
   "dependencies": {
     "@armoriq/sdk": "^0.6.2",
     "@auth/prisma-adapter": "^2.11.2",
+    "@genkit-ai/compat-oai": "^1.39.0",
     "@hookform/resolvers": "^5.4.0",
     "@octokit/plugin-throttling": "^11.0.3",
     "@prisma/adapter-pg": "^7.8.0",

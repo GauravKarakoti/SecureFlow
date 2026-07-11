@@ -1,38 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// --- Mock the Groq SDK so tests never hit the network, and so we can simulate both a
-// well-behaved model and a model that got fooled by injected content in the code snippet. ---
+// --- Mock the genkit `ai` instance so tests never hit the network, and so we can simulate both
+// a well-behaved model and a model that got fooled by injected content in the code snippet. ---
 let mockResponseText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
 
-vi.mock('groq-sdk', () => {
-  return {
-    default: class MockGroq {
-      chat = {
-        completions: {
-          create: async () => {
-            const text = mockResponseText;
-            // Mimic the streaming shape consumed by `for await (const chunk of chatCompletion)`
-            return {
-              [Symbol.asyncIterator]() {
-                let done = false;
-                return {
-                  async next() {
-                    if (done) return { value: undefined, done: true };
-                    done = true;
-                    return {
-                      value: { choices: [{ delta: { content: text } }] },
-                      done: false,
-                    };
-                  },
-                };
-              },
-            };
-          },
-        },
-      };
-    },
-  };
-});
+vi.mock('@/ai/genkit', () => ({
+  ai: {
+    generate: async () => ({ text: mockResponseText }),
+  },
+  defaultModel: 'groq/mock-model',
+}));
 
 vi.mock('dotenv/config', () => ({}));
 
