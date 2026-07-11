@@ -22,6 +22,18 @@ const groqModelInfo: ModelInfo = {
   },
 };
 
+// Falls back to a dummy key only in test environments so local/CI test runs
+// that never actually call the model don't need a real Groq key configured.
+const groqApiKey =
+  process.env.GROQ_API_KEY ??
+  (process.env.NODE_ENV === 'test' ? 'dummy-key-for-build' : undefined);
+
+if (!groqApiKey) {
+  throw new Error(
+    'GROQ_API_KEY is not set. Provide it via environment variables (see .env.example).'
+  );
+}
+
 /**
  * Genkit instance for the app, configured with Groq through the official
  * @genkit-ai/compat-oai plugin (Groq exposes an OpenAI-schema endpoint at
@@ -34,11 +46,9 @@ const groqModelInfo: ModelInfo = {
 export const ai = genkit({
   plugins: [
     openAICompatible({
-       name: 'groq',
-       apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
-       baseURL: 'https://api.groq.com/openai/v1',
-       ...
-    });
+      name: 'groq',
+      apiKey: groqApiKey,
+      baseURL: 'https://api.groq.com/openai/v1',
       // Registers GROQ_MODEL as a Genkit model action at startup so it can be
       // referenced below (and from anywhere else in the app) as `groq/<model>`.
       initializer: async (client) => [
