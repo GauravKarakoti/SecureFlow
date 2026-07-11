@@ -8,7 +8,7 @@ import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-re
 import { App, Octokit } from 'octokit';
 import { throttling } from '@octokit/plugin-throttling';
 import prisma from '@/lib/prisma';
-import { withErrorHandler } from '@/lib/middleware/error-handler';
+import { withErrorHandler, AppError } from '@/lib/middleware/error-handler';
 
 
 
@@ -28,12 +28,12 @@ async function verifyGitHubWebhook(req: NextRequest): Promise<any> {
 
 
   if (!webhookSecret) {
-    throw new Error('GITHUB_WEBHOOK_SECRET is not set');
+    throw new AppError('GITHUB_WEBHOOK_SECRET is not set', 500, false);
   }
 
   const signatureHex = parseGithubSignature(req.headers.get('x-hub-signature-256'));
   if (!signatureHex) {
-    throw new Error('Missing or invalid x-hub-signature-256 header');
+    throw new AppError('Missing or invalid x-hub-signature-256 header', 400);
   }
 
   const payloadText = await req.text();
@@ -43,9 +43,7 @@ async function verifyGitHubWebhook(req: NextRequest): Promise<any> {
   const digBuf = Buffer.from(digest, 'hex');
 
   if (sigBuf.length !== digBuf.length || !timingSafeEqual(sigBuf, digBuf)) {
-    const err: any = new Error('Invalid GitHub webhook signature');
-    err.statusCode = 401;
-    throw err;
+    throw new AppError('Invalid GitHub webhook signature', 401);
   }
 
   return JSON.parse(payloadText);
