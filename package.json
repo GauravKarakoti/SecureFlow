@@ -14,7 +14,8 @@
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",
     "db:seed": "npx prisma db seed",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "worker": "tsx scripts/start-worker.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.4.3",
