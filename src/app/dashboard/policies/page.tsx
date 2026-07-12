@@ -63,8 +63,12 @@ export default async function PoliciesPage() {
     return { ...template, isActive };
   });
 
+  // ArmorIQ cloud client is optional: when ARMORIQ_API_KEY is unset, getClient()
+  // returns null and we still render the (locally-compiled) programmatic policy.
   const armoriqClient = ArmorIQService.getClient();
-  const userScope = armoriqClient.forUser(userEmail); 
+  const userScope = armoriqClient?.forUser(userEmail);
+  void userScope; // reserved for upcoming per-user intent-token enforcement
+  const armoriqConfigured = ArmorIQService.isConfigured();
   const activePolicies = policiesToRender.filter(p => p.isActive);
   const compiledPolicy = ArmorIQService.compileToArmorIQPolicy(activePolicies);
 
@@ -85,6 +89,12 @@ export default async function PoliciesPage() {
           </div>
           <CardDescription>
             Your active rules below are compiled dynamically into this execution guardrail for the agent scope: <strong className="text-white">{userEmail}</strong>.
+            {!armoriqConfigured && (
+              <span className="mt-1 block text-xs text-amber-500/80">
+                ArmorIQ cloud enforcement is inactive — set <code>ARMORIQ_API_KEY</code> (from{" "}
+                <a href="https://dev.armoriq.ai" target="_blank" rel="noopener noreferrer" className="underline">dev.armoriq.ai</a>) to bind this policy to live intent tokens.
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>

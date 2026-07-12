@@ -36,12 +36,17 @@ export default async function OverviewPage() {
   });
 
   // 2. Fetch Recent Pull Requests
-  const recentPRs = await prisma.pullRequest.findMany({
+  const recentPRsRaw = await prisma.pullRequest.findMany({
     where: { repository: { userId } },
     take: 5,
     orderBy: { createdAt: 'desc' },
     include: { repository: true }
   });
+  const recentPRs = recentPRsRaw.map(pr => ({
+    ...pr,
+    githubId: pr.githubId.toString(),
+    repository: { ...pr.repository, githubId: pr.repository.githubId.toString() }
+  }));
 
   // 3. Fetch Severity Distribution
   const critical = await prisma.finding.count({ 

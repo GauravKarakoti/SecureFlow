@@ -11,12 +11,9 @@ declare global {
   }
 }
 
-if (!(BigInt.prototype as any).toJSON) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (BigInt.prototype as any).toJSON = function () {
-    return this.toString();
-  };
-}
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
 
 const prismaClientSingleton = () => {
   // 1. Initialize a connection pool using the standard pg driver

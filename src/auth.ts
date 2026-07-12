@@ -94,6 +94,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return {
         ...session,
+        // Surface the (refreshed-on-read) GitHub token so server components can
+        // call the GitHub API on the user's behalf. Read server-side only.
+        accessToken: token.accessToken,
         error: token.error,
       };
     },

@@ -97,13 +97,34 @@
  * {
     @apply border-border;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--accent)) transparent;
   }
+  
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--accent));
+    border-radius: 100px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--accent) / 0.8); 
   }
 }
 
@@ -184,4 +205,94 @@ html {
 
 html {
   scroll-behavior: smooth;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cyberpunk Identity Reveal — CSS Animation System
+   ─────────────────────────────────────────────────────────────────────────────
+   Technique: clip-path inset() horizontal slices  +  filter glitches  +
+              translate jitter.  All animated properties are GPU-composited so
+              the effect runs at 60 fps without triggering layout.
+
+   Four keyframes cover the four phase-transitions of CyberAvatarReveal:
+     cyber-mask-out   → VenetianMask glitches apart and disappears
+     cyber-mask-in    → VenetianMask reconstructs from noise
+     cyber-avatar-in  → GitHub avatar materialises through scan-line noise
+     cyber-avatar-out → GitHub avatar deconstructs back into noise
+   Plus one looping fallback for the icon-only (no real avatar) case.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. VenetianMask glitches apart ──────────────────────────────────────── */
+@keyframes cyber-mask-out {
+  0%   { opacity: 1; clip-path: inset(0% 0 0% 0);    transform: translate(0, 0);   filter: none; }
+  8%   { clip-path: inset(8%  0 87% 0);              transform: translate(-4px, 0); filter: hue-rotate(90deg)  saturate(300%); }
+  16%  { clip-path: inset(0%  0 0%  0);              transform: translate(3px,  0); filter: hue-rotate(-45deg) brightness(2.2); }
+  25%  { clip-path: inset(52% 0 28% 0);              transform: translate(-2px, 0); filter: saturate(0%)       brightness(3); }
+  33%  { clip-path: inset(0%  0 0%  0);              transform: translate(0,    0); filter: none; }
+  45%  { clip-path: inset(28% 0 58% 0);              transform: translate(5px,  0); filter: hue-rotate(180deg) saturate(400%); }
+  55%  { clip-path: inset(68% 0 5%  0);              transform: translate(-3px, 0); filter: brightness(4); }
+  66%  { clip-path: inset(0%  0 88% 0); opacity: 0.6; transform: translate(2px,  0); filter: hue-rotate(-90deg); }
+  78%  { clip-path: inset(80% 0 0%  0); opacity: 0.3; transform: translate(-1px, 0); }
+  90%  { clip-path: inset(95% 0 0%  0); opacity: 0.05; transform: translate(0, 0); }
+  100% { clip-path: inset(100% 0 0% 0); opacity: 0;  transform: translate(0, 0);   filter: none; }
+}
+
+/* ── 2. VenetianMask reconstructs ────────────────────────────────────────── */
+@keyframes cyber-mask-in {
+  0%   { opacity: 0;    clip-path: inset(100% 0 0%  0); transform: translate(0,    0); filter: none; }
+  10%  { opacity: 0.1;  clip-path: inset(82%  0 0%  0); }
+  22%  { opacity: 0.35; clip-path: inset(58%  0 22% 0); transform: translate(-3px, 0); filter: hue-rotate(-90deg); }
+  34%  { opacity: 0.55; clip-path: inset(30%  0 58% 0); transform: translate(4px,  0); filter: hue-rotate(90deg) saturate(300%); }
+  46%  { opacity: 0.75; clip-path: inset(0%   0 0%  0); transform: translate(0,    0); filter: brightness(2); }
+  56%  {                clip-path: inset(38%  0 42% 0); transform: translate(-2px, 0); filter: saturate(200%); }
+  67%  {                clip-path: inset(8%   0 78% 0); transform: translate(3px,  0); filter: hue-rotate(45deg); }
+  78%  { opacity: 0.9;  clip-path: inset(0%   0 0%  0); transform: translate(-1px, 0); filter: saturate(150%); }
+  90%  {                clip-path: inset(0%   0 0%  0); transform: translate(1px,  0); filter: saturate(110%); }
+  100% { opacity: 1;    clip-path: inset(0%   0 0%  0); transform: translate(0,    0); filter: none; }
+}
+
+/* ── 3. GitHub avatar materialises through scan-line noise ───────────────── */
+@keyframes cyber-avatar-in {
+  0%   { opacity: 0;    clip-path: inset(48% 0 48% 0); transform: translate(3px,  0); filter: saturate(500%) hue-rotate(90deg)  brightness(3); }
+  12%  { opacity: 0.25; clip-path: inset(38% 0 38% 0); transform: translate(-3px, 0); filter: saturate(400%) hue-rotate(-45deg) brightness(2); }
+  26%  { opacity: 0.55; clip-path: inset(22% 0 22% 0); transform: translate(2px,  0); filter: saturate(300%) brightness(1.5); }
+  40%  { opacity: 0.72; clip-path: inset(12% 0 12% 0); transform: translate(-1px, 0); filter: saturate(200%); }
+  55%  { opacity: 0.84; clip-path: inset(6%  0 6%  0); transform: translate(0,    0); filter: saturate(150%) hue-rotate(15deg); }
+  70%  { opacity: 0.92; clip-path: inset(2%  0 2%  0);                                filter: saturate(120%); }
+  85%  { opacity: 0.97; clip-path: inset(0%  0 1%  0);                                filter: saturate(105%); }
+  100% { opacity: 1;    clip-path: inset(0%  0 0%  0); transform: translate(0,    0); filter: none; }
+}
+
+/* ── 4. GitHub avatar deconstructs back into noise ───────────────────────── */
+@keyframes cyber-avatar-out {
+  0%   { opacity: 1;    clip-path: inset(0%  0 0%  0); transform: translate(0,    0); filter: none; }
+  14%  { opacity: 0.9;  clip-path: inset(4%  0 82% 0); transform: translate(4px,  0); filter: hue-rotate(90deg)  saturate(200%); }
+  28%  { opacity: 0.82; clip-path: inset(48% 0 28% 0); transform: translate(-3px, 0); filter: brightness(2); }
+  44%  { opacity: 0.65; clip-path: inset(0%  0 0%  0); transform: translate(2px,  0); filter: saturate(150%); }
+  60%  { opacity: 0.42; clip-path: inset(58% 0 12% 0); transform: translate(-2px, 0); filter: hue-rotate(-45deg); }
+  74%  { opacity: 0.2;  clip-path: inset(78% 0 4%  0); transform: translate(1px,  0); }
+  87%  { opacity: 0.05; clip-path: inset(94% 0 0%  0); }
+  100% { opacity: 0;    clip-path: inset(100% 0 0% 0); transform: translate(0,    0); filter: none; }
+}
+
+/* ── 5. Fallback glitch — no GitHub avatar, just a mask icon distortion ──── */
+@keyframes cyber-icon-glitch {
+  0%,  100% { transform: translate(0,    0);   filter: none; clip-path: inset(0% 0 0% 0); }
+  10%        { transform: translate(-3px, 1px); filter: hue-rotate(90deg)  saturate(400%) brightness(1.5); }
+  22%        { transform: translate(3px, -1px); filter: brightness(3)      saturate(0%); }
+  35%        { clip-path: inset(18% 0 62% 0);  filter: hue-rotate(180deg); transform: translate(0, 0); }
+  50%        { clip-path: inset(0%  0 0%  0);  transform: translate(-2px, 1px); filter: hue-rotate(-90deg) saturate(300%); }
+  65%        { transform: translate(2px, -2px); filter: brightness(2); }
+  80%        { clip-path: inset(40% 0 30% 0);  transform: translate(-1px, 0); filter: saturate(200%); }
+  92%        { clip-path: inset(0%  0 0%  0);  transform: translate(1px,  0); filter: none; }
+}
+
+/* ── Utility classes (referenced from CyberAvatarReveal) ──────────────────── */
+.cyber-mask-out   { animation: cyber-mask-out   0.60s cubic-bezier(0.4, 0, 0.6, 1) forwards; }
+.cyber-mask-in    { animation: cyber-mask-in    0.65s cubic-bezier(0.0, 0, 0.2, 1) forwards; }
+.cyber-avatar-in  { animation: cyber-avatar-in  0.65s cubic-bezier(0.0, 0, 0.2, 1) forwards; }
+.cyber-avatar-out { animation: cyber-avatar-out 0.55s cubic-bezier(0.4, 0, 1.0, 1) forwards; }
+.cyber-icon-glitch {
+  /* Plays twice so the glitch feels deliberately brief and snappy. */
+  animation: cyber-icon-glitch 0.50s ease-in-out 2 forwards;
 }

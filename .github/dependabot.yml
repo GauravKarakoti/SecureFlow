@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "typescript"
+        versions:
+          - ">= 6.0.3"
     groups:
       dependencies:
         patterns:

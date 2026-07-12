@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
             BELLA CIAO
           </h1>
           <p style={{ fontSize: '32px', textAlign: 'center', maxWidth: '900px', color: '#a1a1aa', marginBottom: '40px' }}>
-            "The Royal Mint has been secured. Zero traces left behind. 🎭"
+            &ldquo;The Royal Mint has been secured. Zero traces left behind. 🎭&rdquo;
           </p>
           <div style={{ display: 'flex', padding: '16px 32px', backgroundColor: '#ef4444', color: '#ffffff', borderRadius: '8px', fontSize: '28px', fontWeight: 'bold' }}>
             TARGET: {projectName}
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       ),
       { width: 1200, height: 630 }
     );
-  } catch (e: any) {
+  } catch {
     return new Response(`Failed to generate image`, { status: 500 });
   }
 }

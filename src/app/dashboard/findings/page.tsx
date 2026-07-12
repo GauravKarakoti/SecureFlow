@@ -38,7 +38,7 @@ export default async function FindingsPage() {
   });
 
   // Fetch the actual findings for this user's repos
-  const findings = await prisma.finding.findMany({
+  const findingsRaw = await prisma.finding.findMany({
     where: {
       scanResult: { pullRequest: { repository: { userId } } }
     },
@@ -50,6 +50,16 @@ export default async function FindingsPage() {
       }
     }
   });
+  const findings = findingsRaw.map(f => ({
+    ...f,
+    scanResult: {
+      ...f.scanResult,
+      pullRequest: {
+        ...f.scanResult.pullRequest,
+        githubId: f.scanResult.pullRequest.githubId.toString()
+      }
+    }
+  }));
 
   const stats = { criticalSecrets, vulnerabilities, misconfigs };
 

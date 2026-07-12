@@ -200,8 +200,8 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-                        <span>
-                          {new Date(pr.createdAt).toLocaleDateString()}
+                        <span suppressHydrationWarning>
+                          {new Date(pr.createdAt).toLocaleDateString('en-GB')}
                         </span>
 
                         <span className="max-w-[180px] truncate text-primary sm:max-w-none">

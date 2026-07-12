@@ -1,7 +1,23 @@
 node_modules
 .next
 .env
+.env.local
+.env.*.local
 .git
+.github/
 *.md
 !README.md
 docs/
+
+# Test / dev-only artifacts — never needed in the build context, shrinks context transfer size
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+coverage/
+.vscode/
+.idea/
+
+# Local Docker/CI files that shouldn't recurse into the build context themselves
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -3,6 +3,7 @@ import { SessionProvider } from 'next-auth/react'; // 1. Import the Provider
 import { auth } from '@/auth'; // 2. Import your auth config
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
+import { Toaster } from '@/components/ui/toaster';
 
 export const metadata: Metadata = {
   title: 'SecureFlow | AI Security Gatekeeper',
@@ -34,6 +35,7 @@ export default async function RootLayout({
         {/* 4. Wrap your app in the SessionProvider */}
         <SessionProvider session={session}>
           <ThemeProvider>{children}</ThemeProvider>
+          <Toaster />
         </SessionProvider>
       </body>
     </html>

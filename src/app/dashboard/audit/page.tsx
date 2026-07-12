@@ -14,7 +14,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export default async function AuditPage() {
+export default async function AuditPage({ searchParams }: { searchParams: { cursor?: string } }) {
   const session = await auth();
   
   if (!session?.user?.id) {
@@ -23,11 +23,14 @@ export default async function AuditPage() {
   
   const userId = session.user.id;
 
+  const cursor = searchParams?.cursor;
+
   // Fetch real logs belonging to the user
   const logs = await prisma.auditLog.findMany({
     where: { userId },
     orderBy: { timestamp: 'desc' },
-    take: 100, 
+    take: 10, 
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
   
   // FIX: Fetch User details to map User IDs to User Names/Emails
@@ -150,9 +153,13 @@ export default async function AuditPage() {
                                   alt="Heist Success Card" 
                                   className="w-full max-w-2xl rounded-md border border-red-900/50 shadow-2xl mb-6"
                                 />
-                                {/* Share Button with absolute URL placeholder for Twitter scraping */}
+                                {/* Share Button — links to /share/heist, which has proper OG/Twitter
+                                    meta tags pointing at the image, so Twitter's card scraper can
+                                    actually render a preview. Linking directly to the image API
+                                    route (as before) doesn't work because that route returns a raw
+                                    PNG, not an HTML page with meta tags. */}
                                 <a 
-                                  href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=https://secure-flow-six.vercel.app/api/og/heist?project=${encodeURIComponent(log.resource || 'The Royal Mint')}`}
+                                  href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=${encodeURIComponent(`https://secure-flow-six.vercel.app/share/heist?project=${log.resource || 'The Royal Mint'}`)}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"

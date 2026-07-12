@@ -3,7 +3,7 @@
 import * as React from "react"
 import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
-import { X } from "lucide-react"
+import { X, PhoneIncoming, ShieldCheck } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -31,7 +31,9 @@ const toastVariants = cva(
       variant: {
         default: "border bg-background text-foreground",
         destructive:
-          "destructive group border-destructive bg-destructive text-destructive-foreground",
+          "destructive group border-2 border-destructive bg-destructive text-destructive-foreground [animation:pulse_2s_ease-in-out_infinite]",
+        success:
+          "success group border-green-600/50 bg-background text-foreground",
       },
     },
     defaultVariants: {
@@ -112,6 +114,27 @@ const ToastDescription = React.forwardRef<
 ))
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
+// Renders a themed icon based on toast variant:
+// - destructive -> "Police Intercept" incoming call icon
+// - success -> "Plan Executed" shield check icon
+// - default -> no icon
+const ToastIcon = ({
+  variant,
+}: {
+  variant?: "default" | "destructive" | "success" | null
+}) => {
+  if (variant === "destructive") {
+    return (
+      <PhoneIncoming className="h-5 w-5 shrink-0 text-destructive-foreground" />
+    )
+  }
+  if (variant === "success") {
+    return <ShieldCheck className="h-5 w-5 shrink-0 text-green-500" />
+  }
+  return null
+}
+ToastIcon.displayName = "ToastIcon"
+
 type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>
 
 type ToastActionElement = React.ReactElement<typeof ToastAction>
@@ -126,4 +149,5 @@ export {
   ToastDescription,
   ToastClose,
   ToastAction,
+  ToastIcon,
 }
