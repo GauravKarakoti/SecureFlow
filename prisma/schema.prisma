@@ -19,6 +19,7 @@ model User {
   // Updated relation field
   repositories  Repository[]
   policyToggles UserPolicyToggle[] // Replaced 'policies Policy[]'
+  roles         UserRole[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -171,4 +172,50 @@ model WebhookEvent {
   id         String   @id @default(cuid())
   deliveryId String   @unique
   createdAt  DateTime @default(now())
+}
+
+// --- RBAC & Access Control Models ---
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique // e.g., "ADMIN", "USER", "AUDITOR"
+  description String?
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  action      String           @unique // e.g., "read:audit", "delete:user"
+  description String?
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
 }

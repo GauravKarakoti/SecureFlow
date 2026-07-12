@@ -42,6 +42,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account, user }) {
       // Initial sign in
       if (account && user) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          include: { roles: { include: { role: true } } }
+        });
+        const roles = dbUser?.roles.map(r => r.role.name) || [];
+
         return {
           ...token,
           accessToken: account.access_token,
@@ -49,6 +55,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
           userId: user.id,
           codename: user.codename,
+          roles,
         };
       }
 
@@ -91,6 +98,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session?.user) {
         session.user.id = token.userId;
         session.user.codename = token.codename;
+        session.user.roles = token.roles || [];
       }
       return {
         ...session,
