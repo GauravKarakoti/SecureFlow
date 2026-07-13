@@ -1,6 +1,10 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
+  // Emits a minimal, self-contained server (.next/standalone) that the Dockerfile's
+  // runner stage copies instead of the full node_modules tree, shrinking the final
+  // image substantially. See #214.
+  output: 'standalone',
   outputFileTracingIncludes: {
     '/*': ['./node_modules/.prisma/client/**/*'],
   },
