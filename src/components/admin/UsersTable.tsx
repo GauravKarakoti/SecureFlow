@@ -13,20 +13,17 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-const ROLES: RoleName[] = ["USER", "AUDITOR", "ADMIN"];
+const ROLES: RoleName[] = ["USER", "ADMIN"];
 const ITEMS_PER_PAGE = 10;
 
 function roleBadgeClass(roles: string[]): string {
   if (roles.includes("ADMIN"))
     return "bg-red-500/10 text-red-400 border border-red-500/30";
-  if (roles.includes("AUDITOR"))
-    return "bg-amber-500/10 text-amber-400 border border-amber-500/30";
   return "bg-zinc-500/10 text-zinc-400 border border-zinc-500/30";
 }
 
 function primaryRole(roles: string[]): string {
   if (roles.includes("ADMIN")) return "ADMIN";
-  if (roles.includes("AUDITOR")) return "AUDITOR";
   return "USER";
 }
 
@@ -126,7 +123,6 @@ export default function UsersTable({
         >
           <option value="ALL">All Roles</option>
           <option value="ADMIN">Admins</option>
-          <option value="AUDITOR">Auditors</option>
           <option value="USER">Users</option>
         </select>
       </div>
