@@ -14,6 +14,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         data: {
           ...user,
           codename,
+          roles: {
+            create: [{
+              role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
+            }]
+          }
         },
       }) as any;
     },
