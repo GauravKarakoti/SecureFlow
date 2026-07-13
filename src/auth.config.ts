@@ -17,7 +17,7 @@ export default {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 15 * 60, // 15 minutes short-lived access token
+    maxAge: 365 * 24 * 60 * 60, // 1 year access token
   },
   pages: {
     signIn: '/login', // Tells NextAuth to route users here for login
