@@ -14,7 +14,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export default async function AuditPage({ searchParams }: { searchParams: { cursor?: string } }) {
+export default async function AuditPage({ searchParams }: { searchParams: Promise<{ cursor?: string }> }) {
   const session = await auth();
   
   if (!session?.user?.id) {
@@ -23,7 +23,8 @@ export default async function AuditPage({ searchParams }: { searchParams: { curs
   
   const userId = session.user.id;
 
-  const cursor = searchParams?.cursor;
+  const sp = await searchParams;
+  const cursor = sp?.cursor;
 
   // Fetch real logs belonging to the user
   const logs = await prisma.auditLog.findMany({

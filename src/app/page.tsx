@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Shield, Lock, ArrowRight, CheckCircle, Search, Cpu, ChevronDown, GitPullRequest, ScanSearch, GitMerge, GitBranch } from 'lucide-react';
+import { Shield, Lock, ArrowRight, CheckCircle, Search, Cpu, ChevronDown, GitPullRequest, ScanSearch, GitMerge, GitBranch, Trophy } from 'lucide-react';
 import Image from 'next/image';
 import { LoginButton } from '@/components/ui/login-button';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -28,6 +28,13 @@ export default function LandingPage() {
           <div className="flex items-center gap-4">
             <ThemeToggle />
           </div>
+          <Link
+            href="/leaderboard"
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-muted-foreground hover:text-primary transition-colors"
+          >
+            <Trophy className="w-4 h-4" />
+            Leaderboard
+          </Link>
           <LoginButton />
           <Link href={process.env.GITHUB_APP_URL!}>
             <Button className="bg-primary text-background hover:bg-primary/90 glow-primary rounded-sm font-bold uppercase tracking-wide">
@@ -51,10 +58,10 @@ export default function LandingPage() {
             The Digital Heist <br /><span className="text-gradient">Defense System</span>
           </h1>
           <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto mb-4 leading-relaxed px-2 font-medium">
-            In this heist... we're not stealing. We're protecting digital information.
+            In this heist... we&apos;re not stealing. We&apos;re protecting digital information.
           </p>
           <p className="text-sm text-muted-foreground max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed px-2">
-            Every heist needs a plan... We make sure hackers don't have one. "The Professor" orchestrates your CI/CD, scanning every PR for leaks before they breach The Vault.
+            Every heist needs a plan... We make sure hackers don&apos;t have one. &ldquo;The Professor&rdquo; orchestrates your CI/CD, scanning every PR for leaks before they breach The Vault.
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto">
             <Link href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs" target="_blank" rel="noopener noreferrer">

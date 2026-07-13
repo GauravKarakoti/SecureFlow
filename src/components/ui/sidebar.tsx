@@ -650,10 +650,11 @@ const SidebarMenuSkeleton = React.forwardRef<
     showIcon?: boolean
   }
 >(({ className, showIcon = false, ...props }, ref) => {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`
-  }, [])
+  // Random width between 50 to 90%. Uses a lazy useState initializer (not
+  // useMemo) so the impure Math.random() call only ever runs once, during
+  // the initial render, per React's guidance for non-deterministic values:
+  // https://react.dev/reference/eslint-plugin-react-hooks/lints/purity
+  const [width] = React.useState(() => `${Math.floor(Math.random() * 40) + 50}%`)
 
   return (
     <div

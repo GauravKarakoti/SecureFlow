@@ -1,9 +1,11 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Cpu } from "lucide-react";
+import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSeverityTheme } from "@/lib/severity-theme";
+import StreamingExplanation from "@/components/streaming-explanation";
 
 interface FindingsClientProps {
   findings: any[];
@@ -30,7 +32,9 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
         </CardHeader>
         <CardContent>
           <Accordion type="single" collapsible className="space-y-4">
-            {findings.map((finding) => (
+            {findings.map((finding) => {
+              const theme = getSeverityTheme(finding.severity);
+              return (
               <AccordionItem key={finding.id} value={finding.id} className="border border-white/10 rounded-xl overflow-hidden px-4">
                 <AccordionTrigger className="hover:no-underline py-4">
                   <div className="flex items-center gap-4 w-full text-left">
@@ -43,8 +47,8 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                         ⚠️ Verify manually
                       </Badge>
                     )}
-                    <Badge className={finding.severity === 'CRITICAL' ? 'bg-red-500' : finding.severity === 'HIGH' ? 'bg-orange-500' : 'bg-blue-500'}>
-                      {finding.severity}
+                    <Badge className={theme.badgeClass} title={`Raw severity: ${finding.severity}`}>
+                      {theme.label}
                     </Badge>
                   </div>
                 </AccordionTrigger>
@@ -56,14 +60,10 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                           ⚠️ <strong>AI explanation may be unreliable for this finding — verify manually.</strong> The scanned code may contain content crafted to look like instructions. The severity badge is set by the static scanner and is not affected by this.
                         </div>
                       )}
-                      <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 relative overflow-hidden group">
-                        <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-3 flex items-center gap-2">
-                          <Cpu className="w-3 h-3" /> Radio Comms
-                        </h4>
-                        <p className="text-sm leading-relaxed text-foreground/90 italic">
-                          &quot;{finding.explanation || 'No explanation provided.'}&quot;
-                        </p>
-                      </div>
+                      <StreamingExplanation
+                        findingId={finding.id}
+                        storedExplanation={finding.explanation || 'No explanation provided.'}
+                      />
                       
                       <div>
                         <h4 className="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -86,7 +86,8 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                   </div>
                 </AccordionContent>
               </AccordionItem>
-            ))}
+              );
+            })}
           </Accordion>
         </CardContent>
       </Card>

@@ -31,9 +31,49 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      # Caches the full node_modules tree (including the generated Prisma client under
+      # node_modules/.prisma) keyed on an exact lockfile + Node version match. On a hit,
+      # `npm ci` is skipped entirely below instead of just resolving faster from npm's
+      # download cache.
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('package-lock.json') }}
+
+      # Prisma's query-engine binaries are downloaded separately from npm packages and can be
+      # slow to fetch. Cache them independently of node_modules, keyed on the lockfile (which
+      # pins the Prisma version) + schema, so a node_modules cache miss (e.g. an unrelated
+      # dependency bump) doesn't force a re-download of the engine binaries during the
+      # `postinstall` (`prisma generate`) step below.
+      - name: Cache Prisma engines
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/prisma
+          key: prisma-engines-${{ runner.os }}-${{ hashFiles('package-lock.json', 'prisma/schema.prisma') }}
+          restore-keys: |
+            prisma-engines-${{ runner.os }}-
 
       - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci
+
+      # Next.js incremental build cache. Exact key includes a hash of source files so an
+      # unchanged codebase gets a full hit; restore-keys fall back to the most recent cache for
+      # this lockfile/Node version so builds still warm-start after source changes.
+      - name: Cache Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'src/**/*.js', 'src/**/*.jsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('package-lock.json') }}-
+
+      - name: Run Linter
+        run: npm run lint
 
       - name: Run Typechecker
         run: npm run typecheck
