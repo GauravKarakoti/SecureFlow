@@ -11,6 +11,7 @@ docs/
 
 # Test / dev-only artifacts — never needed in the build context, shrinks context transfer size
 **/__tests__/
+tests/e2e/
 **/*.test.ts
 **/*.test.tsx
 coverage/
