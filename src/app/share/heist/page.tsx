@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { HeistTransmission } from './heist-transmission';
 
 // Falls back to the production domain so this works even if the env var
 // isn't set locally — mirrors the domain already hardcoded in the tweet intent.
@@ -107,30 +107,38 @@ export default async function HeistSharePage({
   const imageUrl = `/api/og/heist?${query}`;
 
   const numericScore = score !== undefined ? Number(score) : undefined;
+  const cleanScore =
+    numericScore !== undefined && !Number.isNaN(numericScore)
+      ? numericScore
+      : undefined;
+
   const resolvedRank =
     rank?.toUpperCase() && TIER_QUOTES[rank.toUpperCase()]
       ? rank.toUpperCase()
-      : numericScore !== undefined && !Number.isNaN(numericScore)
-      ? getRankFromScore(numericScore)
+      : cleanScore !== undefined
+      ? getRankFromScore(cleanScore)
       : undefined;
 
-  const tagline = resolvedRank ? TIER_QUOTES[resolvedRank] : 'The vault is empty. Zero traces left behind. 🎭';
+  const tagline = resolvedRank
+    ? TIER_QUOTES[resolvedRank]
+    : 'The vault is empty. Zero traces left behind. 🎭';
 
+  const cleanFindings =
+    findingsCount !== undefined && !Number.isNaN(Number(findingsCount))
+      ? Number(findingsCount)
+      : undefined;
+
+  // The page stays a server component (so generateMetadata + OG/Twitter
+  // cards keep working) and hands the resolved data to the client
+  // transmission component, which drives the sequential decode.
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
-      <img
-        src={imageUrl}
-        alt="Heist Success Card"
-        className="w-full max-w-2xl rounded-md border border-red-900/50 shadow-2xl mb-8"
-      />
-      <p className="text-red-500 font-bold text-lg mb-2">Audit passed via SecureFlow.</p>
-      <p className="text-zinc-400 text-sm mb-8 text-center max-w-md">{tagline}</p>
-      <Link
-        href="/"
-        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"
-      >
-        Join the Resistance
-      </Link>
-    </div>
+    <HeistTransmission
+      projectName={projectName}
+      score={cleanScore}
+      rank={resolvedRank}
+      findingsCount={cleanFindings}
+      tagline={tagline}
+      imageUrl={imageUrl}
+    />
   );
 }
