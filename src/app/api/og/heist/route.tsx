@@ -79,6 +79,11 @@ export async function GET(req: NextRequest) {
     const accentGlow = tier?.glow ?? 'rgba(239, 68, 68, 0.35)';
     const quote = tier?.quote ?? 'The vault is empty. Zero traces left behind. 🎭';
 
+    // True once we have any real data to show on the right side (score dial,
+    // rank badge, or findings chip). When false, none of those render, so we
+    // fall back to a default "wax seal" emblem to avoid a lopsided layout.
+    const hasAnyData = hasScore || !!tier || hasFindings;
+
     return new ImageResponse(
       (
         <div
@@ -266,6 +271,38 @@ export async function GET(req: NextRequest) {
                   </div>
                 )}
               </div>
+
+              {/* Fallback emblem so the right column is never empty when the
+                  link carries no score/rank/findings data. */}
+              {!hasAnyData && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '220px',
+                    height: '220px',
+                    borderRadius: '50%',
+                    border: `6px solid ${accent}`,
+                    backgroundColor: `${accentGlow}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', fontSize: '64px' }}>🎭</div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      fontSize: '18px',
+                      color: '#e4e4e7',
+                      letterSpacing: '2px',
+                      textTransform: 'uppercase',
+                      marginTop: '8px',
+                    }}
+                  >
+                    Passed
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
