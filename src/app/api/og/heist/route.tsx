@@ -41,10 +41,10 @@ export async function GET(req: NextRequest) {
         timeStyle: 'short',
       });
 
-  const [regular, bold] = await Promise.all([
-  regularFont,
-  boldFont,
-]);
+    const [regular, bold] = await Promise.all([
+      regularFont,
+      boldFont,
+    ]);
 
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
             background:
               'linear-gradient(135deg, #09090b 0%, #18181b 45%, #3f0d12 100%)',
             border: '10px solid #dc2626',
-           fontFamily: 'sans-serif'
+            fontFamily: 'Orbitron'
           }}
         >
           {/* Header */}
@@ -216,20 +216,20 @@ export async function GET(req: NextRequest) {
       {
         width: 1200,
         height: 630,
-    // fonts: [
-//   {
-//     name: 'Orbitron',
-//     data: regular,
-//     weight: 400,
-//     style: 'normal',
-//   },
-//   {
-//     name: 'Orbitron',
-//     data: bold,
-//     weight: 700,
-//     style: 'normal',
-//   },
-// ],
+         fonts: [
+           {
+             name: 'Orbitron',
+             data: regular,
+             weight: 400,
+             style: 'normal',
+           },
+           {
+            name: 'Orbitron',
+             data: bold,
+             weight: 700,
+             style: 'normal',
+           },
+         ],
         headers: {
           'Cache-Control':
             'public, max-age=31536000, immutable',

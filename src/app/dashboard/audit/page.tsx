@@ -14,7 +14,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export default async function AuditPage({ searchParams }: { searchParams: { cursor?: string } }) {
+export default async function AuditPage({ searchParams }: { searchParams: Promise<{ cursor?: string }> }) {
   const session = await auth();
   
   if (!session?.user?.id) {
@@ -23,15 +23,20 @@ export default async function AuditPage({ searchParams }: { searchParams: { curs
   
   const userId = session.user.id;
 
-  const cursor = searchParams?.cursor;
+  const { cursor } = await searchParams;
 
-  // Fetch real logs belonging to the user
-  const logs = await prisma.auditLog.findMany({
+  // Fetch real logs belonging to the user. Take one extra row so we can tell
+  // whether an older page exists without a second count query.
+  const PAGE_SIZE = 10;
+  const fetched = await prisma.auditLog.findMany({
     where: { userId },
     orderBy: { timestamp: 'desc' },
-    take: 10, 
+    take: PAGE_SIZE + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
+  const hasOlder = fetched.length > PAGE_SIZE;
+  const logs = hasOlder ? fetched.slice(0, PAGE_SIZE) : fetched;
+  const nextCursor = hasOlder ? logs[logs.length - 1].id : null;
   
   // FIX: Fetch User details to map User IDs to User Names/Emails
   const uniqueUserIds = [...new Set(logs.map(l => l.userId).filter((id): id is string => id !== null))];
@@ -179,6 +184,21 @@ export default async function AuditPage({ searchParams }: { searchParams: { curs
           </Table>
         </CardContent>
       </Card>
+
+      {(cursor || nextCursor) && (
+        <div className="flex items-center justify-between">
+          {cursor ? (
+            <a href="/dashboard/audit" className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors">
+              ← Back to latest
+            </a>
+          ) : <span />}
+          {nextCursor ? (
+            <a href={`/dashboard/audit?cursor=${nextCursor}`} className="text-xs font-bold text-primary hover:underline">
+              Load older →
+            </a>
+          ) : <span />}
+        </div>
+      )}
     </div>
   );
 }

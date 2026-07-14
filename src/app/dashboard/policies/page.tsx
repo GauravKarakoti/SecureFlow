@@ -63,8 +63,12 @@ export default async function PoliciesPage() {
     return { ...template, isActive };
   });
 
+  // ArmorIQ cloud client is optional: when ARMORIQ_API_KEY is unset, getClient()
+  // returns null and we still render the (locally-compiled) programmatic policy.
   const armoriqClient = ArmorIQService.getClient();
-  const userScope = armoriqClient.forUser(userEmail); 
+  const userScope = armoriqClient?.forUser(userEmail);
+  void userScope; // reserved for upcoming per-user intent-token enforcement
+  const armoriqConfigured = ArmorIQService.isConfigured();
   const activePolicies = policiesToRender.filter(p => p.isActive);
   const compiledPolicy = ArmorIQService.compileToArmorIQPolicy(activePolicies);
 
@@ -72,7 +76,7 @@ export default async function PoliciesPage() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">Policies</h1>
+          <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">The Rules</h1>
           <p className="text-muted-foreground">Toggle automated guardrails used to protect your main branch.</p>
         </div>
       </div>
@@ -81,10 +85,16 @@ export default async function PoliciesPage() {
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">Programmatic Policy</CardTitle>
+            <CardTitle className="text-lg">Programmatic Rule Set</CardTitle>
           </div>
           <CardDescription>
             Your active rules below are compiled dynamically into this execution guardrail for the agent scope: <strong className="text-white">{userEmail}</strong>.
+            {!armoriqConfigured && (
+              <span className="mt-1 block text-xs text-amber-500/80">
+                ArmorIQ cloud enforcement is inactive — set <code>ARMORIQ_API_KEY</code> (from{" "}
+                <a href="https://dev.armoriq.ai" target="_blank" rel="noopener noreferrer" className="underline">dev.armoriq.ai</a>) to bind this policy to live intent tokens.
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -97,7 +107,7 @@ export default async function PoliciesPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {policiesToRender.length === 0 && (
           <div className="col-span-full text-center text-muted-foreground p-8 border border-dashed border-white/10 rounded-xl">
-            No policy templates available. (Administrators need to seed the database).
+            No rule templates available. (Administrators need to seed the database).
           </div>
         )}
         
