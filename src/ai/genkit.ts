@@ -22,11 +22,14 @@ const groqModelInfo: ModelInfo = {
   },
 };
 
-// Falls back to a dummy key only in test environments so local/CI test runs
-// that never actually call the model don't need a real Groq key configured.
+// Falls back to a dummy key only in test runs and during the production build
+// (Next sets NEXT_PHASE=phase-production-build) so local/CI lint/typecheck/build
+// steps - which import this module but never actually call the model - don't need
+// a real Groq key configured. A running server still requires a real key below.
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
 const groqApiKey =
   process.env.GROQ_API_KEY ??
-  (process.env.NODE_ENV === 'test' ? 'dummy-key-for-build' : undefined);
+  (process.env.NODE_ENV === 'test' || isBuildPhase ? 'dummy-key-for-build' : undefined);
 
 if (!groqApiKey) {
   throw new Error(

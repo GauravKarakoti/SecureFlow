@@ -13,8 +13,6 @@ import {
 
 const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
 
-export type { AISecurityExplanationInput, AISecurityExplanationOutput };
-
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput
 ): Promise<AISecurityExplanationOutput> {

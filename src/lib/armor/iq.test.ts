@@ -19,7 +19,7 @@ describe('ArmorIQPolicyEngine getRiskTrend', () => {
 
   it('calculates average risk score without filters', async () => {
     const engine = new ArmorIQPolicyEngine();
-    const aggregateMock = vi.mocked(prisma.scanResult.aggregate);
+    const aggregateMock = vi.mocked(prisma.scanResult.aggregate) as any;
     aggregateMock.mockResolvedValue({
       _avg: {
         riskScore: 42,
@@ -38,7 +38,7 @@ describe('ArmorIQPolicyEngine getRiskTrend', () => {
 
   it('calculates average risk score with repositoryId filter', async () => {
     const engine = new ArmorIQPolicyEngine();
-    const aggregateMock = vi.mocked(prisma.scanResult.aggregate);
+    const aggregateMock = vi.mocked(prisma.scanResult.aggregate) as any;
     aggregateMock.mockResolvedValue({
       _avg: {
         riskScore: 25,
@@ -61,7 +61,7 @@ describe('ArmorIQPolicyEngine getRiskTrend', () => {
 
   it('calculates average risk score with userId filter', async () => {
     const engine = new ArmorIQPolicyEngine();
-    const aggregateMock = vi.mocked(prisma.scanResult.aggregate);
+    const aggregateMock = vi.mocked(prisma.scanResult.aggregate) as any;
     aggregateMock.mockResolvedValue({
       _avg: {
         riskScore: 50,
@@ -86,7 +86,7 @@ describe('ArmorIQPolicyEngine getRiskTrend', () => {
 
   it('returns 0 if aggregation returns null/undefined riskScore', async () => {
     const engine = new ArmorIQPolicyEngine();
-    const aggregateMock = vi.mocked(prisma.scanResult.aggregate);
+    const aggregateMock = vi.mocked(prisma.scanResult.aggregate) as any;
     aggregateMock.mockResolvedValue({
       _avg: {
         riskScore: null,
@@ -99,7 +99,7 @@ describe('ArmorIQPolicyEngine getRiskTrend', () => {
 
   it('returns 0 and logs error on database failure', async () => {
     const engine = new ArmorIQPolicyEngine();
-    const aggregateMock = vi.mocked(prisma.scanResult.aggregate);
+    const aggregateMock = vi.mocked(prisma.scanResult.aggregate) as any;
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     aggregateMock.mockRejectedValue(new Error('DB Connection Timeout'));
 

@@ -1,4 +1,4 @@
-import { AISecurityExplanationInput } from "./security-explanation-schemas";
+import type { AISecurityExplanationInput } from "./security-explanation-schemas";
 
 function sanitizeForPrompt(input: string): string {
   return input

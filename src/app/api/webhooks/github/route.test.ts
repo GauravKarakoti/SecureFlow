@@ -148,7 +148,7 @@ describe('GitHub Webhooks - App Installation Chunking', () => {
     }));
 
     const mockAccount = { userId: 'user-123' };
-    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount);
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as any);
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
 
     const req = new NextRequest('http://localhost/api/webhooks/github', {
@@ -208,7 +208,7 @@ describe('GitHub Webhooks - App Installation Chunking', () => {
     }));
 
     const mockAccount = { userId: 'user-123' };
-    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount);
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as any);
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
 
     const req = new NextRequest('http://localhost/api/webhooks/github', {

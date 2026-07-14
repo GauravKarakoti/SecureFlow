@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'genkit';
 
 export const AISecurityExplanationInputSchema = z.object({
   findingType: z.string(),
