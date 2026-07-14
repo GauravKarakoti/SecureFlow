@@ -80,7 +80,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           {children}
         </main>
       </div>
-    <div className="flex min-h-screen bg-zinc-950 text-white">
+
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 border-r border-zinc-800 px-4 py-6 flex-col gap-6 bg-black sticky top-0 h-screen">
         <AdminSidebarNav />

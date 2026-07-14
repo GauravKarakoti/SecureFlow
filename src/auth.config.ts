@@ -27,7 +27,7 @@ export default {
       // Initial sign in
       if (account && user) {
         return {
-          ...token,
+          ...token, // Preserves the roles and codename fetched from the database in auth.ts
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,

@@ -1,12 +1,13 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
-import GitHub from "next-auth/providers/github";
 import prisma from "@/lib/prisma"; 
 import authConfig from "./auth.config";
+import { withRateLimit } from "@/lib/middleware/rateLimit";
 
 const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Spread authConfig first to inherit providers, pages, and base session logic
   ...authConfig,
   adapter: {
     ...PrismaAdapter(prisma),
@@ -30,21 +31,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     strategy: "jwt",
     maxAge: 365 * 24 * 60 * 60, // 1 Year
   },
-  providers: [
-    ...(authConfig.providers || []),
-    GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    }),
-  ],
-  pages: {
-    ...authConfig.pages,
-    signIn: '/login', 
-  },
   callbacks: {
     ...authConfig.callbacks,
     async jwt(params: any) {
-      const { token, user, account } = params;
+      const { token, user, account, trigger } = params;
 
       // 1. Initial sign-in: Hydrate token with initial login properties
       if (account && user) {
@@ -53,8 +43,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.codename = user.codename;
       }
 
-      // 2. Fetch roles if missing (This self-heals existing sessions without requiring a re-login)
-      if (token.userId && !token.roles) {
+      // 2. Fetch roles if missing OR if a session update is triggered
+      if ((token.userId && !token.roles) || trigger === "update") {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.userId as string },
           include: { roles: { include: { role: true } } }
@@ -64,11 +54,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         
         // Failsafe: grab the codename if the old token was missing it
         if (!token.codename && dbUser?.codename) {
-            token.codename = dbUser.codename;
+          token.codename = dbUser.codename;
         }
       }
 
-      // Defer to authConfig jwt callback if it exists
+      // Defer to authConfig jwt callback to handle the GitHub access token refresh
       if (authConfig.callbacks?.jwt) {
         // Pass the updated roles down the chain
         const finalUser = user ? { ...user, roles: token.roles } : undefined;
@@ -76,17 +66,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
 
       return token;
-    },
-    async session({ session, token }: any) {
-      if (session?.user) {
-        session.user.id = token.userId;
-        session.user.codename = token.codename;
-        session.user.roles = token.roles || []; 
-      }
-      return {
-        ...session,
-        accessToken: token.accessToken,
-      };
     },
   },
 });

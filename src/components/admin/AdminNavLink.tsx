@@ -2,13 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LucideIcon } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 
 interface AdminNavLinkProps {
   href: string;
-  icon: LucideIcon;
+  icon: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -30,7 +28,7 @@ export function AdminNavLink({
           : "text-muted-foreground hover:bg-white/5 hover:text-white border-l-2 border-transparent"
       )}
     >
-      <Icon className="h-5 w-5" />
+      {Icon}
       {children}
     </Link>
   );
