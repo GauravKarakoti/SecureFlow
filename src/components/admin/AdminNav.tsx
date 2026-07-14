@@ -9,10 +9,12 @@ import {
   ScrollText,
   ShieldAlert,
   ArrowLeft,
+  Activity,
 } from "lucide-react";
 
 const ADMIN_NAV = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard, exact: true },
+  { name: "Queue Monitor", href: "/admin/queue", icon: Activity, exact: false },
   { name: "Users", href: "/admin/users", icon: Users, exact: false },
   { name: "Audit Logs", href: "/admin/logs", icon: ScrollText, exact: false },
 ];

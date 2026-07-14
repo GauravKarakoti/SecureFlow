@@ -33,18 +33,18 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
   };
 
   return (
-    <div className="w-full bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-      <div className="p-4 border-b border-zinc-800">
-        <input 
-          type="text" 
-          placeholder="Filter logs by action or resource..." 
+    <div className="w-full glass-card rounded-xl border border-white/10 overflow-hidden">
+      <div className="p-4 border-b border-white/5">
+        <input
+          type="text"
+          placeholder="Filter logs by action or resource..."
           value={search}
           onChange={handleSearch}
-          className="bg-black border border-zinc-700 text-white text-sm rounded-lg px-4 py-2 w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="bg-background border border-border text-foreground text-sm rounded-sm px-4 py-2 w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
         />
       </div>
-      <table className="w-full text-left text-sm text-zinc-400">
-        <thead className="bg-zinc-950 text-zinc-500 text-xs uppercase border-b border-zinc-800">
+      <table className="w-full text-left text-sm text-muted-foreground">
+        <thead className="bg-black/20 text-muted-foreground text-xs uppercase tracking-wider border-b border-white/5">
           <tr>
             <th className="px-6 py-4">Action</th>
             <th className="px-6 py-4">Resource</th>
@@ -54,8 +54,8 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
         <tbody>
           {currentLogs.length > 0 ? (
             currentLogs.map((log) => (
-              <tr key={log.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
-                <td className="px-6 py-4">{log.action}</td>
+              <tr key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                <td className="px-6 py-4 text-foreground">{log.action}</td>
                 <td className="px-6 py-4">{log.resource}</td>
                 <td className="px-6 py-4">
                   {new Date(log.timestamp).toLocaleString()}
@@ -64,27 +64,27 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
             ))
           ) : (
             <tr>
-              <td colSpan={3} className="px-6 py-4 text-center text-zinc-500">
+              <td colSpan={3} className="px-6 py-4 text-center text-muted-foreground">
                 No logs found.
               </td>
             </tr>
           )}
         </tbody>
       </table>
-      <div className="p-4 border-t border-zinc-800 flex justify-between items-center text-sm">
+      <div className="p-4 border-t border-white/5 flex justify-between items-center text-sm">
         <span>Showing {totalItems === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + itemsPerPage, totalItems)} of {totalItems} results</span>
         <div className="space-x-2">
-          <button 
+          <button
             onClick={handlePrev}
             disabled={page === 1}
-            className="px-3 py-1 bg-zinc-800 rounded hover:bg-zinc-700 transition-colors disabled:opacity-50"
+            className="px-3 py-1 bg-white/5 text-foreground rounded-sm hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50"
           >
             Previous
           </button>
-          <button 
+          <button
             onClick={handleNext}
             disabled={page === totalPages}
-            className="px-3 py-1 bg-zinc-800 rounded hover:bg-zinc-700 transition-colors disabled:opacity-50"
+            className="px-3 py-1 bg-white/5 text-foreground rounded-sm hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50"
           >
             Next
           </button>
