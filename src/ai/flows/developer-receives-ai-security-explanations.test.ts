@@ -15,8 +15,8 @@ vi.mock('dotenv/config', () => ({}));
 
 import {
   developerReceivesAISecurityExplanations
-} from '../developer-receives-ai-security-explanations';
-import { __internal } from '../security-helpers';
+} from './developer-receives-ai-security-explanations';
+import { __internal } from './security-helpers';
 
 const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
 

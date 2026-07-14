@@ -28,8 +28,8 @@ vi.mock('@/ai/genkit', () => ({
 
 vi.mock('dotenv/config', () => ({}));
 
-import { streamDeveloperSecurityExplanations } from '../security-explanation-stream';
-import type { StreamExplanationEvent } from '../security-explanation-stream';
+import { streamDeveloperSecurityExplanations } from './security-explanation-stream';
+import type { StreamExplanationEvent } from './security-explanation-stream';
 
 async function collectEvents(
   input: Parameters<typeof streamDeveloperSecurityExplanations>[0]
