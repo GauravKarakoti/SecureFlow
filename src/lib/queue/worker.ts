@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { redis } from './redis';
-import { scanner } from '@/lib/armor/scanner';
+import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
 import { iq } from '@/lib/armor/iq';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
@@ -156,7 +156,31 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
       body: `### ⏳ SecureFlow AI Security Scan\n\nEvaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...`,
     });
 
-    const findings = await scanner.scanPullRequest(fileChanges, activePolicies);
+    let customIgnores: string[] = [];
+    let customPlaceholders: string[] = [];
+    try {
+      const { data } = await octokit.rest.repos.getContent({
+        owner: repository.owner.login,
+        repo: repository.name,
+        path: '.secureflowignore',
+        ref: pull_request.head.sha,
+      });
+      if (data && 'content' in data && typeof data.content === 'string') {
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        const parsed = parseSecureFlowIgnore(content);
+        customIgnores = parsed.ignoredPaths;
+        customPlaceholders = parsed.placeholders;
+      }
+    } catch (e) {
+      // Ignored if file does not exist
+    }
+
+    const findings = await scanner.scanPullRequest(
+      fileChanges,
+      activePolicies,
+      customIgnores,
+      customPlaceholders
+    );
     
     const enrichedFindings = await Promise.all(findings.map(async (finding: any) => {
       const aiResponse = await developerReceivesAISecurityExplanations({

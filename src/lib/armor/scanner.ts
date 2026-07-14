@@ -94,6 +94,43 @@ const IGNORED_PATHS = [
   'dist/', 'build/', '.next/', 'node_modules/', 'prisma/migrations/'
 ];
 
+export interface SecureFlowIgnoreConfig {
+  ignoredPaths: string[];
+  placeholders: string[];
+}
+
+export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
+  const ignoredPaths: string[] = [];
+  const placeholders: string[] = [];
+  let currentSection: 'paths' | 'placeholders' = 'paths';
+
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    if (trimmed.toLowerCase() === '[placeholders]' || trimmed.toLowerCase() === '[mocks]') {
+      currentSection = 'placeholders';
+      continue;
+    }
+
+    if (trimmed.toLowerCase() === '[paths]' || trimmed.toLowerCase() === '[files]') {
+      currentSection = 'paths';
+      continue;
+    }
+
+    if (currentSection === 'placeholders') {
+      placeholders.push(trimmed);
+    } else {
+      ignoredPaths.push(trimmed);
+    }
+  }
+
+  return { ignoredPaths, placeholders };
+}
+
 function compileIgnorePatterns(patterns: string[]): RegExp[] {
   return patterns
     .map(p => p.trim())
@@ -240,12 +277,17 @@ export function extractAddedLines(patch: string): string {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-function filterFalsePositives(findings: ScanFinding[]): ScanFinding[] {
+function filterFalsePositives(findings: ScanFinding[], customPlaceholders: string[] = []): ScanFinding[] {
   const safePlaceholders = [
     'your_', 'actual_', 'secret_here', 'placeholder', 
     'user:password', 'auth_secret', 'localhost', '127.0.0.1',
     'example', 'dummy', 'replace_me', 'changeme',
     '<', '>', '{', '}', '[', ']'
+  ];
+
+  const combinedPlaceholders = [
+    ...safePlaceholders,
+    ...customPlaceholders.map(p => p.toLowerCase())
   ];
 
   return findings.filter(finding => {
@@ -256,7 +298,7 @@ function filterFalsePositives(findings: ScanFinding[]): ScanFinding[] {
     if (lowerFile.includes('.env.example') || lowerFile.includes('.env.sample')) {
       
       // Drop if it contains a known placeholder word or structural brackets
-      if (safePlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) {
+      if (combinedPlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) {
         console.log(`🧹 Filtered false positive in ${finding.fileLocation}: Contained mock placeholder syntax.`);
         return false;
       }
@@ -270,7 +312,7 @@ function filterFalsePositives(findings: ScanFinding[]): ScanFinding[] {
 
     // 2. Filter out mock credentials in seed files
     if (lowerFile.includes('seed.ts')) {
-      if (safePlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) return false;
+      if (combinedPlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) return false;
       if (lowerSnippet.includes('console.error') || lowerSnippet.includes('console.log')) return false;
     }
 
@@ -284,7 +326,12 @@ function filterFalsePositives(findings: ScanFinding[]): ScanFinding[] {
 }
 
 export class ArmorIQScanner {
-  async scanPullRequest(files: FileChange[], activePolicies: any[] = [], customIgnores: string[] = []): Promise<ScanFinding[]> {
+  async scanPullRequest(
+    files: FileChange[],
+    activePolicies: any[] = [],
+    customIgnores: string[] = [],
+    customPlaceholders: string[] = []
+  ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
     const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
 
@@ -294,7 +341,26 @@ export class ArmorIQScanner {
     const ABSOLUTE_MAX_FILE_SIZE = 50000;
     const MAX_COMBINED_LENGTH = 32000;
 
-    const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
+    let combinedIgnores = [...customIgnores];
+    let combinedPlaceholders = [...customPlaceholders];
+
+    if (combinedIgnores.length === 0 && combinedPlaceholders.length === 0) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const ignorePath = path.join(process.cwd(), '.secureflowignore');
+        if (fs.existsSync(ignorePath)) {
+          const content = fs.readFileSync(ignorePath, 'utf8');
+          const parsed = parseSecureFlowIgnore(content);
+          combinedIgnores = parsed.ignoredPaths;
+          combinedPlaceholders = parsed.placeholders;
+        }
+      } catch (e) {
+        // Ignore fs or path resolution issues
+      }
+    }
+
+    const compiledCustomIgnores = compileIgnorePatterns(combinedIgnores);
 
     let policyInstructions = `CORE RULES:\n1. Hardcoded secrets (actual active production string values).\n2. Contextual leaks (explicitly logging secret variables to the console or exposing them to clients).`;
 
@@ -496,7 +562,7 @@ CRITICAL RULES:
             };
           });
 
-          findings = filterFalsePositives(sanitizedFindings).map((f) => ({
+          findings = filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
             ...f,
             description: maskSecrets(f.description),
             codeSnippet: maskSecrets(f.codeSnippet),
