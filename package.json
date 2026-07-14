@@ -2,6 +2,7 @@
   "name": "secureflow",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
@@ -17,7 +18,7 @@
     "db:push": "npx prisma db push",
     "db:seed": "npx prisma db seed",
     "postinstall": "prisma generate",
-    "worker": "tsx scripts/start-worker.ts"
+    "worker": "tsx --env-file=.env scripts/start-worker.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.6.2",
