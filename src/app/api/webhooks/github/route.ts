@@ -129,6 +129,12 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   const event = req.headers.get('x-github-event');
 
+  // Filter events before pushing to the background queue (from fix/255 branch)
+  if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
+    return NextResponse.json({ message: 'Event not tracked' }, { status: 200 });
+  }
+
+  // Delegate processing to the background queue (from main branch)
   await addWebhookJob({
     payload,
     deliveryId,
