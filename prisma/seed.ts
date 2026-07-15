@@ -105,6 +105,98 @@ async function main() {
         action: "REVIEW REQUIRED",
         isDefault: false,
         rules: { conditions: ["web3/solidity/reentrancy_pattern", "web3/external_call_before_state_change"] }
+      },
+
+      // --- 7. Credential Management ---
+      {
+        name: "Flag Long-Lived or Non-Expiring Access Tokens",
+        description: "Flags API tokens, session keys, or service credentials issued without an expiry, or with an unusually long lifetime, increasing the blast radius of a leak.",
+        severity: "MEDIUM",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["auth/token/no_expiry", "auth/token/long_lived"] }
+      },
+
+      // --- 8. Authentication & Access Control ---
+      {
+        name: "Require MFA for Privileged Accounts",
+        description: "Flags administrator or owner-level accounts that do not have multi-factor authentication enforced.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["auth/mfa/not_enforced", "auth/admin/no_mfa"] }
+      },
+      {
+        name: "Flag Missing Authorization Checks on Admin Routes",
+        description: "Blocks API routes or server actions under an admin/privileged namespace that lack an explicit role or permission check before executing.",
+        severity: "CRITICAL",
+        action: "DENY",
+        isDefault: false,
+        rules: { conditions: ["api/route/admin_no_authz", "api/route/missing_role_check"] }
+      },
+      {
+        name: "Enforce Least-Privilege IAM Policies",
+        description: "Flags Infrastructure as Code changes that grant wildcard ('*') actions or resources in IAM policy documents instead of scoping to specific permissions.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["iac/aws/iam/wildcard_action", "iac/aws/iam/wildcard_resource"] }
+      },
+
+      // --- 9. Software Supply Chain & Dependencies ---
+      {
+        name: "Flag Known-Vulnerable Dependencies",
+        description: "Flags dependency changes that introduce a package version with a known high or critical severity CVE.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["deps/vulnerability/known_cve", "deps/audit/high_severity"] }
+      },
+      {
+        name: "Block Unpinned Docker Base Images",
+        description: "Flags Dockerfiles that reference a base image via a mutable tag (e.g. 'latest') instead of a pinned version or content digest, which can silently change build contents.",
+        severity: "MEDIUM",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["docker/image/tag_latest", "docker/image/unpinned_digest"] }
+      },
+
+      // --- 10. Client-Side & Frontend Security ---
+      {
+        name: "Prevent Unsafe DOM Injection (XSS)",
+        description: "Blocks use of dangerouslySetInnerHTML, document.write, or eval() with untrusted input, which can lead to cross-site scripting.",
+        severity: "CRITICAL",
+        action: "DENY",
+        isDefault: false,
+        rules: { conditions: ["frontend/dom/dangerously_set_inner_html", "frontend/dom/eval_usage", "frontend/dom/document_write"] }
+      },
+      {
+        name: "Enforce Content Security Policy Headers",
+        description: "Flags HTTP responses that are missing a Content-Security-Policy header, or that set one with 'unsafe-inline'/'unsafe-eval', weakening XSS protections.",
+        severity: "MEDIUM",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["http/headers/missing_csp", "http/headers/csp_unsafe_inline"] }
+      },
+
+      // --- 11. Network & Transport Security ---
+      {
+        name: "Block Plaintext HTTP Endpoints",
+        description: "Flags outbound requests or configured endpoints using plain HTTP instead of HTTPS/TLS, exposing data in transit to interception.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["network/protocol/http_no_tls", "config/endpoint/insecure_scheme"] }
+      },
+
+      // --- 12. Audit & Compliance Logging ---
+      {
+        name: "Require Audit Logging for Privileged Actions",
+        description: "Flags privileged operations (role changes, deletions, policy toggles) that complete without emitting an audit log entry tied to the acting user.",
+        severity: "MEDIUM",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: { conditions: ["audit/log/missing_privileged_action", "audit/log/no_actor_trace"] }
       }
     ]
   });
