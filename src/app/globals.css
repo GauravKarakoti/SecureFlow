@@ -296,3 +296,23 @@ html {
   /* Plays twice so the glitch feels deliberately brief and snappy. */
   animation: cyber-icon-glitch 0.50s ease-in-out 2 forwards;
 }
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Heist Share Page — Terminal Transmission Animations (issue #250)
+   ─────────────────────────────────────────────────────────────────────────────
+   Used by /share/heist, where the CyberTextReveal component decodes the
+   Professor's encrypted transmission line-by-line. Kept alongside the
+   CyberAvatarReveal keyframes so all cyber-themed motion lives in one place.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Classic terminal cursor blink — hard on/off via steps(1) so it reads as a
+   hardware cursor rather than a soft CSS fade. */
+@keyframes terminal-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.terminal-blink {
+  animation: terminal-blink 1s steps(1, end) infinite;
+}
