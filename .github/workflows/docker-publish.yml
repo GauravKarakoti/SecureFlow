@@ -21,6 +21,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Lowercase owner
+        id: owner
+        run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       # Exposes DOCKER_METADATA_OUTPUT_* env vars used by the build step.
       # Produces tags:
       #   ghcr.io/<owner>/secureflow:latest
@@ -29,7 +33,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/secureflow
+          images: ghcr.io/${{ steps.owner.outputs.value }}/secureflow
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
@@ -62,5 +66,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/secureflow:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/secureflow:buildcache,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.value }}/secureflow:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.value }}/secureflow:buildcache,mode=max
