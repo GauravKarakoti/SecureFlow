@@ -57,11 +57,11 @@ export function PolicyCard({
             <TooltipTrigger asChild>
               <CardTitle className="text-lg pr-12">{title}</CardTitle>
             </TooltipTrigger>
-            <TooltipContent 
-              side="bottom" 
-              align="start" 
-              className="max-w-xs md:max-w-sm glass-card bg-black/90 border-white/10 text-slate-200 z-50 p-3"
-            >
+            <TooltipContent
+  side="bottom"
+  align="start"
+  className="max-w-xs md:max-w-sm bg-card border border-foreground/10 text-slate-200 shadow-xl z-50 p-3 backdrop-blur-none"
+>
               <p className="text-xs leading-relaxed">{description}</p>
             </TooltipContent>
           </Tooltip>
