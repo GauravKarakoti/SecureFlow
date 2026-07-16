@@ -23,7 +23,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@armoriq/sdk": "^0.6.2",
+    "@armoriq/sdk": "^0.6.3",
     "@auth/prisma-adapter": "^2.11.2",
     "@genkit-ai/compat-oai": "^1.39.0",
     "@hookform/resolvers": "^5.4.0",
@@ -53,7 +53,7 @@
     "@radix-ui/react-tooltip": "^1.2.11",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
-    "bullmq": "^5.80.3",
+    "bullmq": "^5.80.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
@@ -81,7 +81,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
-    "@tailwindcss/postcss": "^4.3.2",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
