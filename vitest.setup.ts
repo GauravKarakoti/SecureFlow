@@ -13,27 +13,10 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-// Stub groq-sdk globally so every test file gets a consistent mock.
-// scanner.ts references Groq.APIConnectionTimeoutError as a static property;
-// the mock must expose it or the module-level code throws before any test runs.
-vi.mock('groq-sdk', () => {
-  class APIConnectionTimeoutError extends Error {
-    constructor() { super('timeout'); this.name = 'APIConnectionTimeoutError'; }
-  }
-
-  const mockCreate = vi.fn().mockResolvedValue({
-    choices: [{ message: { content: JSON.stringify({ findings: [] }) } }],
-  });
-
-  class MockGroq {
-    static APIConnectionTimeoutError = APIConnectionTimeoutError;
-    static mockCreate = mockCreate;
-    chat = { completions: { create: mockCreate } };
-    constructor(_opts?: unknown) {}
-  }
-
-  return { default: MockGroq };
-});
+// Activate the manual __mocks__/groq-sdk.ts mock for all test files.
+// That file exposes APIConnectionTimeoutError (required by scanner.ts at module level)
+// and a shared mockCreate fn that individual tests can configure.
+vi.mock('groq-sdk');
 
 // Stub ioredis so tests that import redis.ts don't try to open a real connection.
 vi.mock('ioredis', () => {

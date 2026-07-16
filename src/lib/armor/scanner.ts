@@ -132,7 +132,7 @@ export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
   return { ignoredPaths, placeholders };
 }
 
-function compileIgnorePatterns(patterns: string[]): RegExp[] {
+export function compileIgnorePatterns(patterns: string[]): RegExp[] {
   return patterns
     .map(p => p.trim())
     .filter(p => p.length > 0 && !p.startsWith('#'))
@@ -278,7 +278,7 @@ export function extractAddedLines(patch: string): string {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-function filterFalsePositives(findings: ScanFinding[], customPlaceholders: string[] = []): ScanFinding[] {
+export function filterFalsePositives(findings: ScanFinding[], customPlaceholders: string[] = []): ScanFinding[] {
   const safePlaceholders = [
     'your_', 'actual_', 'secret_here', 'placeholder', 
     'user:password', 'auth_secret', 'localhost', '127.0.0.1',

@@ -1,28 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { maskSecrets, ArmorIQScanner, parseSecureFlowIgnore } from './scanner';
-import Groq from 'groq-sdk';
-
-vi.mock('groq-sdk', () => {
-  const mockCreate = vi.fn().mockResolvedValue({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({ findings: [] }),
-        },
-      },
-    ],
-  });
-  return {
-    default: class MockGroq {
-      chat = {
-        completions: {
-          create: mockCreate,
-        },
-      };
-      static mockCreate = mockCreate;
-    },
-  };
-});
+import { mockCreate } from '../../../__mocks__/groq-sdk';
+import { maskSecrets, ArmorIQScanner, parseSecureFlowIgnore, extractAddedLines, shouldIgnore, sanitizeRecursively, filterFalsePositives, compileIgnorePatterns } from './scanner';
+import type { ScanFinding } from './scanner';
 
 // ─── maskSecrets ──────────────────────────────────────────────────────────────
 
@@ -111,7 +90,6 @@ describe('extractAddedLines', () => {
     const result = extractAddedLines(patch);
     expect(result).toContain('[ADDED] const z = 3;');
     expect(result).toContain('[ADDED] const secret = "sk-live-abc";');
-    // Context lines should be included without [ADDED] tag
     expect(result).toContain('const x = 1;');
   });
 
@@ -226,55 +204,37 @@ describe('filterFalsePositives', () => {
   });
 
   it('removes findings in .env.example files with placeholder values', () => {
-    const findings = [makeFinding({
-      fileLocation: '.env.example',
-      codeSnippet: 'API_KEY=your_actual_key_here',
-    })];
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=your_actual_key_here' })];
     expect(filterFalsePositives(findings)).toHaveLength(0);
   });
 
   it('removes findings in .env.example files with empty values', () => {
-    const findings = [makeFinding({
-      fileLocation: '.env.example',
-      codeSnippet: 'API_KEY=""',
-    })];
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=""' })];
     expect(filterFalsePositives(findings)).toHaveLength(0);
   });
 
   it('retains findings in .env.example with real-looking high-entropy credentials', () => {
-    const findings = [makeFinding({
-      fileLocation: '.env.example',
-      codeSnippet: 'API_KEY=sk-live-abcdefghijklmnopqrstuvwxyz1234567890',
-    })];
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=sk-live-abcdefghijklmnopqrstuvwxyz1234567890' })];
     expect(filterFalsePositives(findings)).toHaveLength(1);
   });
 
   it('removes findings in seed.ts with placeholder values', () => {
-    const findings = [makeFinding({
-      fileLocation: 'prisma/seed.ts',
-      codeSnippet: 'description: "your_description_here"',
-    })];
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'description: "your_description_here"' })];
     expect(filterFalsePositives(findings)).toHaveLength(0);
   });
 
   it('removes false logic flaws in schema.prisma', () => {
-    const findings = [makeFinding({
-      type: 'Vulnerability',
-      fileLocation: 'prisma/schema.prisma',
-      codeSnippet: 'id Int @id',
-      description: 'Int type used',
-    })];
+    const findings = [makeFinding({ type: 'Vulnerability', fileLocation: 'prisma/schema.prisma', codeSnippet: 'id Int @id', description: 'Int type used' })];
     expect(filterFalsePositives(findings)).toHaveLength(0);
   });
 
   it('retains real findings in non-special files', () => {
-    const findings = [makeFinding({
-      fileLocation: 'src/api/route.ts',
-      codeSnippet: 'console.log(process.env.API_KEY)',
-    })];
+    const findings = [makeFinding({ fileLocation: 'src/api/route.ts', codeSnippet: 'console.log(process.env.API_KEY)' })];
     expect(filterFalsePositives(findings)).toHaveLength(1);
   });
 });
+
+// ─── Configurable ignores (.secureflowignore) ────────────────────────────────
 
 describe('Configurable ignores and false positive filtering (.secureflowignore)', () => {
   beforeEach(() => {
@@ -302,54 +262,18 @@ another_placeholder
 
   it('filters out custom placeholders when provided', async () => {
     const scannerInstance = new ArmorIQScanner();
-    const files = [
-      { filename: 'seed.ts', patch: '+const secret = "MY_SPECIAL_MOCK_VALUE";' },
-    ];
+    const files = [{ filename: 'seed.ts', patch: '+const secret = "MY_SPECIAL_MOCK_VALUE";' }];
 
     mockCreate.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              findings: [
-                {
-                  type: 'Hardcoded Secret',
-                  severity: 'HIGH',
-                  description: 'Hardcoded secret value found',
-                  fileLocation: 'seed.ts',
-                  codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";',
-                },
-              ],
-            }),
-          },
-        },
-      ],
+      choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
     });
 
-    // Without custom placeholders, it is flagged
     const findings1 = await scannerInstance.scanPullRequest(files, []);
     expect(findings1).toHaveLength(1);
     expect(findings1[0].codeSnippet).toBe('const secret = "MY_SPECIAL_MOCK_VALUE";');
 
-    // With custom placeholder, it gets filtered out
     mockCreate.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              findings: [
-                {
-                  type: 'Hardcoded Secret',
-                  severity: 'HIGH',
-                  description: 'Hardcoded secret value found',
-                  fileLocation: 'seed.ts',
-                  codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";',
-                },
-              ],
-            }),
-          },
-        },
-      ],
+      choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
     });
 
     const findings2 = await scannerInstance.scanPullRequest(files, [], [], ['MY_SPECIAL_MOCK_VALUE']);
@@ -365,7 +289,6 @@ another_placeholder
 
     await scannerInstance.scanPullRequest(files, [], ['*.test.ts']);
 
-    // Groq should only receive index.ts, app.test.ts should be ignored
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
     expect(promptContent).toContain('src/index.ts');
