@@ -4,9 +4,35 @@ import { Shield, Lock, ArrowRight, CheckCircle, Search, Cpu, ChevronDown, GitPul
 import Image from 'next/image';
 import { LoginButton } from '@/components/ui/login-button';
 import { ThemeToggle } from '@/components/theme-toggle';
+import InteractiveDemo from '@/components/landing/InteractiveDemo';
+import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
-export default function LandingPage() {
+export default async function LandingPage() {
+  let prsCount = 45208;
+  let secretsCount = 1842;
+  let reposCount = 948;
+
+  try {
+    const [dbPrs, dbSecrets, dbRepos] = await Promise.all([
+      prisma.pullRequest.count(),
+      prisma.finding.count({
+        where: {
+          type: {
+            in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak']
+          }
+        }
+      }),
+      prisma.repository.count()
+    ]);
+
+    prsCount = dbPrs;
+    secretsCount = dbSecrets;
+    reposCount = dbRepos;
+  } catch (error) {
+    console.error("Failed to fetch landing page stats from database:", error);
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Navigation */}
@@ -37,7 +63,7 @@ export default function LandingPage() {
           </Link>
           <LoginButton />
           <Link href={process.env.GITHUB_APP_URL!}>
-            <Button className="bg-primary text-background hover:bg-primary/90 glow-primary rounded-sm font-bold uppercase tracking-wide">
+            <Button className="bg-primary text-background hover:bg-primary/90 glow-primary rounded-sm font-bold uppercase tracking-wide cursor-pointer">
               <GitBranch className="w-4 h-4 mr-2" />
               Engage System
             </Button>
@@ -63,9 +89,9 @@ export default function LandingPage() {
           <p className="text-sm text-muted-foreground max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed px-2">
             Every heist needs a plan... We make sure hackers don&apos;t have one. &ldquo;The Professor&rdquo; orchestrates your CI/CD, scanning every PR for leaks before they breach The Vault.
           </p>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto mb-16">
             <Link href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs" target="_blank" rel="noopener noreferrer">
-              <Button size="lg" className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-bold uppercase rounded-sm">
+              <Button size="lg" className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-bold uppercase rounded-sm cursor-pointer">
                Initiate Defense
                <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
@@ -74,61 +100,24 @@ export default function LandingPage() {
               <Button
                size="lg"
                variant="ghost"
-               className="h-14 px-8 text-lg border border-transparent hover:border-primary/30 hover:bg-primary/5 hover:scale-105 transition-all duration-300"
+               className="h-14 px-8 text-lg border border-transparent hover:border-primary/30 hover:bg-primary/5 hover:scale-105 transition-all duration-300 cursor-pointer"
 >              View Documentation
-
               </Button>
             </Link>
           </div>
         </div>
 
-        {/* Hero Image Mockup */}
-        <div className="max-w-5xl mx-auto mt-12 md:mt-20 relative px-2 sm:px-4">
-          <div className="relative rounded-sm border border-white/10 overflow-hidden glass-card shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 bg-black/50 border-b border-primary/20">
-              <div className="text-xs font-mono text-primary font-bold tracking-widest">SF_MISSION_CONTROL_TERMINAL</div>
-              <div className="flex gap-2">
-                <div className="w-3 h-3 rounded-sm bg-primary/50" />
-                <div className="w-3 h-3 rounded-sm bg-white/20" />
-              </div>
-            </div>
-            <div className="relative aspect-video bg-black/80">
-              <Image 
-                src="https://picsum.photos/seed/secure-hero/1200/800"
-                alt="Dashboard Mockup"
-                fill
-                className="object-cover opacity-80"
-                data-ai-hint="cyber security network"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
-              
-              <div className="absolute bottom-8 left-8 p-4 rounded-sm glass-card border-primary/40 animate-pulse bg-black/90">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary/20 text-primary border border-primary/50">
-                    <Lock className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-primary font-mono uppercase">System Failure: Data Leak</div>
-                    <div className="text-xs text-muted-foreground font-mono">PR #452 Blocked by The Professor</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="absolute top-1/4 right-8 p-4 rounded-sm glass-card border-white/20 bg-black/90">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/10 text-white border border-white/20">
-                    <CheckCircle className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold font-mono uppercase">Vault Secure</div>
-                    <div className="text-xs text-muted-foreground font-mono">Approved for Merge</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* Hero Interactive Terminal & Counters */}
+        <div className="max-w-5xl mx-auto px-2 sm:px-4 relative z-10">
+          <InteractiveDemo
+            prsCount={prsCount}
+            secretsCount={secretsCount}
+            reposCount={reposCount}
+          />
         </div>
-          <div className="flex justify-center mt-10 animate-bounce">
+
+
+        <div className="flex justify-center mt-12 animate-bounce">
           <a
             href="#features"
             className="text-muted-foreground hover:text-primary transition-colors"
@@ -136,7 +125,6 @@ export default function LandingPage() {
             <ChevronDown className="w-8 h-8" />
           </a>
          </div>
-      
       </section>
 
       {/* Features Grid */}
