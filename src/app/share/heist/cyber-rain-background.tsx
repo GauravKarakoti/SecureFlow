@@ -28,8 +28,7 @@ import { useEffect, useRef } from "react";
  * interactive.
  */
 
-const SCRAMBLE_CHARS =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@#$%!<>/\\|";
+const SCRAMBLE_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@#$%!<>/\\|";
 
 /** Heist-themed words that occasionally fall as a vertical column. */
 const HEIST_WORDS = [
@@ -48,15 +47,15 @@ const HEIST_WORDS = [
 ];
 
 interface Column {
-  x: number;          // pixel x of the column's left edge
-  y: number;          // pixel y of the falling head
-  speed: number;      // px/frame — varies per column for parallax depth
-  chars: string[];    // trail of characters behind the head
+  x: number; // pixel x of the column's left edge
+  y: number; // pixel y of the falling head
+  speed: number; // px/frame — varies per column for parallax depth
+  chars: string[]; // trail of characters behind the head
   trailLength: number;
-  isWord: boolean;    // word columns spell a heist term instead of noise
-  word: string;       // the word being spelled (word columns only)
-  wordIndex: number;  // next char index in `word`
-  dim: boolean;       // dimmer columns add depth
+  isWord: boolean; // word columns spell a heist term instead of noise
+  word: string; // the word being spelled (word columns only)
+  wordIndex: number; // next char index in `word`
+  dim: boolean; // dimmer columns add depth
   /** Counter for how many frames before the head char re-rolls. */
   headFlicker: number;
 }
@@ -83,6 +82,8 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
+
+    let isMounted = true;
 
     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
     configRef.current.reducedMotion = mql.matches;
@@ -175,12 +176,8 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     function drawColumn(col: Column) {
       const { fontSize } = configRef.current;
       const headColor = col.dim ? "rgba(244, 63, 94, 0.95)" : "rgba(239, 68, 68, 1)";
-      const bodyColor = col.dim
-        ? "rgba(244, 63, 94, 0.45)"
-        : "rgba(239, 68, 68, 0.7)";
-      const tailColor = col.dim
-        ? "rgba(244, 63, 94, 0.12)"
-        : "rgba(239, 68, 68, 0.22)";
+      const bodyColor = col.dim ? "rgba(244, 63, 94, 0.45)" : "rgba(239, 68, 68, 0.7)";
+      const tailColor = col.dim ? "rgba(244, 63, 94, 0.12)" : "rgba(239, 68, 68, 0.22)";
 
       for (let i = 0; i < col.chars.length; i++) {
         const y = col.y - i * fontSize;
@@ -218,9 +215,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
         const count = 3 + Math.floor(Math.random() * 4);
         for (let i = 0; i < count; i++) {
           const y = Math.random() * window.innerHeight;
-          ctx!.fillStyle = col.dim
-            ? "rgba(244, 63, 94, 0.15)"
-            : "rgba(239, 68, 68, 0.25)";
+          ctx!.fillStyle = col.dim ? "rgba(244, 63, 94, 0.15)" : "rgba(239, 68, 68, 0.25)";
           ctx!.fillText(
             SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)],
             col.x,
@@ -231,10 +226,20 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     }
 
     function loop() {
+      if (!isMounted) return;
+
+      const { fontSize } = configRef.current;
       ctx!.fillStyle = "rgba(0, 0, 0, 0.08)";
-      ctx!.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      // Use canvas dimensions instead of reading window size each frame.
+      ctx!.fillRect(
+        0,
+        0,
+        canvas!.width / Math.min(window.devicePixelRatio || 1, 2),
+        canvas!.height / Math.min(window.devicePixelRatio || 1, 2),
+      );
 
       for (const col of columnsRef.current) {
+        // Avoid re-reading config object inside hot paths.
         step(col);
         drawColumn(col);
       }
@@ -251,6 +256,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     }
 
     return () => {
+      isMounted = false;
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", handleVisibility);
       mql.removeEventListener("change", handleMotionChange);
@@ -265,6 +271,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     <canvas
       ref={canvasRef}
       aria-hidden
+      className="motion-reduce:animate-none"
       style={{
         position: "fixed",
         inset: 0,

@@ -1,27 +1,25 @@
-import type { Metadata } from 'next';
-import { HeistTransmission } from './heist-transmission';
+import type { Metadata } from "next";
+import { HeistTransmission } from "./heist-transmission";
 
 const TIER_QUOTES: Record<string, string> = {
-  S: 'Flawless execution. The vault never stood a chance.',
-  A: 'Clean hands, clean code. The Professor approves.',
-  B: 'A few loose ends, but the job got done.',
-  C: 'Sloppy work. The crew noticed.',
-  D: 'You left fingerprints everywhere.',
-  F: 'The alarm is ringing. Abort the heist.',
+  S: "Flawless execution. The vault never stood a chance.",
+  A: "Clean hands, clean code. The Professor approves.",
+  B: "A few loose ends, but the job got done.",
+  C: "Sloppy work. The crew noticed.",
+  D: "You left fingerprints everywhere.",
+  F: "The alarm is ringing. Abort the heist.",
 };
 
 function getRankFromScore(score: number): string {
-  if (score >= 95) return 'S';
-  if (score >= 80) return 'A';
-  if (score >= 65) return 'B';
-  if (score >= 50) return 'C';
-  if (score >= 35) return 'D';
-  return 'F';
+  if (score >= 95) return "S";
+  if (score >= 80) return "A";
+  if (score >= 65) return "B";
+  if (score >= 50) return "C";
+  if (score >= 35) return "D";
+  return "F";
 }
 
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  'https://secure-flow-six.vercel.app';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://secure-flow-six.vercel.app";
 
 type SearchParams = Promise<{
   project?: string;
@@ -37,26 +35,23 @@ export async function generateMetadata({
 }: {
   searchParams: SearchParams;
 }): Promise<Metadata> {
-  const {
-    project,
-    alias,
-    score,
-    timestamp,
-  } = await searchParams;
+  const { project, alias, score, timestamp } = await searchParams;
 
-  const projectName = project || 'The Royal Mint';
-  const playerAlias = alias || 'The Professor';
-  const securityScore = score || '100';
-  const operationTimestamp = timestamp || '';
+  const projectName = project || "The Royal Mint";
+  const playerAlias = alias || "The Professor";
+  const securityScore = score || "100";
+  const operationTimestamp = timestamp || "";
 
   const params = new URLSearchParams({
     project: projectName,
     alias: playerAlias,
     score: securityScore,
+    findingsCount: "0",
+    stolen: "0",
   });
 
   if (operationTimestamp) {
-    params.set('timestamp', operationTimestamp);
+    params.set("timestamp", operationTimestamp);
   }
 
   const imageUrl = `${APP_URL}/api/og/heist?${params.toString()}`;
@@ -72,19 +67,19 @@ export async function generateMetadata({
       title,
       description,
       url: `${APP_URL}/share/heist?${params.toString()}`,
-      siteName: 'SecureFlow',
+      siteName: "SecureFlow",
       images: [
         {
           url: imageUrl,
           width: 1200,
           height: 630,
-          alt: 'Heist Success Card',
+          alt: "Heist Success Card",
         },
       ],
-      type: 'website',
+      type: "website",
     },
     twitter: {
-      card: 'summary_large_image',
+      card: "summary_large_image",
       title,
       description,
       images: [imageUrl],
@@ -92,23 +87,12 @@ export async function generateMetadata({
   };
 }
 
-export default async function HeistSharePage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
-  const {
-    project,
-    alias,
-    score,
-    timestamp,
-    rank,
-    findingsCount,
-  } = await searchParams;
+export default async function HeistSharePage({ searchParams }: { searchParams: SearchParams }) {
+  const { project, alias, score, timestamp, rank, findingsCount } = await searchParams;
 
-  const projectName = project || 'The Royal Mint';
-  const playerAlias = alias || 'The Professor';
-  const securityScore = score || '100';
+  const projectName = project || "The Royal Mint";
+  const playerAlias = alias || "The Professor";
+  const securityScore = score || "100";
 
   // 1. Retain the URL param and image construction from `main`
   const params = new URLSearchParams({
@@ -117,8 +101,21 @@ export default async function HeistSharePage({
     score: securityScore,
   });
 
+  // OG overlay metrics
+  if (findingsCount !== undefined) params.set("findingsCount", findingsCount);
+  else params.set("findingsCount", "0");
+
+  params.set("stolen", "0");
+
+  if (rank) params.set("rank", rank);
+
+  const cleanFindings =
+    findingsCount !== undefined && !Number.isNaN(Number(findingsCount))
+      ? Number(findingsCount)
+      : undefined;
+
   if (timestamp) {
-    params.set('timestamp', timestamp);
+    params.set("timestamp", timestamp);
   }
 
   const imageUrl = `/api/og/heist?${params.toString()}`;
@@ -126,25 +123,18 @@ export default async function HeistSharePage({
   // 2. Retain the score, rank, and tagline resolution from `#250-decode-heist`
   const numericScore = score !== undefined ? Number(score) : undefined;
   const cleanScore =
-    numericScore !== undefined && !Number.isNaN(numericScore)
-      ? numericScore
-      : undefined;
+    numericScore !== undefined && !Number.isNaN(numericScore) ? numericScore : undefined;
 
   const resolvedRank =
     rank?.toUpperCase() && TIER_QUOTES[rank.toUpperCase()]
       ? rank.toUpperCase()
       : cleanScore !== undefined
-      ? getRankFromScore(cleanScore)
-      : undefined;
+        ? getRankFromScore(cleanScore)
+        : undefined;
 
   const tagline = resolvedRank
     ? TIER_QUOTES[resolvedRank]
-    : 'The vault is empty. Zero traces left behind. 🎭';
-
-  const cleanFindings =
-    findingsCount !== undefined && !Number.isNaN(Number(findingsCount))
-      ? Number(findingsCount)
-      : undefined;
+    : "The vault is empty. Zero traces left behind. 🎭";
 
   // The page stays a server component (so generateMetadata + OG/Twitter
   // cards keep working) and hands the resolved data to the client
