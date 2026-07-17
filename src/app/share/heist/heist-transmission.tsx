@@ -81,14 +81,14 @@ export function HeistTransmission({
   //    stable across re-renders (the sequential decode keys off indices).
   const lines = useMemo<TransmissionLine[]>(() => {
     const out: TransmissionLine[] = [
-      { kind: "system",    text: "> INITIALIZING SECURE CHANNEL............ [OK]", decode: true },
-      { kind: "system",    text: "> DECRYPTING TRANSMISSION................. [OK]", decode: true },
-      { kind: "system",    text: "> SENDER: THE PROFESSOR",                          decode: true },
-      { kind: "blank",     text: "",                                              decode: false },
-      { kind: "narrative", text: "Bella ciao, accomplice.",                        decode: true },
-      { kind: "blank",     text: "",                                              decode: false },
-      { kind: "narrative", text: `The heist on ${projectName} is complete.`,       decode: true },
-      { kind: "data",      text: "Audit status: PASSED",                           decode: true },
+      { kind: "system", text: "> INITIALIZING SECURE CHANNEL............ [OK]", decode: true },
+      { kind: "system", text: "> DECRYPTING TRANSMISSION................. [OK]", decode: true },
+      { kind: "system", text: "> SENDER: THE PROFESSOR", decode: true },
+      { kind: "blank", text: "", decode: false },
+      { kind: "narrative", text: "Bella ciao, accomplice.", decode: true },
+      { kind: "blank", text: "", decode: false },
+      { kind: "narrative", text: `The heist on ${projectName} is complete.`, decode: true },
+      { kind: "data", text: "Audit status: PASSED", decode: true },
     ];
     if (score !== undefined) {
       out.push({ kind: "data", text: `Security score: ${score}/100`, decode: true });
@@ -99,12 +99,12 @@ export function HeistTransmission({
     if (findingsCount !== undefined) {
       out.push({ kind: "data", text: `Findings logged: ${findingsCount}`, decode: true });
     }
-    out.push({ kind: "blank",      text: "",                                       decode: false });
-    out.push({ kind: "narrative",  text: `"${tagline}"`,                           decode: true });
-    out.push({ kind: "blank",      text: "",                                       decode: false });
-    out.push({ kind: "narrative",  text: "The vault is sealed. Zero traces remain.", decode: true });
-    out.push({ kind: "blank",      text: "",                                       decode: false });
-    out.push({ kind: "system",     text: "> END OF TRANSMISSION.",                 decode: true });
+    out.push({ kind: "blank", text: "", decode: false });
+    out.push({ kind: "narrative", text: `"${tagline}"`, decode: true });
+    out.push({ kind: "blank", text: "", decode: false });
+    out.push({ kind: "narrative", text: "The vault is sealed. Zero traces remain.", decode: true });
+    out.push({ kind: "blank", text: "", decode: false });
+    out.push({ kind: "system", text: "> END OF TRANSMISSION.", decode: true });
     return out;
   }, [projectName, score, rank, findingsCount, tagline]);
 
@@ -251,10 +251,14 @@ export function HeistTransmission({
                     variant="transmission"
                     text={line.text}
                     duration={Math.min(100 + line.text.length * 12, 750)}
-                    className={cn("whitespace-pre-wrap", lineColor(line.kind))}
-                    onRevealComplete={() =>
-                      setRevealedCount((c) => Math.min(c + 1, total))
-                    }
+                    className={cn(
+                      "whitespace-pre-wrap",
+                      // Fix: the component renders a single child text node; when
+                      // used as <div>, force an explicit layout mode.
+                      "flex",
+                      lineColor(line.kind),
+                    )}
+                    onRevealComplete={() => setRevealedCount((c) => Math.min(c + 1, total))}
                   />
                   {isActive && (
                     <span
@@ -297,9 +301,7 @@ export function HeistTransmission({
             <p className="mb-1 text-center text-lg font-bold text-red-500">
               Audit passed via SecureFlow.
             </p>
-            <p className="mx-auto mb-5 max-w-md text-center text-sm text-zinc-400">
-              {tagline}
-            </p>
+            <p className="mx-auto mb-5 max-w-md text-center text-sm text-zinc-400">{tagline}</p>
             <div className="flex justify-center">
               <Link
                 href="/"
