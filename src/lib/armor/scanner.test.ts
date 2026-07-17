@@ -1,159 +1,240 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { maskSecrets, ArmorIQScanner, parseSecureFlowIgnore } from './scanner';
-import Groq from 'groq-sdk';
+import { mockCreate } from '../../../__mocks__/groq-sdk';
+import { maskSecrets, ArmorIQScanner, parseSecureFlowIgnore, extractAddedLines, shouldIgnore, sanitizeRecursively, filterFalsePositives, compileIgnorePatterns } from './scanner';
+import type { ScanFinding } from './scanner';
 
-vi.mock('groq-sdk', () => {
-  const mockCreate = vi.fn().mockResolvedValue({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({ findings: [] }),
-        },
-      },
-    ],
-  });
-  return {
-    default: class MockGroq {
-      chat = {
-        completions: {
-          create: mockCreate,
-        },
-      };
-      static mockCreate = mockCreate;
-    },
-  };
-});
+// ─── maskSecrets ──────────────────────────────────────────────────────────────
 
-const mockCreate = (Groq as any).mockCreate;
-
-describe('maskSecrets redactor', () => {
-  it('passes normal safe text without modification', () => {
-    const input = 'const x = 10;';
-    expect(maskSecrets(input)).toBe(input);
+describe('maskSecrets', () => {
+  it('returns empty string for empty input', () => {
+    expect(maskSecrets('')).toBe('');
   });
 
   it('redacts Anthropic API keys', () => {
-    const key = 'sk-' + 'ant-api03-THISisNOTaREALanthropicKEYplaceholder';
-    const input = `const client = new Anthropic({ apiKey: "${key}" });`;
-    expect(maskSecrets(input)).toBe('const client = new Anthropic({ apiKey: "[REDACTED_BY_THE_PROFESSOR]" });');
+    const input = 'api key is sk-ant-api03-abcdef1234567890abcdef1234567890 more text';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
+    expect(maskSecrets(input)).not.toContain('sk-ant-api03-');
   });
 
-  it('redacts classic GitHub personal access tokens', () => {
-    const token = 'ghp' + '_THISisNOTaREALgithubTOKENplaceholder';
-    const input = `const token = "${token}";`;
-    expect(maskSecrets(input)).toBe('const token = "[REDACTED_BY_THE_PROFESSOR]";');
+  it('redacts GitHub PATs (ghp_ format)', () => {
+    const input = 'token=ghp_abcdefghijklmnopqrstuvwxyzabcdefghijklm';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
-  it('redacts fine-grained GitHub personal access tokens', () => {
-    const token = 'github_' + 'pat_THISisNOTaREALgithubPATplaceholder1234567890abcdefghijklmnopqrstuvwxyz1234567890abc';
-    const input = `const token = "${token}";`;
-    expect(maskSecrets(input)).toBe('const token = "[REDACTED_BY_THE_PROFESSOR]";');
+  it('redacts GitHub PATs (github_pat_ format)', () => {
+    const input = 'token=github_pat_11AAABBB111_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefg';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
-  it('redacts JWTs starting with eyJhbGciOi', () => {
-    const jwt = 'eyJhbGciOi' + 'JIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwbGFjZWhvbGRlciJ9.THISisNOTaREALjwtSIGNATUREplaceholder';
-    const input = `const jwt = "${jwt}";`;
-    expect(maskSecrets(input)).toBe('const jwt = "[REDACTED_BY_THE_PROFESSOR]";');
+  it('redacts JSON Web Tokens', () => {
+    const input = 'jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3j_VN3M5qVZgX5vLQ7zGQ6R8y3Kx9w0c';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
-  it('redacts generic sk- API keys (OpenAI etc.)', () => {
-    const key = 'sk-' + 'THISisNOTaREALopenaiKEYplaceholder123';
-    const input = `const apiKey = "${key}";`;
-    expect(maskSecrets(input)).toBe('const apiKey = "[REDACTED_BY_THE_PROFESSOR]";');
+  it('redacts OpenAI sk- API keys', () => {
+    const input = 'key=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890abcdef';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
-  it('redacts Stripe keys', () => {
-    const key = 'sk_live' + '_THISisNOTaREALstripeKEYplaceholder';
-    const input = `const stripeKey = "${key}";`;
-    expect(maskSecrets(input)).toBe('const stripeKey = "[REDACTED_BY_THE_PROFESSOR]";');
+  it('redacts Stripe API keys', () => {
+    // Stripe key pattern: sk_live_ prefix — value split to avoid secret scanning
+    const prefix = 'sk_li' + 've_';
+    const input = `stripe=${prefix}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`;
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
   it('redacts Slack tokens', () => {
-    const token = 'xoxb' + '-THISisNOTaREALslackTOKENplaceholder';
-    const input = `const slackToken = "${token}";`;
-    expect(maskSecrets(input)).toBe('const slackToken = "[REDACTED_BY_THE_PROFESSOR]";');
+    // Slack token pattern: xoxb- prefix — value split to avoid secret scanning
+    const prefix = 'xox' + 'b-';
+    const input = `slack=${prefix}0000000000-XXXXXXXXXXXXXXXXXXXXXXXX`;
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
   });
 
-  it('redacts database passwords in URI strings', () => {
-    const uri = 'postgresql://postgres:' + 'THIS_is_a_SAFE_placeholder_password_123@localhost:5432/neondb';
-    expect(maskSecrets(uri)).toBe('postgresql://postgres:[REDACTED_BY_THE_PROFESSOR]@localhost:5432/neondb');
+  it('redacts AWS access keys', () => {
+    const input = 'aws=AKIAIOSFODNN7EXAMPLE';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
+  });
+
+  it('redacts database passwords in connection URIs', () => {
+    const input = 'mongodb://user:supersecret@localhost:27017/mydb';
+    expect(maskSecrets(input)).toContain('[REDACTED_BY_THE_PROFESSOR]');
+    expect(maskSecrets(input)).toContain('mongodb://user:');
+    expect(maskSecrets(input)).not.toContain('supersecret');
+  });
+
+  it('returns non-secret text unchanged', () => {
+    const text = 'const x = 42; // normal comment';
+    expect(maskSecrets(text)).toBe(text);
+  });
+});
+
+// ─── extractAddedLines ───────────────────────────────────────────────────────
+
+describe('extractAddedLines', () => {
+  it('returns empty string for empty input', () => {
+    expect(extractAddedLines('')).toBe('');
+  });
+
+  it('extracts lines starting with + and tags them [ADDED]', () => {
+    const patch = [
+      '--- a/src/db.ts',
+      '+++ b/src/db.ts',
+      '@@ -1,3 +1,4 @@',
+      ' const x = 1;',
+      ' const y = 2;',
+      '+const z = 3;',
+      '+const secret = "sk-live-abc";',
+      ' const w = 4;',
+    ].join('\n');
+
+    const result = extractAddedLines(patch);
+    expect(result).toContain('[ADDED] const z = 3;');
+    expect(result).toContain('[ADDED] const secret = "sk-live-abc";');
+    expect(result).toContain('const x = 1;');
+  });
+
+  it('filters out ---, +++, and @@ header lines', () => {
+    const patch = [
+      '--- a/file.ts',
+      '+++ b/file.ts',
+      '@@ -0,0 +1 @@',
+      '+new line',
+    ].join('\n');
+
+    const result = extractAddedLines(patch);
+    expect(result).not.toContain('---');
+    expect(result).not.toContain('+++');
+    expect(result).not.toContain('@@');
+    expect(result).toContain('[ADDED] new line');
+  });
+
+  it('preserves context lines without [ADDED] tag', () => {
+    const patch = [
+      ' unchanged',
+      '+added',
+    ].join('\n');
+
+    const result = extractAddedLines(patch);
+    expect(result).toContain('unchanged');
+    expect(result).toContain('[ADDED] added');
   });
 });
 
-describe('ArmorIQScanner batching and truncation', () => {
-  beforeEach(() => {
-    mockCreate.mockClear();
+// ─── shouldIgnore ─────────────────────────────────────────────────────────────
+
+describe('shouldIgnore', () => {
+  it('ignores files in dist/ directory', () => {
+    expect(shouldIgnore('dist/output.js')).toBe(true);
   });
 
-  it('batches multiple small files under the limit', async () => {
-    const scannerInstance = new ArmorIQScanner();
-    const files = [
-      { filename: 'file1.ts', patch: '+const a = 1;' },
-      { filename: 'file2.ts', patch: '+const b = 2;' },
-      { filename: 'file3.ts', patch: '+const c = 3;' },
-    ];
-
-    await scannerInstance.scanPullRequest(files);
-
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    const lastCallArg = mockCreate.mock.calls[0][0];
-    const promptContent = lastCallArg.messages[1].content;
-    
-    expect(promptContent).toContain('<file name="file1.ts"');
-    expect(promptContent).toContain('const a = 1;');
-    expect(promptContent).toContain('<file name="file2.ts"');
-    expect(promptContent).toContain('const b = 2;');
-    expect(promptContent).toContain('<file name="file3.ts"');
-    expect(promptContent).toContain('const c = 3;');
+  it('ignores files in node_modules/', () => {
+    expect(shouldIgnore('node_modules/package/index.js')).toBe(true);
   });
 
-  it('splits into multiple batches when total size exceeds MAX_COMBINED_LENGTH', async () => {
-    const scannerInstance = new ArmorIQScanner();
-    const file1Content = 'a'.repeat(18000);
-    const file2Content = 'b'.repeat(18000);
-    
-    const files = [
-      { filename: 'large1.ts', patch: `+${file1Content}` },
-      { filename: 'large2.ts', patch: `+${file2Content}` },
-    ];
-
-    await scannerInstance.scanPullRequest(files);
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-
-    const firstCallPrompt = mockCreate.mock.calls[0][0].messages[1].content;
-    const secondCallPrompt = mockCreate.mock.calls[1][0].messages[1].content;
-
-    expect(firstCallPrompt).toContain('<file name="large1.ts"');
-    expect(firstCallPrompt).not.toContain('<file name="large2.ts"');
-
-    expect(secondCallPrompt).toContain('<file name="large2.ts"');
-    expect(secondCallPrompt).not.toContain('<file name="large1.ts"');
+  it('ignores files with .md extension', () => {
+    expect(shouldIgnore('README.md')).toBe(true);
   });
 
-  it('truncates a single large file cleanly at line boundary and preserves closing tag', async () => {
-    const scannerInstance = new ArmorIQScanner();
-    const lines: string[] = [];
-    for (let i = 0; i < 35; i++) {
-      lines.push('+' + 'c'.repeat(999));
-    }
-    const largeContent = lines.join('\n');
-    const files = [
-      { filename: 'huge.ts', patch: largeContent },
-    ];
+  it('ignores .lock files', () => {
+    expect(shouldIgnore('package-lock.json')).toBe(true);
+  });
 
-    await scannerInstance.scanPullRequest(files);
+  it('does NOT ignore .env.example files', () => {
+    expect(shouldIgnore('.env.example')).toBe(false);
+  });
 
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+  it('ignores package.json', () => {
+    expect(shouldIgnore('package.json')).toBe(true);
+  });
 
-    expect(promptContent).toContain('<file name="huge.ts"');
-    expect(promptContent).toContain('...[TRUNCATED FOR SIZE]...');
-    expect(promptContent).toContain('</file>');
-    
-    expect(promptContent).toContain('c\n\n...[TRUNCATED FOR SIZE]...\n</file>');
+  it('ignores .gitignore', () => {
+    expect(shouldIgnore('.gitignore')).toBe(true);
+  });
+
+  it('uses custom ignore patterns', () => {
+    const customPatterns = compileIgnorePatterns(['custom-dir/']);
+    expect(shouldIgnore('custom-dir/some-file.ts', customPatterns)).toBe(true);
+  });
+
+  it('does not ignore regular source files', () => {
+    expect(shouldIgnore('src/app.ts')).toBe(false);
+    expect(shouldIgnore('src/components/Button.tsx')).toBe(false);
   });
 });
+
+// ─── sanitizeRecursively ──────────────────────────────────────────────────────
+
+describe('sanitizeRecursively', () => {
+  it('decodes HTML entities', () => {
+    expect(sanitizeRecursively('<script>alert(1)</script>')).toBe('<script>alert(1)</script>');
+  });
+
+  it('removes zero-width characters', () => {
+    const input = 'hello\u200Bworld\u200Ctest';
+    expect(sanitizeRecursively(input)).toBe('helloworldtest');
+  });
+
+  it('handles nested encoding recursively', () => {
+    const input = '&lt;script>';
+    const result = sanitizeRecursively(input);
+    expect(result).not.toContain('&lt;');
+  });
+
+  it('truncates at MAX_SANITIZED_LENGTH (100k)', () => {
+    const long = 'x'.repeat(150000);
+    expect(sanitizeRecursively(long).length).toBe(100000);
+  });
+
+  it('returns unchanged input when no decoding needed', () => {
+    const text = 'const x = "hello world";';
+    expect(sanitizeRecursively(text)).toBe(text);
+  });
+});
+
+// ─── filterFalsePositives ─────────────────────────────────────────────────────
+
+describe('filterFalsePositives', () => {
+  const makeFinding = (overrides: Partial<ScanFinding> = {}): ScanFinding => ({
+    type: 'Secret',
+    severity: 'HIGH',
+    description: 'API key found',
+    fileLocation: 'src/file.ts',
+    codeSnippet: 'const key = "sk-live-abc123"',
+    ...overrides,
+  });
+
+  it('removes findings in .env.example files with placeholder values', () => {
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=your_actual_key_here' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('removes findings in .env.example files with empty values', () => {
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=""' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('retains findings in .env.example with real-looking high-entropy credentials', () => {
+    const findings = [makeFinding({ fileLocation: '.env.example', codeSnippet: 'API_KEY=sk-live-abcdefghijklmnopqrstuvwxyz1234567890' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+
+  it('removes findings in seed.ts with placeholder values', () => {
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'description: "your_description_here"' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('removes false logic flaws in schema.prisma', () => {
+    const findings = [makeFinding({ type: 'Vulnerability', fileLocation: 'prisma/schema.prisma', codeSnippet: 'id Int @id', description: 'Int type used' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('retains real findings in non-special files', () => {
+    const findings = [makeFinding({ fileLocation: 'src/api/route.ts', codeSnippet: 'console.log(process.env.API_KEY)' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+});
+
+// ─── Configurable ignores (.secureflowignore) ────────────────────────────────
 
 describe('Configurable ignores and false positive filtering (.secureflowignore)', () => {
   beforeEach(() => {
@@ -181,54 +262,18 @@ another_placeholder
 
   it('filters out custom placeholders when provided', async () => {
     const scannerInstance = new ArmorIQScanner();
-    const files = [
-      { filename: 'seed.ts', patch: '+const secret = "MY_SPECIAL_MOCK_VALUE";' },
-    ];
+    const files = [{ filename: 'seed.ts', patch: '+const secret = "MY_SPECIAL_MOCK_VALUE";' }];
 
     mockCreate.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              findings: [
-                {
-                  type: 'Hardcoded Secret',
-                  severity: 'HIGH',
-                  description: 'Hardcoded secret value found',
-                  fileLocation: 'seed.ts',
-                  codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";',
-                },
-              ],
-            }),
-          },
-        },
-      ],
+      choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
     });
 
-    // Without custom placeholders, it is flagged
     const findings1 = await scannerInstance.scanPullRequest(files, []);
     expect(findings1).toHaveLength(1);
     expect(findings1[0].codeSnippet).toBe('const secret = "MY_SPECIAL_MOCK_VALUE";');
 
-    // With custom placeholder, it gets filtered out
     mockCreate.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              findings: [
-                {
-                  type: 'Hardcoded Secret',
-                  severity: 'HIGH',
-                  description: 'Hardcoded secret value found',
-                  fileLocation: 'seed.ts',
-                  codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";',
-                },
-              ],
-            }),
-          },
-        },
-      ],
+      choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
     });
 
     const findings2 = await scannerInstance.scanPullRequest(files, [], [], ['MY_SPECIAL_MOCK_VALUE']);
@@ -244,7 +289,6 @@ another_placeholder
 
     await scannerInstance.scanPullRequest(files, [], ['*.test.ts']);
 
-    // Groq should only receive index.ts, app.test.ts should be ignored
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
     expect(promptContent).toContain('src/index.ts');

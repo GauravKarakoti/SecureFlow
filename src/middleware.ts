@@ -1,8 +1,12 @@
+import NextAuth from 'next-auth';
+import authConfig from './auth.config';
 import { NextResponse } from 'next/server';
 import { ratelimit } from '@/lib/ratelimit';
 import { getClientIp } from '@/lib/client-ip';
 
-export async function middleware(request: any) {
+const { auth } = NextAuth(authConfig);
+
+export default auth(async function middleware(request: any) {
   const token = request.auth;
   
   if (request.nextUrl.pathname.startsWith('/api/og') && ratelimit) {
@@ -23,7 +27,7 @@ export async function middleware(request: any) {
   }
 
   return NextResponse.next();
-};
+});
 
 export const config = {
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],

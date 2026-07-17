@@ -1,19 +1,6 @@
 import type { Metadata } from 'next';
 import { HeistTransmission } from './heist-transmission';
 
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  'https://secure-flow-six.vercel.app';
-
-type SearchParams = Promise<{
-  project?: string;
-  alias?: string;
-  score?: string;
-  timestamp?: string;
-  rank?: string;
-  findingsCount?: string;
-}>;
-
 const TIER_QUOTES: Record<string, string> = {
   S: 'Ghost protocol. Zero traces left behind.',
   A: 'The vault is empty. Clean getaway.',
@@ -30,6 +17,18 @@ function getRankFromScore(score: number): string {
   return 'D';
 }
 
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  'https://secure-flow-six.vercel.app';
+
+type SearchParams = Promise<{
+  project?: string;
+  alias?: string;
+  score?: string;
+  timestamp?: string;
+  rank?: string;
+  findingsCount?: string;
+}>;
 
 export async function generateMetadata({
   searchParams,
@@ -158,4 +157,4 @@ export default async function HeistSharePage({
       imageUrl={imageUrl}
     />
   );
-}
+}
