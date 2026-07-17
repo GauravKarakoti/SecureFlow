@@ -1,6 +1,24 @@
 import type { Metadata } from 'next';
 import { HeistTransmission } from './heist-transmission';
 
+const TIER_QUOTES: Record<string, string> = {
+  S: 'Flawless execution. The vault never stood a chance.',
+  A: 'Clean hands, clean code. The Professor approves.',
+  B: 'A few loose ends, but the job got done.',
+  C: 'Sloppy work. The crew noticed.',
+  D: 'You left fingerprints everywhere.',
+  F: 'The alarm is ringing. Abort the heist.',
+};
+
+function getRankFromScore(score: number): string {
+  if (score >= 95) return 'S';
+  if (score >= 80) return 'A';
+  if (score >= 65) return 'B';
+  if (score >= 50) return 'C';
+  if (score >= 35) return 'D';
+  return 'F';
+}
+
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   'https://secure-flow-six.vercel.app';

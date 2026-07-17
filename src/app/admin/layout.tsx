@@ -44,4 +44,4 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       </div>
     </div>
   );
-}
+}
