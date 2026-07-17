@@ -1,15 +1,18 @@
 FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci --legacy-peer-deps
 
 FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 COPY .env.example .env
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate && npx next build
 
 # Isolated, independently-cacheable stage for the Prisma CLI + its migration engine (needed at
