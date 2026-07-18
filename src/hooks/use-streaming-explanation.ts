@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 type StreamEvent =
   | { type: "chunk"; explanation: string }
@@ -42,6 +43,7 @@ const initialState: StreamingExplanationState = {
 export function useStreamingExplanation(findingId: string) {
   const [state, setState] = useState<StreamingExplanationState>(initialState);
   const abortRef = useRef<AbortController | null>(null);
+  const { toast } = useToast();
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -65,12 +67,18 @@ export function useStreamingExplanation(findingId: string) {
           ? "Session expired - refresh and try again."
           : `Analysis request failed (${res.status}).`;
         setState((prev) => ({ ...prev, isStreaming: false, error: message }));
+        toast({
+          variant: "destructive",
+          title: "Explanation Stream Failed",
+          description: message,
+        });
         return;
       }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let hasFinishedStream = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -96,6 +104,7 @@ export function useStreamingExplanation(findingId: string) {
           if (event.type === "chunk") {
             setState((prev) => ({ ...prev, explanation: event.explanation }));
           } else if (event.type === "done") {
+            hasFinishedStream = true;
             setState({
               isStreaming: false,
               explanation: event.result.explanation,
@@ -104,21 +113,43 @@ export function useStreamingExplanation(findingId: string) {
               error: null,
             });
           } else if (event.type === "error") {
+            hasFinishedStream = true;
             setState((prev) => ({ ...prev, isStreaming: false, error: event.message }));
+            toast({
+              variant: "destructive",
+              title: "Explanation Stream Failed",
+              description: event.message || "An error occurred during AI analysis.",
+            });
           }
         }
+      }
+
+      if (!hasFinishedStream) {
+        const message = "Connection closed before the explanation completed.";
+        setState((prev) => ({ ...prev, isStreaming: false, error: message }));
+        toast({
+          variant: "destructive",
+          title: "Explanation Stream Interrupted",
+          description: "The connection to the AI service was lost mid-stream. Please try again.",
+        });
       }
     } catch (err) {
       // AbortError means a newer `start()` call (or unmount) superseded this one - not a
       // user-facing error.
       if (err instanceof DOMException && err.name === "AbortError") return;
+      const errorMessage = err instanceof Error ? err.message : "Connection failed.";
       setState((prev) => ({
         ...prev,
         isStreaming: false,
-        error: err instanceof Error ? err.message : "Connection failed.",
+        error: errorMessage,
       }));
+      toast({
+        variant: "destructive",
+        title: "Explanation Stream Error",
+        description: `Failed to receive security explanation: ${errorMessage}`,
+      });
     }
-  }, [findingId, stop]);
+  }, [findingId, stop, toast]);
 
   return { ...state, start, stop };
 }

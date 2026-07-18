@@ -2,21 +2,19 @@ import type { Metadata } from 'next';
 import { HeistTransmission } from './heist-transmission';
 
 const TIER_QUOTES: Record<string, string> = {
-  S: 'Flawless execution. The vault never stood a chance.',
-  A: 'Clean hands, clean code. The Professor approves.',
-  B: 'A few loose ends, but the job got done.',
-  C: 'Sloppy work. The crew noticed.',
-  D: 'You left fingerprints everywhere.',
-  F: 'The alarm is ringing. Abort the heist.',
+  S: 'Ghost protocol. Zero traces left behind.',
+  A: 'The vault is empty. Clean getaway.',
+  B: 'Job done. A few loose ends remain.',
+  C: 'Amateur hour. The vault noticed.',
+  D: 'Blown cover. Back to the drawing board.',
 };
 
 function getRankFromScore(score: number): string {
-  if (score >= 95) return 'S';
-  if (score >= 80) return 'A';
-  if (score >= 65) return 'B';
-  if (score >= 50) return 'C';
-  if (score >= 35) return 'D';
-  return 'F';
+  if (score >= 90) return 'S';
+  if (score >= 75) return 'A';
+  if (score >= 60) return 'B';
+  if (score >= 40) return 'C';
+  return 'D';
 }
 
 const APP_URL =

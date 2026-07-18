@@ -45,9 +45,20 @@ export default function StreamingExplanation({ findingId, storedExplanation }: S
       </p>
 
       {error && (
-        <p className="mt-3 text-xs text-destructive">
-          Transmission failed: {error}. Showing last known analysis.
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-4">
+          <p className="text-xs text-destructive flex-1">
+            Transmission failed: {error}. Showing last known analysis.
+          </p>
+          <button
+            type="button"
+            onClick={start}
+            className="flex items-center gap-1.5 px-3 py-1 bg-destructive/10 hover:bg-destructive/20 border border-destructive/30 hover:border-destructive/50 text-destructive text-xs font-bold uppercase tracking-wider rounded-lg transition-colors shrink-0"
+            title="Retry the AI analysis and explanation stream"
+          >
+            <RadioTower className="w-3.5 h-3.5" />
+            Retry Analysis
+          </button>
+        </div>
       )}
     </div>
   );

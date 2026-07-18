@@ -100,8 +100,7 @@ export function CyberTextReveal({
   // Transmission mode semantics: placeholder noise ↔ target text.
   const transmissionTarget =
     text !== null && text !== undefined && text.trim() !== "" ? text : null;
-  const transmissionFrom =
-    placeholder ?? defaultPlaceholder(transmissionTarget ?? "");
+  const transmissionFrom = placeholder ?? defaultPlaceholder(transmissionTarget ?? "");
   const transmissionTo = transmissionTarget ?? transmissionFrom;
 
   const from = isTransmission ? transmissionFrom : hoverFrom;
@@ -131,9 +130,12 @@ export function CyberTextReveal({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsRevealing(false);
 
-    timerRef.current = setTimeout(() => {
-      setIsRevealing(true);
-    }, Math.max(delay, 0));
+    timerRef.current = setTimeout(
+      () => {
+        setIsRevealing(true);
+      },
+      Math.max(delay, 0),
+    );
 
     return () => {
       if (timerRef.current !== null) {
@@ -166,37 +168,37 @@ export function CyberTextReveal({
         }}
         onMouseEnter={() => hoverCanReveal && setIsRevealing(true)}
         onMouseLeave={() => hoverCanReveal && setIsRevealing(false)}
-        // Screen readers hear the real identity, not the scrambled characters.
-        aria-label={to}
-        role="text"
+        aria-hidden="true"
       >
         {displayText}
+        <span className="sr-only">{to}</span>
       </span>
     );
   }
 
   // ── Transmission mode (new) ─────────────────────────────────────────────
   return (
-    <Comp
-      className={cn(
-        "font-mono tracking-wider select-none",
-        "transition-colors duration-300",
-        // Pre-decode the placeholder reads as dim "encrypted" data; once the
-        // decode starts the line brightens to the foreground so the resolved
-        // payload reads as freshly decrypted terminal output.
-        isRevealing ? "text-foreground" : "text-muted-foreground/60",
-        className,
-      )}
-      style={{
-        // Block elements need `display: block`; inline stays inline.
-        display: Comp !== "span" ? "block" : "inline-block",
-        minWidth: `${Math.max(from.length, to.length)}ch`,
-      }}
-      // Screen readers hear the decrypted payload, not the noise chars.
-      aria-label={to}
-      role="text"
-    >
-      {displayText}
-    </Comp>
+    <>
+      <Comp
+        className={cn(
+          "font-mono tracking-wider select-none",
+          "transition-colors duration-300",
+          // Pre-decode the placeholder reads as dim "encrypted" data; once the
+          // decode starts the line brightens to the foreground so the resolved
+          // payload reads as freshly decrypted terminal output.
+          isRevealing ? "text-foreground" : "text-muted-foreground/60",
+          className,
+        )}
+        style={{
+          // Block elements need `display: block`; inline stays inline.
+          display: Comp !== "span" ? "block" : "inline-block",
+          minWidth: `${Math.max(from.length, to.length)}ch`,
+        }}
+        aria-hidden="true"
+      >
+        {displayText}
+      </Comp>
+      <span className="sr-only">{to}</span>
+    </>
   );
 }
