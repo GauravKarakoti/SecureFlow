@@ -246,20 +246,16 @@ export function HeistTransmission({
               // CyberTextReveal component in transmission mode.
               return (
                 <div key={i} className="flex items-start gap-2 break-words">
-                  <CyberTextReveal
-                    as="div"
-                    variant="transmission"
-                    text={line.text}
-                    duration={Math.min(100 + line.text.length * 12, 750)}
-                    className={cn(
-                      "whitespace-pre-wrap",
-                      // Fix: the component renders a single child text node; when
-                      // used as <div>, force an explicit layout mode.
-                      "flex",
-                      lineColor(line.kind),
-                    )}
-                    onRevealComplete={() => setRevealedCount((c) => Math.min(c + 1, total))}
-                  />
+                  <div className="flex">
+                    <CyberTextReveal
+                      as="div"
+                      variant="transmission"
+                      text={line.text}
+                      duration={Math.min(100 + line.text.length * 12, 750)}
+                      className={cn("whitespace-pre-wrap", lineColor(line.kind))}
+                      onRevealComplete={() => setRevealedCount((c) => Math.min(c + 1, total))}
+                    />
+                  </div>
                   {isActive && (
                     <span
                       className="terminal-blink mt-1 inline-block h-4 w-2 shrink-0 bg-red-500 sm:h-5"
