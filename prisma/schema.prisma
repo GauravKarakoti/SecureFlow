@@ -154,6 +154,8 @@ model Finding {
   type         String // Secret, Vulnerability, Misconfig
   severity     String // CRITICAL, HIGH, MEDIUM, LOW
   fileLocation String
+  lineStart    Int?
+  lineEnd      Int?
   codeSnippet  String?
   explanation  String?
   remediation  String?

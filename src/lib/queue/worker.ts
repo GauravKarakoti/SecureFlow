@@ -7,6 +7,34 @@ import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-re
 import { App } from 'octokit';
 import prisma from '@/lib/prisma';
 
+/**
+ * Parse a unified-diff patch and return the set of new-file line numbers that
+ * are addressable by a GitHub review comment. GitHub only accepts inline review
+ * comments on lines that appear in the diff (added `+` lines or context lines);
+ * a comment on any other line is rejected and would fail the whole review call.
+ */
+export function getCommentableLines(patch: string): Set<number> {
+  const lines = new Set<number>();
+  let newLine = 0;
+  for (const row of patch.split('\n')) {
+    const hunk = row.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      newLine = parseInt(hunk[1], 10);
+      continue;
+    }
+    if (row.startsWith('-')) {
+      // Removed line: exists only on the old side, not addressable via `line`.
+      continue;
+    }
+    if (row.startsWith('+') || row.startsWith(' ')) {
+      // Added or context line: part of the diff on the new side.
+      lines.add(newLine);
+      newLine++;
+    }
+  }
+  return lines;
+}
+
 export const worker = new Worker('github-webhooks', async (job: Job) => {
   const { payload, event } = job.data;
 
@@ -144,11 +172,18 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
     });
 
     const fileChanges = pullRequestFiles
-      .filter((file: any) => file.patch && file.status !== 'removed') 
+      .filter((file: any) => file.patch && file.status !== 'removed')
       .map((file: any) => ({
         filename: file.filename,
         patch: file.patch
       }));
+
+    // Map each changed file to the set of new-file line numbers that are part of
+    // the PR diff, so we only anchor inline review comments on commentable lines.
+    const commentableLines = new Map<string, Set<number>>();
+    for (const file of fileChanges) {
+      commentableLines.set(file.filename, getCommentableLines(file.patch));
+    }
 
     const pendingComment = await octokit.rest.issues.createComment({
       owner: repository.owner.login,
@@ -227,26 +262,84 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
     });
 
     if (enrichedFindings.length > 0) {
-      let commentBody = `### 🛡️ SecureFlow AI Security Report\n\n`;
-      commentBody += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies. Please review them before merging.\n\n`;
+      const severityBadge = (severity: string) =>
+        severity === 'CRITICAL' ? '🔴 CRITICAL' : (severity === 'HIGH' ? '🟠 HIGH' : '🟡 MEDIUM');
+
+      // Resolve the diff line to anchor an inline comment on, or null when the
+      // finding has no usable line inside the PR diff (GitHub would reject it).
+      const anchorLine = (f: any): number | null => {
+        if (typeof f.lineStart !== 'number') return null;
+        const lines = commentableLines.get(f.fileLocation);
+        return lines && lines.has(f.lineStart) ? f.lineStart : null;
+      };
+
+      // Findings with a diff-anchored line become inline review comments; the
+      // rest fall back into the summary body so nothing is ever lost.
+      const inlineComments: { path: string; line: number; body: string }[] = [];
+      const summaryFindings: any[] = [];
 
       enrichedFindings.forEach((f: any) => {
-        const badge = f.severity === 'CRITICAL' ? '🔴 CRITICAL' : (f.severity === 'HIGH' ? '🟠 HIGH' : '🟡 MEDIUM');
-        
-        commentBody += `#### ${badge} | **${f.type}** in \`${f.fileLocation}\`\n`;
-        commentBody += `> ${f.explanation}\n\n`;
-        
-        commentBody += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
-        commentBody += `${f.remediation}\n\n`;
-        commentBody += `</details>\n\n`;
-        commentBody += `---\n\n`;
+        const line = anchorLine(f);
+        if (line !== null) {
+          inlineComments.push({
+            path: f.fileLocation,
+            line,
+            body:
+              `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
+              `${f.explanation}\n\n` +
+              `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n` +
+              `${f.remediation}\n\n</details>`,
+          });
+        } else {
+          summaryFindings.push(f);
+        }
       });
+
+      const renderSummary = (findingsToRender: any[]) => {
+        let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
+        body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies. Please review them before merging.\n\n`;
+        if (inlineComments.length > 0 && findingsToRender.length < enrichedFindings.length) {
+          body += `📍 **${inlineComments.length}** finding(s) are annotated inline on the exact changed lines below.\n\n`;
+        }
+        findingsToRender.forEach((f: any) => {
+          body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
+          body += `> ${f.explanation}\n\n`;
+          body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
+          body += `${f.remediation}\n\n`;
+          body += `</details>\n\n`;
+          body += `---\n\n`;
+        });
+        return body;
+      };
+
+      // Try to post the anchored findings as an inline review. If that fails
+      // (e.g. a line slipped past the guard), fall back to a summary comment
+      // that contains every finding so a bad line never breaks the webhook.
+      let inlinePosted = false;
+      if (inlineComments.length > 0) {
+        try {
+          await octokit.rest.pulls.createReview({
+            owner: repository.owner.login,
+            repo: repository.name,
+            pull_number: pull_request.number,
+            commit_id: pull_request.head.sha,
+            event: 'COMMENT',
+            body: renderSummary(summaryFindings),
+            comments: inlineComments,
+          });
+          inlinePosted = true;
+        } catch (err: any) {
+          console.error(`[REVIEW] Failed to post inline review comments, falling back to summary comment: ${err.message}`);
+        }
+      }
 
       await octokit.rest.issues.updateComment({
         owner: repository.owner.login,
         repo: repository.name,
         comment_id: pendingComment.data.id,
-        body: commentBody,
+        // When inline posting succeeded, the pending comment only needs the
+        // non-anchored findings; otherwise it carries the full report.
+        body: renderSummary(inlinePosted ? summaryFindings : enrichedFindings),
       });
 
       if (userId) {
@@ -255,7 +348,11 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
             userId: userId,
             action: 'PR Comment Posted',
             resource: `${repository.full_name}#${pull_request.number}`,
-            metadata: { commentType: 'AI Security Report', findingsReported: enrichedFindings.length }
+            metadata: {
+              commentType: 'AI Security Report',
+              findingsReported: enrichedFindings.length,
+              inlineComments: inlinePosted ? inlineComments.length : 0,
+            }
           }
         });
       }
@@ -299,6 +396,8 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
               type: f.type,
               severity: f.severity,
               fileLocation: f.fileLocation,
+              lineStart: typeof f.lineStart === 'number' ? f.lineStart : null,
+              lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : null,
               codeSnippet: f.codeSnippet || null,
               explanation: f.explanation || null,
               remediation: f.remediation || null
