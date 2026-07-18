@@ -111,9 +111,9 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         where: { userId }
       });
       
-      const toggleMap = new Map(userToggles.map(t => [t.policyTemplateId, t.isActive]));
+      const toggleMap = new Map(userToggles.map((t: any) => [t.policyTemplateId, t.isActive]));
       
-      activePolicies = templates.filter(template => {
+      activePolicies = templates.filter((template: any) => {
         return toggleMap.has(template.id) 
           ? toggleMap.get(template.id) 
           : template.isDefault;

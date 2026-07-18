@@ -42,7 +42,7 @@ export default async function OverviewPage() {
     orderBy: { createdAt: 'desc' },
     include: { repository: true }
   });
-  const recentPRs = recentPRsRaw.map(pr => ({
+  const recentPRs = recentPRsRaw.map((pr: any) => ({
     ...pr,
     githubId: pr.githubId.toString(),
     repository: { ...pr.repository, githubId: pr.repository.githubId.toString() }
@@ -76,7 +76,7 @@ export default async function OverviewPage() {
   });
 
   // Group scans by date
-  const scansByDate = recentScans.reduce((acc: Record<string, number>, scan) => {
+  const scansByDate = recentScans.reduce((acc: Record<string, number>, scan: any) => {
     const date = scan.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     acc[date] = (acc[date] || 0) + 1;
     return acc;

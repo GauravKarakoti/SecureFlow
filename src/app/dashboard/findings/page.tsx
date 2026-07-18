@@ -50,7 +50,7 @@ export default async function FindingsPage() {
       }
     }
   });
-  const findings = findingsRaw.map(f => ({
+  const findings = findingsRaw.map((f: any) => ({
     ...f,
     scanResult: {
       ...f.scanResult,

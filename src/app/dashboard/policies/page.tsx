@@ -53,9 +53,9 @@ export default async function PoliciesPage() {
     where: { userId }
   });
 
-  const toggleMap = new Map(userToggles.map(t => [t.policyTemplateId, t.isActive]));
+  const toggleMap = new Map(userToggles.map((t: any) => [t.policyTemplateId, t.isActive]));
 
-  const policiesToRender = templates.map(template => {
+  const policiesToRender = templates.map((template: any) => {
     const isActive = toggleMap.has(template.id) 
       ? toggleMap.get(template.id) 
       : template.isDefault;
@@ -69,7 +69,7 @@ export default async function PoliciesPage() {
   const userScope = armoriqClient?.forUser(userEmail);
   void userScope; // reserved for upcoming per-user intent-token enforcement
   const armoriqConfigured = ArmorIQService.isConfigured();
-  const activePolicies = policiesToRender.filter(p => p.isActive);
+  const activePolicies = policiesToRender.filter((p: any) => p.isActive);
   const compiledPolicy = ArmorIQService.compileToArmorIQPolicy(activePolicies);
 
   return (
@@ -111,7 +111,7 @@ export default async function PoliciesPage() {
           </div>
         )}
         
-        {policiesToRender.map((policy) => {
+        {policiesToRender.map((policy: any) => {
           const rulesMeta = (policy.rules as any) || {};
           const conditions = Array.isArray(rulesMeta) ? rulesMeta : rulesMeta.conditions || [];
           

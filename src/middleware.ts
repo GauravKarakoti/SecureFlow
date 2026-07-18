@@ -20,6 +20,12 @@ export default auth(async function middleware(request: any) {
   
   // RBAC Admin Route Guarding
   if (request.nextUrl.pathname.startsWith('/admin')) {
+    if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+      const mockSession = request.cookies.get("mock-session")?.value;
+      if (mockSession === "admin") {
+        return NextResponse.next();
+      }
+    }
     const roles = (token?.user?.roles as string[]) || [];
     if (!token || !roles.includes("ADMIN")) {
       return NextResponse.redirect(new URL('/', request.nextUrl));

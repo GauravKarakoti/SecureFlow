@@ -11,8 +11,8 @@ test('login page renders and starts GitHub sign-in', async ({ page }) => {
 
   await cta.click();
 
-  // Auth.js redirects into its own flow. We assert we leave the login route.
-  await expect(page).not.toHaveURL(/\/login/);
+  // Auth.js redirects into its own flow. We assert we leave the local login route.
+  await expect(page).not.toHaveURL(/localhost:\d+\/login(?:$|\?)/);
 
   // Auth.js typically routes into its own sign-in/authorize endpoints.
   await expect(page.url()).toMatch(/api\/auth|callback|github/i);

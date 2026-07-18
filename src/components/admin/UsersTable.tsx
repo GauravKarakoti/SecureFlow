@@ -202,7 +202,7 @@ export default function UsersTable({
                       </span>
                     </td>
                     <td className="px-6 py-4 font-mono text-zinc-300">{u.repoCount}</td>
-                    <td className="px-6 py-4 text-zinc-500 font-mono text-xs">
+                    <td className="px-6 py-4 text-zinc-500 font-mono text-xs" suppressHydrationWarning>
                       {new Date(u.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">

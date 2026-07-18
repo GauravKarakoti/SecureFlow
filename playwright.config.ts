@@ -22,6 +22,10 @@ export default defineConfig({
     timeout: 120_000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      NEXT_PUBLIC_MOCK_DB: 'true',
+      NEXT_PUBLIC_MOCK_AUTH: 'true',
+    },
   },
 
   projects: [

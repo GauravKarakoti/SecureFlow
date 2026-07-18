@@ -18,6 +18,16 @@ export async function getQueueMetrics(): Promise<{
     throw new Error("Unauthorized");
   }
 
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return {
+      waiting: 2,
+      active: 1,
+      completed: 15,
+      failed: 0,
+      delayed: 0,
+    };
+  }
+
   const counts = await webhookQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
   const dlqCounts = await webhookDLQ.getJobCounts('waiting');
   
@@ -85,6 +95,17 @@ export async function getDLQJobs() {
     throw new Error("Unauthorized");
   }
 
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return [
+      {
+        id: "mock-dlq-1",
+        name: "webhook-scan",
+        data: { repository: "mock-owner/mock-repo", event: "pull_request" },
+        timestamp: Date.now() - 60000,
+      }
+    ];
+  }
+
   const jobs = await webhookDLQ.getJobs(['waiting']);
   return jobs.map((job) => ({
     id: job.id!,
@@ -100,6 +121,10 @@ export async function requeueDLQJob(jobId: string) {
 
   if (!roles.includes("ADMIN")) {
     throw new Error("Unauthorized");
+  }
+
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return { success: true };
   }
 
   const job = await webhookDLQ.getJob(jobId);
@@ -123,6 +148,10 @@ export async function deleteDLQJob(jobId: string) {
 
   if (!roles.includes("ADMIN")) {
     throw new Error("Unauthorized");
+  }
+
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return { success: true };
   }
 
   const job = await webhookDLQ.getJob(jobId);
