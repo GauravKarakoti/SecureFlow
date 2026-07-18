@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { redis } from './redis';
+import { webhookDLQ } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
 import { iq } from '@/lib/armor/iq';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
@@ -312,4 +313,29 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 }, { connection: redis as any });
 
 worker.on('completed', (job) => console.log(`[QUEUE] Job ${job.id} completed.`));
-worker.on('failed', (job, err) => console.error(`[DLQ] Job ${job?.id} failed permanently: ${err.message}`));
+worker.on('failed', async (job, err) => {
+  if (!job) return;
+  const maxAttempts = job.opts.attempts || 1;
+  if (job.attemptsMade >= maxAttempts) {
+    console.error(`[DLQ] Job ${job.id} failed permanently: ${err.message}`);
+    try {
+      await webhookDLQ.add(
+        'process-webhook-dlq',
+        {
+          originalJobId: job.id,
+          data: job.data,
+          failedReason: err.message,
+          failedAt: new Date().toISOString(),
+          attemptsMade: job.attemptsMade,
+        },
+        {
+          attempts: 1,
+        }
+      );
+    } catch (dlqErr: any) {
+      console.error(`Failed to route job ${job.id} to DLQ:`, dlqErr.message);
+    }
+  } else {
+    console.warn(`[QUEUE] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}): ${err.message}`);
+  }
+});

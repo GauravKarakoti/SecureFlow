@@ -1,10 +1,13 @@
-import { getQueueMetrics } from '@/lib/actions/queue';
+import { getQueueMetrics, getDLQJobs } from '@/lib/actions/queue';
 import { Activity, CheckCircle, Clock, AlertTriangle, AlertOctagon, ShieldAlert } from 'lucide-react';
+import DLQTable from '@/components/admin/DLQTable';
 
 export const dynamic = 'force-dynamic';
 
+
 export default async function QueueMonitorPage() {
   const metrics = await getQueueMetrics();
+  const dlqJobs = await getDLQJobs();
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -103,6 +106,16 @@ export default async function QueueMonitorPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-4 mt-6">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl font-bold tracking-tight">Dead-Letter Queue (DLQ)</h2>
+          <p className="text-sm text-muted-foreground">
+            Review and recover jobs that permanently failed after exceeding maximum retries.
+          </p>
+        </div>
+        <DLQTable initialJobs={dlqJobs} />
       </div>
     </div>
   );

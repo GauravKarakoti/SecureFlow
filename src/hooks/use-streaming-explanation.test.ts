@@ -22,6 +22,14 @@ vi.mock('react', () => {
   };
 });
 
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+    dismiss: vi.fn(),
+    toasts: [],
+  }),
+}));
+
 // ---- SSE stream helpers ----
 
 function makeSSEStream(lines: string[]): ReadableStream<Uint8Array> {
