@@ -2,6 +2,7 @@
   "name": "secureflow",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
@@ -103,5 +104,4 @@
     "typescript": "^6",
     "vitest": "^4.1.10"
   }
-
 }
