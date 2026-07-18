@@ -71,7 +71,7 @@ function createMockPrismaClient() {
         return [
           {
             id: 'pr-1',
-            githubId: 1001n,
+            githubId: BigInt(1001),
             prNumber: 42,
             title: 'Mock PR: Fix SQL Injection',
             state: 'open',
@@ -80,7 +80,7 @@ function createMockPrismaClient() {
             authorAvatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
             repositoryId: 'repo-1',
             createdAt: new Date(),
-            repository: { id: 'repo-1', githubId: 123456n, fullName: 'mock-owner/mock-repo', owner: 'mock-owner' }
+            repository: { id: 'repo-1', githubId: BigInt(123456), fullName: 'mock-owner/mock-repo', owner: 'mock-owner' }
           }
         ];
       }
@@ -163,7 +163,7 @@ function createMockPrismaClient() {
       if (method === 'upsert') {
         return {
           id: 'repo-1',
-          githubId: args[0]?.create?.githubId || 123456n,
+          githubId: args[0]?.create?.githubId || BigInt(123456),
           fullName: args[0]?.create?.fullName || 'mock-owner/mock-repo',
           owner: args[0]?.create?.owner || 'mock-owner',
           userId: args[0]?.create?.userId || 'mock-admin-id',

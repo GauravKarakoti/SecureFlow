@@ -27,13 +27,13 @@ export default async function GitHubSetupPage({
 
   if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
     await prisma.repository.upsert({
-      where: { githubId: 123456n },
+      where: { githubId: BigInt(123456) },
       update: { 
         isActive: true,
         userId: userId
       }, 
       create: {
-        githubId: 123456n,
+        githubId: BigInt(123456),
         fullName: 'mock-owner/mock-repo',
         owner: 'mock-owner',
         userId: userId,
