@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Minimal React stubs so the hook module loads in a Node environment.
+const states: Map<number, unknown> = new Map();
+let idx = 0;
+
 vi.mock('react', () => {
-  const states: Map<number, unknown> = new Map();
-  let idx = 0;
-  return {
+  const React = {
     useState: (initial: unknown) => {
       const id = idx++;
       if (!states.has(id)) states.set(id, initial);
@@ -19,8 +20,24 @@ vi.mock('react', () => {
     },
     useCallback: (fn: unknown) => fn,
     useRef: (initial: unknown) => ({ current: initial }),
+    useEffect: (fn: () => void | (() => void)) => {
+      // Execute cleanup immediately for tests
+      const cleanup = fn();
+      if (typeof cleanup === 'function') {
+        cleanup();
+      }
+    },
   };
+  return React;
 });
+
+// Mock useToast to avoid complex dependencies
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
 
 // ---- SSE stream helpers ----
 
@@ -45,11 +62,11 @@ describe('useStreamingExplanation', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    (globalThis as any).fetch = fetchMock;
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    delete (globalThis as any).fetch;
   });
 
   it('sets isStreaming=true immediately after start() is called', async () => {
