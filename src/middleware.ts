@@ -18,6 +18,41 @@ export default auth(async function middleware(request: any) {
     }
   }
   
+  let hasSession = !!token?.user;
+  let hasCodename = !!token?.user?.codename;
+
+  if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+    const mockSession = request.cookies.get("mock-session")?.value;
+    if (mockSession === "admin" || mockSession === "user") {
+      hasSession = true;
+      hasCodename = true;
+    } else if (mockSession === "nocodename") {
+      hasSession = true;
+      hasCodename = false;
+    }
+  }
+
+  const isSetupCodename = request.nextUrl.pathname === '/setup/codename';
+
+  if (!hasSession && isSetupCodename) {
+    return NextResponse.redirect(new URL('/login', request.nextUrl));
+  }
+
+  if (hasSession && !hasCodename && !isSetupCodename) {
+    const isTargetRoute = 
+      request.nextUrl.pathname.startsWith('/dashboard') || 
+      request.nextUrl.pathname.startsWith('/admin') ||
+      request.nextUrl.pathname.startsWith('/setup');
+
+    if (isTargetRoute) {
+      return NextResponse.redirect(new URL('/setup/codename', request.nextUrl));
+    }
+  }
+
+  if (hasSession && hasCodename && isSetupCodename) {
+    return NextResponse.redirect(new URL('/dashboard', request.nextUrl));
+  }
+
   // RBAC Admin Route Guarding
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {

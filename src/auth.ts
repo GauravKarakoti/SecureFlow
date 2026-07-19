@@ -12,11 +12,9 @@ const nextAuthResult = NextAuth({
   adapter: {
     ...PrismaAdapter(prisma),
     createUser: async (user: any) => {
-      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
       return prisma.user.create({
         data: {
           ...user,
-          codename,
           roles: {
             create: [{
               role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
@@ -52,8 +50,8 @@ const nextAuthResult = NextAuth({
         
         token.roles = dbUser?.roles.map((r: any) => r.role.name) || [];
         
-        // Failsafe: grab the codename if the old token was missing it
-        if (!token.codename && dbUser?.codename) {
+        // Grab the latest codename from the database
+        if (dbUser) {
           token.codename = dbUser.codename;
         }
       }
@@ -103,6 +101,17 @@ export const auth = async (...args: any[]) => {
           email: "user@secureflow.test",
           roles: ["USER"],
           codename: "Rio",
+        },
+        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
+      } as any;
+    } else if (mockSessionCookie === "nocodename") {
+      return {
+        user: {
+          id: "mock-nocodename-id",
+          name: "Mock No Codename",
+          email: "nocodename@secureflow.test",
+          roles: ["USER"],
+          codename: null,
         },
         expires: new Date(Date.now() + 3600 * 1000).toISOString(),
       } as any;
