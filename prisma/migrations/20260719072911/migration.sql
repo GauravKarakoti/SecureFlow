@@ -16,9 +16,6 @@ CREATE TABLE "FindingTriage" (
 );
 
 -- CreateIndex
-CREATE INDEX "Finding_fingerprint_idx" ON "Finding"("fingerprint");
-
--- CreateIndex
 CREATE INDEX "FindingTriage_repositoryId_idx" ON "FindingTriage"("repositoryId");
 
 -- CreateIndex
@@ -26,6 +23,9 @@ CREATE INDEX "FindingTriage_fingerprint_idx" ON "FindingTriage"("fingerprint");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "FindingTriage_repositoryId_fingerprint_key" ON "FindingTriage"("repositoryId", "fingerprint");
+
+-- CreateIndex
+CREATE INDEX "Finding_fingerprint_idx" ON "Finding"("fingerprint");
 
 -- AddForeignKey
 ALTER TABLE "FindingTriage" ADD CONSTRAINT "FindingTriage_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;
