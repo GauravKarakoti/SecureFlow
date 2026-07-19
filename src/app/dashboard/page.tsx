@@ -2,37 +2,44 @@ import prisma from "@/lib/prisma";
 import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { getUserTriage } from "@/lib/triage/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const session = await auth();
-  
+
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
-  
+
   const userId = session.user.id;
+
+  // Dismissed (FALSE_POSITIVE / IGNORED) findings must not count toward the
+  // finding tiles or the severity distribution. Exclude them by fingerprint.
+  const { suppressedFingerprints } = await getUserTriage(userId);
+  const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
 
   // 1. Fetch High-level Stats (Filtered by user's repositories)
   const totalScans = await prisma.scanResult.count({
     where: { pullRequest: { repository: { userId } } }
   });
-  
-  const blockedPRs = await prisma.pullRequest.count({ 
-    where: { status: 'BLOCKED', repository: { userId } } 
+
+  const blockedPRs = await prisma.pullRequest.count({
+    where: { status: 'BLOCKED', repository: { userId } }
   });
-  
-  const approvedPRs = await prisma.pullRequest.count({ 
-    where: { status: 'PASS', repository: { userId } } 
+
+  const approvedPRs = await prisma.pullRequest.count({
+    where: { status: 'PASS', repository: { userId } }
   });
-  
+
   // FIX: Categorize all variation of secrets
-  const secretsDetected = await prisma.finding.count({ 
-    where: { 
-      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] }, 
-      scanResult: { pullRequest: { repository: { userId } } } 
-    } 
+  const secretsDetected = await prisma.finding.count({
+    where: {
+      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] },
+      scanResult: { pullRequest: { repository: { userId } } },
+      ...notDismissed
+    }
   });
 
   // 2. Fetch Recent Pull Requests
@@ -48,18 +55,18 @@ export default async function OverviewPage() {
     repository: { ...pr.repository, githubId: pr.repository.githubId.toString() }
   }));
 
-  // 3. Fetch Severity Distribution
-  const critical = await prisma.finding.count({ 
-    where: { severity: 'CRITICAL', scanResult: { pullRequest: { repository: { userId } } } } 
+  // 3. Fetch Severity Distribution (dismissed findings excluded)
+  const critical = await prisma.finding.count({
+    where: { severity: 'CRITICAL', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
   });
-  const high = await prisma.finding.count({ 
-    where: { severity: 'HIGH', scanResult: { pullRequest: { repository: { userId } } } } 
+  const high = await prisma.finding.count({
+    where: { severity: 'HIGH', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
   });
-  const medium = await prisma.finding.count({ 
-    where: { severity: 'MEDIUM', scanResult: { pullRequest: { repository: { userId } } } } 
+  const medium = await prisma.finding.count({
+    where: { severity: 'MEDIUM', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
   });
-  const low = await prisma.finding.count({ 
-    where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } } } 
+  const low = await prisma.finding.count({
+    where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
   });
 
   // 4. FIX: Generate real Chart Data (Last 7 days of scans)

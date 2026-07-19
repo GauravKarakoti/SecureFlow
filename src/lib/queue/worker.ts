@@ -3,6 +3,7 @@ import { redis } from './redis';
 import { webhookDLQ } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
 import { iq } from '@/lib/armor/iq';
+import { computeFingerprint } from '@/lib/armor/fingerprint';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import prisma from '@/lib/prisma';
@@ -217,7 +218,34 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
       customIgnores,
       customPlaceholders
     );
-    
+
+    // Attach a stable content fingerprint to every finding so triage decisions
+    // can be keyed off it and survive the latest-wins re-scan. When the repo
+    // isn't in our DB there's nothing to triage against, so use an empty id.
+    findings.forEach((f: any) => {
+      f.fingerprint = computeFingerprint(dbRepo?.id ?? '', f.fileLocation, f.type, f.codeSnippet);
+    });
+
+    // Fingerprints the user has dismissed (false positive / ignored) for this
+    // repo. These must not BLOCK the PR or inflate the risk score, even though
+    // the scanner keeps re-detecting them on each push.
+    const suppressedFingerprints = new Set<string>();
+    if (dbRepo) {
+      const dismissed = await prisma.findingTriage.findMany({
+        where: {
+          repositoryId: dbRepo.id,
+          status: { in: ['FALSE_POSITIVE', 'IGNORED'] },
+        },
+        select: { fingerprint: true },
+      });
+      dismissed.forEach((t: { fingerprint: string }) => suppressedFingerprints.add(t.fingerprint));
+    }
+
+    // Findings that still count toward enforcement — everything the user hasn't
+    // dismissed. The full `findings` list is still persisted below (with its
+    // fingerprint) so the dashboard can show dismissed items and left-join triage.
+    const activeFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
+
     const enrichedFindings = await Promise.all(findings.map(async (finding: any) => {
       const aiResponse = await developerReceivesAISecurityExplanations({
         findingType: finding.type,
@@ -233,9 +261,11 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
       };
     }));
 
-    const decision = iq.evaluateFindings(findings);
+    // Evaluate only the findings the user hasn't dismissed, so a triaged-away
+    // critical no longer BLOCKs the PR on every subsequent re-scan.
+    const decision = iq.evaluateFindings(activeFindings);
     const conclusion = decision === 'PASS' ? 'success' : (decision === 'REVIEW REQUIRED' ? 'action_required' : 'failure');
-    
+
     if (userId) {
       await prisma.auditLog.create({
         data: {
@@ -243,7 +273,10 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
           action: 'Policy Evaluation',
           resource: `${repository.full_name}#${pull_request.number}`,
           decision: decision,
-          metadata: { findingsCount: findings.length }
+          metadata: {
+            findingsCount: activeFindings.length,
+            suppressedCount: findings.length - activeFindings.length,
+          }
         }
       });
     }
@@ -383,8 +416,10 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         }
       });
 
+      // Risk score ignores dismissed findings so triaged-away issues stop
+      // counting toward the stored score (and the risk-trend average).
       const severityScores: Record<string, number> = { CRITICAL: 10, HIGH: 5, MEDIUM: 3, LOW: 1 };
-      const riskScore = findings.reduce((score: number, f: any) => score + (severityScores[f.severity.toUpperCase()] || 0), 0);
+      const riskScore = activeFindings.reduce((score: number, f: any) => score + (severityScores[f.severity.toUpperCase()] || 0), 0);
 
       await prisma.scanResult.create({
         data: {
@@ -400,7 +435,8 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
               lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : null,
               codeSnippet: f.codeSnippet || null,
               explanation: f.explanation || null,
-              remediation: f.remediation || null
+              remediation: f.remediation || null,
+              fingerprint: f.fingerprint
             }))
           }
         }
