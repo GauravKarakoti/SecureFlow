@@ -7,6 +7,15 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
+import FindingTriageControls from "./finding-triage-controls";
+import { TriageStatus } from "@/lib/actions/triage";
+
+const TRIAGE_LABELS: Record<string, string> = {
+  OPEN: "Open",
+  RESOLVED: "Resolved",
+  FALSE_POSITIVE: "False positive",
+  IGNORED: "Ignored",
+};
 
 interface FindingsClientProps {
   findings: any[];
@@ -86,6 +95,11 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                         ⚠️ Verify manually
                       </Badge>
                     )}
+                    {finding.triageStatus && finding.triageStatus !== "OPEN" && (
+                      <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground" title="Triage status">
+                        {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                      </Badge>
+                    )}
                     <Badge className={theme.badgeClass} title={`Raw severity: ${finding.severity}`}>
                       {theme.label}
                     </Badge>
@@ -112,6 +126,15 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                           {finding.remediation || 'Follow standard security practices to resolve this.'}
                         </div>
                       </div>
+
+                      {finding.repositoryId && finding.fingerprint && (
+                        <FindingTriageControls
+                          repositoryId={finding.repositoryId}
+                          fingerprint={finding.fingerprint}
+                          currentStatus={(finding.triageStatus ?? 'OPEN') as TriageStatus}
+                          currentNote={finding.triageNote ?? null}
+                        />
+                      )}
                     </div>
 
                     <div className="space-y-4">
