@@ -45,7 +45,7 @@ export default function CodenameSetupPage() {
       if (result.ok) {
         // Trigger NextAuth session update to sync the new codename
         await update();
-        useRouterResult.push("/dashboard");
+        window.location.href = "/dashboard";
       } else {
         setError(result.error || "Failed to update codename.");
       }
