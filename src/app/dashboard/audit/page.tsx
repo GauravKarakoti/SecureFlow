@@ -19,6 +19,9 @@ export default async function AuditPage() {
 
   const userId = session.user.id;
 
+  // eslint-disable-next-line react-hooks/purity -- server component, computing "24h ago" cutoff for a DB query, not a client render value
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
   const [initialResult, filters, activeReposCount, actions24hCount] =
     await Promise.all([
       getUserAuditLogs({ page: 1, pageSize: 10 }),
@@ -27,7 +30,7 @@ export default async function AuditPage() {
       prisma.auditLog.count({
         where: {
           userId,
-          timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          timestamp: { gte: yesterday },
         },
       }),
     ]);

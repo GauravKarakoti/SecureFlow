@@ -231,44 +231,6 @@ export default function AuditLogTable({
                       </span>
                     </TableCell>
                   </TableRow>
-                  {log.decision === "PASS" && (
-                    <TableRow>
-                      <TableCell colSpan={5}>
-                        <div className="mt-4">
-                          <details className="group border border-red-500/20 bg-black rounded-lg p-4 cursor-pointer">
-                            <summary className="text-red-500 font-bold outline-none flex items-center justify-between">
-                              <span>📥 Reveal Heist Success Card</span>
-                              <span className="text-xs text-red-500/70 group-open:hidden">
-                                Click to expand
-                              </span>
-                            </summary>
-
-                            <div className="mt-6 flex flex-col items-center">
-                              <img
-                                src={`/api/og/heist?project=${encodeURIComponent(
-                                  log.resource || "The Royal Mint"
-                                )}`}
-                                alt="Heist Success Card"
-                                className="w-full max-w-2xl rounded-md border border-red-900/50 shadow-2xl mb-6"
-                              />
-                              <a
-                                href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=${encodeURIComponent(
-                                  `https://secure-flow-six.vercel.app/share/heist?project=${
-                                    log.resource || "The Royal Mint"
-                                  }`
-                                )}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"
-                              >
-                                Broadcast to the Resistance 📢
-                              </a>
-                            </div>
-                          </details>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </React.Fragment>
               ))
             )}
