@@ -130,6 +130,10 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: [quality-gate, test]
+    env:
+      NEXT_PUBLIC_MOCK_DB: 'true'
+      NEXT_PUBLIC_MOCK_AUTH: 'true'
+      CI: 'true'
 
     steps:
       - name: Checkout repository
@@ -176,13 +180,11 @@ jobs:
         if: steps.node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      - name: Install Playwright Browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps
+      - name: Generate Prisma Client
+        run: npx prisma generate
 
-      - name: Install Playwright OS Dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps
+      - name: Install Playwright Browsers & Dependencies
+        run: npx playwright install --with-deps chromium
 
       - name: Run E2E Tests
         run: npm run test:e2e
