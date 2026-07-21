@@ -450,9 +450,9 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 worker.on('completed', (job) => console.log(`[QUEUE] Job ${job.id} completed.`));
 worker.on('failed', async (job, err) => {
   if (!job) return;
-  const maxAttempts = job.opts.attempts || 1;
+  const maxAttempts = job.opts.attempts || 3;
   if (job.attemptsMade >= maxAttempts) {
-    console.error(`[DLQ] Job ${job.id} failed permanently: ${err.message}`);
+    console.error(`[DLQ] Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${err.message}`);
     try {
       await webhookDLQ.add(
         'process-webhook-dlq',
@@ -471,6 +471,6 @@ worker.on('failed', async (job, err) => {
       console.error(`Failed to route job ${job.id} to DLQ:`, dlqErr.message);
     }
   } else {
-    console.warn(`[QUEUE] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}): ${err.message}`);
+    console.warn(`[QUEUE] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}), retrying with exponential backoff: ${err.message}`);
   }
 });
