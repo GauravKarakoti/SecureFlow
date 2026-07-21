@@ -95,6 +95,54 @@ describe('Webhook Worker DLQ Routing', () => {
 
     expect(mockDLQAdd).not.toHaveBeenCalled();
   });
+
+  it('uses default maxAttempts of 3 when job.opts.attempts is missing (retry on attempt 2)', async () => {
+    await import('./worker');
+
+    const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
+    const failedHandler = failedHandlerCall![1];
+
+    const mockJob = {
+      id: 'job-no-opts-retry',
+      name: 'process-webhook',
+      data: { event: 'pull_request', payload: { action: 'opened' } },
+      attemptsMade: 2,
+      opts: {},
+    };
+    const mockError = new Error('Database connection timeout');
+
+    await failedHandler(mockJob, mockError);
+
+    expect(mockDLQAdd).not.toHaveBeenCalled();
+  });
+
+  it('uses default maxAttempts of 3 when job.opts.attempts is missing (DLQ on attempt 3)', async () => {
+    await import('./worker');
+
+    const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
+    const failedHandler = failedHandlerCall![1];
+
+    const mockJob = {
+      id: 'job-no-opts-dlq',
+      name: 'process-webhook',
+      data: { event: 'pull_request', payload: { action: 'opened' } },
+      attemptsMade: 3,
+      opts: {},
+    };
+    const mockError = new Error('Database connection timeout');
+
+    await failedHandler(mockJob, mockError);
+
+    expect(mockDLQAdd).toHaveBeenCalledWith(
+      'process-webhook-dlq',
+      expect.objectContaining({
+        originalJobId: 'job-no-opts-dlq',
+        failedReason: 'Database connection timeout',
+        attemptsMade: 3,
+      }),
+      { attempts: 1 }
+    );
+  });
 });
 
 describe('getCommentableLines (diff-position guard)', () => {
