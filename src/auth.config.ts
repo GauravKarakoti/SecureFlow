@@ -32,7 +32,7 @@ export default {
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
           userId: user.id,
-          codename: (user as any).codename,
+          codename: (user as any).codename ?? token.codename ?? null,
           roles: (user as any).roles || token.roles || [],
         };
       }
