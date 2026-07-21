@@ -1,3 +1,22 @@
+/* ── Orbitron — local copy lives in src/assets/fonts/ ──────────────────────
+   Used by the heist transmission page for the "Professor" streaming text.
+   Both weights are registered so the bold variant is available if needed. */
+@font-face {
+  font-family: "Orbitron";
+  src: url("/fonts/Orbitron-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Orbitron";
+  src: url("/fonts/Orbitron-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 

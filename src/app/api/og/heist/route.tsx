@@ -29,10 +29,24 @@ export async function GET(req: NextRequest) {
 
     const rawScore = Number(searchParams.get('score') ?? 100);
 
-    const score = Math.max(
+    const scoreNum = Math.max(
       0,
       Math.min(100, Number.isNaN(rawScore) ? 100 : rawScore)
-    ).toString();
+    );
+    const score = scoreNum.toString();
+
+    const rawRank = searchParams.get('rank')?.trim().toUpperCase();
+    const validRanks = new Set(['S', 'A', 'B', 'C', 'D']);
+    const rank = rawRank && validRanks.has(rawRank) ? rawRank : undefined;
+
+    const rawFindings = searchParams.get('findingsCount') ?? searchParams.get('findings');
+    const findingsCount =
+      rawFindings !== null && rawFindings !== undefined && !Number.isNaN(Number(rawFindings))
+        ? Math.max(0, Number(rawFindings)).toString()
+        : undefined;
+
+    const rawStolen = searchParams.get('stolen') ?? searchParams.get('amount');
+    const stolen = rawStolen ? rawStolen.trim().slice(0, 30) : undefined;
 
     const timestamp =
       searchParams.get('timestamp') ||
@@ -106,15 +120,40 @@ export async function GET(req: NextRequest) {
             <div
               style={{
                 display: 'flex',
-                padding: '14px 28px',
-                borderRadius: 9999,
-                background: '#ef4444',
-                color: '#ffffff',
-                fontSize: 24,
-                fontWeight: 700,
+                alignItems: 'center',
+                gap: 16,
               }}
             >
-              {alias}
+              {rank && (
+                <div
+                  style={{
+                    display: 'flex',
+                    padding: '10px 20px',
+                    borderRadius: 8,
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    border: '2px solid #ef4444',
+                    color: '#ffffff',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    letterSpacing: 2,
+                  }}
+                >
+                  {`RANK ${rank}`}
+                </div>
+              )}
+              <div
+                style={{
+                  display: 'flex',
+                  padding: '14px 28px',
+                  borderRadius: 9999,
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  fontSize: 24,
+                  fontWeight: 700,
+                }}
+              >
+                {alias}
+              </div>
             </div>
           </div>
 
@@ -183,6 +222,38 @@ export async function GET(req: NextRequest) {
                 {score}
               </span>
             </div>
+
+            {(findingsCount !== undefined || stolen) && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                {findingsCount !== undefined && (
+                  <span
+                    style={{
+                      color: '#a1a1aa',
+                      fontSize: 22,
+                    }}
+                  >
+                    Findings Logged: <span style={{ color: '#ffffff', fontWeight: 700 }}>{findingsCount}</span>
+                  </span>
+                )}
+                {stolen && (
+                  <span
+                    style={{
+                      color: '#f59e0b',
+                      fontSize: 22,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Stolen: {stolen}
+                  </span>
+                )}
+              </div>
+            )}
 
             <div
               style={{

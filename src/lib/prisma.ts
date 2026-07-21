@@ -215,13 +215,44 @@ function createMockPrismaClient() {
   return new Proxy({}, handler);
 }
 
+/**
+ * Resolves the database connection string based on environment settings.
+ * In production serverless environments, prioritizes DATABASE_POOL_URL (e.g. PgBouncer or Neon connection pooler)
+ * to manage connections effectively across multiple serverless function instances.
+ * Falls back to DATABASE_URL if DATABASE_POOL_URL is not set.
+ */
+export function getDatabaseConnectionString(): string | undefined {
+  if (process.env.NODE_ENV === 'production' && process.env.DATABASE_POOL_URL) {
+    return process.env.DATABASE_POOL_URL;
+  }
+  return process.env.DATABASE_POOL_URL || process.env.DATABASE_URL;
+}
+
+/**
+ * Returns PostgreSQL pool options optimized for serverless deployments.
+ * Caps the maximum pool size (defaulting to 10 or DB_POOL_MAX env var)
+ * and configures idle/connection timeouts to prevent connection exhaustion.
+ */
+export function getPgPoolConfig(overrideConnectionString?: string) {
+  const connectionString = overrideConnectionString || getDatabaseConnectionString();
+  const max = process.env.DB_POOL_MAX
+    ? parseInt(process.env.DB_POOL_MAX, 10)
+    : 10;
+
+  return {
+    connectionString,
+    max,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  };
+}
+
 const prismaClientSingleton = () => {
   if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
     return createMockPrismaClient() as any;
   }
-  // 1. Initialize a connection pool using the standard pg driver
-  const connectionString = process.env.DATABASE_URL;
-  const pool = new Pool({ connectionString });
+  // 1. Initialize a connection pool using the standard pg driver with serverless pooling config
+  const pool = new Pool(getPgPoolConfig());
   
   // 2. Wrap the pool in the Prisma pg adapter
   const adapter = new PrismaPg(pool);
