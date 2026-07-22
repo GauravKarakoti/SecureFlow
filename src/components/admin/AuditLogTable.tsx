@@ -57,7 +57,7 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
               <tr key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                 <td className="px-6 py-4 text-foreground">{log.action}</td>
                 <td className="px-6 py-4">{log.resource}</td>
-                <td className="px-6 py-4">
+                <td className="px-6 py-4" suppressHydrationWarning>
                   {new Date(log.timestamp).toLocaleString()}
                 </td>
               </tr>

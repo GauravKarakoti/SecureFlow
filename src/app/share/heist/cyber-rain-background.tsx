@@ -70,6 +70,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const columnsRef = useRef<Column[]>([]);
+  const isMountedRef = useRef<boolean>(true);
   // Mutable config kept in a ref so the animation loop reads live values
   // without needing to re-bind on every render.
   const configRef = useRef({
@@ -79,6 +80,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
   });
 
   useEffect(() => {
+    isMountedRef.current = true;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: true });
@@ -87,6 +89,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
     configRef.current.reducedMotion = mql.matches;
     const handleMotionChange = (e: MediaQueryListEvent) => {
+      if (!isMountedRef.current) return;
       configRef.current.reducedMotion = e.matches;
       if (e.matches) {
         if (rafRef.current !== null) {
@@ -103,11 +106,13 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
 
     function setupColumns() {
       const { columnWidth } = configRef.current;
-      const cols = Math.max(1, Math.floor(canvas!.width / columnWidth));
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const cols = Math.max(1, Math.floor(w / columnWidth));
       const arr: Column[] = [];
       for (let i = 0; i < cols; i++) {
         const isWord = Math.random() < 0.08;
-        arr.push(makeColumn(i * columnWidth, canvas!.height, isWord));
+        arr.push(makeColumn(i * columnWidth, h, isWord));
       }
       columnsRef.current = arr;
     }
@@ -127,19 +132,19 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
       };
     }
 
-    let resizePending = false;
+    let resizeRafId: number | null = null;
     const resize = () => {
-      if (resizePending) return;
-      resizePending = true;
-      requestAnimationFrame(() => {
-        resizePending = false;
+      if (resizeRafId !== null) return;
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null;
+        if (!isMountedRef.current || !canvas) return;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const w = window.innerWidth;
         const h = window.innerHeight;
-        canvas!.width = w * dpr;
-        canvas!.height = h * dpr;
-        canvas!.style.width = `${w}px`;
-        canvas!.style.height = `${h}px`;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
         ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
         configRef.current.columnWidth = w < 640 ? 14 : 16;
         configRef.current.fontSize = w < 640 ? 12 : 14;
@@ -152,6 +157,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     window.addEventListener("resize", resize);
 
     const handleVisibility = () => {
+      if (!isMountedRef.current) return;
       if (document.visibilityState === "hidden") {
         if (rafRef.current !== null) {
           cancelAnimationFrame(rafRef.current);
@@ -184,7 +190,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
 
       for (let i = 0; i < col.chars.length; i++) {
         const y = col.y - i * fontSize;
-        if (y < -fontSize || y > canvas!.height + fontSize) continue;
+        if (y < -fontSize || y > window.innerHeight + fontSize) continue;
         let color: string;
         if (i === 0) color = headColor;
         else if (i < col.trailLength * 0.4) color = bodyColor;
@@ -197,6 +203,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
 
     function step(col: Column) {
       const { fontSize } = configRef.current;
+      const h = window.innerHeight;
       col.y += col.speed;
       col.headFlicker++;
       if (col.headFlicker >= 3 + Math.floor(Math.random() * 5)) {
@@ -206,22 +213,23 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
       col.chars.unshift(nextChar(col));
       if (col.chars.length > col.trailLength) col.chars.pop();
 
-      if (col.y - col.trailLength * fontSize > canvas!.height) {
-        const fresh = makeColumn(col.x, canvas!.height, Math.random() < 0.08);
+      if (col.y - col.trailLength * fontSize > h) {
+        const fresh = makeColumn(col.x, h, Math.random() < 0.08);
         Object.assign(col, fresh);
       }
     }
 
     function drawStaticFrame() {
-      ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
+      if (!ctx || !canvas) return;
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       for (const col of columnsRef.current) {
         const count = 3 + Math.floor(Math.random() * 4);
         for (let i = 0; i < count; i++) {
           const y = Math.random() * window.innerHeight;
-          ctx!.fillStyle = col.dim
+          ctx.fillStyle = col.dim
             ? "rgba(244, 63, 94, 0.15)"
             : "rgba(239, 68, 68, 0.25)";
-          ctx!.fillText(
+          ctx.fillText(
             SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)],
             col.x,
             y,
@@ -231,6 +239,7 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     }
 
     function loop() {
+      if (!isMountedRef.current) return;
       ctx!.fillStyle = "rgba(0, 0, 0, 0.08)";
       ctx!.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
@@ -251,9 +260,13 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     }
 
     return () => {
+      isMountedRef.current = false;
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", handleVisibility);
       mql.removeEventListener("change", handleMotionChange);
+      if (resizeRafId !== null) {
+        cancelAnimationFrame(resizeRafId);
+      }
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -265,15 +278,9 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     <canvas
       ref={canvasRef}
       aria-hidden
+      className="fixed inset-0 w-full h-full z-0 pointer-events-none mix-blend-screen motion-reduce:hidden"
       style={{
-        position: "fixed",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        zIndex: 0,
-        pointerEvents: "none",
         opacity,
-        mixBlendMode: "screen",
       }}
     />
   );

@@ -144,6 +144,28 @@ describe('GET /api/og/heist', () => {
     expect(JSON.stringify(mockImageResponseConstructor.mock.calls[2][0])).toContain('100');
   });
 
+  it('renders dynamic rank, findingsCount, and stolen parameters', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest(
+      'http://localhost/api/og/heist?project=BankOfSpain&alias=Nairobi&score=95&rank=S&findingsCount=2&stolen=5000000'
+    );
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    expect(mockImageResponseConstructor).toHaveBeenCalledTimes(1);
+    const [element] = mockImageResponseConstructor.mock.calls[0];
+
+    const elementString = JSON.stringify(element);
+    expect(elementString).toContain('BankOfSpain');
+    expect(elementString).toContain('Nairobi');
+    expect(elementString).toContain('RANK S');
+    expect(elementString).toContain('Findings Logged');
+    expect(elementString).toContain('2');
+    expect(elementString).toContain('5000000');
+  });
+
   it('returns status 500 when font loading or parsing fails', async () => {
     // Override fetch mock to reject, simulating a network / file read failure
     vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Failed to load font files'));

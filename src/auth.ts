@@ -6,7 +6,7 @@ import { withRateLimit } from "@/lib/middleware/rateLimit";
 
 const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+const nextAuthResult = NextAuth({
   // Spread authConfig first to inherit providers, pages, and base session logic
   ...authConfig,
   adapter: {
@@ -44,9 +44,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
 
       // 2. Fetch roles if missing OR if a session update is triggered
-      if ((token.userId && !token.roles) || trigger === "update") {
+      const userId = (token.userId || user?.id || token.sub) as string | undefined;
+      if ((userId && (!token.roles || token.roles.length === 0)) || trigger === "update") {
         const dbUser = await prisma.user.findUnique({
-          where: { id: token.userId as string },
+          where: { id: userId },
           include: { roles: { include: { role: true } } }
         });
         
@@ -69,3 +70,46 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
 });
+
+export const handlers = nextAuthResult.handlers;
+export const signIn = nextAuthResult.signIn;
+export const signOut = nextAuthResult.signOut;
+export const auth = async (...args: any[]) => {
+  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+    let mockSessionCookie: string | undefined;
+    try {
+      const { cookies } = await import("next/headers");
+      const cookieStore = await cookies();
+      mockSessionCookie = cookieStore.get("mock-session")?.value;
+    } catch (e) {
+      // Ignore if called outside of request context (like early static build phase)
+    }
+
+    if (mockSessionCookie === "admin") {
+      return {
+        user: {
+          id: "mock-admin-id",
+          name: "Mock Admin",
+          email: "admin@secureflow.test",
+          roles: ["ADMIN", "USER"],
+          codename: "Professor",
+        },
+        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
+      } as any;
+    } else if (mockSessionCookie === "user") {
+      return {
+        user: {
+          id: "mock-user-id",
+          name: "Mock User",
+          email: "user@secureflow.test",
+          roles: ["USER"],
+          codename: "Rio",
+        },
+        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
+      } as any;
+    } else if (mockSessionCookie === "none") {
+      return null;
+    }
+  }
+  return (nextAuthResult.auth as any)(...args);
+};

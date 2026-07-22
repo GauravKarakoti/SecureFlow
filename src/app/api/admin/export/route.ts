@@ -23,7 +23,7 @@ export async function GET() {
 
     const headers = ["id", "userId", "action", "resource", "decision", "metadata", "timestamp"];
     
-    const csvRows = logs.map(log => {
+    const csvRows = logs.map((log: any) => {
       return headers.map(header => {
         let val = (log as any)[header];
         if (typeof val === 'object' && val !== null) {

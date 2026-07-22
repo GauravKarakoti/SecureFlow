@@ -1,0 +1,26 @@
+import { createHash } from 'crypto';
+
+/**
+ * Compute a stable fingerprint for a finding.
+ *
+ * Findings are regenerated on every scan — the latest-wins re-scan behaviour
+ * (#255 / PR #269) deletes and recreates the `Finding` rows on each PR
+ * `synchronize`, so `Finding.id` changes even when the same issue is detected
+ * again. To make triage decisions (dismiss / resolve / false-positive) survive
+ * that regeneration we key them off this content hash instead of the row id.
+ *
+ * The inputs are the parts of a finding that identify *what* was flagged rather
+ * than *when*: the repository, the file it lives in, the finding type, and the
+ * offending code snippet. Line numbers are intentionally excluded so a finding
+ * that merely shifts up or down the file keeps the same fingerprint.
+ */
+export function computeFingerprint(
+  repositoryId: string,
+  fileLocation: string,
+  type: string,
+  codeSnippet: string | null | undefined
+): string {
+  return createHash('sha256')
+    .update(`${repositoryId}\0${fileLocation}\0${type}\0${codeSnippet ?? ''}`)
+    .digest('hex');
+}

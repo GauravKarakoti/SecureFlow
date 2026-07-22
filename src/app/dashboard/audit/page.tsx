@@ -39,12 +39,12 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const nextCursor = hasOlder ? logs[logs.length - 1].id : null;
   
   // FIX: Fetch User details to map User IDs to User Names/Emails
-  const uniqueUserIds = [...new Set(logs.map(l => l.userId).filter((id): id is string => id !== null))];
+  const uniqueUserIds = [...new Set(logs.map((l: any) => l.userId).filter((id: string | null): id is string => id !== null))];
   const users = await prisma.user.findMany({
     where: { id: { in: uniqueUserIds } },
     select: { id: true, name: true, email: true }
   });
-  const userMap = new Map(users.map(u => [u.id, u.name || u.email || 'Unknown User']));
+  const userMap = new Map(users.map((u: any) => [u.id, u.name || u.email || 'Unknown User']));
   
   const activeReposCount = await prisma.repository.count({
     where: { 
@@ -107,7 +107,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map((log) => {
+              {logs.map((log: any) => {
                 // FIX: Retrieve user name from Map instead of rendering ID
                 const displayUser = log.userId ? (userMap.get(log.userId) || log.userId) : "System";
                 return (

@@ -54,10 +54,10 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
     }),
   ]);
 
-  const mergedByLogin = new Map(merged.map((row) => [row.authorLogin, row._count._all]));
-  const avatarByLogin = new Map(avatars.map((row) => [row.authorLogin, row.authorAvatarUrl]));
+  const mergedByLogin = new Map(merged.map((row: any) => [row.authorLogin, row._count._all]));
+  const avatarByLogin = new Map(avatars.map((row: any) => [row.authorLogin, row.authorAvatarUrl]));
 
-  return totals.map((row) => {
+  return totals.map((row: any) => {
     const login = row.authorLogin as string; // non-null: filtered above
     const mergedCount = mergedByLogin.get(login) ?? 0;
     return {

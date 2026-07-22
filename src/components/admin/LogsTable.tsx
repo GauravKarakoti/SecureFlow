@@ -201,7 +201,7 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
                           <span className="text-zinc-600">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-zinc-500 font-mono text-xs whitespace-nowrap">
+                      <td className="px-6 py-4 text-zinc-500 font-mono text-xs whitespace-nowrap" suppressHydrationWarning>
                         {new Date(l.timestamp).toLocaleString()}
                       </td>
                     </tr>

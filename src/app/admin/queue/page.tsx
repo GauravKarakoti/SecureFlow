@@ -1,6 +1,7 @@
 import { getQueueMetrics, getDLQJobs } from '@/lib/actions/queue';
 import { Activity, CheckCircle, Clock, AlertTriangle, AlertOctagon, ShieldAlert } from 'lucide-react';
 import DLQTable from '@/components/admin/DLQTable';
+import JobExplorer from '@/components/admin/JobExplorer';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,6 +109,16 @@ export default async function QueueMonitorPage() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-4 mt-2">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl font-bold tracking-tight">Pipeline Jobs</h2>
+          <p className="text-sm text-muted-foreground">
+            Drill into individual jobs across the Waiting, Active, Completed, and Delayed states.
+          </p>
+        </div>
+        <JobExplorer />
+      </div>
+
       <div className="flex flex-col gap-4 mt-6">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-bold tracking-tight">Dead-Letter Queue (DLQ)</h2>
@@ -120,4 +131,3 @@ export default async function QueueMonitorPage() {
     </div>
   );
 }
-
