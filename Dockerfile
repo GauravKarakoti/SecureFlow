@@ -9,6 +9,10 @@
 # server, static assets, public files, and a tiny Prisma CLI layer for
 # `prisma migrate deploy` at startup.
 #
+# `output: 'standalone'` is enabled conditionally in next.config.ts via the
+# DOCKER_BUILD env var (set below in the builder stage). This keeps local
+# `npm run dev` / `npm run build` / `npm run start` unaffected.
+#
 # Stages:
 #   1. deps         — install ALL deps (cached on package*.json change only)
 #   2. builder      — prisma generate + next build (produces .next/standalone)
@@ -57,9 +61,15 @@ COPY .env.example .env
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Tell next.config.ts to enable `output: 'standalone'` for this Docker build.
+# Without this flag, `output` is omitted and no `.next/standalone` bundle is
+# produced — which is the desired behavior for local dev/build/start, but
+# would break the runner stage below (it copies from .next/standalone).
+ENV DOCKER_BUILD=true
+
 # Generate the Prisma client (in case postinstall didn't, e.g. if the
 # schema changed since the deps stage) and then build Next.js.
-# `next build` with `output: 'standalone'` produces `.next/standalone`.
+# With DOCKER_BUILD=true set above, `next build` produces `.next/standalone`.
 RUN npx prisma generate && npx next build
 
 
@@ -102,7 +112,8 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
 
 # --- Standalone Next.js server ---------------------------------------------
-# `.next/standalone` is a self-contained bundle produced by `output: 'standalone'`.
+# `.next/standalone` is a self-contained bundle produced by `output: 'standalone'`
+# (enabled via DOCKER_BUILD=true in the builder stage above).
 # It includes its own minimal node_modules — no need to copy the full tree.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 

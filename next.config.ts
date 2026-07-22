@@ -1,17 +1,26 @@
 import type { NextConfig } from 'next';
 
-const nextConfig: NextConfig = {
-  // Emit a self-contained `.next/standalone` server bundle (Next.js output tracing).
-  // This is what lets the Dockerfile copy ONLY the files the app actually needs
-  // into the final image, instead of the entire `node_modules` tree. Without this
-  // flag, `.next/standalone` is never produced and the runner stage would fail.
-  // Major image-size win: the final image no longer ships devDeps or unused deps.
-  output: 'standalone',
+// Only enable `output: 'standalone'` during Docker builds.
+//
+// The Dockerfile sets DOCKER_BUILD=true in the builder stage, which triggers
+// Next.js output tracing and produces a self-contained `.next/standalone`
+// bundle. That bundle is what the runner stage copies into the final image
+// (no full node_modules needed → much smaller image).
+//
+// When DOCKER_BUILD is NOT set — i.e. local `npm run dev`, `npm run build`,
+// or `npm run start` — `output` is omitted so the standard Next.js server
+// and App Router work exactly as expected. Hardcoding `output: 'standalone'`
+// unconditionally breaks app routing when running outside Docker because
+// `next start` doesn't consume the standalone bundle the way
+// `node .next/standalone/server.js` does.
+const isDockerBuild = process.env.DOCKER_BUILD === 'true';
 
-  // Make sure the Prisma generated client (produced by `prisma generate` at build
-  // time) is pulled into the standalone trace. Without this, the standalone bundle
-  // would reference @prisma/client but the generated runtime artifacts
-  // (query engine, schema binary) would be missing at runtime.
+const nextConfig: NextConfig = {
+  ...(isDockerBuild ? { output: 'standalone' as const } : {}),
+
+  // Make sure the Prisma generated client (produced by `prisma generate` at
+  // build time) is pulled into the standalone trace. Only relevant when
+  // `output: 'standalone'` is active (Docker builds), but harmless otherwise.
   outputFileTracingIncludes: {
     '/*': ['./node_modules/.prisma/client/**/*'],
   },
