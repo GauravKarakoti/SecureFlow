@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 type StreamEvent =
@@ -35,6 +35,9 @@ const initialState: StreamingExplanationState = {
   error: null,
 };
 
+/** Stream idle timeout in milliseconds (30 seconds without data). */
+const STREAM_IDLE_TIMEOUT_MS = 30000;
+
 /**
  * Consumes the /api/findings/[id]/explain-stream Server-Sent Events endpoint, exposing the
  * live-updating explanation text plus a `start()` trigger. Cancels any in-flight stream if
@@ -43,6 +46,7 @@ const initialState: StreamingExplanationState = {
 export function useStreamingExplanation(findingId: string) {
   const [state, setState] = useState<StreamingExplanationState>(initialState);
   const abortRef = useRef<AbortController | null>(null);
+  const isTimeoutRef = useRef<boolean>(false);
   const { toast } = useToast();
 
   const stop = useCallback(() => {
@@ -50,19 +54,39 @@ export function useStreamingExplanation(findingId: string) {
     abortRef.current = null;
   }, []);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stop();
+    };
+  }, [stop]);
+
   const start = useCallback(async () => {
     stop();
+    isTimeoutRef.current = false;
     const controller = new AbortController();
     abortRef.current = controller;
 
     setState({ ...initialState, isStreaming: true });
 
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const resetIdleTimeout = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        isTimeoutRef.current = true;
+        controller.abort();
+      }, STREAM_IDLE_TIMEOUT_MS);
+    };
+
     try {
+      resetIdleTimeout();
+
       const res = await fetch(`/api/findings/${findingId}/explain-stream`, {
         signal: controller.signal,
       });
 
       if (!res.ok || !res.body) {
+        if (timeoutId) clearTimeout(timeoutId);
         const message = res.status === 401
           ? "Session expired - refresh and try again."
           : `Analysis request failed (${res.status}).`;
@@ -81,6 +105,7 @@ export function useStreamingExplanation(findingId: string) {
       let hasFinishedStream = false;
 
       while (true) {
+        resetIdleTimeout();
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -105,6 +130,7 @@ export function useStreamingExplanation(findingId: string) {
             setState((prev) => ({ ...prev, explanation: event.explanation }));
           } else if (event.type === "done") {
             hasFinishedStream = true;
+            if (timeoutId) clearTimeout(timeoutId);
             setState({
               isStreaming: false,
               explanation: event.result.explanation,
@@ -114,6 +140,7 @@ export function useStreamingExplanation(findingId: string) {
             });
           } else if (event.type === "error") {
             hasFinishedStream = true;
+            if (timeoutId) clearTimeout(timeoutId);
             setState((prev) => ({ ...prev, isStreaming: false, error: event.message }));
             toast({
               variant: "destructive",
@@ -123,6 +150,8 @@ export function useStreamingExplanation(findingId: string) {
           }
         }
       }
+
+      if (timeoutId) clearTimeout(timeoutId);
 
       if (!hasFinishedStream) {
         const message = "Connection closed before the explanation completed.";
@@ -134,9 +163,21 @@ export function useStreamingExplanation(findingId: string) {
         });
       }
     } catch (err) {
-      // AbortError means a newer `start()` call (or unmount) superseded this one - not a
-      // user-facing error.
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        if (isTimeoutRef.current) {
+          const timeoutMsg = "Stream timed out waiting for AI response.";
+          setState((prev) => ({ ...prev, isStreaming: false, error: timeoutMsg }));
+          toast({
+            variant: "destructive",
+            title: "Explanation Stream Timeout",
+            description: "The connection to the AI service timed out. Please try again.",
+          });
+        }
+        return;
+      }
+
       const errorMessage = err instanceof Error ? err.message : "Connection failed.";
       setState((prev) => ({
         ...prev,
@@ -148,6 +189,8 @@ export function useStreamingExplanation(findingId: string) {
         title: "Explanation Stream Error",
         description: `Failed to receive security explanation: ${errorMessage}`,
       });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }, [findingId, stop, toast]);
 
