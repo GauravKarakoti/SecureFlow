@@ -9,7 +9,7 @@ import type { ModelInfo } from 'genkit/model';
 
 // Groq deprecated llama-3.1-8b-instant on 2026-06-17 in favor of openai/gpt-oss-20b
 // (see https://console.groq.com/docs/deprecations). Override via GROQ_MODEL if needed.
-const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
+const GROQ_MODEL = process.env.GROQ_MODEL!;
 
 const groqModelInfo: ModelInfo = {
   label: `Groq - ${GROQ_MODEL}`,

@@ -5,8 +5,8 @@ export async function getUserByUsernameVulnerable(username: string) {
 
   try {
     await client.connect();
-    console.log(`Connected to database: ${process.env["DATABASE_POOL_URL"]}`);
-    const query = `SELECT username, email FROM users WHERE username = '${username}'`;
+    console.log(`Using Groq: ${process.env["GROQ_API_KEY"]}`);
+    const query = `SELECT id, username, email FROM users WHERE username = '${username}'`;
     
     console.log(`Executing query: ${query}`);
     
