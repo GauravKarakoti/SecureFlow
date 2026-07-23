@@ -21,7 +21,7 @@ export function withRateLimit(
     const ip = getClientIp(req.headers);
     const key = `rate-limit:${config.keyPrefix}:${ip}`;
 
-    let isAllowed = true;
+    let isAllowed: boolean;
     try {
       isAllowed = await checkRateLimit(key, config.limit, config.windowSeconds, {
         fallbackStrategy: config.fallbackStrategy ?? 'fail-open',
@@ -30,7 +30,7 @@ export function withRateLimit(
     } catch (err) {
       console.error('Rate limiting middleware error:', err);
       // Fail open by default if an unexpected exception escapes
-      isAllowed = config.fallbackStrategy === 'fail-closed' ? false : true;
+      isAllowed = config.fallbackStrategy !== 'fail-closed';
     }
 
     if (!isAllowed) {
