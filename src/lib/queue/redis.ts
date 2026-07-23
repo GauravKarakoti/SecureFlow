@@ -19,12 +19,7 @@ export const redis = globalForRedis.redis || (
         set: async () => 'OK',
         del: async () => 1,
       } as any
-    : new Redis(redisUrl, {
-        retryStrategy(times) {
-          const delay = Math.min(times * 50, 2000);
-          return delay; // Reconnect after a slight delay
-        }, redisOptions
-      })
+    : new Redis(redisUrl, redisOptions)
 );
 
 if (process.env.NODE_ENV !== 'production') {

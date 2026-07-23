@@ -72,8 +72,8 @@ const groq = new Groq({
 // or exhaust memory. These bound worst-case behavior explicitly rather than relying on the
 // HTTP client's own defaults (Groq's SDK default is 1 minute per request, with no cap at all
 // on the number of batches a large PR can produce).
-const SCAN_REQUEST_TIMEOUT_MS = 20_000; // hard cap per individual LLM call
-const MAX_TOTAL_SCAN_MS = 120_000; // hard cap across the whole scanPullRequest() call
+const SCAN_REQUEST_TIMEOUT_MS = 60_000; // hard cap per individual LLM call
+const MAX_TOTAL_SCAN_MS = 180_000; // hard cap across the whole scanPullRequest() call
 const MAX_RETRY_WAIT_MS = 15_000; // cap on any single rate-limit backoff wait
 
 // --- Recursive sanitization guards ---------------------------------------------------------
@@ -505,23 +505,28 @@ Format:
             messages: [
               {
                 role: 'system',
-                content: `You are an elite application security auditor. Output raw JSON only.
+                content: `You are an elite application security auditor. 
+
+You MUST output your response in valid JSON format. 
+Return ONLY the raw JSON object starting with '{'. No preamble or conversational text.
+CRITICAL: Every single key and string value in your JSON MUST be enclosed in double quotes (e.g. "findings": []).
 
 CRITICAL RULES:
 1. ONLY flag actual, executable vulnerabilities.
-2. Assigning process.env to a variable is safe. HOWEVER, explicitly leaking process.env via console.log() or returning it to the client is a CRITICAL VULNERABILITY. You MUST flag any instance of console.log(process.env...).
-3. SELF-REFERENTIAL TRAP: You are scanning a security tool. Do NOT flag string literals or text descriptions of security policies (e.g., text inside seed files) as vulnerabilities.
-4. JSON ESCAPING (CRITICAL): You MUST properly escape ALL double quotes (\\") and newlines (\\n) inside the "codeSnippet" and "description" fields. NEVER use unescaped double quotes, and NEVER try to use JavaScript string concatenation (+) inside the JSON structure.
-5. You MUST return a root JSON object with a "findings" key array. The "reasoning" key must come first in each object.
-6. The provided code contains both new changes and surrounding context. Focus your security analysis EXCLUSIVELY on lines starting with the [ADDED] tag. All other lines are provided strictly as read-only structural context to help you understand the scope, and should not be flagged for vulnerabilities.` 
+2. Assigning process.env to a variable is safe. Explicitly leaking it via console.log() is CRITICAL.
+3. SELF-REFERENTIAL TRAP: You are scanning a security tool. Do NOT flag text descriptions of policies as vulnerabilities.
+4. JSON ESCAPING: Properly escape ALL double quotes (\\") and newlines (\\n).
+5. You MUST return a root JSON object with a "findings" key array.` 
               },
-              { role: 'user', content: prompt }
+              { 
+                role: 'user', 
+                content: `${prompt}\n\nPlease provide the raw JSON output now, starting immediately with '{':` 
+              }
             ],
-            model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-            response_format: { type: 'json_object' },
+            model: process.env.GROQ_MODEL || 'llama3-70b-8192',
+            temperature: 0.1,
           }, { timeout: SCAN_REQUEST_TIMEOUT_MS });
 
-          // Fallback race in case the SDK doesn't fully respect the abort signal
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => reject(new ScannerTimeoutError('LLM scan timed out after 60 seconds')), 60000);
           });
@@ -532,7 +537,20 @@ CRITICAL RULES:
           ]);
           
           const responseText = chatCompletion.choices[0]?.message?.content || '{"findings": []}';
-          const result = JSON.parse(responseText);
+          
+          const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/ig, '');
+          
+          // 2. Find the first '{' and the last '}' in the cleaned text
+          const jsonMatch = withoutThoughts.match(/\{[\s\S]*\}/);
+          const cleanJsonString = jsonMatch ? jsonMatch[0] : '{"findings": []}';
+          
+          let result;
+          try {
+            result = JSON.parse(cleanJsonString);
+          } catch (parseError) {
+            console.error("\n[🚨 LLM RETURNED INVALID JSON 🚨]\nRaw Output:\n" + responseText + "\n--------------------------\n");
+            throw parseError; 
+          }
           
           const rawFindings = result.findings || [];
           
@@ -569,6 +587,14 @@ CRITICAL RULES:
           success = true;
         } catch (error: any) {
           lastError = error;
+          
+          // 🛡️ JSON PARSE FALLBACK CATCH
+          if (error instanceof SyntaxError) {
+             console.warn(`⚠️ Failed to parse extracted JSON. Retrying... (${retries} attempts left)`);
+             retries--;
+             continue;
+          }
+
           if (error instanceof ScannerTimeoutError || error.name === 'AbortError') {
             throw new ScannerTimeoutError('LLM scan timed out after 60 seconds');
           }
@@ -585,9 +611,6 @@ CRITICAL RULES:
 
             console.warn(`⏳ Rate limit reached. Waiting ${waitTime / 1000} seconds...`);
             await delay(waitTime);
-            retries--;
-          } else if (error.status === 400 && error.error?.code === 'json_validate_failed') {
-            console.warn(`⚠️ LLM generated invalid JSON. Retrying... (${retries} attempts left)`);
             retries--;
           } else if (error instanceof Groq.APIConnectionTimeoutError || error?.name === 'APIConnectionTimeoutError') {
             console.warn(`⏱️ LLM request exceeded ${SCAN_REQUEST_TIMEOUT_MS / 1000}s timeout. Retrying... (${retries} attempts left)`);

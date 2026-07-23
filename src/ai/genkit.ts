@@ -53,10 +53,10 @@ export const ai = genkit({
       apiKey: groqApiKey,
       baseURL: 'https://api.groq.com/openai/v1',
       // Registers GROQ_MODEL as a Genkit model action at startup so it can be
-      // referenced below (and from anywhere else in the app) as `groq/<model>`.
+      // referenced below (and from anywhere else in the app) as `<model>`.
       initializer: async (client) => [
         defineCompatOpenAIModel({
-          name: `groq/${GROQ_MODEL}`,
+          name: `${GROQ_MODEL}`,
           client,
           modelRef: compatOaiModelRef({ name: GROQ_MODEL, info: groqModelInfo }),
         }),
@@ -66,4 +66,4 @@ export const ai = genkit({
 });
 
 /** Model reference flows should use unless they need to override it explicitly. */
-export const defaultModel = `groq/${GROQ_MODEL}`;
+export const defaultModel = `${GROQ_MODEL}`;
