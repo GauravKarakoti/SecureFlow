@@ -21,7 +21,7 @@ async function verifyGitHubWebhook(req: NextRequest): Promise<any> {
 
   const signatureHex = parseGithubSignature(req.headers.get('x-hub-signature-256'));
   if (!signatureHex) {
-    throw new AppError('Missing or invalid x-hub-signature-256 header', 400);
+    throw new AppError('Missing or invalid x-hub-signature-256 header', 401);
   }
 
   const payloadText = await req.text();
