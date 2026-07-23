@@ -11,6 +11,10 @@ if (process.env.REDIS_URL && process.env.REDIS_URL.trim() !== '') {
   redisInstance =
     globalForRedis.redis ??
     new Redis(process.env.REDIS_URL, {
+      retryStrategy(times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay; // Reconnect after a slight delay
+      },
       maxRetriesPerRequest: 3,
     });
     
@@ -33,10 +37,12 @@ export async function checkRateLimit(key: string, limit: number, windowSeconds: 
       if (current === 1) {
         await redis.expire(key, windowSeconds);
       }
-      return current <= limit;
-    } catch (error) {
-      console.error('Redis error during rate limiting:', error);
-      // Fail open to avoid blocking legitimate traffic if Redis goes down
+      // Check if limit exceeded here...
+      return current <= limit; 
+    } catch (error: any) {
+      // Catch ECONNRESET and other Redis network errors
+      console.error(`[Redis Error] Rate limiting bypassed: ${error.message}`);
+      // Fail-open: allow the request to proceed if Redis is unreachable
       return true; 
     }
   } else {
