@@ -62,7 +62,7 @@ export default async function LandingPage() {
             Leaderboard
           </Link>
           <LoginButton />
-          <Link href={process.env.GITHUB_APP_URL!}>
+          <Link href={process.env.GITHUB_APP_URL || '/setup'}>
             <Button className="bg-primary text-background hover:bg-primary/90 glow-primary rounded-sm font-bold uppercase tracking-wide cursor-pointer">
               <GitBranch className="w-4 h-4 mr-2" />
               Engage System
