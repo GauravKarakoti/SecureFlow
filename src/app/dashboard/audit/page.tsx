@@ -1,67 +1,45 @@
-import React from 'react';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Shield, Activity, Database } from "lucide-react"; 
+import { Shield, Activity } from "lucide-react";
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import {
+  getUserAuditLogs,
+  getUserAuditLogFilters,
+  type UserAuditLogRow,
+} from "@/lib/actions/audit";
+import AuditLogTable from "./audit-log-table";
 
-export default async function AuditPage({ searchParams }: { searchParams: Promise<{ cursor?: string }> }) {
+export default async function AuditPage() {
   const session = await auth();
-  
+
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
-  
+
   const userId = session.user.id;
 
-  const { cursor } = await searchParams;
+  // eslint-disable-next-line react-hooks/purity -- server component, computing "24h ago" cutoff for a DB query, not a client render value
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  // Fetch real logs belonging to the user. Take one extra row so we can tell
-  // whether an older page exists without a second count query.
-  const PAGE_SIZE = 10;
-  const fetched = await prisma.auditLog.findMany({
-    where: { userId },
-    orderBy: { timestamp: 'desc' },
-    take: PAGE_SIZE + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-  });
-  const hasOlder = fetched.length > PAGE_SIZE;
-  const logs = hasOlder ? fetched.slice(0, PAGE_SIZE) : fetched;
-  const nextCursor = hasOlder ? logs[logs.length - 1].id : null;
-  
-  // FIX: Fetch User details to map User IDs to User Names/Emails
-  const uniqueUserIds = [...new Set(logs.map((l: any) => l.userId).filter((id: string | null): id is string => id !== null))];
-  const users = await prisma.user.findMany({
-    where: { id: { in: uniqueUserIds } },
-    select: { id: true, name: true, email: true }
-  });
-  const userMap = new Map(users.map((u: any) => [u.id, u.name || u.email || 'Unknown User']));
-  
-  const activeReposCount = await prisma.repository.count({
-    where: { 
-      userId,
-      isActive: true
-    }
-  });
-  
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  
-  const actions24hCount = await prisma.auditLog.count({
-    where: { 
-      userId,
-      timestamp: { gte: yesterday } 
-    }
-  });
+  const [initialResult, filters, activeReposCount, actions24hCount] =
+    await Promise.all([
+      getUserAuditLogs({ page: 1, pageSize: 10 }),
+      getUserAuditLogFilters(),
+      prisma.repository.count({ where: { userId, isActive: true } }),
+      prisma.auditLog.count({
+        where: {
+          userId,
+          timestamp: { gte: yesterday },
+        },
+      }),
+    ]);
+
+  // Every log returned is already scoped to this user (or is a null-userId
+  // "System" event), so there's no need to look up multiple users here —
+  // just resolve the signed-in user's own display name once.
+  const ownName = session.user.name || session.user.email || "You";
+  const displayUser = (log: UserAuditLogRow) => (log.userId ? ownName : "System");
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
@@ -73,7 +51,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
+        <div className="bg-foreground/[0.03] rounded-xl border border-foreground/10 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
             <Shield className="w-5 h-5" />
           </div>
@@ -82,8 +60,8 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
             <div className="text-lg font-bold">{activeReposCount} Active</div>
           </div>
         </div>
-        
-        <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
+
+        <div className="bg-foreground/[0.03] rounded-xl border border-foreground/10 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary">
             <Activity className="w-5 h-5" />
           </div>
@@ -95,110 +73,15 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       </div>
 
       <Card className="glass-card">
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader className="bg-white/5">
-              <TableRow className="border-b border-white/5 hover:bg-transparent">
-                <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">Action</TableHead>
-                <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">User</TableHead>
-                <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">Resource</TableHead>
-                <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">Decision</TableHead>
-                <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4 text-right">Timestamp</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.map((log: any) => {
-                // FIX: Retrieve user name from Map instead of rendering ID
-                const displayUser = log.userId ? (userMap.get(log.userId) || log.userId) : "System";
-                return (
-                  <React.Fragment key={log.id}>
-                    <TableRow className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <TableCell className="py-4">
-                        <span className="font-bold text-sm">{log.action}</span>
-                      </TableCell>
-                      <TableCell className="py-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium">{displayUser}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-4">
-                        <span className="text-xs text-muted-foreground font-mono">{log.resource}</span>
-                      </TableCell>
-                      <TableCell className="py-4">
-                        <Badge variant={
-                          log.decision === 'BLOCK' ? 'destructive' : 
-                          log.decision === 'PASS' ? 'default' : 'secondary'
-                        } className="text-[10px] tracking-widest px-1.5">
-                          {log.decision || 'INFO'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-4 text-right">
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {new Intl.DateTimeFormat('en-US', { 
-                            dateStyle: 'medium', 
-                            timeStyle: 'short' 
-                          }).format(new Date(log.timestamp))}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                    {log.decision === 'PASS' && (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <div className="mt-4">
-                            <details className="group border border-red-500/20 bg-black rounded-lg p-4 cursor-pointer">
-                              <summary className="text-red-500 font-bold outline-none flex items-center justify-between">
-                                <span>📥 Reveal Heist Success Card</span>
-                                <span className="text-xs text-red-500/70 group-open:hidden">Click to expand</span>
-                              </summary>
-                              
-                              <div className="mt-6 flex flex-col items-center">
-                                {/* Image Preview */}
-                                <img 
-                                  src={`/api/og/heist?project=${encodeURIComponent(log.resource || 'The Royal Mint')}`} 
-                                  alt="Heist Success Card" 
-                                  className="w-full max-w-2xl rounded-md border border-red-900/50 shadow-2xl mb-6"
-                                />
-                                {/* Share Button — links to /share/heist, which has proper OG/Twitter
-                                    meta tags pointing at the image, so Twitter's card scraper can
-                                    actually render a preview. Linking directly to the image API
-                                    route (as before) doesn't work because that route returns a raw
-                                    PNG, not an HTML page with meta tags. */}
-                                <a 
-                                  href={`https://twitter.com/intent/tweet?text=The%20vault%20is%20empty.%20Zero%20traces%20left%20behind.%20%F0%9F%8E%AD%0A%0AAudit%20passed%20via%20SecureFlow.&url=${encodeURIComponent(`https://secure-flow-six.vercel.app/share/heist?project=${log.resource || 'The Royal Mint'}`)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"
-                                >
-                                  Broadcast to the Resistance 📢
-                                </a>
-                              </div>
-                            </details>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
+        <CardContent className="p-4">
+          <AuditLogTable
+            initialResult={initialResult}
+            actions={filters.actions}
+            decisions={filters.decisions}
+            displayUser={displayUser}
+          />
         </CardContent>
       </Card>
-
-      {(cursor || nextCursor) && (
-        <div className="flex items-center justify-between">
-          {cursor ? (
-            <a href="/dashboard/audit" className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors">
-              ← Back to latest
-            </a>
-          ) : <span />}
-          {nextCursor ? (
-            <a href={`/dashboard/audit?cursor=${nextCursor}`} className="text-xs font-bold text-primary hover:underline">
-              Load older →
-            </a>
-          ) : <span />}
-        </div>
-      )}
     </div>
   );
 }
