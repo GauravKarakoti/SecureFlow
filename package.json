@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "concurrently \"next dev --turbopack -p 9002\" \"tsx scripts/prewarm.ts\"",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
@@ -23,7 +23,8 @@
     "worker:render": "tsx scripts/start-worker.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "ngrok": "ngrok http 9002"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.6.3",
@@ -59,6 +60,7 @@
     "bullmq": "^5.80.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "concurrently": "^10.0.3",
     "date-fns": "^4.4.0",
     "dotenv": "^17.4.2",
     "embla-carousel-react": "^8.6.0",
@@ -97,8 +99,8 @@
     "genkit-cli": "^1.40.1",
     "husky": "^9.1.7",
     "postcss": "^8",
-    "prisma": "^7.9.0",
     "prettier": "^3.9.6",
+    "prisma": "^7.9.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.1",
     "typescript": "^6",

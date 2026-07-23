@@ -1,4 +1,5 @@
 import { Worker, Job } from 'bullmq';
+import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
@@ -7,6 +8,45 @@ import { computeFingerprint } from '@/lib/armor/fingerprint';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import prisma from '@/lib/prisma';
+
+// 1. Strict input validation schemas
+const repoSchema = z.object({
+  id: z.union([z.number(), z.string()]),
+  full_name: z.string(),
+  name: z.string().optional(),
+  owner: z.object({
+    login: z.string()
+  }).passthrough().optional()
+}).passthrough();
+
+const payloadSchema = z.object({
+  action: z.string().optional(),
+  pull_request: z.object({
+    id: z.union([z.number(), z.string()]),
+    number: z.number(),
+    title: z.string().optional(),
+    state: z.string().optional(),
+    merged: z.boolean().optional(),
+    merged_at: z.string().nullable().optional(),
+    head: z.object({
+      sha: z.string()
+    }).passthrough().optional(),
+    user: z.object({
+      login: z.string(),
+      avatar_url: z.string().optional()
+    }).passthrough().optional()
+  }).passthrough().optional(),
+  repository: repoSchema.optional(),
+  installation: z.object({
+    id: z.union([z.number(), z.string()])
+  }).passthrough().optional(),
+  repositories: z.array(repoSchema).optional(),
+  repositories_added: z.array(repoSchema).optional(),
+  sender: z.object({
+    id: z.union([z.number(), z.string()])
+  }).passthrough().optional()
+}).passthrough();
+
 
 /**
  * Parse a unified-diff patch and return the set of new-file line numbers that
@@ -37,21 +77,69 @@ export function getCommentableLines(patch: string): Set<number> {
 }
 
 export const worker = new Worker('github-webhooks', async (job: Job) => {
-  const { payload, event } = job.data;
+  const { payload: rawPayload, event, deliveryId } = job.data;
 
+  // Event Filtering
   if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
-    console.log('Event not tracked');
+    console.log(`Event not tracked: ${event}`);
     return;
   }
 
-  const { action, pull_request, repository, installation, repositories, repositories_added } = payload;
+  // 2. Validate Payload
+  const parsed = payloadSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    throw new Error(`Invalid payload structure: ${JSON.stringify(parsed.error.format())}`);
+  }
+  const payload = parsed.data;
+
+  // 3. Check Idempotency and create WebhookEvent tracking record
+  if (deliveryId) {
+    const existingEvent = await prisma.webhookEvent.findUnique({
+      where: { deliveryId }
+    });
+    
+    if (existingEvent) {
+      console.log(`[Worker] Webhook ${deliveryId} already processed. Skipping.`);
+      return;
+    }
+
+    const repoGithubId = payload.repository?.id;
+    const prGithubId = payload.pull_request?.id;
+    let dbRepoId: string | undefined;
+    let dbPrId: string | undefined;
+
+    if (repoGithubId) {
+      const dbRepo = await prisma.repository.findUnique({
+        where: { githubId: BigInt(repoGithubId) }
+      });
+      if (dbRepo) dbRepoId = dbRepo.id;
+    }
+
+    if (prGithubId) {
+      const dbPr = await prisma.pullRequest.findUnique({
+        where: { githubId: BigInt(prGithubId) }
+      });
+      if (dbPr) dbPrId = dbPr.id;
+    }
+
+    await prisma.webhookEvent.create({
+      data: {
+        deliveryId,
+        repositoryId: dbRepoId,
+        pullRequestId: dbPrId,
+      }
+    });
+  }
+
+  // Destructure validated payload properties for processing
+  const { action, pull_request, repository, installation, repositories, repositories_added } = payload as any;
 
   if (!installation || !installation.id) {
     throw new Error('No GitHub App installation ID found');
   }
 
   if (event === 'installation' && action === 'created') {
-    const senderId = payload.sender.id.toString();
+    const senderId = payload.sender?.id?.toString();
     const account = await prisma.account.findFirst({
       where: { provider: 'github', providerAccountId: senderId },
     });
@@ -88,7 +176,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
   }
 
   if (event === 'installation_repositories' && action === 'added') {
-    const senderId = payload.sender.id.toString();
+    const senderId = payload.sender?.id?.toString();
     const account = await prisma.account.findFirst({
       where: { provider: 'github', providerAccountId: senderId },
     });
