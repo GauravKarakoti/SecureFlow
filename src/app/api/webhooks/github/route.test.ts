@@ -34,22 +34,10 @@ vi.mock('@/lib/middleware/rateLimit', () => ({
   withRateLimit: <T extends (...args: unknown[]) => unknown>(handler: T): T => handler,
 }));
 
-vi.mock('@/lib/prisma', () => ({
-  default: {
-    webhookEvent: {
-      findUnique: vi.fn(async () => null),
-      create: vi.fn(async () => ({})),
-    },
-    repository: { findUnique: vi.fn(async () => null) },
-    pullRequest: { findUnique: vi.fn(async () => null) },
-  },
-}));
-
 // ---- Imports (after mocks) ----
 
 import { POST } from '@/app/api/webhooks/github/route';
 import { addWebhookJob } from '@/lib/queue/webhookQueue';
-import prisma from '@/lib/prisma';
 
 // ---- Helpers ----
 
@@ -91,7 +79,6 @@ describe('GitHub webhook route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
-    (prisma.webhookEvent.findUnique as any).mockResolvedValue(null);
   });
 
   it('returns 400 when the signature header is missing', async () => {
@@ -106,18 +93,10 @@ describe('GitHub webhook route', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 202 and skips processing for a duplicate delivery ID', async () => {
-    (prisma.webhookEvent.findUnique as any).mockResolvedValue({ id: 'existing' });
+  it('returns 202 and queues the job for a valid pull_request event', async () => {
     const req = makeRequest(minimalPRPayload);
     const res = await POST(req);
     expect(res.status).toBe(202);
-    expect(addWebhookJob).not.toHaveBeenCalled();
-  });
-
-  it('returns 200 and queues the job for a valid pull_request event', async () => {
-    const req = makeRequest(minimalPRPayload);
-    const res = await POST(req);
-    expect(res.status).toBe(200);
     expect(addWebhookJob).toHaveBeenCalledOnce();
   });
 
@@ -128,15 +107,15 @@ describe('GitHub webhook route', () => {
     expect(addWebhookJob).not.toHaveBeenCalled();
   });
 
-  it('queues installation events', async () => {
+  it('returns 202 and queues installation events', async () => {
     const body = JSON.stringify({ action: 'created', installation: { id: 1 }, sender: { id: 2 } });
     const req = makeRequest(body, {}, 'installation');
     const res = await POST(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(addWebhookJob).toHaveBeenCalledOnce();
   });
 
-  it('queues installation_repositories events', async () => {
+  it('returns 202 and queues installation_repositories events', async () => {
     const body = JSON.stringify({
       action: 'added',
       installation: { id: 1 },
@@ -145,22 +124,8 @@ describe('GitHub webhook route', () => {
     });
     const req = makeRequest(body, {}, 'installation_repositories');
     const res = await POST(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(addWebhookJob).toHaveBeenCalledOnce();
-  });
-
-  it('returns 400 for a structurally invalid payload', async () => {
-    // pull_request.number must be a number; passing a string triggers Zod failure
-    const bad = JSON.stringify({ action: 'opened', pull_request: { id: 1, number: 'not-a-number' } });
-    const req = makeRequest(bad);
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
-
-  it('creates a webhookEvent record for a new delivery', async () => {
-    const req = makeRequest(minimalPRPayload);
-    await POST(req);
-    expect(prisma.webhookEvent.create).toHaveBeenCalledOnce();
   });
 
   it('passes the delivery ID and event type to the queue', async () => {

@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Mock ioredis to prevent real network connection attempts during tests
+vi.mock('ioredis', () => {
+  const RedisMock = vi.fn(() => ({
+    on: vi.fn(),
+    get: vi.fn(),
+    set: vi.fn(),
+    incr: vi.fn(),
+    expire: vi.fn(),
+    quit: vi.fn()
+  }));
+  return { default: RedisMock, Redis: RedisMock };
+});
+
 // ---- getClientIp ----
 
 import { getClientIp } from './client-ip';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Use vi.hoisted to declare mock callbacks
+// ---- Mocks (must be hoisted before imports) ----
 const mockWorkerOn = vi.hoisted(() => vi.fn());
 const mockDLQAdd = vi.hoisted(() => vi.fn());
 
@@ -15,43 +15,31 @@ vi.mock('bullmq', () => {
   };
 });
 
-vi.mock('./redis', () => ({
-  redis: {},
-}));
-
-vi.mock('@/lib/prisma', () => ({
-  default: {},
-}));
-
-vi.mock('@/lib/armor/scanner', () => ({
-  scanner: {},
-}));
-
+vi.mock('./redis', () => ({ redis: {} }));
+vi.mock('@/lib/prisma', () => ({ default: {} }));
+vi.mock('@/lib/armor/scanner', () => ({ scanner: {}, parseSecureFlowIgnore: vi.fn() }));
 vi.mock('@/ai/flows/developer-receives-ai-security-explanations', () => ({
   developerReceivesAISecurityExplanations: vi.fn(),
 }));
 
+// ---- Imports (after mocks) ----
+// This executes the file once and instantly triggers the worker.on() calls
+import { getCommentableLines } from './worker';
+
 describe('Webhook Worker DLQ Routing', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.resetModules();
+    // Only clear the DLQ tracker. 
+    // Do NOT clear mockWorkerOn, because the worker was only instantiated once upon import!
+    mockDLQAdd.mockClear();
   });
 
-  it('registers completed and failed listeners on the worker', async () => {
-    // Importing worker executes the file and registers listeners
-    await import('./worker');
-
+  it('registers completed and failed listeners on the worker', () => {
     expect(mockWorkerOn).toHaveBeenCalledWith('completed', expect.any(Function));
     expect(mockWorkerOn).toHaveBeenCalledWith('failed', expect.any(Function));
   });
 
   it('routes to DLQ when job fails permanently (attempts exhausted)', async () => {
-    await import('./worker');
-
-    // Retrieve the registered failed handler
     const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
-    expect(failedHandlerCall).toBeDefined();
-
     const failedHandler = failedHandlerCall![1];
 
     const mockJob = {
@@ -77,8 +65,6 @@ describe('Webhook Worker DLQ Routing', () => {
   });
 
   it('does NOT route to DLQ when job fails temporarily (attempts remaining)', async () => {
-    await import('./worker');
-
     const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
     const failedHandler = failedHandlerCall![1];
 
@@ -97,8 +83,6 @@ describe('Webhook Worker DLQ Routing', () => {
   });
 
   it('uses default maxAttempts of 3 when job.opts.attempts is missing (retry on attempt 2)', async () => {
-    await import('./worker');
-
     const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
     const failedHandler = failedHandlerCall![1];
 
@@ -117,8 +101,6 @@ describe('Webhook Worker DLQ Routing', () => {
   });
 
   it('uses default maxAttempts of 3 when job.opts.attempts is missing (DLQ on attempt 3)', async () => {
-    await import('./worker');
-
     const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
     const failedHandler = failedHandlerCall![1];
 
@@ -146,18 +128,13 @@ describe('Webhook Worker DLQ Routing', () => {
 });
 
 describe('getCommentableLines (diff-position guard)', () => {
-  it('returns added and context lines from a single hunk, excluding removed lines', async () => {
-    const { getCommentableLines } = await import('./worker');
-    // New side starts at line 10: context(10), removed(-), added(11), context(12)
+  it('returns added and context lines from a single hunk, excluding removed lines', () => {
     const patch = ['@@ -10,3 +10,3 @@', ' const a = 1;', '-const b = 2;', '+const b = 3;', ' const c = 4;'].join('\n');
-
     const lines = getCommentableLines(patch);
-
     expect([...lines].sort((x, y) => x - y)).toEqual([10, 11, 12]);
   });
 
-  it('handles multiple hunks and only-added lines', async () => {
-    const { getCommentableLines } = await import('./worker');
+  it('handles multiple hunks and only-added lines', () => {
     const patch = [
       '@@ -1,2 +1,3 @@',
       ' line one',
@@ -167,7 +144,6 @@ describe('getCommentableLines (diff-position guard)', () => {
       '+added twentyone',
       '+added twentytwo',
     ].join('\n');
-
     const lines = getCommentableLines(patch);
 
     expect(lines.has(2)).toBe(true);   // added line in first hunk
@@ -176,10 +152,8 @@ describe('getCommentableLines (diff-position guard)', () => {
     expect(lines.has(20)).toBe(false); // never present on the new side
   });
 
-  it('returns an empty set for a patch with only removed lines', async () => {
-    const { getCommentableLines } = await import('./worker');
+  it('returns an empty set for a patch with only removed lines', () => {
     const patch = ['@@ -5,2 +5,0 @@', '-gone one', '-gone two'].join('\n');
-
     expect(getCommentableLines(patch).size).toBe(0);
   });
 });
