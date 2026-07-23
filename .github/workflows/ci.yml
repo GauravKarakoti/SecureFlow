@@ -20,7 +20,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: ['20', '22']
+        node-version: ['22']
 
     steps:
       - name: Checkout repository
@@ -88,7 +88,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -105,7 +105,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.node-modules-cache.outputs.cache-hit != 'true'
@@ -134,7 +134,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -142,24 +142,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
           restore-keys: |
-            npm-${{ runner.os }}-node20-
+            npm-${{ runner.os }}-node22-
 
       - name: Cache node_modules
         id: node-modules-cache
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
-
-      - name: Cache Next.js build cache
-        uses: actions/cache@v4
-        with:
-          path: .next/cache
-          key: nextjs-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'src/**/*.js', 'src/**/*.jsx') }}
-          restore-keys: |
-            nextjs-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}-
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -175,11 +167,20 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Install Playwright Browsers & Dependencies
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E Tests
         run: npm run test:e2e
+        env:
+          AUTH_URL: http://localhost:9002
+          E2E_BASE_URL: http://localhost:9002
+          AUTH_SECRET: ci-test-secret-not-for-production
+          REDIS_URL: ""
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4

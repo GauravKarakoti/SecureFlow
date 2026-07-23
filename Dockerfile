@@ -24,7 +24,8 @@
 # ----------------------------------------------------------------------------
 # 1. deps — install node_modules (cached unless package*.json changes)
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy lockfile + package.json first for maximum layer caching.
@@ -37,13 +38,14 @@ COPY prisma ./prisma
 
 # `npm ci` respects the lockfile exactly. The postinstall hook runs
 # `prisma generate`, which only needs the schema (copied above).
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 
 # ----------------------------------------------------------------------------
 # 2. builder — compile the Next.js app and emit the standalone bundle
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Bring in installed deps from the `deps` stage.
@@ -81,7 +83,7 @@ RUN npx prisma generate && npx next build
 # stays exactly what Next's output tracing produced, and so this layer
 # is cached independently of app source changes.
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS prisma-cli
+FROM node:22-alpine AS prisma-cli
 WORKDIR /opt/prisma-cli
 RUN npm init -y \
  && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
@@ -91,7 +93,7 @@ RUN npm init -y \
 # ----------------------------------------------------------------------------
 # 4. runner — minimal runtime image
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

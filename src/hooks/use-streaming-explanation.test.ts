@@ -1,26 +1,40 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Minimal React stubs so the hook module loads in a Node environment.
-vi.mock('react', () => {
-  const states: Map<number, unknown> = new Map();
-  let idx = 0;
-  return {
-    useState: (initial: unknown) => {
-      const id = idx++;
-      if (!states.has(id)) states.set(id, initial);
-      const setter = (v: unknown) => {
-        const next =
-          typeof v === 'function'
-            ? (v as (prev: unknown) => unknown)(states.get(id))
-            : v;
-        states.set(id, next);
-      };
-      return [states.get(id), setter];
-    },
-    useCallback: (fn: unknown) => fn,
-    useRef: (initial: unknown) => ({ current: initial }),
-  };
-});
+const states: Map<number, unknown> = new Map();
+let idx = 0;
+
+vi.mock('react', () => ({
+  useState: (initial: unknown) => {
+    const id = idx++;
+    if (!states.has(id)) states.set(id, initial);
+    const setter = (v: unknown) => {
+      const next =
+        typeof v === 'function'
+          ? (v as (prev: unknown) => unknown)(states.get(id))
+          : v;
+      states.set(id, next);
+    };
+    return [states.get(id), setter];
+  },
+  useCallback: (fn: unknown) => fn,
+  useRef: (initial: unknown) => ({ current: initial }),
+  useEffect: (fn: () => void | (() => void)) => {
+    // Execute cleanup immediately for tests
+    const cleanup = fn();
+    if (typeof cleanup === 'function') {
+      cleanup();
+    }
+  },
+}));
+
+// Mock useToast to avoid complex dependencies
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
 
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({
@@ -53,11 +67,11 @@ describe('useStreamingExplanation', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    (globalThis as any).fetch = fetchMock;
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    delete (globalThis as any).fetch;
   });
 
   it('sets isStreaming=true immediately after start() is called', async () => {

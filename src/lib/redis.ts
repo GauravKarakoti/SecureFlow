@@ -7,7 +7,7 @@ const globalForRedis = globalThis as unknown as {
 // Use an in-memory fallback if REDIS_URL is not provided (useful for local dev without Docker)
 let redisInstance: Redis | null = null;
 
-if (process.env.REDIS_URL) {
+if (process.env.REDIS_URL && process.env.REDIS_URL.trim() !== '') {
   redisInstance =
     globalForRedis.redis ??
     new Redis(process.env.REDIS_URL, {
