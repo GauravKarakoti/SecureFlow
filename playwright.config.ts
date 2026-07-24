@@ -33,6 +33,7 @@ export default defineConfig({
       NEXTAUTH_SECRET: 'e2e-test-secret-key',
       NEXT_PUBLIC_MOCK_DB: 'true',
       NEXT_PUBLIC_MOCK_AUTH: 'true',
+      GITHUB_WEBHOOK_SECRET: 'e2e-webhook-secret',
     },
   },
 

@@ -17,6 +17,9 @@ export const webhookDLQ = new Queue('github-webhooks-dlq', {
 });
 
 export async function addWebhookJob(payload: any) {
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return { id: `mock-job-${Date.now()}`, name: 'process-webhook', data: payload };
+  }
   return await webhookQueue.add('process-webhook', payload, {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 },
