@@ -122,6 +122,7 @@ jobs:
       # ⭐ NEW: Auth.js configuration for E2E tests
       NEXTAUTH_URL: http://localhost:9002
       NEXTAUTH_SECRET: e2e-test-secret-key
+      AUTH_TRUST_HOST: 'true'
       NEXTAUTH_TRUST_HOST: 'true'
       NEXT_PUBLIC_MOCK_DB: 'true'
       NEXT_PUBLIC_MOCK_AUTH: 'true'

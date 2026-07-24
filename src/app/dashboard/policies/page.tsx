@@ -6,33 +6,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { PolicyCard } from "./policy-card"; // <-- Import the new Client Component
-
-// --- Server Actions ---
-async function togglePolicy(formData: FormData) {
-  "use server";
-  const session = await auth();
-  if (!session?.user?.id) return;
-
-  const templateId = formData.get("templateId") as string;
-  const currentState = formData.get("currentState") === "true";
-
-  await prisma.userPolicyToggle.upsert({
-    where: {
-      userId_policyTemplateId: {
-        userId: session.user.id,
-        policyTemplateId: templateId,
-      }
-    },
-    update: { isActive: !currentState },
-    create: {
-      userId: session.user.id,
-      policyTemplateId: templateId,
-      isActive: !currentState,
-    }
-  });
-
-  revalidatePath("/dashboard/policies");
-}
+import { togglePolicy } from "./actions";
 
 // --- Page Component ---
 export default async function PoliciesPage() {
