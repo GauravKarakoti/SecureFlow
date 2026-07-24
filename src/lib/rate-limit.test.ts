@@ -127,13 +127,13 @@ describe('withRateLimit middleware', () => {
 
 describe('checkRateLimit & withRateLimit — Redis fallback strategies', () => {
   let redisModule: typeof import('./redis');
-  let rateLimitModule: typeof import('./middleware/rateLimit');
+  let rateLimitModule: typeof import('./middleware/rate-limit');
 
   beforeEach(async () => {
     vi.resetModules();
     delete process.env.REDIS_URL;
     redisModule = await import('./redis');
-    rateLimitModule = await import('./middleware/rateLimit');
+    rateLimitModule = await import('./middleware/rate-limit');
   });
 
   it('fails open (returns true) when fallbackStrategy is fail-open and checkRateLimit throws', async () => {
