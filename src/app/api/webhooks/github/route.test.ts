@@ -81,16 +81,28 @@ describe('GitHub webhook route', () => {
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
   });
 
-  it('returns 400 when the signature header is missing', async () => {
-    const req = makeRequest(minimalPRPayload, { 'x-hub-signature-256': '' });
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
+  describe('signature verification (x-hub-signature-256)', () => {
+    it('returns 401 Unauthorized when the signature header is missing completely', async () => {
+      const req = makeRequest(minimalPRPayload, { 'x-hub-signature-256': '' });
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Missing or invalid x-hub-signature-256 header' });
+    });
 
-  it('returns 401 when the signature is invalid', async () => {
-    const req = makeRequest(minimalPRPayload, { 'x-hub-signature-256': 'sha256=badhex' });
-    const res = await POST(req);
-    expect(res.status).toBe(401);
+    it('returns 401 Unauthorized when the signature header format is malformed (missing sha256= prefix)', async () => {
+      const req = makeRequest(minimalPRPayload, { 'x-hub-signature-256': 'md5=1234567890abcdef' });
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Missing or invalid x-hub-signature-256 header' });
+    });
+
+    it('returns 401 Unauthorized when the signature HMAC digest does not match the payload', async () => {
+      const wrongSignature = 'sha256=0000000000000000000000000000000000000000000000000000000000000000';
+      const req = makeRequest(minimalPRPayload, { 'x-hub-signature-256': wrongSignature });
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Invalid GitHub webhook signature' });
+    });
   });
 
   it('returns 202 and queues the job for a valid pull_request event', async () => {
