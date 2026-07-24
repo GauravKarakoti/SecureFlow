@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import authConfig from './auth.config';
 import { NextResponse } from 'next/server';
-import { ratelimit } from '@/lib/ratelimit';
+import { ratelimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const { auth } = NextAuth(authConfig);

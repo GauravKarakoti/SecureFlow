@@ -1,5 +1,5 @@
 import { handlers } from "@/auth"
-import { withRateLimit } from "@/lib/middleware/rateLimit";
+import { withRateLimit } from "@/lib/middleware/rate-limit";
 
 const { GET, POST: originalPost } = handlers;
 
