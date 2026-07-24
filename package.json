@@ -27,7 +27,7 @@
     "ngrok": "ngrok http 9002"
   },
   "dependencies": {
-    "@armoriq/sdk": "^0.6.3",
+    "@armoriq/sdk": "^0.6.5",
     "@auth/prisma-adapter": "^2.11.3",
     "@genkit-ai/compat-oai": "^1.40.1",
     "@hookform/resolvers": "^5.4.0",
@@ -57,7 +57,7 @@
     "@radix-ui/react-tooltip": "^1.2.14",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
-    "bullmq": "^5.81.0",
+    "bullmq": "^5.81.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.3",
