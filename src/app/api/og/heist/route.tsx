@@ -4,11 +4,11 @@ import { NextRequest } from 'next/server';
 export const runtime = 'edge';
 
 const regularFont = fetch(
-  new URL('../../../../assets/fonts/Orbitron-Regular.ttf', import.meta.url)
+  new URL('../../../../../public/fonts/Orbitron-Regular.ttf', import.meta.url)
 ).then((res) => res.arrayBuffer());
 
 const boldFont = fetch(
-  new URL('../../../../assets/fonts/Orbitron-Bold.ttf', import.meta.url)
+  new URL('../../../../../public/fonts/Orbitron-Bold.ttf', import.meta.url)
 ).then((res) => res.arrayBuffer());
 
 export async function GET(req: NextRequest) {

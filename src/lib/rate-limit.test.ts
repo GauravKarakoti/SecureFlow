@@ -90,7 +90,7 @@ describe('withRateLimit middleware', () => {
   }
 
   it('calls the inner handler when under the limit', async () => {
-    const { withRateLimit } = await import('./middleware/rateLimit');
+    const { withRateLimit } = await import('./middleware/rate-limit');
     const handler = vi.fn(async () => ({ status: 200 } as any));
     const wrapped = withRateLimit(handler, { limit: 10, windowSeconds: 60, keyPrefix: 'test' });
 
@@ -100,7 +100,7 @@ describe('withRateLimit middleware', () => {
   });
 
   it('returns 429 when the limit is exceeded', async () => {
-    const { withRateLimit } = await import('./middleware/rateLimit');
+    const { withRateLimit } = await import('./middleware/rate-limit');
     const handler = vi.fn(async () => ({ status: 200 } as any));
     const wrapped = withRateLimit(handler, { limit: 1, windowSeconds: 60, keyPrefix: 'test-limit' });
 
@@ -112,7 +112,7 @@ describe('withRateLimit middleware', () => {
   });
 
   it('includes Retry-After header in the 429 response', async () => {
-    const { withRateLimit } = await import('./middleware/rateLimit');
+    const { withRateLimit } = await import('./middleware/rate-limit');
     const handler = vi.fn(async () => ({ status: 200 } as any));
     const wrapped = withRateLimit(handler, { limit: 1, windowSeconds: 30, keyPrefix: 'test-retry' });
 
@@ -127,13 +127,13 @@ describe('withRateLimit middleware', () => {
 
 describe('checkRateLimit & withRateLimit — Redis fallback strategies', () => {
   let redisModule: typeof import('./redis');
-  let rateLimitModule: typeof import('./middleware/rateLimit');
+  let rateLimitModule: typeof import('./middleware/rate-limit');
 
   beforeEach(async () => {
     vi.resetModules();
     delete process.env.REDIS_URL;
     redisModule = await import('./redis');
-    rateLimitModule = await import('./middleware/rateLimit');
+    rateLimitModule = await import('./middleware/rate-limit');
   });
 
   it('fails open (returns true) when fallbackStrategy is fail-open and checkRateLimit throws', async () => {

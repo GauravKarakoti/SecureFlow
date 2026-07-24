@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { addWebhookJob } from '@/lib/queue/webhookQueue';
 import { withErrorHandler, AppError } from '@/lib/middleware/error-handler';
-import { withRateLimit } from '@/lib/middleware/rateLimit';
+import { withRateLimit } from '@/lib/middleware/rate-limit';
 
 function parseGithubSignature(signatureHeader: string | null): string | null {
   if (!signatureHeader) return null;
