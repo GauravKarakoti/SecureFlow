@@ -73,7 +73,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
+        <div className="bg-foreground/[0.03] rounded-xl border border-foreground/10 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
             <Shield className="w-5 h-5" />
           </div>
@@ -83,7 +83,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
           </div>
         </div>
         
-        <div className="bg-white/5 rounded-xl border border-white/10 p-4 flex items-center gap-4">
+        <div className="bg-foreground/[0.03] rounded-xl border border-foreground/10 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary">
             <Activity className="w-5 h-5" />
           </div>
@@ -97,8 +97,8 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       <Card className="glass-card">
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-white/5">
-              <TableRow className="border-b border-white/5 hover:bg-transparent">
+            <TableHeader className="bg-foreground/5">
+              <TableRow className="border-b border-foreground/5 hover:bg-transparent">
                 <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">Action</TableHead>
                 <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">User</TableHead>
                 <TableHead className="text-xs uppercase font-bold text-muted-foreground py-4">Resource</TableHead>
@@ -112,7 +112,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                 const displayUser = log.userId ? (userMap.get(log.userId) || log.userId) : "System";
                 return (
                   <React.Fragment key={log.id}>
-                    <TableRow className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <TableRow className="border-b border-foreground/5 hover:bg-foreground/5 transition-colors">
                       <TableCell className="py-4">
                         <span className="font-bold text-sm">{log.action}</span>
                       </TableCell>
