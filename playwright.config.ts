@@ -25,9 +25,12 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       // ⭐ NEW: Auth.js configuration for E2E test server
-      NEXTAUTH_URL: process.env.E2E_BASE_URL || 'http://localhost:9002',
-      NEXTAUTH_SECRET: 'e2e-test-secret-key',
+      AUTH_TRUST_HOST: 'true',
       NEXTAUTH_TRUST_HOST: 'true',
+      AUTH_URL: process.env.E2E_BASE_URL || 'http://localhost:9002',
+      NEXTAUTH_URL: process.env.E2E_BASE_URL || 'http://localhost:9002',
+      AUTH_SECRET: 'e2e-test-secret-key',
+      NEXTAUTH_SECRET: 'e2e-test-secret-key',
       NEXT_PUBLIC_MOCK_DB: 'true',
       NEXT_PUBLIC_MOCK_AUTH: 'true',
     },
