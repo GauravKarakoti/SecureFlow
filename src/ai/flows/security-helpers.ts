@@ -100,9 +100,23 @@ CRITICAL CONSTRAINTS:
 Respond ONLY with a valid JSON object with keys "explanation" and "remediationSuggestions".`;
 }
 
+/**
+ * Detects whether an error thrown by the AI provider is a rate limit or quota exceeded error.
+ */
+export function isRateLimitError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  return (
+    status === 429 ||
+    /429|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
+  );
+}
+
 // Exported for the test suite and for reuse by other flows that may want the same detectors.
 export const __internal = {
   detectPromptInjection,
   contradictsSeverity,
   buildPrompt,
+  isRateLimitError,
 };

@@ -6,10 +6,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let mockChunks: Array<{ explanation?: string }> = [];
 let mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
 let mockGenerateStreamThrows = false;
+let mockCustomError: Error | null = null;
 
 vi.mock('@/ai/genkit', () => ({
   ai: {
     generateStream: () => {
+      if (mockCustomError) {
+        throw mockCustomError;
+      }
       if (mockGenerateStreamThrows) {
         throw new Error('simulated model failure');
       }
@@ -54,6 +58,7 @@ describe('streamDeveloperSecurityExplanations', () => {
     mockChunks = [];
     mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
     mockGenerateStreamThrows = false;
+    mockCustomError = null;
   });
 
   it('yields incremental chunk events as the explanation grows', async () => {
@@ -194,6 +199,17 @@ describe('streamDeveloperSecurityExplanations', () => {
     expect(done?.type).toBe('done');
     if (done?.type === 'done') {
       expect(done.result.explanation).toBe('Partial streamed text only');
+    }
+  });
+
+  it('yields a specific rate-limit error message when AI provider returns HTTP 429', async () => {
+    mockCustomError = Object.assign(new Error('Rate limit reached for model groq/openai/gpt-oss-20b'), { status: 429 });
+
+    const events = await collectEvents(baseInput);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('error');
+    if (events[0].type === 'error') {
+      expect(events[0].message).toContain('AI provider rate limit reached (429)');
     }
   });
 });

@@ -87,13 +87,16 @@ export function useStreamingExplanation(findingId: string) {
 
       if (!res.ok || !res.body) {
         if (timeoutId) clearTimeout(timeoutId);
-        const message = res.status === 401
+        const isRateLimit = res.status === 429;
+        const message = isRateLimit
+          ? "AI provider rate limit reached (429). Please wait a moment and try again."
+          : res.status === 401
           ? "Session expired - refresh and try again."
           : `Analysis request failed (${res.status}).`;
         setState((prev) => ({ ...prev, isStreaming: false, error: message }));
         toast({
           variant: "destructive",
-          title: "Explanation Stream Failed",
+          title: isRateLimit ? "AI Provider Rate Limit Exceeded" : "Explanation Stream Failed",
           description: message,
         });
         return;
@@ -141,10 +144,11 @@ export function useStreamingExplanation(findingId: string) {
           } else if (event.type === "error") {
             hasFinishedStream = true;
             if (timeoutId) clearTimeout(timeoutId);
+            const isRateLimit = /429|rate limit|quota|too many requests|overloaded/i.test(event.message || "");
             setState((prev) => ({ ...prev, isStreaming: false, error: event.message }));
             toast({
               variant: "destructive",
-              title: "Explanation Stream Failed",
+              title: isRateLimit ? "AI Provider Rate Limit Exceeded" : "Explanation Stream Failed",
               description: event.message || "An error occurred during AI analysis.",
             });
           }
@@ -179,6 +183,7 @@ export function useStreamingExplanation(findingId: string) {
       }
 
       const errorMessage = err instanceof Error ? err.message : "Connection failed.";
+      const isRateLimit = /429|rate limit|quota|too many requests|overloaded/i.test(errorMessage);
       setState((prev) => ({
         ...prev,
         isStreaming: false,
@@ -186,8 +191,10 @@ export function useStreamingExplanation(findingId: string) {
       }));
       toast({
         variant: "destructive",
-        title: "Explanation Stream Error",
-        description: `Failed to receive security explanation: ${errorMessage}`,
+        title: isRateLimit ? "AI Provider Rate Limit Exceeded" : "Explanation Stream Error",
+        description: isRateLimit
+          ? "The AI service rate limit was exceeded. Please wait a moment before retrying."
+          : `Failed to receive security explanation: ${errorMessage}`,
       });
     } finally {
       if (timeoutId) clearTimeout(timeoutId);

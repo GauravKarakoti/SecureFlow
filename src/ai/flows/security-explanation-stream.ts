@@ -10,7 +10,7 @@ import {
   type AISecurityExplanationOutput,
 } from './security-explanation-schemas';
 
-const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
+const { detectPromptInjection, contradictsSeverity, buildPrompt, isRateLimitError } = __internal;
 
 /** Streamed while the explanation text is still arriving (typewriter-style UI). */
 export type StreamExplanationChunkEvent = { type: 'chunk'; explanation: string };
@@ -95,9 +95,15 @@ export async function* streamDeveloperSecurityExplanations(
     // trailing fragment) - callers should render `result.explanation` once `done` arrives.
     yield { type: 'done', result };
   } catch (err) {
+    const isRateLimit = isRateLimitError(err);
+    const message = isRateLimit
+      ? 'AI provider rate limit reached (429). Please wait a moment and try again.'
+      : err instanceof Error
+      ? err.message
+      : 'AI generation failed.';
     yield {
       type: 'error',
-      message: err instanceof Error ? err.message : 'AI generation failed.',
+      message,
     };
   }
 }

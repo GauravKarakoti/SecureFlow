@@ -225,4 +225,39 @@ describe('useStreamingExplanation', () => {
 
     expect(capturedSignal?.aborted).toBe(true);
   });
+
+  it('triggers AI Provider Rate Limit Exceeded toast when endpoint returns 429 status', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 429 }));
+
+    const { useStreamingExplanation } = await import('./use-streaming-explanation');
+    const hook = useStreamingExplanation('finding-rate-limit-429');
+    await hook.start();
+
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: 'destructive',
+        title: 'AI Provider Rate Limit Exceeded',
+        description: 'AI provider rate limit reached (429). Please wait a moment and try again.',
+      })
+    );
+  });
+
+  it('triggers AI Provider Rate Limit Exceeded toast when stream yields a rate limit error event', async () => {
+    const errorStream = makeSSEStream([
+      `data: ${JSON.stringify({ type: 'error', message: 'Rate limit reached for model groq/openai/gpt-oss-20b' })}\n\n`,
+    ]);
+    fetchMock.mockResolvedValue(new Response(errorStream, { status: 200 }));
+
+    const { useStreamingExplanation } = await import('./use-streaming-explanation');
+    const hook = useStreamingExplanation('finding-rate-limit-event');
+    await hook.start();
+
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: 'destructive',
+        title: 'AI Provider Rate Limit Exceeded',
+        description: 'Rate limit reached for model groq/openai/gpt-oss-20b',
+      })
+    );
+  });
 });
