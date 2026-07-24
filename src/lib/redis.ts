@@ -25,39 +25,77 @@ if (process.env.REDIS_URL && process.env.REDIS_URL.trim() !== '') {
 
 export const redis = redisInstance;
 
-// Basic in-memory fallback for rate limiting if Redis isn't configured
-const memoryStore = new Map<string, { count: number, resetAt: number }>();
+export type FallbackStrategy = 'fail-open' | 'fail-closed';
 
-export async function checkRateLimit(key: string, limit: number, windowSeconds: number): Promise<boolean> {
+export interface RateLimitOptions {
+  fallbackStrategy?: FallbackStrategy;
+  timeoutMs?: number;
+}
+
+// Basic in-memory fallback for rate limiting if Redis isn't configured
+const memoryStore = new Map<string, { count: number; resetAt: number }>();
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Redis operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
+export async function checkRateLimit(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+  options?: RateLimitOptions | FallbackStrategy
+): Promise<boolean> {
   const now = Date.now();
-  
+  const fallbackStrategy: FallbackStrategy =
+    typeof options === 'string' ? options : (options?.fallbackStrategy ?? 'fail-open');
+  const timeoutMs = typeof options === 'object' ? (options?.timeoutMs ?? 1000) : 1000;
+
   if (redis) {
     try {
-      const current = await redis.incr(key);
-      if (current === 1) {
-        await redis.expire(key, windowSeconds);
+      const incrementTask = (async () => {
+        const current = await redis.incr(key);
+        if (current === 1) {
+          await redis.expire(key, windowSeconds);
+        }
+        return current <= limit;
+      })();
+
+      return await withTimeout(incrementTask, timeoutMs);
+    } catch (error) {
+      console.error('Redis error or timeout during rate limiting:', error);
+      if (fallbackStrategy === 'fail-closed') {
+        return false;
       }
-      // Check if limit exceeded here...
-      return current <= limit; 
-    } catch (error: any) {
-      // Catch ECONNRESET and other Redis network errors
-      console.error(`[Redis Error] Rate limiting bypassed: ${error.message}`);
-      // Fail-open: allow the request to proceed if Redis is unreachable
-      return true; 
+      // Fail open to avoid blocking legitimate traffic if Redis goes down or times out
+      return true;
     }
   } else {
     // In-memory fallback logic
     const record = memoryStore.get(key);
     if (!record || record.resetAt < now) {
-      memoryStore.set(key, { count: 1, resetAt: now + (windowSeconds * 1000) });
+      memoryStore.set(key, { count: 1, resetAt: now + windowSeconds * 1000 });
       return true;
     }
-    
+
     if (record.count < limit) {
       record.count += 1;
       return true;
     }
-    
+
     return false;
   }
 }

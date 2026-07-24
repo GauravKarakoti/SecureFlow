@@ -122,3 +122,55 @@ describe('withRateLimit middleware', () => {
     expect(res.headers.get('Retry-After')).toBe('30');
   });
 });
+
+// ---- Redis error & timeout fallback strategies ----
+
+describe('checkRateLimit & withRateLimit — Redis fallback strategies', () => {
+  let redisModule: typeof import('./redis');
+  let rateLimitModule: typeof import('./middleware/rateLimit');
+
+  beforeEach(async () => {
+    vi.resetModules();
+    delete process.env.REDIS_URL;
+    redisModule = await import('./redis');
+    rateLimitModule = await import('./middleware/rateLimit');
+  });
+
+  it('fails open (returns true) when fallbackStrategy is fail-open and checkRateLimit throws', async () => {
+    const spy = vi.spyOn(redisModule, 'checkRateLimit').mockRejectedValueOnce(new Error('Redis unreachable'));
+
+    const handler = vi.fn(async () => ({ status: 200 } as any));
+    const wrapped = rateLimitModule.withRateLimit(handler, {
+      limit: 5,
+      windowSeconds: 60,
+      keyPrefix: 'fail-open-test',
+      fallbackStrategy: 'fail-open',
+    });
+
+    const req = { headers: { get: () => '1.1.1.1' } } as any;
+    const res = await wrapped(req);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(res.status).toBe(200);
+    spy.mockRestore();
+  });
+
+  it('fails closed (returns 429) when fallbackStrategy is fail-closed and checkRateLimit throws', async () => {
+    const spy = vi.spyOn(redisModule, 'checkRateLimit').mockRejectedValueOnce(new Error('Redis unreachable'));
+
+    const handler = vi.fn(async () => ({ status: 200 } as any));
+    const wrapped = rateLimitModule.withRateLimit(handler, {
+      limit: 5,
+      windowSeconds: 60,
+      keyPrefix: 'fail-closed-test',
+      fallbackStrategy: 'fail-closed',
+    });
+
+    const req = { headers: { get: () => '1.1.1.1' } } as any;
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(429);
+    expect(handler).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
