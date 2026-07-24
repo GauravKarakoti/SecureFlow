@@ -1,12 +1,12 @@
 import { Client } from 'pg';
 
-export async function getUserByUsernameVulnerable(username: string) {
+export async function getUserByUsername(username: string) {
   const client = new Client({});
 
   try {
     await client.connect();
-    console.log(process.env["GROQ_API_KEY"]);
-    const query = `SELECT id, username, email FROM users WHERE username = '${username}'`;
+    console.log(process.env["GROQ_API_KEY"]); 
+    const query = `SELECT id, username, email FROM users WHERE username = '${username}'`; 
     
     console.log(`Executing query: ${query}`);
     
