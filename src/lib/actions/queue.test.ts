@@ -5,7 +5,9 @@ import {
   requeueDLQJob, 
   deleteDLQJob, 
   clearAllDLQ, 
-  requeueAllDLQ 
+  requeueAllDLQ,
+  requeueBulkDLQJobs,
+  deleteBulkDLQJobs
 } from '@/lib/actions/queue';
 import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
@@ -196,6 +198,74 @@ describe('Queue Actions & DLQ', () => {
       expect(mockJobRemove1).toHaveBeenCalledOnce();
       expect(mockJobRemove2).toHaveBeenCalledOnce();
       expect(revalidatePath).toHaveBeenCalledWith('/admin/queue');
+    });
+  });
+
+  describe('requeueBulkDLQJobs', () => {
+    it('requeues specified DLQ jobs and removes them from the DLQ for an ADMIN user', async () => {
+      (auth as any).mockResolvedValue({
+        user: { id: 'admin-1', roles: ['ADMIN'] },
+      });
+
+      const mockRemove1 = vi.fn();
+      const mockRemove2 = vi.fn();
+      const mockJob1 = { id: 'bulk-1', data: { data: { event: 'push', payload: { action: 'created' } } }, remove: mockRemove1 };
+      const mockJob2 = { id: 'bulk-2', data: { data: { event: 'issues', payload: { action: 'opened' } } }, remove: mockRemove2 };
+
+      mockGetJobDLQ.mockImplementation((id: string) => {
+        if (id === 'bulk-1') return Promise.resolve(mockJob1);
+        if (id === 'bulk-2') return Promise.resolve(mockJob2);
+        return Promise.resolve(null);
+      });
+
+      const result = await requeueBulkDLQJobs(['bulk-1', 'bulk-2']);
+      expect(result).toEqual({ success: true, count: 2 });
+      expect(mockAddWebhookJob).toHaveBeenCalledWith(mockJob1.data.data);
+      expect(mockAddWebhookJob).toHaveBeenCalledWith(mockJob2.data.data);
+      expect(mockRemove1).toHaveBeenCalledOnce();
+      expect(mockRemove2).toHaveBeenCalledOnce();
+      expect(revalidatePath).toHaveBeenCalledWith('/admin/queue');
+    });
+
+    it('throws Unauthorized for non-admin users', async () => {
+      (auth as any).mockResolvedValue({
+        user: { id: 'user-1', roles: ['USER'] },
+      });
+
+      await expect(requeueBulkDLQJobs(['bulk-1'])).rejects.toThrow('Unauthorized');
+    });
+  });
+
+  describe('deleteBulkDLQJobs', () => {
+    it('deletes specified DLQ jobs from the DLQ for an ADMIN user', async () => {
+      (auth as any).mockResolvedValue({
+        user: { id: 'admin-1', roles: ['ADMIN'] },
+      });
+
+      const mockRemove1 = vi.fn();
+      const mockRemove2 = vi.fn();
+      const mockJob1 = { id: 'bulk-1', remove: mockRemove1 };
+      const mockJob2 = { id: 'bulk-2', remove: mockRemove2 };
+
+      mockGetJobDLQ.mockImplementation((id: string) => {
+        if (id === 'bulk-1') return Promise.resolve(mockJob1);
+        if (id === 'bulk-2') return Promise.resolve(mockJob2);
+        return Promise.resolve(null);
+      });
+
+      const result = await deleteBulkDLQJobs(['bulk-1', 'bulk-2']);
+      expect(result).toEqual({ success: true, count: 2 });
+      expect(mockRemove1).toHaveBeenCalledOnce();
+      expect(mockRemove2).toHaveBeenCalledOnce();
+      expect(revalidatePath).toHaveBeenCalledWith('/admin/queue');
+    });
+
+    it('throws Unauthorized for non-admin users', async () => {
+      (auth as any).mockResolvedValue({
+        user: { id: 'user-1', roles: ['USER'] },
+      });
+
+      await expect(deleteBulkDLQJobs(['bulk-1'])).rejects.toThrow('Unauthorized');
     });
   });
 });
