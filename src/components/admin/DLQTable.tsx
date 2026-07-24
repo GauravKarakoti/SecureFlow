@@ -5,8 +5,11 @@ import {
   requeueDLQJob, 
   deleteDLQJob, 
   clearAllDLQ, 
-  requeueAllDLQ 
+  requeueAllDLQ,
+  requeueBulkDLQJobs,
+  deleteBulkDLQJobs
 } from "@/lib/actions/queue";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Play, 
   Trash2, 
@@ -29,6 +32,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
@@ -56,6 +60,24 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const startIndex = (page - 1) * itemsPerPage;
   const currentJobs = filteredJobs.slice(startIndex, startIndex + itemsPerPage);
 
+  const currentJobIds = currentJobs.map((j) => j.id);
+  const isAllCurrentSelected = currentJobIds.length > 0 && currentJobIds.every((id) => selectedJobIds.includes(id));
+  const isSomeCurrentSelected = currentJobIds.some((id) => selectedJobIds.includes(id)) && !isAllCurrentSelected;
+
+  const handleSelectAllToggle = () => {
+    if (isAllCurrentSelected) {
+      setSelectedJobIds((prev) => prev.filter((id) => !currentJobIds.includes(id)));
+    } else {
+      setSelectedJobIds((prev) => Array.from(new Set([...prev, ...currentJobIds])));
+    }
+  };
+
+  const handleJobSelectToggle = (jobId: string) => {
+    setSelectedJobIds((prev) =>
+      prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]
+    );
+  };
+
   const handlePrev = () => setPage((p) => Math.max(1, p - 1));
   const handleNext = () => setPage((p) => Math.min(totalPages, p + 1));
 
@@ -71,6 +93,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
         const res = await requeueDLQJob(jobId);
         if (res.success) {
           setJobs((prev) => prev.filter((j) => j.id !== jobId));
+          setSelectedJobIds((prev) => prev.filter((id) => id !== jobId));
           toast({
             title: "Job Requeued",
             description: "The job has been successfully sent back to the main queue.",
@@ -95,6 +118,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
         const res = await deleteDLQJob(jobId);
         if (res.success) {
           setJobs((prev) => prev.filter((j) => j.id !== jobId));
+          setSelectedJobIds((prev) => prev.filter((id) => id !== jobId));
           toast({
             title: "Job Deleted",
             description: "The job has been permanently removed from the DLQ.",
@@ -112,6 +136,54 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
     });
   };
 
+  const handleBulkRequeue = async () => {
+    if (selectedJobIds.length === 0) return;
+    const count = selectedJobIds.length;
+    startTransition(async () => {
+      try {
+        const res = await requeueBulkDLQJobs(selectedJobIds);
+        if (res.success) {
+          setJobs((prev) => prev.filter((j) => !selectedJobIds.includes(j.id)));
+          setSelectedJobIds([]);
+          toast({
+            title: "Jobs Requeued",
+            description: `Successfully requeued ${res.count ?? count} job(s) back to the main queue.`,
+          });
+        }
+      } catch (err: any) {
+        toast({
+          variant: "destructive",
+          title: "Bulk Requeue Failed",
+          description: err.message || "An error occurred during bulk requeue.",
+        });
+      }
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedJobIds.length === 0) return;
+    const count = selectedJobIds.length;
+    startTransition(async () => {
+      try {
+        const res = await deleteBulkDLQJobs(selectedJobIds);
+        if (res.success) {
+          setJobs((prev) => prev.filter((j) => !selectedJobIds.includes(j.id)));
+          setSelectedJobIds([]);
+          toast({
+            title: "Jobs Deleted",
+            description: `Successfully deleted ${res.count ?? count} job(s) from the DLQ.`,
+          });
+        }
+      } catch (err: any) {
+        toast({
+          variant: "destructive",
+          title: "Bulk Deletion Failed",
+          description: err.message || "An error occurred during bulk deletion.",
+        });
+      }
+    });
+  };
+
   const handleRequeueAll = async () => {
     if (jobs.length === 0) return;
     startTransition(async () => {
@@ -119,6 +191,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
         const res = await requeueAllDLQ();
         if (res.success) {
           setJobs([]);
+          setSelectedJobIds([]);
           toast({
             title: "All Jobs Requeued",
             description: "All DLQ jobs have been returned to the processing queue.",
@@ -141,6 +214,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
         const res = await clearAllDLQ();
         if (res.success) {
           setJobs([]);
+          setSelectedJobIds([]);
           toast({
             title: "DLQ Cleared",
             description: "All DLQ jobs have been permanently deleted.",
@@ -163,18 +237,48 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   return (
     <div className="flex flex-col gap-4 w-full">
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full sm:max-w-sm">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Filter DLQ jobs by repo, event, action..."
-            value={search}
-            onChange={handleSearch}
-            className="bg-background border border-border text-foreground text-sm rounded-lg pl-9 pr-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
-          />
+        <div className="relative w-full sm:max-w-sm flex items-center gap-3">
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Filter DLQ jobs by repo, event, action..."
+              value={search}
+              onChange={handleSearch}
+              className="bg-background border border-border text-foreground text-sm rounded-lg pl-9 pr-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+            />
+          </div>
         </div>
 
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+          {selectedJobIds.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-lg text-xs font-mono text-primary">
+              <span>{selectedJobIds.length} selected</span>
+              <button
+                onClick={handleBulkRequeue}
+                disabled={isPending}
+                className="flex items-center gap-1 px-2.5 py-1 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/40 rounded font-bold transition-colors disabled:opacity-50"
+              >
+                {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Retry Selected
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={isPending}
+                className="flex items-center gap-1 px-2.5 py-1 bg-destructive/20 hover:bg-destructive/30 text-destructive border border-destructive/40 rounded font-bold transition-colors disabled:opacity-50"
+              >
+                {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete Selected
+              </button>
+              <button
+                onClick={() => setSelectedJobIds([])}
+                className="text-muted-foreground hover:text-foreground underline ml-1 text-xs"
+              >
+                Deselect
+              </button>
+            </div>
+          )}
+
           <button
             onClick={handleRequeueAll}
             disabled={isPending || jobs.length === 0}
@@ -207,7 +311,14 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
           <table className="w-full text-left text-sm text-muted-foreground border-collapse">
             <thead className="bg-black/20 text-muted-foreground text-xs uppercase tracking-wider border-b border-white/5">
               <tr>
-                <th className="w-6 px-6 py-4"></th>
+                <th className="w-10 px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={isAllCurrentSelected ? true : isSomeCurrentSelected ? "indeterminate" : false}
+                    onCheckedChange={handleSelectAllToggle}
+                    aria-label="Select all jobs on page"
+                  />
+                </th>
+                <th className="w-6 px-2 py-4"></th>
                 <th className="px-6 py-4">Target / Event</th>
                 <th className="px-6 py-4">Action</th>
                 <th className="px-6 py-4">Failed At</th>
@@ -222,11 +333,19 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                   const repo = job.data?.data?.payload?.repository?.full_name || null;
                   const isExpanded = expandedJobId === job.id;
                   const isLoading = actionLoadingJobId === job.id;
+                  const isSelected = selectedJobIds.includes(job.id);
 
                   return (
                     <React.Fragment key={job.id}>
-                      <tr className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpand(job.id)}>
-                        <td className="px-6 py-4 text-center">
+                      <tr className={`border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer ${isSelected ? "bg-white/[0.03]" : ""}`} onClick={() => toggleExpand(job.id)}>
+                        <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleJobSelectToggle(job.id)}
+                            aria-label={`Select job ${job.id}`}
+                          />
+                        </td>
+                        <td className="px-2 py-4 text-center">
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4 text-muted-foreground" />
                           ) : (
@@ -280,7 +399,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
 
                       {isExpanded && (
                         <tr className="bg-black/10 border-b border-white/5">
-                          <td colSpan={5} className="px-6 py-4">
+                          <td colSpan={6} className="px-6 py-4">
                             <div className="flex flex-col gap-2">
                               <div className="flex items-start gap-2 p-3 bg-red-500/5 border border-red-500/10 rounded-lg">
                                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
@@ -311,7 +430,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
+                  <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <AlertCircle className="w-8 h-8 text-zinc-600" />
                       <span className="text-sm font-medium">No failed jobs in the DLQ.</span>
