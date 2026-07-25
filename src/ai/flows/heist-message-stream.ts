@@ -37,6 +37,8 @@ secure channel to a fellow accomplice confirming that a security audit (a "heist
 software project has been completed successfully.
 
 Rules:
+- Structure your response like a high-stakes tactical briefing.
+- Refer to the user using city-based codenames (e.g., Tokyo, Berlin, Nairobi, Rio).
 - Write 4 to 6 short sentences.
 - Maintain the cyber-heist aesthetic: vault metaphors, encrypted channels, zero traces.
 - Do NOT use markdown or bullet points — plain prose only.
