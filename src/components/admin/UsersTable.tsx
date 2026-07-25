@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState, useTransition } from "react";
+import React, { useMemo, useState, useTransition, useOptimistic } from "react";
 import { useRouter } from "next/navigation";
 import { updateUserRole, deleteUser, type AdminUserRow, type RoleName } from "@/lib/actions/admin";
+import { useToast } from "@/hooks/use-toast";
 import {
   Search,
   ChevronLeft,
@@ -27,6 +28,10 @@ function primaryRole(roles: string[]): string {
   return "USER";
 }
 
+type OptimisticUserAction =
+  | { type: "UPDATE_ROLE"; userId: string; newRole: RoleName }
+  | { type: "DELETE_USER"; userId: string };
+
 export default function UsersTable({
   users,
   currentUserId,
@@ -35,6 +40,7 @@ export default function UsersTable({
   currentUserId?: string;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [page, setPage] = useState(1);
@@ -42,9 +48,25 @@ export default function UsersTable({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const [optimisticUsers, setOptimisticUsers] = useOptimistic<
+    AdminUserRow[],
+    OptimisticUserAction
+  >(users, (currentUsers, action) => {
+    switch (action.type) {
+      case "UPDATE_ROLE":
+        return currentUsers.map((u) =>
+          u.id === action.userId ? { ...u, roles: [action.newRole] } : u
+        );
+      case "DELETE_USER":
+        return currentUsers.filter((u) => u.id !== action.userId);
+      default:
+        return currentUsers;
+    }
+  });
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return users.filter((u) => {
+    return optimisticUsers.filter((u) => {
       const matchesSearch =
         !q ||
         u.name?.toLowerCase().includes(q) ||
@@ -53,7 +75,7 @@ export default function UsersTable({
       const matchesRole = roleFilter === "ALL" || u.roles.includes(roleFilter);
       return matchesSearch && matchesRole;
     });
-  }, [users, search, roleFilter]);
+  }, [optimisticUsers, search, roleFilter]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const safePage = Math.min(page, totalPages);
@@ -64,11 +86,18 @@ export default function UsersTable({
     setError(null);
     setPendingId(userId);
     startTransition(async () => {
+      setOptimisticUsers({ type: "UPDATE_ROLE", userId, newRole });
       try {
         await updateUserRole(userId, newRole);
         router.refresh();
       } catch (e: any) {
-        setError(e?.message || "Failed to update role.");
+        const msg = e?.message || "Failed to update role.";
+        setError(msg);
+        toast({
+          variant: "destructive",
+          title: "Role Update Failed",
+          description: msg,
+        });
       } finally {
         setPendingId(null);
       }
@@ -85,11 +114,18 @@ export default function UsersTable({
     setError(null);
     setPendingId(userId);
     startTransition(async () => {
+      setOptimisticUsers({ type: "DELETE_USER", userId });
       try {
         await deleteUser(userId);
         router.refresh();
       } catch (e: any) {
-        setError(e?.message || "Failed to delete user.");
+        const msg = e?.message || "Failed to delete user.";
+        setError(msg);
+        toast({
+          variant: "destructive",
+          title: "User Deletion Failed",
+          description: msg,
+        });
       } finally {
         setPendingId(null);
       }
