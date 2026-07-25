@@ -64,9 +64,10 @@ interface Column {
 interface CyberRainBackgroundProps {
   /** Tailwind/inline opacity override. Default 0.12 — subtle texture. */
   opacity?: number;
+  theme?: "heist" | "matrix";
 }
 
-export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps) {
+export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRainBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const columnsRef = useRef<Column[]>([]);
@@ -77,7 +78,11 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     fontSize: 14,
     columnWidth: 16,
     reducedMotion: false,
+    theme: theme,
   });
+  
+  // Update theme ref on re-render
+  configRef.current.theme = theme;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -179,14 +184,18 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
     }
 
     function drawColumn(col: Column) {
-      const { fontSize } = configRef.current;
-      const headColor = col.dim ? "rgba(244, 63, 94, 0.95)" : "rgba(239, 68, 68, 1)";
-      const bodyColor = col.dim
-        ? "rgba(244, 63, 94, 0.45)"
-        : "rgba(239, 68, 68, 0.7)";
-      const tailColor = col.dim
-        ? "rgba(244, 63, 94, 0.12)"
-        : "rgba(239, 68, 68, 0.22)";
+      const { fontSize, theme } = configRef.current;
+      
+      let headColor, bodyColor, tailColor;
+      if (theme === "matrix") {
+        headColor = col.dim ? "rgba(74, 222, 128, 0.95)" : "rgba(34, 197, 94, 1)";
+        bodyColor = col.dim ? "rgba(74, 222, 128, 0.45)" : "rgba(34, 197, 94, 0.7)";
+        tailColor = col.dim ? "rgba(74, 222, 128, 0.12)" : "rgba(34, 197, 94, 0.22)";
+      } else {
+        headColor = col.dim ? "rgba(244, 63, 94, 0.95)" : "rgba(239, 68, 68, 1)";
+        bodyColor = col.dim ? "rgba(244, 63, 94, 0.45)" : "rgba(239, 68, 68, 0.7)";
+        tailColor = col.dim ? "rgba(244, 63, 94, 0.12)" : "rgba(239, 68, 68, 0.22)";
+      }
 
       for (let i = 0; i < col.chars.length; i++) {
         const y = col.y - i * fontSize;
@@ -226,9 +235,15 @@ export function CyberRainBackground({ opacity = 0.12 }: CyberRainBackgroundProps
         const count = 3 + Math.floor(Math.random() * 4);
         for (let i = 0; i < count; i++) {
           const y = Math.random() * window.innerHeight;
-          ctx.fillStyle = col.dim
-            ? "rgba(244, 63, 94, 0.15)"
-            : "rgba(239, 68, 68, 0.25)";
+          if (configRef.current.theme === "matrix") {
+            ctx.fillStyle = col.dim
+              ? "rgba(74, 222, 128, 0.15)"
+              : "rgba(34, 197, 94, 0.25)";
+          } else {
+            ctx.fillStyle = col.dim
+              ? "rgba(244, 63, 94, 0.15)"
+              : "rgba(239, 68, 68, 0.25)";
+          }
           ctx.fillText(
             SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)],
             col.x,

@@ -4,6 +4,7 @@ import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import Link from "next/link";
 import { FALLBACK_HEIST_MESSAGE } from "@/ai/flows/heist-message-stream";
 
@@ -172,6 +173,24 @@ export function HeistTransmission({
   const [aiLoading, setAiLoading] = useState(true);
   const esRef = useRef<EventSource | null>(null);
 
+  // ── Easter egg state ─────────────────────────────────────────────────────────
+  const [bgTheme, setBgTheme] = useState<"heist" | "matrix">("heist");
+  const easterEggKeys = useRef<string>("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Keep only letters/spaces and limit length to 20
+      if (e.key.length === 1 && /[a-zA-Z\s]/.test(e.key)) {
+        easterEggKeys.current = (easterEggKeys.current + e.key).slice(-20).toUpperCase();
+        if (easterEggKeys.current.includes("BELLA CIAO")) {
+          setBgTheme("matrix");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     // Build the SSE URL with query params matching page.tsx logic.
     const params = new URLSearchParams({ project: projectName });
@@ -223,12 +242,14 @@ export function HeistTransmission({
 
   // ── Build the Professor's transmission ─────────────────────────────────────
   // Memoised — stable so the sequential decode indices don't reset mid-stream.
+  const typedAiMessage = useTypewriter(aiMessage, 40);
+
   const lines = useMemo<TransmissionLine[]>(() => {
-    if (!aiLoading && aiMessage) {
-      return buildAiLines(projectName, score, rank, findingsCount, aiMessage);
+    if (!aiLoading && typedAiMessage) {
+      return buildAiLines(projectName, score, rank, findingsCount, typedAiMessage);
     }
     return buildStaticLines(projectName, score, rank, findingsCount, tagline);
-  }, [projectName, score, rank, findingsCount, tagline, aiMessage, aiLoading]);
+  }, [projectName, score, rank, findingsCount, tagline, typedAiMessage, aiLoading]);
 
   const total = lines.length;
 
@@ -296,11 +317,11 @@ export function HeistTransmission({
   const visibleCount = reducedMotion ? total : Math.min(revealedCount + 1, total);
 
   return (
-    <div className="min-h-screen bg-black flex flex-col relative">
+    <div className="min-h-screen bg-black flex flex-col relative selection:bg-red-900/50">
       {/* ── Atmospheric cyber-rain backdrop (fills the empty gutters) ────
           Fixed, full-viewport, very low opacity, pointer-events: none.
           Sits behind everything; the terminal card below lifts to z-10. */}
-      <CyberRainBackground opacity={0.13} />
+      <CyberRainBackground opacity={0.13} theme={bgTheme} />
 
       {/* Vignette so the terminal card stays the visual focal point even
           with rain behind it — darkens edges, keeps center readable. */}
