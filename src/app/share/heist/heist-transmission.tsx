@@ -201,6 +201,36 @@ export function HeistTransmission({
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);
     esRef.current = es;
 
+    // Queue for variable typing cadence processing
+    const textQueue: string[] = [];
+    let isProcessingQueue = false;
+
+    const processQueue = async () => {
+      if (isProcessingQueue) return;
+      isProcessingQueue = true;
+
+      while (textQueue.length > 0) {
+        const nextText = textQueue.shift()!;
+        setAiMessage((prev) => {
+          const currentText = prev || "";
+          // Determine newly added characters
+          const addedChars = nextText.slice(currentText.length);
+          return nextText;
+        });
+
+        // Calculate variable typing delay based on last character in chunk
+        const lastChar = nextText.slice(-1);
+        let charDelay = Math.floor(Math.random() * 31) + 20; // 20-50ms per character
+        if ([".", ",", "!", "?", ";", ":"].includes(lastChar)) {
+          charDelay += 300; // longer pause (300ms) after punctuation marks
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, charDelay));
+      }
+
+      isProcessingQueue = false;
+    };
+
     es.onmessage = (ev) => {
       try {
         const event = JSON.parse(ev.data) as
@@ -209,12 +239,16 @@ export function HeistTransmission({
           | { type: "error"; message: string };
 
         if (event.type === "chunk") {
-          // Live preview — show accumulating text as it arrives.
-          setAiMessage(event.text);
+          // Push accumulating text into typing queue for variable cadence rendering
+          textQueue.push(event.text);
+          processQueue();
         } else if (event.type === "done") {
-          setAiMessage(event.message);
-          setAiLoading(false);
-          es.close();
+          textQueue.push(event.message);
+          processQueue().then(() => {
+            setAiMessage(event.message);
+            setAiLoading(false);
+            es.close();
+          });
         } else {
           // AI error — fall back to static lines.
           setAiMessage(null);
