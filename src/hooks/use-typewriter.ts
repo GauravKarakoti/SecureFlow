@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
 /**
  * Buffers incoming streaming text and outputs it at a strict, steady pace
@@ -10,9 +10,9 @@ export function useTypewriter(incomingText: string | null, speedMs: number = 30)
 
   useEffect(() => {
     if (!incomingText) {
-      setDisplayedText("");
       currentIndex.current = 0;
-      return;
+      const timer = setTimeout(() => setDisplayedText(""), 0);
+      return () => clearTimeout(timer);
     }
 
     const interval = setInterval(() => {

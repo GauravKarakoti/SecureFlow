@@ -81,8 +81,9 @@ export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRa
     theme: theme,
   });
   
-  // Update theme ref on re-render
-  configRef.current.theme = theme;
+  useEffect(() => {
+    configRef.current.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     isMountedRef.current = true;
