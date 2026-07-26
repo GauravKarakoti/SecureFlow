@@ -40,6 +40,8 @@ export async function generateMetadata({
     alias,
     score,
     timestamp,
+    rank,
+    findingsCount,
   } = await searchParams;
 
   const projectName = project || 'The Royal Mint';
@@ -55,6 +57,12 @@ export async function generateMetadata({
 
   if (operationTimestamp) {
     params.set('timestamp', operationTimestamp);
+  }
+  if (rank) {
+    params.set('rank', rank);
+  }
+  if (findingsCount !== undefined) {
+    params.set('findingsCount', String(findingsCount));
   }
 
   const imageUrl = `${APP_URL}/api/og/heist?${params.toString()}`;
@@ -117,6 +125,12 @@ export default async function HeistSharePage({
 
   if (timestamp) {
     params.set('timestamp', timestamp);
+  }
+  if (rank) {
+    params.set('rank', rank);
+  }
+  if (findingsCount !== undefined) {
+    params.set('findingsCount', String(findingsCount));
   }
 
   const imageUrl = `/api/og/heist?${params.toString()}`;

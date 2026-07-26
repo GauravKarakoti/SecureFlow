@@ -18,17 +18,28 @@ export default auth(async function middleware(request: any) {
     }
   }
   
-  // RBAC Admin Route Guarding
+  // RBAC Admin Route Guarding (/admin/*)
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
-      const mockSession = request.cookies.get("mock-session")?.value;
-      if (mockSession === "admin") {
+      const mockSession = request.cookies.get('mock-session')?.value;
+      if (mockSession === 'admin') {
         return NextResponse.next();
       }
+      if (mockSession === 'user') {
+        return NextResponse.redirect(new URL('/dashboard', request.nextUrl));
+      }
+      return NextResponse.redirect(new URL('/login', request.nextUrl));
     }
-    const roles = (token?.user?.roles as string[]) || [];
-    if (!token || !roles.includes("ADMIN")) {
-      return NextResponse.redirect(new URL('/', request.nextUrl));
+
+    const roles: string[] =
+      (token?.user?.roles as string[]) || (token?.roles as string[]) || [];
+
+    if (!token) {
+      return NextResponse.redirect(new URL('/login', request.nextUrl));
+    }
+
+    if (!roles.includes('ADMIN')) {
+      return NextResponse.redirect(new URL('/dashboard', request.nextUrl));
     }
   }
 

@@ -1,17 +1,21 @@
 import { vi } from 'vitest';
 
-// Stub @/lib/prisma so tests never open a real DB connection.
-vi.mock('@/lib/prisma', () => ({
-  default: {
-    user: { count: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
-    pullRequest: { count: vi.fn(), findUnique: vi.fn() },
-    auditLog: { count: vi.fn() },
-    scanResult: { aggregate: vi.fn() },
-    repository: { findUnique: vi.fn() },
-    finding: { findFirst: vi.fn(), update: vi.fn() },
-    webhookEvent: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({})) },
-  },
-}));
+// Stub @/lib/prisma so tests never open a real DB connection while preserving helper utilities.
+vi.mock('@/lib/prisma', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/prisma')>();
+  return {
+    ...actual,
+    default: {
+      user: { count: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+      pullRequest: { count: vi.fn(), findUnique: vi.fn() },
+      auditLog: { count: vi.fn() },
+      scanResult: { aggregate: vi.fn() },
+      repository: { findUnique: vi.fn() },
+      finding: { findFirst: vi.fn(), update: vi.fn() },
+      webhookEvent: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({})) },
+    },
+  };
+});
 
 // Activate the manual __mocks__/groq-sdk.ts mock for all test files.
 // That file exposes APIConnectionTimeoutError (required by scanner.ts at module level)

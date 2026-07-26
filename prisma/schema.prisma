@@ -80,6 +80,7 @@ model Repository {
 
   pullRequests PullRequest[]
   webhookEvents WebhookEvent[]
+  triages       FindingTriage[]
   createdAt    DateTime      @default(now())
 
   @@index([userId])
@@ -154,13 +155,39 @@ model Finding {
   type         String // Secret, Vulnerability, Misconfig
   severity     String // CRITICAL, HIGH, MEDIUM, LOW
   fileLocation String
+  lineStart    Int?
+  lineEnd      Int?
   codeSnippet  String?
   explanation  String?
   remediation  String?
   promptInjectionSuspected Boolean @default(false)
+  // Stable content hash (repositoryId + fileLocation + type + codeSnippet)
+  // computed by the worker at write time. Triage keys off this so a dismissal
+  // survives the latest-wins re-scan that recreates Finding rows.
+  fingerprint  String     @default("")
   createdAt    DateTime   @default(now())
 
   @@index([scanResultId])
+  @@index([fingerprint])
+}
+
+// Triage / lifecycle state for a finding, keyed by the stable fingerprint
+// rather than Finding.id so a dismiss/resolve/false-positive decision persists
+// across re-scans (which delete and recreate the Finding rows).
+model FindingTriage {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  fingerprint  String
+  status       String     @default("OPEN") // OPEN | RESOLVED | FALSE_POSITIVE | IGNORED
+  note         String?
+  resolvedById String? // User.id of whoever set the current status
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([repositoryId, fingerprint])
+  @@index([repositoryId])
+  @@index([fingerprint])
 }
 
 model AuditLog {

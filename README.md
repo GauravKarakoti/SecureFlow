@@ -254,36 +254,52 @@ SecureFlow requires a GitHub App to receive webhook events and post PR comments.
 
 ### 4. Database Setup
 
-**Option A — Local PostgreSQL:**
+**Option A — Local PostgreSQL (Development):**
 
 ```sql
 -- In psql or pgAdmin:
 CREATE DATABASE secureflow;
 ```
 
-Then set `DATABASE_URL="postgresql://postgres:yourpassword@localhost:5432/secureflow"` in `.env`
+Set your local connection string in `.env`:
+```env
+DATABASE_URL="postgresql://postgres:yourpassword@localhost:5432/secureflow"
+```
 
-**Option B — Free Cloud DB (easier):**
+**Option B — Production Serverless with Connection Pooling (Neon / PgBouncer):**
 
-- Sign up at [neon.tech](https://neon.tech) or [supabase.com](https://supabase.com)
-- Create a new project and copy the connection string directly into `DATABASE_URL`
+In serverless environments (Next.js API routes on Vercel/AWS Lambda), multiple concurrent function instances spin up rapidly under heavy traffic. Without connection pooling, this can quickly exhaust PostgreSQL connection limits.
 
-**Then run:**
+SecureFlow supports connection poolers (e.g. **Neon Pooler** or **PgBouncer**) paired with Prisma's native `pg` driver pool adapter (`@prisma/adapter-pg`).
+
+Configure your production `.env` / environment settings with database connection strings:
+
+```env
+# Standard / Direct Database connection string (Used by Prisma CLI for migrations & fallback)
+DATABASE_URL="postgresql://neondb_owner:pass@ep-direct.c-9.us-east-1.aws.neon.tech/neondb?sslmode=verify-full"
+
+# Application Runtime Query Pooler URL (Optional: PgBouncer / Neon connection pooler)
+DATABASE_POOL_URL="postgresql://neondb_owner:pass@ep-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=verify-full"
+
+# Optional: Max connections per serverless function instance pool (default: 10)
+DB_POOL_MAX=10
+```
+
+> 💡 **Why database pooler?** SecureFlow uses `DATABASE_POOL_URL` for application runtime queries in serverless production environments while Prisma CLI migrations automatically use `DATABASE_URL` (direct connection string).
+
+**Then run database setup:**
 
 - Generate Prisma Client
-
 ```bash
 npm run db:gen
 ```
 
-- Apply migrations (creates all tables)
-
+- Apply migrations (creates all tables using `DATABASE_URL`)
 ```bash
 npm run db:migrate
 ```
 
 - Seed default security policy templates
-
 ```bash
 npm run db:seed
 ```
@@ -322,7 +338,9 @@ npm run genkit:dev
 
 | Variable                | Required | Description                                                                             |
 | ----------------------- | -------- | --------------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | ✅       | PostgreSQL connection string                                                            |
+| `DATABASE_URL`          | ✅       | PostgreSQL connection string (Direct/Standard)                                          |
+| `DATABASE_POOL_URL`     | ⬜       | Recommended for production serverless connection pooler (PgBouncer/Neon Pooler)       |
+| `DB_POOL_MAX`           | ⬜       | Max connections per serverless function instance (default: 10)                          |
 | `GROQ_API_KEY`          | ✅       | API key from [console.groq.com](https://console.groq.com)                               |
 | `GITHUB_APP_ID`         | ✅       | Numeric ID of your GitHub App                                                           |
 | `GITHUB_WEBHOOK_SECRET` | ✅       | Secret used to verify webhook payloads                                                  |

@@ -44,9 +44,10 @@ const nextAuthResult = NextAuth({
       }
 
       // 2. Fetch roles if missing OR if a session update is triggered
-      if ((token.userId && !token.roles) || trigger === "update") {
+      const userId = (token.userId || user?.id || token.sub) as string | undefined;
+      if ((userId && (!token.roles || token.roles.length === 0)) || trigger === "update") {
         const dbUser = await prisma.user.findUnique({
-          where: { id: token.userId as string },
+          where: { id: userId },
           include: { roles: { include: { role: true } } }
         });
         

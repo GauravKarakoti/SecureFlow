@@ -95,4 +95,91 @@ describe('Webhook Worker DLQ Routing', () => {
 
     expect(mockDLQAdd).not.toHaveBeenCalled();
   });
+
+  it('uses default maxAttempts of 3 when job.opts.attempts is missing (retry on attempt 2)', async () => {
+    await import('./worker');
+
+    const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
+    const failedHandler = failedHandlerCall![1];
+
+    const mockJob = {
+      id: 'job-no-opts-retry',
+      name: 'process-webhook',
+      data: { event: 'pull_request', payload: { action: 'opened' } },
+      attemptsMade: 2,
+      opts: {},
+    };
+    const mockError = new Error('Database connection timeout');
+
+    await failedHandler(mockJob, mockError);
+
+    expect(mockDLQAdd).not.toHaveBeenCalled();
+  });
+
+  it('uses default maxAttempts of 3 when job.opts.attempts is missing (DLQ on attempt 3)', async () => {
+    await import('./worker');
+
+    const failedHandlerCall = mockWorkerOn.mock.calls.find(call => call[0] === 'failed');
+    const failedHandler = failedHandlerCall![1];
+
+    const mockJob = {
+      id: 'job-no-opts-dlq',
+      name: 'process-webhook',
+      data: { event: 'pull_request', payload: { action: 'opened' } },
+      attemptsMade: 3,
+      opts: {},
+    };
+    const mockError = new Error('Database connection timeout');
+
+    await failedHandler(mockJob, mockError);
+
+    expect(mockDLQAdd).toHaveBeenCalledWith(
+      'process-webhook-dlq',
+      expect.objectContaining({
+        originalJobId: 'job-no-opts-dlq',
+        failedReason: 'Database connection timeout',
+        attemptsMade: 3,
+      }),
+      { attempts: 1 }
+    );
+  });
+});
+
+describe('getCommentableLines (diff-position guard)', () => {
+  it('returns added and context lines from a single hunk, excluding removed lines', async () => {
+    const { getCommentableLines } = await import('./worker');
+    // New side starts at line 10: context(10), removed(-), added(11), context(12)
+    const patch = ['@@ -10,3 +10,3 @@', ' const a = 1;', '-const b = 2;', '+const b = 3;', ' const c = 4;'].join('\n');
+
+    const lines = getCommentableLines(patch);
+
+    expect([...lines].sort((x, y) => x - y)).toEqual([10, 11, 12]);
+  });
+
+  it('handles multiple hunks and only-added lines', async () => {
+    const { getCommentableLines } = await import('./worker');
+    const patch = [
+      '@@ -1,2 +1,3 @@',
+      ' line one',
+      '+new line two',
+      ' line three',
+      '@@ -20,0 +21,2 @@',
+      '+added twentyone',
+      '+added twentytwo',
+    ].join('\n');
+
+    const lines = getCommentableLines(patch);
+
+    expect(lines.has(2)).toBe(true);   // added line in first hunk
+    expect(lines.has(21)).toBe(true);  // added line in second hunk
+    expect(lines.has(22)).toBe(true);
+    expect(lines.has(20)).toBe(false); // never present on the new side
+  });
+
+  it('returns an empty set for a patch with only removed lines', async () => {
+    const { getCommentableLines } = await import('./worker');
+    const patch = ['@@ -5,2 +5,0 @@', '-gone one', '-gone two'].join('\n');
+
+    expect(getCommentableLines(patch).size).toBe(0);
+  });
 });
