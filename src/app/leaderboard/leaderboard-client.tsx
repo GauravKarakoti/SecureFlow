@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Euro, Swords } from "lucide-react";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { formatBounty } from "./scoring";
+
+const POLL_INTERVAL_MS = 30_000;
 
 export type ContributorRow = {
   id: string;
@@ -99,7 +101,25 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
 }
 
 export default function LeaderboardClient({ contributors }: { contributors: ContributorRow[] }) {
-  const entries = contributors;
+  const [entries, setEntries] = useState<ContributorRow[]>(contributors);
+
+  const fetchLatest = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leaderboard", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setEntries(data.contributors ?? data);
+      }
+    } catch {
+      // silently ignore network errors — stale data is fine
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(fetchLatest, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchLatest]);
+
   const podium = entries.slice(0, 3);
   const isEmpty = entries.length === 0;
   const maxScore = entries[0]?.score || 1;
@@ -117,7 +137,7 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
         </div>
         <div className="inline-flex items-center gap-2 self-start rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
           <Euro className="h-4 w-4 shrink-0 text-red-400" />
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction</span>
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
         </div>
       </div>
 

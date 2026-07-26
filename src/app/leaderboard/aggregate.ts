@@ -37,23 +37,19 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
     prisma.pullRequest.groupBy({ by: ["authorLogin"], where: authored, _count: { _all: true } }),
     prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "merged" }, _count: { _all: true } }),
     prisma.pullRequest.findMany({ where: { ...authored, authorAvatarUrl: { not: null } }, select: { authorLogin: true, authorAvatarUrl: true }, distinct: ["authorLogin"] }),
-    prisma.user.findMany({ where: { codename: { not: null } }, select: { email: true, codename: true } }),
+    prisma.user.findMany({ where: { githubLogin: { not: null } }, select: { githubLogin: true, codename: true } }),
   ]);
 
   const mergedByLogin = new Map(merged.map((row: any) => [row.authorLogin, row._count._all]));
   const avatarByLogin = new Map(avatars.map((row: any) => [row.authorLogin, row.authorAvatarUrl]));
-  const codenameByEmail = new Map<string, string>(
-    users.filter((u: any) => u.email && u.codename).map((u: any) => [String(u.email).toLowerCase(), String(u.codename)])
+  const codenameByLogin = new Map<string, string>(
+    users.filter((u: any) => u.githubLogin && u.codename).map((u: any) => [u.githubLogin.toLowerCase(), u.codename])
   );
 
   return totals.map((row: any) => {
     const login = row.authorLogin as string;
     const mergedCount = mergedByLogin.get(login) ?? 0;
-    let codename: string | null = null;
-    for (const [email, cn] of codenameByEmail) {
-      if (email.startsWith(login.toLowerCase() + "@")) { codename = cn; break; }
-    }
-    if (!codename) codename = generateCodename(login);
+    const codename = codenameByLogin.get(login.toLowerCase()) ?? generateCodename(login);
     return {
       id: login, login, codename,
       avatarUrl: avatarByLogin.get(login) ?? ghAvatar(login),

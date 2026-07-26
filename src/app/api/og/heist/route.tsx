@@ -3,17 +3,14 @@ import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
-const regularFont = fetch(
-  new URL('../../../../../public/fonts/Orbitron-Regular.ttf', import.meta.url)
-).then((res) => res.arrayBuffer());
-
-const boldFont = fetch(
-  new URL('../../../../../public/fonts/Orbitron-Bold.ttf', import.meta.url)
-).then((res) => res.arrayBuffer());
-
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+
+    const [regular, bold] = await Promise.all([
+      fetch(new URL('../../../../../public/fonts/Orbitron-Regular.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
+      fetch(new URL('../../../../../public/fonts/Orbitron-Bold.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
+    ]);
 
     const project = (
       searchParams.get('project') || 'Classified Target'
@@ -54,11 +51,6 @@ export async function GET(req: NextRequest) {
         dateStyle: 'medium',
         timeStyle: 'short',
       });
-
-    const [regular, bold] = await Promise.all([
-      regularFont,
-      boldFont,
-    ]);
 
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
