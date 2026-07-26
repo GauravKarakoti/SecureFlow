@@ -9,6 +9,10 @@ vi.mock('@/ai/genkit', () => ({
     generate: async () => ({ text: mockResponseText }),
   },
   defaultModel: 'mock-model',
+  // The security-explanation flows now import this explicitly (issue #217),
+  // so the mock must expose it too. Keeping it distinct from `defaultModel`
+  // lets future tests assert that the flow picked the security-specific model.
+  securityExplanationModel: 'mock-security-model',
 }));
 
 vi.mock('dotenv/config', () => ({}));
@@ -175,5 +179,59 @@ describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
       const resisted = !contradictsSeverity('CRITICAL', result.explanation);
       expect(resisted || result.promptInjectionSuspected).toBe(true);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Issue #217: the security-explanation flow must be explicitly routed to the
+// fastest available Groq model (securityExplanationModel), NOT just rely on
+// the default Genkit config. This test asserts the flow actually passes that
+// model reference through to `ai.generate`, so a future refactor that
+// accidentally swaps it back to `defaultModel` will fail loudly.
+// ────────────────────────────────────────────────────────────────────────────
+describe('issue #217 — explicit fast-model routing', () => {
+  it('calls ai.generate with securityExplanationModel, not defaultModel', async () => {
+    // Capture the model reference the flow actually passes to ai.generate.
+    // We use vi.doMock (not vi.mock) so the override applies AFTER the test
+    // starts — vi.mock is hoisted to the top of the file and would replace
+    // the module-level mock for every test in this file.
+    const generateCalls: { model?: string }[] = [];
+
+    vi.resetModules();
+    vi.doMock('@/ai/genkit', () => ({
+      ai: {
+        generate: async (opts: { model?: string }) => {
+          generateCalls.push({ model: opts.model });
+          return {
+            text: JSON.stringify({
+              explanation: 'ok',
+              remediationSuggestions: 'ok',
+            }),
+          };
+        },
+      },
+      defaultModel: 'groq/default-model',
+      securityExplanationModel: 'groq/fast-security-model',
+    }));
+
+    // Re-import AFTER the mock swap so the flow picks up the new mock.
+    const { developerReceivesAISecurityExplanations: rerun } =
+      await import('./developer-receives-ai-security-explanations');
+
+    await rerun({
+      findingType: 'Vulnerability',
+      severity: 'HIGH',
+      description: 'SQL injection risk',
+      fileLocation: 'src/db.ts',
+      codeSnippet: 'const q = "SELECT * FROM t WHERE id=" + id;',
+    });
+
+    expect(generateCalls).toHaveLength(1);
+    expect(generateCalls[0].model).toBe('groq/fast-security-model');
+    expect(generateCalls[0].model).not.toBe('groq/default-model');
+
+    // Restore the hoisted mock + module cache so subsequent tests are unaffected.
+    vi.doUnmock('@/ai/genkit');
+    vi.resetModules();
   });
 });

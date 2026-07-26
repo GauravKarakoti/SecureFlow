@@ -2,7 +2,7 @@
 
 import "dotenv/config";
 import { __internal } from './security-helpers';
-import { ai, defaultModel } from '@/ai/genkit';
+import { ai, securityExplanationModel } from '@/ai/genkit';
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -27,8 +27,13 @@ export async function developerReceivesAISecurityExplanations(
 
   const prompt = buildPrompt(validatedInput);
 
+  // Explicitly route to the fastest Groq model (see securityExplanationModel
+  // in @/ai/genkit). Issue #217 asked for the security-explanation flows to
+  // NOT just rely on the default Genkit config; pinning the model here makes
+  // the latency-critical path independent of GROQ_MODEL changes that might
+  // otherwise swap in a slower model.
   const { text: responseText } = await ai.generate({
-    model: defaultModel,
+    model: securityExplanationModel,
     system: SYSTEM_PROMPT,
     prompt,
     config: {
@@ -49,7 +54,6 @@ export async function developerReceivesAISecurityExplanations(
     parsedContent = JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error("Failed to parse explanation JSON:", error);
-    // ADD THIS DEBUG LOG
     console.error("RAW OUTPUT WAS:\n", responseText); 
     
     parsedContent = {
