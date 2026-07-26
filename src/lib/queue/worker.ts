@@ -8,6 +8,7 @@ import { computeFingerprint } from '@/lib/armor/fingerprint';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import prisma from '@/lib/prisma';
+import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
 
 // 1. Strict input validation schemas
 const repoSchema = z.object({
@@ -155,12 +156,12 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         })
       ),
       prisma.auditLog.create({
-        data: {
+        data: sanitizeAuditLogInput({
           userId: account.userId,
           action: 'Repository Added',
           resource: repositories.map((r: any) => r.full_name).join(', '),
           metadata: { count: repositories.length, event: 'installation' }
-        }
+        })
       })
     ]);
     console.log(`Successfully installed app and populated ${repositories.length} repositories.`);
@@ -186,12 +187,12 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
           })
         ),
         prisma.auditLog.create({
-          data: {
+          data: sanitizeAuditLogInput({
             userId: account.userId,
             action: 'Repository Added',
             resource: repositories_added.map((r: any) => r.full_name).join(', '),
             metadata: { count: repositories_added.length, event: 'installation_repositories' }
-          }
+          })
         })
       ]);
     }
@@ -247,12 +248,12 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 
       if (userId) {
         await prisma.auditLog.create({
-          data: {
+          data: sanitizeAuditLogInput({
             userId: userId,
             action: 'Scan Triggered',
             resource: `${repository.full_name}#${pull_request.number}`,
             metadata: { action: action, head_sha: pull_request.head.sha }
-          }
+          })
         });
       }
 
@@ -365,7 +366,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 
       if (userId) {
         await prisma.auditLog.create({
-          data: {
+          data: sanitizeAuditLogInput({
             userId: userId,
             action: 'Policy Evaluation',
             resource: `${repository.full_name}#${pull_request.number}`,
@@ -374,7 +375,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
               findingsCount: activeFindings.length,
               suppressedCount: findings.length - activeFindings.length,
             }
-          }
+          })
         });
       }
 
@@ -474,7 +475,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 
         if (userId) {
           await prisma.auditLog.create({
-            data: {
+            data: sanitizeAuditLogInput({
               userId: userId,
               action: 'PR Comment Posted',
               resource: `${repository.full_name}#${pull_request.number}`,
@@ -483,7 +484,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
                 findingsReported: enrichedFindings.length,
                 inlineComments: inlinePosted ? inlineComments.length : 0,
               }
-            }
+            })
           });
         }
       } else {
