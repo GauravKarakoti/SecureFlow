@@ -6,7 +6,6 @@ import { redirect } from "next/navigation";
 import {
   getUserAuditLogs,
   getUserAuditLogFilters,
-  type UserAuditLogRow,
 } from "@/lib/actions/audit";
 import AuditLogTable from "./audit-log-table";
 
@@ -37,9 +36,10 @@ export default async function AuditPage() {
 
   // Every log returned is already scoped to this user (or is a null-userId
   // "System" event), so there's no need to look up multiple users here —
-  // just resolve the signed-in user's own display name once.
+  // just resolve the signed-in user's own display name once and hand the
+  // plain string to the client component (functions can't cross the
+  // server/client boundary).
   const ownName = session.user.name || session.user.email || "You";
-  const displayUser = (log: UserAuditLogRow) => (log.userId ? ownName : "System");
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
@@ -78,7 +78,7 @@ export default async function AuditPage() {
             initialResult={initialResult}
             actions={filters.actions}
             decisions={filters.decisions}
-            displayUser={displayUser}
+            ownName={ownName}
           />
         </CardContent>
       </Card>

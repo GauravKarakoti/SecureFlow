@@ -32,12 +32,12 @@ export default function AuditLogTable({
   initialResult,
   actions,
   decisions,
-  displayUser,
+  ownName,
 }: {
   initialResult: UserAuditLogResult;
   actions: string[];
   decisions: string[];
-  displayUser: (log: UserAuditLogRow) => string;
+  ownName: string;
 }) {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState(ALL);
@@ -48,6 +48,11 @@ export default function AuditLogTable({
 
   const hasFilters =
     search.trim() !== "" || actionFilter !== ALL || decisionFilter !== ALL;
+
+  // Reconstructed here from the plain `ownName` string prop — every log is
+  // already scoped to this user (or is a null-userId "System" event), so
+  // there's no need to look up multiple users, just this one check.
+  const displayUser = (log: UserAuditLogRow) => (log.userId ? ownName : "System");
 
   const clearFilters = () => {
     setSearch("");
