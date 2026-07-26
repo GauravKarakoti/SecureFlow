@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useState, useTransition, useOptimistic } from "react";
 import { 
   requeueDLQJob, 
   deleteDLQJob, 
@@ -27,6 +27,11 @@ interface DLQTableProps {
   initialJobs: any[];
 }
 
+type OptimisticDLQAction =
+  | { type: "REMOVE_JOB"; jobId: string }
+  | { type: "REMOVE_JOBS"; jobIds: string[] }
+  | { type: "CLEAR_ALL" };
+
 export default function DLQTable({ initialJobs }: DLQTableProps) {
   const [jobs, setJobs] = useState<any[]>(initialJobs || []);
   const [search, setSearch] = useState("");
@@ -36,10 +41,26 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
+  const [optimisticJobs, setOptimisticJobs] = useOptimistic<any[], OptimisticDLQAction>(
+    jobs,
+    (currentJobs, action) => {
+      switch (action.type) {
+        case "REMOVE_JOB":
+          return currentJobs.filter((j) => j.id !== action.jobId);
+        case "REMOVE_JOBS":
+          return currentJobs.filter((j) => !action.jobIds.includes(j.id));
+        case "CLEAR_ALL":
+          return [];
+        default:
+          return currentJobs;
+      }
+    }
+  );
+
   // Local loading states for individual job actions
   const [actionLoadingJobId, setActionLoadingJobId] = useState<string | null>(null);
 
-  const filteredJobs = jobs.filter((job) => {
+  const filteredJobs = optimisticJobs.filter((job) => {
     const searchLower = search.toLowerCase();
     const event = job.data?.data?.event || "";
     const action = job.data?.data?.payload?.action || "";
@@ -89,6 +110,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleSingleRequeue = async (jobId: string) => {
     setActionLoadingJobId(jobId);
     startTransition(async () => {
+      setOptimisticJobs({ type: "REMOVE_JOB", jobId });
       try {
         const res = await requeueDLQJob(jobId);
         if (res.success) {
@@ -98,6 +120,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
             title: "Job Requeued",
             description: "The job has been successfully sent back to the main queue.",
           });
+        } else {
+          throw new Error((res as any).error || "Failed to requeue job.");
         }
       } catch (err: any) {
         toast({
@@ -114,6 +138,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleSingleDelete = async (jobId: string) => {
     setActionLoadingJobId(jobId);
     startTransition(async () => {
+      setOptimisticJobs({ type: "REMOVE_JOB", jobId });
       try {
         const res = await deleteDLQJob(jobId);
         if (res.success) {
@@ -123,6 +148,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
             title: "Job Deleted",
             description: "The job has been permanently removed from the DLQ.",
           });
+        } else {
+          throw new Error((res as any).error || "Failed to delete job.");
         }
       } catch (err: any) {
         toast({
@@ -139,16 +166,20 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleBulkRequeue = async () => {
     if (selectedJobIds.length === 0) return;
     const count = selectedJobIds.length;
+    const targetIds = [...selectedJobIds];
     startTransition(async () => {
+      setOptimisticJobs({ type: "REMOVE_JOBS", jobIds: targetIds });
       try {
-        const res = await requeueBulkDLQJobs(selectedJobIds);
+        const res = await requeueBulkDLQJobs(targetIds);
         if (res.success) {
-          setJobs((prev) => prev.filter((j) => !selectedJobIds.includes(j.id)));
+          setJobs((prev) => prev.filter((j) => !targetIds.includes(j.id)));
           setSelectedJobIds([]);
           toast({
             title: "Jobs Requeued",
             description: `Successfully requeued ${res.count ?? count} job(s) back to the main queue.`,
           });
+        } else {
+          throw new Error((res as any).error || "Failed to requeue jobs.");
         }
       } catch (err: any) {
         toast({
@@ -163,16 +194,20 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleBulkDelete = async () => {
     if (selectedJobIds.length === 0) return;
     const count = selectedJobIds.length;
+    const targetIds = [...selectedJobIds];
     startTransition(async () => {
+      setOptimisticJobs({ type: "REMOVE_JOBS", jobIds: targetIds });
       try {
-        const res = await deleteBulkDLQJobs(selectedJobIds);
+        const res = await deleteBulkDLQJobs(targetIds);
         if (res.success) {
-          setJobs((prev) => prev.filter((j) => !selectedJobIds.includes(j.id)));
+          setJobs((prev) => prev.filter((j) => !targetIds.includes(j.id)));
           setSelectedJobIds([]);
           toast({
             title: "Jobs Deleted",
             description: `Successfully deleted ${res.count ?? count} job(s) from the DLQ.`,
           });
+        } else {
+          throw new Error((res as any).error || "Failed to delete jobs.");
         }
       } catch (err: any) {
         toast({
@@ -187,6 +222,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleRequeueAll = async () => {
     if (jobs.length === 0) return;
     startTransition(async () => {
+      setOptimisticJobs({ type: "CLEAR_ALL" });
       try {
         const res = await requeueAllDLQ();
         if (res.success) {
@@ -196,6 +232,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
             title: "All Jobs Requeued",
             description: "All DLQ jobs have been returned to the processing queue.",
           });
+        } else {
+          throw new Error((res as any).error || "Failed to requeue all jobs.");
         }
       } catch (err: any) {
         toast({
@@ -210,6 +248,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
   const handleClearAll = async () => {
     if (jobs.length === 0) return;
     startTransition(async () => {
+      setOptimisticJobs({ type: "CLEAR_ALL" });
       try {
         const res = await clearAllDLQ();
         if (res.success) {
@@ -219,6 +258,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
             title: "DLQ Cleared",
             description: "All DLQ jobs have been permanently deleted.",
           });
+        } else {
+          throw new Error((res as any).error || "Failed to clear DLQ.");
         }
       } catch (err: any) {
         toast({

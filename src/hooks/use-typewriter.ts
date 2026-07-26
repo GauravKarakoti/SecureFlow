@@ -11,7 +11,8 @@ export function useTypewriter(incomingText: string | null, speedMs: number = 30)
   useEffect(() => {
     if (!incomingText) {
       currentIndex.current = 0;
-      return;
+      const timer = setTimeout(() => setDisplayedText(""), 0);
+      return () => clearTimeout(timer);
     }
 
     const interval = setInterval(() => {
