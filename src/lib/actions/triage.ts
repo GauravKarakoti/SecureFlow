@@ -44,7 +44,7 @@ export async function setFindingStatus(
   if (!repositoryId || !fingerprint) {
     return { ok: false, error: "Missing finding reference" };
   }
-  if (!TRIAGE_STATUSES.includes(status)) {
+  if (!(TRIAGE_STATUSES as readonly string[]).includes(status)) {
     return { ok: false, error: "Invalid status" };
   }
 
