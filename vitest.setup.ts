@@ -1,4 +1,10 @@
-import { vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import { vi, afterEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
+
+afterEach(() => {
+  cleanup();
+});
 
 // Stub @/lib/prisma so tests never open a real DB connection while preserving helper utilities.
 vi.mock('@/lib/prisma', async (importOriginal) => {

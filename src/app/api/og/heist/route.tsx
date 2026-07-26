@@ -105,6 +105,41 @@ export async function GET(req: NextRequest) {
                 SECUREFLOW
               </span>
 
+              {/* INCOMING TRANSMISSION... banner */}
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  backgroundColor: '#000000',
+                  border: '1px solid #ef4444',
+                  padding: '6px 16px',
+                  borderRadius: 4,
+                  width: 'fit-content',
+                }}
+              >
+                <div
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                  }}
+                />
+                <span
+                  style={{
+                    color: '#ef4444',
+                    fontSize: 16,
+                    fontWeight: 700,
+                    letterSpacing: 4,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  INCOMING TRANSMISSION...
+                </span>
+              </div>
+
               <span
                 style={{
                   marginTop: 16,

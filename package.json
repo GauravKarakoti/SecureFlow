@@ -27,7 +27,7 @@
     "ngrok": "ngrok http 9002"
   },
   "dependencies": {
-    "@armoriq/sdk": "^0.6.3",
+    "@armoriq/sdk": "^0.6.5",
     "@auth/prisma-adapter": "^2.11.3",
     "@genkit-ai/compat-oai": "^1.40.1",
     "@hookform/resolvers": "^5.4.0",
@@ -57,7 +57,7 @@
     "@radix-ui/react-tooltip": "^1.2.14",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
-    "bullmq": "^5.81.0",
+    "bullmq": "^5.81.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.3",
@@ -88,6 +88,9 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
@@ -98,6 +101,7 @@
     "eslint-config-next": "^16.2.11",
     "genkit-cli": "^1.40.1",
     "husky": "^9.1.7",
+    "jsdom": "^29.1.1",
     "postcss": "^8",
     "prettier": "^3.9.6",
     "prisma": "^7.9.0",

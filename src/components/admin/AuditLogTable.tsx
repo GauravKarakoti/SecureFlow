@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useOptimistic } from "react";
 
 export default function AuditLogTable({ logs }: { logs: any[] }) {
   const [search, setSearch] = useState("");
@@ -9,8 +9,9 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
 
   // Ensure logs is an array to prevent errors if undefined/null is passed
   const safeLogs = Array.isArray(logs) ? logs : [];
+  const [optimisticLogs] = useOptimistic(safeLogs, (state, newLogs: any[]) => newLogs ?? state);
 
-  const filteredLogs = safeLogs.filter((log) => {
+  const filteredLogs = optimisticLogs.filter((log) => {
     const searchLower = search.toLowerCase();
     const actionMatch = log.action?.toLowerCase().includes(searchLower);
     // Use resource instead of details based on the table headers

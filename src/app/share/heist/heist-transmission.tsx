@@ -4,6 +4,7 @@ import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import Link from "next/link";
 import { FALLBACK_HEIST_MESSAGE } from "@/ai/flows/heist-message-stream";
 
@@ -172,6 +173,24 @@ export function HeistTransmission({
   const [aiLoading, setAiLoading] = useState(true);
   const esRef = useRef<EventSource | null>(null);
 
+  // ── Easter egg state ─────────────────────────────────────────────────────────
+  const [bgTheme, setBgTheme] = useState<"heist" | "matrix">("heist");
+  const easterEggKeys = useRef<string>("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Keep only letters/spaces and limit length to 20
+      if (e.key.length === 1 && /[a-zA-Z\s]/.test(e.key)) {
+        easterEggKeys.current = (easterEggKeys.current + e.key).slice(-20).toUpperCase();
+        if (easterEggKeys.current.includes("BELLA CIAO")) {
+          setBgTheme("matrix");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     // Build the SSE URL with query params matching page.tsx logic.
     const params = new URLSearchParams({ project: projectName });
@@ -182,6 +201,36 @@ export function HeistTransmission({
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);
     esRef.current = es;
 
+    // Queue for variable typing cadence processing
+    const textQueue: string[] = [];
+    let isProcessingQueue = false;
+
+    const processQueue = async () => {
+      if (isProcessingQueue) return;
+      isProcessingQueue = true;
+
+      while (textQueue.length > 0) {
+        const nextText = textQueue.shift()!;
+        setAiMessage((prev) => {
+          const currentText = prev || "";
+          // Determine newly added characters
+          const addedChars = nextText.slice(currentText.length);
+          return nextText;
+        });
+
+        // Calculate variable typing delay based on last character in chunk
+        const lastChar = nextText.slice(-1);
+        let charDelay = Math.floor(Math.random() * 31) + 20; // 20-50ms per character
+        if ([".", ",", "!", "?", ";", ":"].includes(lastChar)) {
+          charDelay += 300; // longer pause (300ms) after punctuation marks
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, charDelay));
+      }
+
+      isProcessingQueue = false;
+    };
+
     es.onmessage = (ev) => {
       try {
         const event = JSON.parse(ev.data) as
@@ -190,12 +239,16 @@ export function HeistTransmission({
           | { type: "error"; message: string };
 
         if (event.type === "chunk") {
-          // Live preview — show accumulating text as it arrives.
-          setAiMessage(event.text);
+          // Push accumulating text into typing queue for variable cadence rendering
+          textQueue.push(event.text);
+          processQueue();
         } else if (event.type === "done") {
-          setAiMessage(event.message);
-          setAiLoading(false);
-          es.close();
+          textQueue.push(event.message);
+          processQueue().then(() => {
+            setAiMessage(event.message);
+            setAiLoading(false);
+            es.close();
+          });
         } else {
           // AI error — fall back to static lines.
           setAiMessage(null);
@@ -223,12 +276,14 @@ export function HeistTransmission({
 
   // ── Build the Professor's transmission ─────────────────────────────────────
   // Memoised — stable so the sequential decode indices don't reset mid-stream.
+  const typedAiMessage = useTypewriter(aiMessage, 40);
+
   const lines = useMemo<TransmissionLine[]>(() => {
-    if (!aiLoading && aiMessage) {
-      return buildAiLines(projectName, score, rank, findingsCount, aiMessage);
+    if (!aiLoading && typedAiMessage) {
+      return buildAiLines(projectName, score, rank, findingsCount, typedAiMessage);
     }
     return buildStaticLines(projectName, score, rank, findingsCount, tagline);
-  }, [projectName, score, rank, findingsCount, tagline, aiMessage, aiLoading]);
+  }, [projectName, score, rank, findingsCount, tagline, typedAiMessage, aiLoading]);
 
   const total = lines.length;
 
@@ -296,11 +351,11 @@ export function HeistTransmission({
   const visibleCount = reducedMotion ? total : Math.min(revealedCount + 1, total);
 
   return (
-    <div className="min-h-screen bg-black flex flex-col relative">
+    <div className="min-h-screen bg-black flex flex-col relative selection:bg-red-900/50">
       {/* ── Atmospheric cyber-rain backdrop (fills the empty gutters) ────
           Fixed, full-viewport, very low opacity, pointer-events: none.
           Sits behind everything; the terminal card below lifts to z-10. */}
-      <CyberRainBackground opacity={0.13} />
+      <CyberRainBackground opacity={0.13} theme={bgTheme} />
 
       {/* Vignette so the terminal card stays the visual focal point even
           with rain behind it — darkens edges, keeps center readable. */}

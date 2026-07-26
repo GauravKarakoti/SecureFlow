@@ -10,6 +10,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '__mocks__': path.resolve(__dirname, './__mocks__'),
     },
   },
 });
+

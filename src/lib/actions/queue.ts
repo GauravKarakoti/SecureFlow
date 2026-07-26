@@ -199,3 +199,62 @@ export async function requeueAllDLQ() {
   revalidatePath('/admin/queue');
   return { success: true };
 }
+
+export async function requeueBulkDLQJobs(jobIds: string[]) {
+  const session = await auth();
+  const roles = (session?.user as any)?.roles || [];
+
+  if (!roles.includes("ADMIN")) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!jobIds || jobIds.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return { success: true, count: jobIds.length };
+  }
+
+  let requeuedCount = 0;
+  for (const id of jobIds) {
+    const job = await webhookDLQ.getJob(id);
+    if (job) {
+      await addWebhookJob(job.data.data);
+      await job.remove();
+      requeuedCount++;
+    }
+  }
+
+  revalidatePath('/admin/queue');
+  return { success: true, count: requeuedCount };
+}
+
+export async function deleteBulkDLQJobs(jobIds: string[]) {
+  const session = await auth();
+  const roles = (session?.user as any)?.roles || [];
+
+  if (!roles.includes("ADMIN")) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!jobIds || jobIds.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    return { success: true, count: jobIds.length };
+  }
+
+  let deletedCount = 0;
+  for (const id of jobIds) {
+    const job = await webhookDLQ.getJob(id);
+    if (job) {
+      await job.remove();
+      deletedCount++;
+    }
+  }
+
+  revalidatePath('/admin/queue');
+  return { success: true, count: deletedCount };
+}
