@@ -8,7 +8,7 @@ interface MetricsCardProps {
 
 export default function MetricsCard({ title, value, icon }: MetricsCardProps) {
   return (
-    <div className="glass-card group relative overflow-hidden rounded-xl border border-white/10 p-6 transition-all duration-500 hover:-translate-y-1.5 hover:border-primary/50 hover:shadow-[0_0_30px_rgba(229,9,20,0.15)]">
+    <div className="glass-card group relative overflow-hidden rounded-xl border border-foreground/10 p-6 transition-all duration-500 hover:-translate-y-1.5 hover:border-primary/50 hover:shadow-[0_0_30px_rgba(229,9,20,0.15)]">
       {/* Glow Effect Background */}
       <div className="absolute -right-10 -top-10 w-24 h-24 bg-primary/10 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
       
@@ -20,7 +20,7 @@ export default function MetricsCard({ title, value, icon }: MetricsCardProps) {
           {title}
         </h3>
         {icon && (
-          <div className="rounded-lg bg-white/5 border border-white/10 p-2.5 transition-all duration-300 group-hover:scale-110 group-hover:bg-primary/20 group-hover:border-primary/30 group-hover:text-primary">
+          <div className="rounded-lg bg-foreground/5 border border-foreground/10 p-2.5 transition-all duration-300 group-hover:scale-110 group-hover:bg-primary/20 group-hover:border-primary/30 group-hover:text-primary">
             {icon}
           </div>
         )}
@@ -34,4 +34,3 @@ export default function MetricsCard({ title, value, icon }: MetricsCardProps) {
     </div>
   );
 }
-
