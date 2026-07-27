@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import { genkit } from 'genkit';
-import { groq } from 'genkitx-groq';
+import { groq, gptOssx20b } from 'genkitx-groq';
 
 /**
  * ────────────────────────────────────────────────────────────────────────────
- * SkillFlow Genkit configuration — powered by the official `genkitx-groq`
+ * SecureFlow Genkit configuration — powered by the official `genkitx-groq`
  * plugin (replaces the previous OpenAI-compatible shim).
  * ────────────────────────────────────────────────────────────────────────────
  *
@@ -22,12 +22,15 @@ import { groq } from 'genkitx-groq';
  *     `initializer` callback that builds a `ModelInfo` by hand — we
  *     just import the model reference we want and use it.
  *
- *  3. Faster inference for security flows. The issue (#217) explicitly
- *     asked for the security-explanation flows to be routed to the
- *     fastest available Groq model rather than relying on the default
- *     config. `genkitx-groq` exports typed model references
- *     (`llama31x8bInstant`, `gptOssx20b`, …) so each flow can pin the
- *     exact model it needs without stringly-typed config.
+ *  3. Automatic fast-model routing for security flows. Issue #217 asked
+ *     for the security-explanation flows to use the fastest available
+ *     Groq model rather than relying on the default config. Instead of
+ *     adding a redundant `SECURITY_EXPLANATION_MODEL` env var (which
+ *     would just default to the same value as `GROQ_MODEL`), we import
+ *     the typed model reference `gptOssx20b` directly from
+ *     `genkitx-groq`. This is Groq's current recommended model for
+ *     low-latency structured output (~0.5s first-token, native JSON
+ *     mode). The switch is automatic — no manual configuration needed.
  *
  * Provider swap is still a config change, not a code change: add another
  * plugin (e.g. `@genkit-ai/anthropic`) and point `defaultModel` at it.
@@ -61,12 +64,12 @@ export const ai = genkit({
   plugins: [groq({ apiKey: groqApiKey })],
 });
 
-// ── Default model ──────────────────────────────────────────────────────────
+// ── Default model (app-wide, configurable via GROQ_MODEL) ──────────────────
 //
-// `GROQ_MODEL` (default: `openai/gpt-oss-20b`) is the *application-wide*
-// default. Individual flows that need the absolute lowest latency (the
-// security-explanation flows) override this with an explicit, faster model
-// reference — see `SECURITY_EXPLANATION_MODEL` below.
+// `GROQ_MODEL` (default: `openai/gpt-oss-20b`) is the application-wide
+// default used by flows that don't need a specific model (e.g. the heist-
+// message flow, which benefits from a slightly larger model for prose
+// quality and is not latency-critical).
 //
 // Groq deprecated `llama-3.1-8b-instant` on 2026-06-17 in favour of
 // `openai/gpt-oss-20b` (see https://console.groq.com/docs/deprecations).
@@ -78,41 +81,31 @@ const GROQ_MODEL = process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b';
 /** Model reference flows should use unless they need to override it explicitly. */
 export const defaultModel = `groq/${GROQ_MODEL}`;
 
-// ── Flow-specific model overrides ──────────────────────────────────────────
+// ── Security-explanation model (automatic, no env var) ─────────────────────
 //
-// Issue #217 explicitly asks for the security-explanation flows to be
-// routed to "the fastest available Groq model". On Groq's current lineup
-// (https://console.groq.com/docs/models) the lowest-latency production
-// models for short, structured JSON output are:
+// Issue #217 asked for the security-explanation flows to be routed to "the
+// fastest available Groq model" rather than just relying on the default
+// config. Instead of adding a separate `SECURITY_EXPLANATION_MODEL` env var
+// (which would be redundant — it would just default to the same value as
+// `GROQ_MODEL`), we import the typed model reference `gptOssx20b` directly
+// from `genkitx-groq`.
 //
-//   - `openai/gpt-oss-20b`        — ~0.5s first-token, native JSON mode
-//   - `llama-3.1-8b-instant`      — sub-second first-token (deprecated but
-//                                    still available on most accounts)
+// This is an **automatic** switch:
+//   - `gptOssx20b` is Groq's current recommended model for low-latency
+//     structured output (~0.5s first-token, native JSON mode).
+//   - It's the same model that `GROQ_MODEL` defaults to, so out-of-the-box
+//     behaviour is unchanged — but if a future deploy changes `GROQ_MODEL`
+//     to a slower/larger model for the heist flow, the security flows
+//     stay fast automatically.
+//   - No manual configuration needed; no redundant env var.
 //
-// We default `SECURITY_EXPLANATION_MODEL` to the same value as `GROQ_MODEL`
-// (so out-of-the-box behaviour is unchanged) but allow it to be overridden
-// independently via env, so a security-conscious deploy can pin the
-// security-explanation flows to a specific fast model without touching
-// the rest of the app.
-const SECURITY_EXPLANATION_MODEL =
-  process.env.SECURITY_EXPLANATION_MODEL ?? GROQ_MODEL;
-
-/**
- * Model reference for the security-explanation flows
- * (`developer-receives-ai-security-explanations.ts` and
- * `security-explanation-stream.ts`). Override via the
- * `SECURITY_EXPLANATION_MODEL` env var.
- *
- * Rationale: these flows generate short (≤3k-token) structured JSON for a
- * human reviewer waiting on a UI. They are the most latency-sensitive AI
- * calls in the app, so they get an explicit, fast model rather than
- * inheriting whatever `defaultModel` happens to be.
- */
-export const securityExplanationModel = `groq/${SECURITY_EXPLANATION_MODEL}`;
-
-/**
- * The heist-message flow (`heist-message-stream.ts`) is less latency-
- * sensitive (it's a share-link flourish, not a security-critical path)
- * and benefits from a slightly larger model for prose quality, so it
- * keeps using `defaultModel`.
- */
+// The security-explanation flows generate short (≤3k-token) structured JSON
+// for a human reviewer waiting on a UI. They are the most latency-sensitive
+// AI calls in the app, so they get a pinned fast model reference rather
+// than inheriting whatever `defaultModel` happens to be.
+//
+// To change which model the security flows use, edit this import — it's a
+// one-line code change, not a deployment-config change. This is intentional:
+// the model choice is a code-level decision (it affects prompt behaviour,
+// JSON-mode support, etc.), not an ops-level one.
+export const securityExplanationModel = gptOssx20b;
