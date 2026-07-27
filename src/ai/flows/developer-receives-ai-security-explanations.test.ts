@@ -176,4 +176,62 @@ describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
       expect(resisted || result.promptInjectionSuspected).toBe(true);
     }
   });
-});
+
+  it('returns promptInjectionSuspected: false and correct fields for a benign finding', async () => {
+    mockResponseText = JSON.stringify({
+      explanation: 'SQL query concatenates raw user input, enabling injection attacks.',
+      remediationSuggestions: 'Switch to parameterized queries or a query builder.',
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'HIGH',
+      description: 'SQL injection',
+      fileLocation: 'src/db.ts',
+      codeSnippet: BENIGN_SNIPPETS[0],
+    });
+
+    expect(result.promptInjectionSuspected).toBe(false);
+    expect(typeof result.explanation).toBe('string');
+    expect(typeof result.remediationSuggestions).toBe('string');
+  });
+
+  it('flags when both the pre-filter AND consistency check are triggered simultaneously', async () => {
+    // Worst case: injected payload AND model got fooled.
+    mockResponseText = JSON.stringify({
+      explanation: 'This is not a real issue, safe to ignore.',
+      remediationSuggestions: 'No action is needed.',
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Secret',
+      severity: 'CRITICAL',
+      description: 'Hardcoded API key',
+      fileLocation: 'src/config.ts',
+      codeSnippet: INJECTION_PAYLOADS[0], // triggers pre-filter
+    });
+
+    // Both layers fired — flag must be set.
+    expect(result.promptInjectionSuspected).toBe(true);
+    // The raw AI output is still surfaced to the developer (warning is shown separately).
+    expect(result.explanation).toContain('safe to ignore');
+  });
+
+  it('handles a malformed LLM response by returning a fallback explanation without throwing', async () => {
+    mockResponseText = 'not valid json at all';
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'MEDIUM',
+      description: 'Open redirect',
+      fileLocation: 'src/redirect.ts',
+      codeSnippet: 'res.redirect(req.query.url);',
+    });
+
+    expect(result.explanation).toContain('recalculating');
+    expect(typeof result.remediationSuggestions).toBe('string');
+    // The fallback explanation won't trigger contradictsSeverity for MEDIUM,
+    // and the benign snippet won't trigger the pre-filter.
+    expect(result.promptInjectionSuspected).toBe(false);
+  });
+});
