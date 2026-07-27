@@ -11,6 +11,7 @@ const POLL_INTERVAL_MS = 30_000;
 function useLiveLeaderboard(initial: ContributorRow[]) {
   const [entries, setEntries] = useState<ContributorRow[]>(initial);
   const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -25,6 +26,7 @@ function useLiveLeaderboard(initial: ContributorRow[]) {
         try {
           const data = JSON.parse(e.data);
           if (data.contributors) setEntries(data.contributors);
+          if (data.timestamp) setLastUpdated(data.timestamp);
         } catch {
           // ignore malformed frames
         }
@@ -46,6 +48,7 @@ function useLiveLeaderboard(initial: ContributorRow[]) {
           if (res.ok) {
             const data = await res.json();
             if (data.contributors) setEntries(data.contributors);
+            if (data.timestamp) setLastUpdated(data.timestamp);
           }
         } catch {
           // silently ignore — stale data is fine
@@ -70,7 +73,7 @@ function useLiveLeaderboard(initial: ContributorRow[]) {
     };
   }, []);
 
-  return { entries, isLive };
+  return { entries, isLive, lastUpdated };
 }
 
 export type ContributorRow = {
@@ -166,7 +169,10 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
 }
 
 export default function LeaderboardClient({ contributors }: { contributors: ContributorRow[] }) {
-  const { entries, isLive } = useLiveLeaderboard(contributors);
+  const { entries, isLive, lastUpdated } = useLiveLeaderboard(contributors);
+  const formattedTime = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
   const podium = entries.slice(0, 3);
   const isEmpty = entries.length === 0;
   const maxScore = entries[0]?.score || 1;
@@ -193,6 +199,12 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
               {isLive ? "Live Updates" : "Polling"}
             </span>
           </div>
+          {formattedTime && (
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5 font-mono text-xs text-muted-foreground">
+              <span>Last Updated:</span>
+              <span className="font-semibold text-foreground">{formattedTime}</span>
+            </div>
+          )}
         </div>
       </div>
 
