@@ -354,7 +354,10 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         return {
           ...finding,
           explanation: aiResponse.explanation,
-          remediation: aiResponse.remediationSuggestions
+          remediation: aiResponse.remediationSuggestions,
+          // Layer 4 (UI surfacing): carry the injection flag through to the PR comment
+          // and dashboard so reviewers are warned when the AI narrative may be unreliable.
+          promptInjectionSuspected: aiResponse.promptInjectionSuspected,
         };
       }));
 
@@ -416,6 +419,10 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
               line,
               body:
                 `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
+                // Layer 4: surface injection warning on the individual inline comment when flagged.
+                (f.promptInjectionSuspected
+                  ? `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`
+                  : '') +
                 `${f.explanation}\n\n` +
                 `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n` +
                 `${f.remediation}\n\n</details>`,
@@ -433,6 +440,10 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
           }
           findingsToRender.forEach((f: any) => {
             body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
+            // Layer 4: surface injection warning in the summary body when the flag is set.
+            if (f.promptInjectionSuspected) {
+              body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`;
+            }
             body += `> ${f.explanation}\n\n`;
             body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
             body += `${f.remediation}\n\n`;
