@@ -234,4 +234,4 @@ describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
     // and the benign snippet won't trigger the pre-filter.
     expect(result.promptInjectionSuspected).toBe(false);
   });
-});
+});
