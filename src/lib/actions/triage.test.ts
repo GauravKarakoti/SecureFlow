@@ -85,7 +85,7 @@ describe('setFindingStatus', () => {
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
     expect(prisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ userId: 'user-1', action: 'Finding Triage', decision: 'FALSE_POSITIVE' }),
+        data: expect.objectContaining({ userId: 'user-1', action: 'FINDING TRIAGE', decision: 'FALSE_POSITIVE' }),
       })
     );
   });

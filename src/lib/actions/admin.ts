@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
+import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 
 /**
  * Shared admin guard. Returns the authenticated admin session.
@@ -210,7 +211,7 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
   ]);
 
   await prisma.auditLog.create({
-    data: {
+    data: sanitizeAuditLogInput({
       userId: actorId,
       action: "ADMIN_ROLE_UPDATE",
       resource: `user:${userId}`,
@@ -221,7 +222,7 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
         oldRoles,
         newRole,
       },
-    },
+    }),
   });
 
   revalidatePath("/admin/users");
@@ -264,7 +265,7 @@ export async function deleteUser(userId: string) {
   await prisma.user.delete({ where: { id: userId } });
 
   await prisma.auditLog.create({
-    data: {
+    data: sanitizeAuditLogInput({
       userId: actorId,
       action: "ADMIN_USER_DELETE",
       resource: `user:${userId}`,
@@ -273,7 +274,7 @@ export async function deleteUser(userId: string) {
         targetEmail: target.email,
         targetCodename: target.codename,
       },
-    },
+    }),
   });
 
   revalidatePath("/admin/users");

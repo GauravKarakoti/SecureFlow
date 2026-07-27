@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
+import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
@@ -64,13 +65,13 @@ export async function setFindingStatus(
   });
 
   await prisma.auditLog.create({
-    data: {
+    data: sanitizeAuditLogInput({
       userId,
       action: "Finding Triage",
       resource: `${repo.fullName}:${fingerprint.slice(0, 12)}`,
       decision: status,
       metadata: { repositoryId, fingerprint, status, hasNote: note !== null },
-    },
+    }),
   });
 
   revalidatePath("/dashboard/findings");
