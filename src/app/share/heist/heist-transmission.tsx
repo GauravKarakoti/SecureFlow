@@ -276,15 +276,12 @@ export function HeistTransmission({
 
   // ── Build the Professor's transmission ─────────────────────────────────────
   // Memoised — stable so the sequential decode indices don't reset mid-stream.
-  const typedAiMessage = useTypewriter(aiMessage, 40);
-
-  const lines = useMemo<TransmissionLine[]>(() => {
-    if (!aiLoading && typedAiMessage) {
-      return buildAiLines(projectName, score, rank, findingsCount, typedAiMessage);
+const lines = useMemo<TransmissionLine[]>(() => {
+    if (!aiLoading && aiMessage) {
+      return buildAiLines(projectName, score, rank, findingsCount, aiMessage);
     }
     return buildStaticLines(projectName, score, rank, findingsCount, tagline);
-  }, [projectName, score, rank, findingsCount, tagline, typedAiMessage, aiLoading]);
-
+  }, [projectName, score, rank, findingsCount, tagline, aiMessage, aiLoading]);
   const total = lines.length;
 
   // ── Respect prefers-reduced-motion ──────────────────────────────────────────
