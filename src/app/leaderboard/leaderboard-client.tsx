@@ -1,12 +1,77 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Euro, Swords } from "lucide-react";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { formatBounty } from "./scoring";
 
 const POLL_INTERVAL_MS = 30_000;
+
+function useLiveLeaderboard(initial: ContributorRow[]) {
+  const [entries, setEntries] = useState<ContributorRow[]>(initial);
+  const [isLive, setIsLive] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    function startSSE() {
+      const es = new EventSource("/api/leaderboard?stream=true");
+      esRef.current = es;
+
+      es.onopen = () => setIsLive(true);
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.contributors) setEntries(data.contributors);
+        } catch {
+          // ignore malformed frames
+        }
+      };
+
+      es.onerror = () => {
+        setIsLive(false);
+        es.close();
+        esRef.current = null;
+        startPolling();
+      };
+    }
+
+    function startPolling() {
+      if (pollRef.current) return;
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch("/api/leaderboard", { cache: "no-store" });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.contributors) setEntries(data.contributors);
+          }
+        } catch {
+          // silently ignore — stale data is fine
+        }
+      }, POLL_INTERVAL_MS);
+    }
+
+    if (typeof EventSource !== "undefined") {
+      startSSE();
+    } else {
+      startPolling();
+    }
+
+    return () => {
+      esRef.current?.close();
+      esRef.current = null;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      setIsLive(false);
+    };
+  }, []);
+
+  return { entries, isLive };
+}
 
 export type ContributorRow = {
   id: string;
@@ -101,25 +166,7 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
 }
 
 export default function LeaderboardClient({ contributors }: { contributors: ContributorRow[] }) {
-  const [entries, setEntries] = useState<ContributorRow[]>(contributors);
-
-  const fetchLatest = useCallback(async () => {
-    try {
-      const res = await fetch("/api/leaderboard", { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        setEntries(data.contributors ?? data);
-      }
-    } catch {
-      // silently ignore network errors — stale data is fine
-    }
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(fetchLatest, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [fetchLatest]);
-
+  const { entries, isLive } = useLiveLeaderboard(contributors);
   const podium = entries.slice(0, 3);
   const isEmpty = entries.length === 0;
   const maxScore = entries[0]?.score || 1;
@@ -135,9 +182,17 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
             Most Wanted<span className="block text-red-500">Leaderboard</span>
           </h1>
         </div>
-        <div className="inline-flex items-center gap-2 self-start rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
-          <Euro className="h-4 w-4 shrink-0 text-red-400" />
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
+            <Euro className="h-4 w-4 shrink-0 text-red-400" />
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5">
+            <span className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
+              {isLive ? "Live Updates" : "Polling"}
+            </span>
+          </div>
         </div>
       </div>
 
