@@ -28,13 +28,13 @@ export default async function AdminLogsPage() {
     <div className="space-y-8">
       <header className="flex items-start gap-4">
         <div className="w-11 h-11 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
-          <ScrollText className="w-5 h-5 text-red-400" />
+          <ScrollText className="w-5 h-5 text-red-600 dark:text-red-400" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
             Audit Logs
           </h1>
-          <p className="text-zinc-400 mt-2">
+          <p className="text-muted-foreground mt-2">
             Comprehensive audit trail of every administrative and system event.
           </p>
         </div>
@@ -52,7 +52,7 @@ export default async function AdminLogsPage() {
       <LogsTable logs={result.logs} actions={filters.actions} />
 
       {result.total > INITIAL_PAGE_SIZE && (
-        <p className="text-xs text-zinc-500 text-center">
+        <p className="text-xs text-muted-foreground text-center">
           Showing the most recent {result.logs.length} of {result.total} log
           entries. Use the server action&apos;s pagination parameters for full
           history access.

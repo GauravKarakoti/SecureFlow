@@ -14,6 +14,15 @@ export default {
           response_type: "code",
         },
       },
+      profile(profile) {
+        return {
+          id: String(profile.id),
+          name: profile.name ?? profile.login,
+          email: profile.email,
+          image: profile.avatar_url,
+          githubLogin: profile.login,
+        };
+      },
     }),
   ],
   session: {

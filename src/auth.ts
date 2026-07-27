@@ -12,9 +12,12 @@ const nextAuthResult = NextAuth({
     ...PrismaAdapter(prisma),
     createUser: async (user: any) => {
       const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
+      const githubLogin = user.githubLogin ?? null;
+      const { githubLogin: _drop, ...rest } = user;
       return prisma.user.create({
         data: {
-          ...user,
+          ...rest,
+          githubLogin,
           codename,
           roles: {
             create: [{

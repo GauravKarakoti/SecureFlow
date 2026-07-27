@@ -2,31 +2,97 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Star } from "lucide-react";
+import { Euro, Swords } from "lucide-react";
+import { CyberTextReveal } from "@/components/cyber-text-reveal";
+import { formatBounty } from "./scoring";
 
-// One contributor's standing on the public leaderboard. Points are stars,
-// awarded 1-per-merged-PR (see `score`).
+const POLL_INTERVAL_MS = 30_000;
+
+function useLiveLeaderboard(initial: ContributorRow[]) {
+  const [entries, setEntries] = useState<ContributorRow[]>(initial);
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    function startSSE() {
+      const es = new EventSource("/api/leaderboard?stream=true");
+      esRef.current = es;
+
+      es.onopen = () => setIsLive(true);
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.contributors) setEntries(data.contributors);
+          if (data.timestamp) setLastUpdated(data.timestamp);
+        } catch {
+          // ignore malformed frames
+        }
+      };
+
+      es.onerror = () => {
+        setIsLive(false);
+        es.close();
+        esRef.current = null;
+        startPolling();
+      };
+    }
+
+    function startPolling() {
+      if (pollRef.current) return;
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch("/api/leaderboard", { cache: "no-store" });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.contributors) setEntries(data.contributors);
+            if (data.timestamp) setLastUpdated(data.timestamp);
+          }
+        } catch {
+          // silently ignore — stale data is fine
+        }
+      }, POLL_INTERVAL_MS);
+    }
+
+    if (typeof EventSource !== "undefined") {
+      startSSE();
+    } else {
+      startPolling();
+    }
+
+    return () => {
+      esRef.current?.close();
+      esRef.current = null;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      setIsLive(false);
+    };
+  }, []);
+
+  return { entries, isLive, lastUpdated };
+}
+
 export type ContributorRow = {
   id: string;
   login: string;
+  codename: string | null;
   htmlUrl: string;
   avatarUrl: string;
-  score: number; // stars — 1 per merged PR
-  rank: number; // dense rank (ties share a value)
-  prCount: number; // total PRs opened
-  mergedCount: number; // merged PRs (== score)
+  score: number;
+  rank: number;
+  prCount: number;
+  mergedCount: number;
 };
 
-// Count-up animation for the hero (#1) star total.
 function useCountUp(target: number, active: boolean) {
-  const [value, setValue] = useState(0);
+  const [value, setValue] = useState(() => (active ? 0 : target));
   const raf = useRef<number | null>(null);
   useEffect(() => {
-    if (!active) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setValue(target);
-      return;
-    }
+    if (!active) return;
     const start = performance.now();
     const dur = 1000;
     const step = (t: number) => {
@@ -36,9 +102,7 @@ function useCountUp(target: number, active: boolean) {
       if (k < 1) raf.current = requestAnimationFrame(step);
     };
     raf.current = requestAnimationFrame(step);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
+    return () => { if (raf.current) cancelAnimationFrame(raf.current); };
   }, [target, active]);
   return value;
 }
@@ -46,12 +110,8 @@ function useCountUp(target: number, active: boolean) {
 function Avatar({ src, alt, size }: { src: string; alt: string; size: number }) {
   return (
     <Image
-      src={src}
-      alt={alt}
-      width={size}
-      height={size}
-      unoptimized
-      className="shrink-0 rounded-full object-cover ring-1 ring-border"
+      src={src} alt={alt} width={size} height={size} unoptimized
+      className="shrink-0 rounded-full object-cover ring-1 ring-red-500/40"
       style={{ width: size, height: size }}
     />
   );
@@ -65,58 +125,43 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
   const shown = useCountUp(entry.score, isHero);
   return (
     <a
-      href={entry.htmlUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-card/60 p-5 backdrop-blur-sm transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 sm:p-6 ${
-        isHero ? "border-primary/50 shadow-[0_24px_60px_-30px] shadow-primary/40 sm:p-7" : "border-border/60"
+      href={entry.htmlUrl} target="_blank" rel="noopener noreferrer"
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 hover:-translate-y-1 sm:p-6 ${
+        isHero
+          ? "border-red-500/60 bg-gradient-to-b from-red-950/80 to-black shadow-[0_24px_60px_-30px] shadow-red-700/50 sm:p-7"
+          : "border-red-900/30 bg-black/60 hover:border-red-500/40"
       }`}
     >
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-60" />
       {isHero && (
-        <span className="mb-3 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-amber-500 dark:text-amber-300">
-          ★ #1 Most Wanted
+        <span className="mb-3 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-red-400">
+          <Swords className="h-3.5 w-3.5" /> #1 Most Wanted
         </span>
       )}
-      <span className="absolute right-4 top-4 font-headline text-sm font-bold tracking-widest text-muted-foreground/50">
+      <span className="absolute right-4 top-4 font-mono text-sm font-bold tracking-widest text-red-500/50">
         #{entry.rank}
       </span>
-
       <div className="mb-3 flex items-center gap-3">
         <Avatar src={entry.avatarUrl} alt={entry.login} size={isHero ? 52 : 40} />
         <span className="text-xl">{medalFor(entry.rank)}</span>
       </div>
-
-      <div
-        className={`truncate font-headline font-bold uppercase tracking-wide text-foreground ${
-          isHero ? "text-2xl sm:text-3xl" : "text-lg"
-        }`}
-      >
-        {entry.login}
+      <div className={`truncate font-bold uppercase tracking-wide text-foreground ${isHero ? "text-2xl sm:text-3xl" : "text-lg"}`}>
+        {entry.codename}
       </div>
-      <div className="truncate font-mono text-xs text-muted-foreground">@{entry.login}</div>
-
-      <div
-        className={`mt-4 flex items-center gap-1.5 font-headline font-black tabular-nums text-foreground ${
-          isHero ? "text-5xl" : "text-3xl"
-        }`}
-      >
-        <Star className={`fill-amber-400 text-amber-400 ${isHero ? "h-8 w-8" : "h-6 w-6"}`} />
-        {shown}
-        <span className="ml-1 font-mono text-[11px] font-normal uppercase tracking-widest text-muted-foreground">
-          stars
-        </span>
+      <div className="truncate font-mono text-xs text-muted-foreground">
+        <CyberTextReveal codename={entry.codename ?? entry.login} realName={`@${entry.login}`} duration={300} />
       </div>
-
-      <div className="mt-4 flex gap-5 border-t border-border/50 pt-3">
+      <div className={`mt-4 flex items-center gap-1.5 font-black tabular-nums text-foreground ${isHero ? "text-5xl" : "text-3xl"}`}>
+        <Euro className={`text-red-400 ${isHero ? "h-8 w-8" : "h-6 w-6"}`} />
+        {formatBounty(shown)}
+        <span className="ml-1 font-mono text-[11px] font-normal uppercase tracking-widest text-red-400/70">bounty</span>
+      </div>
+      <div className="mt-4 flex gap-5 border-t border-red-900/30 pt-3">
         <div className="text-[11px] text-muted-foreground">
-          PRs
-          <strong className="mt-0.5 block font-headline text-base font-semibold text-foreground">{entry.prCount}</strong>
+          Heists<strong className="mt-0.5 block text-base font-semibold text-foreground">{entry.prCount}</strong>
         </div>
         <div className="text-[11px] text-muted-foreground">
-          Merged
-          <strong className="mt-0.5 block font-headline text-base font-semibold text-foreground">
-            {entry.mergedCount}
-          </strong>
+          Extractions<strong className="mt-0.5 block text-base font-semibold text-foreground">{entry.mergedCount}</strong>
         </div>
       </div>
     </a>
@@ -124,107 +169,30 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
 }
 
 export default function LeaderboardClient({ contributors }: { contributors: ContributorRow[] }) {
-  const [entries, setEntries] = useState<ContributorRow[]>(contributors);
-  const [isLive, setIsLive] = useState<boolean>(true);
-  const [mounted, setMounted] = useState<boolean>(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-    setLastUpdated(new Date());
-  }, []);
-
-  const formattedTime = mounted && lastUpdated ? lastUpdated.toLocaleTimeString() : "";
-
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
-
-    const startPollingFallback = () => {
-      if (fallbackInterval) return;
-      fallbackInterval = setInterval(async () => {
-        try {
-          const res = await fetch("/api/leaderboard");
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data.contributors)) {
-              setEntries(data.contributors);
-              setIsLive(true);
-              setLastUpdated(new Date());
-            }
-          }
-        } catch {
-          // Ignore polling errors
-        }
-      }, 15000);
-    };
-
-    if (typeof window !== "undefined" && "EventSource" in window) {
-      try {
-        es = new EventSource("/api/leaderboard?stream=true");
-
-        es.onopen = () => {
-          setIsLive(true);
-        };
-
-        es.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(ev.data);
-            if (Array.isArray(data.contributors)) {
-              setEntries(data.contributors);
-              setIsLive(true);
-              setLastUpdated(new Date());
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        };
-
-        es.onerror = () => {
-          setIsLive(false);
-          es?.close();
-          startPollingFallback();
-        };
-      } catch {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsLive(false);
-        startPollingFallback();
-      }
-    } else {
-      setIsLive(false);
-      startPollingFallback();
-    }
-
-    return () => {
-      if (es) {
-        es.close();
-      }
-      if (fallbackInterval) {
-        clearInterval(fallbackInterval);
-      }
-    };
-  }, []);
-
+  const { entries, isLive, lastUpdated } = useLiveLeaderboard(contributors);
+  const formattedTime = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
   const podium = entries.slice(0, 3);
   const isEmpty = entries.length === 0;
   const maxScore = entries[0]?.score || 1;
 
   return (
     <div className="relative mx-auto w-full max-w-5xl animate-in fade-in overflow-x-hidden pb-16 duration-700">
-      {/* ── header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="mb-2 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.32em] text-primary">
-            <span className="h-px w-6 bg-primary" /> La Casa · Season Standings
+          <div className="mb-2 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.32em] text-red-400">
+            <span className="h-px w-6 bg-red-500" /> La Casa de Papel · Resistance Roster
           </div>
-          <h1 className="font-headline text-3xl font-black uppercase leading-none tracking-tight text-foreground sm:text-5xl">
-            Most Wanted
-            <span className="block text-primary">Leaderboard</span>
+          <h1 className="text-3xl font-black uppercase leading-none tracking-tight text-foreground sm:text-5xl">
+            Most Wanted<span className="block text-red-500">Leaderboard</span>
           </h1>
         </div>
-        {/* Status indicator + Last Updated + Legend */}
-        <div className="flex flex-wrap items-center gap-3 self-start">
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
+            <Euro className="h-4 w-4 shrink-0 text-red-400" />
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
+          </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5">
             <span className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
             <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
@@ -237,111 +205,64 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
               <span className="font-semibold text-foreground">{formattedTime}</span>
             </div>
           )}
-          <div className="inline-flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2.5">
-            <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
-            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-amber-600 dark:text-amber-300">
-              1 Star = 1 PR Merged
-            </span>
-          </div>
         </div>
       </div>
 
       <p className="mt-4 max-w-[52ch] text-sm text-muted-foreground">
-        The crew is ranked by contribution — every pull request that gets merged earns the author one star.
+        The Resistance is ranked by bounty — every merged pull request earns the operative €10,000.
+        Hover a codename to reveal their true identity.
       </p>
 
       {isEmpty ? (
         <div className="mt-16 flex min-h-[30vh] items-center justify-center px-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            No contributors yet. Merge a pull request to claim your first star.
-          </p>
+          <p className="text-sm text-muted-foreground">No operatives yet. Merge a pull request to claim your first bounty.</p>
         </div>
       ) : (
         <>
-          {/* ── podium (top 3) ── */}
           <div className="mt-8 grid grid-cols-1 items-end gap-4 sm:grid-cols-3">
-            {podium[1] && (
-              <div className="order-2 sm:order-1">
-                <PodiumCard entry={podium[1]} isHero={false} />
-              </div>
-            )}
-            {podium[0] && (
-              <div className="order-1 sm:order-2">
-                <PodiumCard entry={podium[0]} isHero />
-              </div>
-            )}
-            {podium[2] && (
-              <div className="order-3">
-                <PodiumCard entry={podium[2]} isHero={false} />
-              </div>
-            )}
+            {podium[1] && <div className="order-2 sm:order-1"><PodiumCard entry={podium[1]} isHero={false} /></div>}
+            {podium[0] && <div className="order-1 sm:order-2"><PodiumCard entry={podium[0]} isHero /></div>}
+            {podium[2] && <div className="order-3"><PodiumCard entry={podium[2]} isHero={false} /></div>}
           </div>
 
-          {/* ── ranked table ── */}
-          <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h2 className="font-headline text-sm font-semibold uppercase tracking-[0.14em] text-foreground">
-                The Crew
-              </h2>
-              <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-                {entries.length} operatives
-              </span>
+          <div className="mt-8 overflow-hidden rounded-2xl border border-red-900/30 bg-black/40">
+            <div className="flex items-center justify-between border-b border-red-900/30 px-5 py-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground">The Crew</h2>
+              <span className="font-mono text-[11px] uppercase tracking-widest text-red-400/60">{entries.length} operatives</span>
             </div>
-
             <table className="w-full border-collapse">
               <thead>
                 <tr className="text-left">
-                  <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">#</th>
-                  <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                    Contributor
-                  </th>
-                  <th className="hidden px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70 sm:table-cell">
-                    PRs
-                  </th>
-                  <th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                    Stars
-                  </th>
+                  <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-red-400/50">#</th>
+                  <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-red-400/50">Operative</th>
+                  <th className="hidden px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-red-400/50 sm:table-cell">Heists</th>
+                  <th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-red-400/50">Bounty</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
-                  <tr key={e.id} className="border-t border-border/60 transition-colors hover:bg-accent/10">
-                    <td
-                      className={`px-5 py-3 font-headline text-lg font-semibold tabular-nums ${
-                        e.rank <= 3 ? "text-primary" : "text-muted-foreground"
-                      }`}
-                    >
+                  <tr key={e.id} className="border-t border-red-900/20 transition-colors hover:bg-red-950/20">
+                    <td className={`px-5 py-3 font-mono text-lg font-semibold tabular-nums ${e.rank <= 3 ? "text-red-400" : "text-muted-foreground"}`}>
                       {String(e.rank).padStart(2, "0")}
                     </td>
                     <td className="px-5 py-3">
-                      <a
-                        href={e.htmlUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-3 hover:underline"
-                      >
+                      <a href={e.htmlUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 hover:underline">
                         <Avatar src={e.avatarUrl} alt={e.login} size={30} />
                         <span className="min-w-0">
-                          <span className="block truncate font-headline text-sm font-semibold uppercase tracking-wide text-foreground">
-                            {e.login}
+                          <span className="block truncate font-mono text-sm font-semibold uppercase tracking-wide text-foreground">{e.codename}</span>
+                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                            <CyberTextReveal codename={e.codename ?? e.login} realName={`@${e.login}`} duration={200} />
                           </span>
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">@{e.login}</span>
                         </span>
                       </a>
-                      <div className="mt-2 hidden h-[3px] max-w-[240px] overflow-hidden rounded bg-border sm:block">
-                        <div
-                          className="h-full origin-left rounded bg-gradient-to-r from-primary/70 to-primary"
-                          style={{ transform: `scaleX(${(e.score / maxScore).toFixed(3)})` }}
-                        />
+                      <div className="mt-2 hidden h-[3px] max-w-[240px] overflow-hidden rounded bg-red-900/30 sm:block">
+                        <div className="h-full origin-left rounded bg-gradient-to-r from-red-700 to-red-500" style={{ transform: `scaleX(${(e.score / maxScore).toFixed(3)})` }} />
                       </div>
                     </td>
-                    <td className="hidden px-5 py-3 text-right tabular-nums text-foreground sm:table-cell">
-                      {e.prCount}
-                    </td>
-                    <td className="px-5 py-3 text-right font-headline text-lg font-black tabular-nums text-foreground">
+                    <td className="hidden px-5 py-3 text-right tabular-nums text-foreground sm:table-cell">{e.prCount}</td>
+                    <td className="px-5 py-3 text-right font-mono text-lg font-black tabular-nums text-foreground">
                       <span className="inline-flex items-center gap-1.5">
-                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                        {e.score}
+                        <Euro className="h-4 w-4 text-red-400" />{formatBounty(e.score)}
                       </span>
                     </td>
                   </tr>
@@ -350,8 +271,8 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
             </table>
           </div>
 
-          <div className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/50">
-            {entries.length} contributors ranked · 1 star per merged PR
+          <div className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.22em] text-red-400/40">
+            {entries.length} operatives ranked · €10K per extraction
           </div>
         </>
       )}
