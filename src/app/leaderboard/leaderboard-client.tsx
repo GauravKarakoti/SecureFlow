@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Euro, Swords } from "lucide-react";
+import { Swords } from "lucide-react";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { formatBounty } from "./scoring";
 
@@ -152,7 +152,6 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
         <CyberTextReveal codename={entry.codename ?? entry.login} realName={`@${entry.login}`} duration={300} />
       </div>
       <div className={`mt-4 flex items-center gap-1.5 font-black tabular-nums text-foreground ${isHero ? "text-5xl" : "text-3xl"}`}>
-        <Euro className={`text-red-400 ${isHero ? "h-8 w-8" : "h-6 w-6"}`} />
         {formatBounty(shown)}
         <span className="ml-1 font-mono text-[11px] font-normal uppercase tracking-widest text-red-400/70">bounty</span>
       </div>
@@ -190,7 +189,6 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
-            <Euro className="h-4 w-4 shrink-0 text-red-400" />
             <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
           </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5">
@@ -262,7 +260,7 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
                     <td className="hidden px-5 py-3 text-right tabular-nums text-foreground sm:table-cell">{e.prCount}</td>
                     <td className="px-5 py-3 text-right font-mono text-lg font-black tabular-nums text-foreground">
                       <span className="inline-flex items-center gap-1.5">
-                        <Euro className="h-4 w-4 text-red-400" />{formatBounty(e.score)}
+                        {formatBounty(e.score)}
                       </span>
                     </td>
                   </tr>
