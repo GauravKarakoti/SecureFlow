@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { __internal } from './security-helpers';
-import { ai, defaultModel } from '@/ai/genkit';
+import { ai, securityExplanationModel } from '@/ai/genkit';
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -54,8 +54,12 @@ export async function* streamDeveloperSecurityExplanations(
   const prompt = buildPrompt(validatedInput);
 
   try {
+    // Explicitly route to the fastest Groq model (see securityExplanationModel
+    // in @/ai/genkit). Issue #217 asked for the security-explanation flows to
+    // NOT just rely on the default Genkit config; pinning the model here makes
+    // the latency-critical streaming path independent of GROQ_MODEL changes.
     const { stream, response } = ai.generateStream({
-      model: defaultModel,
+      model: securityExplanationModel,
       system: SYSTEM_PROMPT,
       prompt,
       output: { format: 'json', schema: StreamChunkSchema },
@@ -88,7 +92,6 @@ export async function* streamDeveloperSecurityExplanations(
       parsedContent = JSON.parse(jsonMatch[0]);
     } catch (error) {
       console.error("Failed to parse stream explanation JSON:", error);
-      // ADD THIS DEBUG LOG
       console.error("RAW STREAM OUTPUT WAS:\n", finalResponse.text);
 
       parsedContent = {
