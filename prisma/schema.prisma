@@ -132,9 +132,8 @@ model PullRequest {
   webhookEvents   WebhookEvent[]
   createdAt       DateTime     @default(now())
 
-  @@index([repositoryId])
-  @@index([authorLogin])
-}
+@@index([repositoryId])
+  @@index([authorLogin, state])}
 
 model ScanResult {
   id             String      @id @default(cuid())
