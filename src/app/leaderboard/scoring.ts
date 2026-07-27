@@ -115,3 +115,18 @@ export function assignRanks<T extends { score: number }>(rows: T[]): (T & { rank
     return { ...row, rank };
   });
 }
+
+// ── Money Heist Bounty Formatting ────────────────────────────────────────
+/**
+ * Formats a numeric score as a Euro-denominated bounty string.
+ * €10,000 per point, minimum €10K.
+ */
+export function formatBounty(score: number): string {
+  const raw = Math.max(1, score) * 10_000;
+  if (raw >= 1_000_000) {
+    const m = raw / 1_000_000;
+    return `€${m % 1 === 0 ? m : m.toFixed(1)}M`;
+  }
+  const k = raw / 1_000;
+  return `€${k % 1 === 0 ? k : k.toFixed(1)}K`;
+}
