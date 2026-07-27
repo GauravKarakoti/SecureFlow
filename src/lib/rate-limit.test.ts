@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock ioredis to prevent real network connection attempts during tests
 vi.mock('ioredis', () => {
@@ -48,6 +48,10 @@ describe('checkRateLimit — in-memory fallback (no Redis)', () => {
     delete process.env.REDIS_URL;
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('allows requests under the limit', async () => {
     const { checkRateLimit } = await import('./redis');
     expect(await checkRateLimit('key-a', 3, 60)).toBe(true);
@@ -78,9 +82,14 @@ describe('checkRateLimit — in-memory fallback (no Redis)', () => {
 // ---- withRateLimit middleware ----
 
 describe('withRateLimit middleware', () => {
-  beforeEach(() => {
+  let redisModule: typeof import('./redis');
+  let rateLimitModule: typeof import('./middleware/rate-limit');
+
+  beforeEach(async () => {
     vi.resetModules();
     delete process.env.REDIS_URL;
+    redisModule = await import('./redis');
+    rateLimitModule = await import('./middleware/rate-limit');
   });
 
   function makeReq(ip = '1.1.1.1') {
@@ -90,36 +99,45 @@ describe('withRateLimit middleware', () => {
   }
 
   it('calls the inner handler when under the limit', async () => {
-    const { withRateLimit } = await import('./middleware/rate-limit');
-    const handler = vi.fn(async () => ({ status: 200 } as any));
-    const wrapped = withRateLimit(handler, { limit: 10, windowSeconds: 60, keyPrefix: 'test' });
+    const spy = vi.spyOn(redisModule, 'checkRateLimit').mockResolvedValue(true);
+    const handler = vi.fn().mockResolvedValue({ status: 200 });
+    const wrapped = rateLimitModule.withRateLimit(handler, { limit: 10, windowSeconds: 60, keyPrefix: 'test' });
 
     const res = await wrapped(makeReq('2.2.2.2'));
     expect(handler).toHaveBeenCalledOnce();
     expect(res.status).toBe(200);
+    spy.mockRestore();
   });
 
   it('returns 429 when the limit is exceeded', async () => {
-    const { withRateLimit } = await import('./middleware/rate-limit');
-    const handler = vi.fn(async () => ({ status: 200 } as any));
-    const wrapped = withRateLimit(handler, { limit: 1, windowSeconds: 60, keyPrefix: 'test-limit' });
+    const spy = vi.spyOn(redisModule, 'checkRateLimit')
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+      
+    const handler = vi.fn().mockResolvedValue({ status: 200 });
+    const wrapped = rateLimitModule.withRateLimit(handler, { limit: 1, windowSeconds: 60, keyPrefix: 'test-limit' });
 
     await wrapped(makeReq('3.3.3.3'));           // first — allowed
     const res = await wrapped(makeReq('3.3.3.3')); // second — blocked
 
     expect(res.status).toBe(429);
     expect(handler).toHaveBeenCalledOnce();
+    spy.mockRestore();
   });
 
   it('includes Retry-After header in the 429 response', async () => {
-    const { withRateLimit } = await import('./middleware/rate-limit');
-    const handler = vi.fn(async () => ({ status: 200 } as any));
-    const wrapped = withRateLimit(handler, { limit: 1, windowSeconds: 30, keyPrefix: 'test-retry' });
+    const spy = vi.spyOn(redisModule, 'checkRateLimit')
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+      
+    const handler = vi.fn().mockResolvedValue({ status: 200 });
+    const wrapped = rateLimitModule.withRateLimit(handler, { limit: 1, windowSeconds: 30, keyPrefix: 'test-retry' });
 
     await wrapped(makeReq('4.4.4.4'));
     const res = await wrapped(makeReq('4.4.4.4'));
 
     expect(res.headers.get('Retry-After')).toBe('30');
+    spy.mockRestore();
   });
 });
 
@@ -139,7 +157,7 @@ describe('checkRateLimit & withRateLimit — Redis fallback strategies', () => {
   it('fails open (returns true) when fallbackStrategy is fail-open and checkRateLimit throws', async () => {
     const spy = vi.spyOn(redisModule, 'checkRateLimit').mockRejectedValueOnce(new Error('Redis unreachable'));
 
-    const handler = vi.fn(async () => ({ status: 200 } as any));
+    const handler = vi.fn().mockResolvedValue({ status: 200 });
     const wrapped = rateLimitModule.withRateLimit(handler, {
       limit: 5,
       windowSeconds: 60,
@@ -158,7 +176,7 @@ describe('checkRateLimit & withRateLimit — Redis fallback strategies', () => {
   it('fails closed (returns 429) when fallbackStrategy is fail-closed and checkRateLimit throws', async () => {
     const spy = vi.spyOn(redisModule, 'checkRateLimit').mockRejectedValueOnce(new Error('Redis unreachable'));
 
-    const handler = vi.fn(async () => ({ status: 200 } as any));
+    const handler = vi.fn().mockResolvedValue({ status: 200 });
     const wrapped = rateLimitModule.withRateLimit(handler, {
       limit: 5,
       windowSeconds: 60,

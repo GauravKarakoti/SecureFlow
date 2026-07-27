@@ -9,6 +9,7 @@ vi.mock('@/ai/genkit', () => ({
     generate: async () => ({ text: mockResponseText }),
   },
   defaultModel: 'mock-model',
+  securityExplanationModel: 'mock-groq-model-id', // Added missing export
 }));
 
 vi.mock('dotenv/config', () => ({}));
