@@ -236,6 +236,43 @@ export default function AuditLogTable({
                       </span>
                     </TableCell>
                   </TableRow>
+
+                  {log.decision === "PASS" && (
+                    <TableRow className="border-b border-foreground/5 bg-foreground/[0.02]">
+                      <TableCell colSpan={5} className="py-3 px-4">
+                        <details className="group rounded-lg border border-red-900/40 bg-black/40 p-3 text-xs">
+                          <summary className="cursor-pointer font-mono font-bold text-red-400 hover:text-red-300 flex items-center justify-between select-none">
+                            <span className="flex items-center gap-2">
+                              <span>🎭 Heist Victory Card Preview</span>
+                            </span>
+                            <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">
+                              ▼
+                            </span>
+                          </summary>
+                          <div className="mt-3 space-y-3">
+                            <div className="overflow-hidden rounded-md border border-red-900/60 bg-black max-w-xl">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`/api/og/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`}
+                                alt="Heist Card Preview"
+                                className="w-full h-auto object-cover"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2 pt-1">
+                              <a
+                                href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`🛡️ SecureFlow Heist Broadcast: ${log.resource || "Project"} passed audit check! Join the Resistance!`)}&url=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/share/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors shadow-md shadow-red-950/50"
+                              >
+                                Broadcast to the Resistance 📢
+                              </a>
+                            </div>
+                          </div>
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </React.Fragment>
               ))
             )}
