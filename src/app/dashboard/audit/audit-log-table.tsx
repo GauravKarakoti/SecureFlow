@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Search, X, ChevronLeft, ChevronRight, History } from "lucide-react";
+import { Search, X, ChevronLeft, ChevronRight, History, Download } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -24,6 +25,7 @@ import {
   type UserAuditLogResult,
   type UserAuditLogRow,
 } from "@/lib/actions/audit";
+import { downloadCSV } from "@/lib/utils/exportCsv";
 
 const PAGE_SIZE = 10;
 const ALL = "ALL";
@@ -59,6 +61,21 @@ export default function AuditLogTable({
     setActionFilter(ALL);
     setDecisionFilter(ALL);
     setPage(1);
+  };
+
+  // Exports the currently loaded page of logs (respecting active filters)
+  // as a CSV, using the shared downloadCSV utility.
+  const exportLogs = () => {
+    if (!logs.length) return;
+    const rows = logs.map((log) => ({
+      action: log.action,
+      user: displayUser(log),
+      resource: log.resource,
+      decision: log.decision || "INFO",
+      timestamp: new Date(log.timestamp).toISOString(),
+    }));
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
   };
 
   // Debounced so typing in the search box doesn't fire a server call per
@@ -159,6 +176,16 @@ export default function AuditLogTable({
               <X className="w-3.5 h-3.5" /> Clear
             </button>
           )}
+
+          <Button
+            onClick={exportLogs}
+            disabled={!logs.length}
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </Button>
         </div>
       </div>
 
