@@ -64,10 +64,25 @@ interface Column {
 interface CyberRainBackgroundProps {
   /** Tailwind/inline opacity override. Default 0.12 — subtle texture. */
   opacity?: number;
-  theme?: "heist" | "matrix";
+  theme?: "heist" | "matrix" | "glitch";
+  /** Speed multiplier for rain matrix pacing when AI stream spikes. */
+  speedMultiplier?: number;
+  /** Density multiplier for rain matrix. */
+  densityMultiplier?: number;
+  /** Temporary pause in rain animation triggered by keyword. */
+  isPaused?: boolean;
+  /** Temporary visual glitch effect. */
+  glitchActive?: boolean;
 }
 
-export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRainBackgroundProps) {
+export function CyberRainBackground({
+  opacity = 0.12,
+  theme = "heist",
+  speedMultiplier = 1.0,
+  densityMultiplier = 1.0,
+  isPaused = false,
+  glitchActive = false,
+}: CyberRainBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const columnsRef = useRef<Column[]>([]);
@@ -79,12 +94,20 @@ export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRa
     columnWidth: 16,
     reducedMotion: false,
     theme: theme,
+    speedMultiplier: speedMultiplier,
+    densityMultiplier: densityMultiplier,
+    isPaused: isPaused,
+    glitchActive: glitchActive,
   });
   
-  // Update theme ref on theme prop change
+  // Update refs on prop changes
   useEffect(() => {
     configRef.current.theme = theme;
-  }, [theme]);
+    configRef.current.speedMultiplier = speedMultiplier;
+    configRef.current.densityMultiplier = densityMultiplier;
+    configRef.current.isPaused = isPaused;
+    configRef.current.glitchActive = glitchActive;
+  }, [theme, speedMultiplier, densityMultiplier, isPaused, glitchActive]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -186,13 +209,17 @@ export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRa
     }
 
     function drawColumn(col: Column) {
-      const { fontSize, theme } = configRef.current;
+      const { fontSize, theme, glitchActive } = configRef.current;
       
-      let headColor, bodyColor, tailColor;
+      let headColor: string, bodyColor: string, tailColor: string;
       if (theme === "matrix") {
         headColor = col.dim ? "rgba(74, 222, 128, 0.95)" : "rgba(34, 197, 94, 1)";
         bodyColor = col.dim ? "rgba(74, 222, 128, 0.45)" : "rgba(34, 197, 94, 0.7)";
         tailColor = col.dim ? "rgba(74, 222, 128, 0.12)" : "rgba(34, 197, 94, 0.22)";
+      } else if (theme === "glitch" || glitchActive) {
+        headColor = "rgba(34, 197, 94, 1)";
+        bodyColor = "rgba(239, 68, 68, 0.95)";
+        tailColor = "rgba(168, 85, 247, 0.4)";
       } else {
         headColor = col.dim ? "rgba(244, 63, 94, 0.95)" : "rgba(239, 68, 68, 1)";
         bodyColor = col.dim ? "rgba(244, 63, 94, 0.45)" : "rgba(239, 68, 68, 0.7)";
@@ -208,16 +235,20 @@ export function CyberRainBackground({ opacity = 0.12, theme = "heist" }: CyberRa
         else color = tailColor;
         ctx!.fillStyle = color;
         const ch = col.chars[i];
-        if (ch !== " ") ctx!.fillText(ch, col.x, y);
+        const glitchX = glitchActive ? col.x + (Math.random() > 0.8 ? (Math.random() - 0.5) * 8 : 0) : col.x;
+        if (ch !== " ") ctx!.fillText(ch, glitchX, y);
       }
     }
 
     function step(col: Column) {
-      const { fontSize } = configRef.current;
+      const { fontSize, speedMultiplier, isPaused, glitchActive } = configRef.current;
+      if (isPaused) return;
+
       const h = window.innerHeight;
-      col.y += col.speed;
+      col.y += col.speed * speedMultiplier;
       col.headFlicker++;
-      if (col.headFlicker >= 3 + Math.floor(Math.random() * 5)) {
+      const flickerRate = glitchActive ? 1 : 3 + Math.floor(Math.random() * 5);
+      if (col.headFlicker >= flickerRate) {
         col.headFlicker = 0;
         if (col.chars.length > 0) col.chars[0] = nextChar(col);
       }

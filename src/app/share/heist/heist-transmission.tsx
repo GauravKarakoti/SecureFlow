@@ -168,13 +168,17 @@ export function HeistTransmission({
   tagline,
   imageUrl,
 }: HeistTransmissionProps) {
-  // ── AI stream state ──────────────────────────────────────────────────────────
+  // ── AI stream & cyber-rain dynamics state ──────────────────────────────────
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1.0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [glitchActive, setGlitchActive] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+  const seenKeywordsRef = useRef<Set<string>>(new Set());
 
   // ── Easter egg state ─────────────────────────────────────────────────────────
-  const [bgTheme, setBgTheme] = useState<"heist" | "matrix">("heist");
+  const [bgTheme, setBgTheme] = useState<"heist" | "matrix" | "glitch">("heist");
   const easterEggKeys = useRef<string>("");
 
   useEffect(() => {
@@ -191,6 +195,23 @@ export function HeistTransmission({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const triggerKeywordEffect = (keyword: string) => {
+    console.log(`🎭 Thematic Keyword Detected in Stream: "${keyword}"`);
+    setGlitchActive(true);
+    setBgTheme("glitch");
+    setIsPaused(true);
+
+    // Pause rain briefly for dramatic effect, then resume with matrix color shift
+    setTimeout(() => {
+      setIsPaused(false);
+    }, 600);
+
+    setTimeout(() => {
+      setGlitchActive(false);
+      setBgTheme((prev) => (prev === "glitch" ? "heist" : prev));
+    }, 1400);
+  };
+
   useEffect(() => {
     // Build the SSE URL with query params matching page.tsx logic.
     const params = new URLSearchParams({ project: projectName });
@@ -201,9 +222,24 @@ export function HeistTransmission({
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);
     esRef.current = es;
 
+    // Stream token generation spike pacing
+    setSpeedMultiplier(2.5);
+
     // Queue for variable typing cadence processing
     const textQueue: string[] = [];
     let isProcessingQueue = false;
+
+    const THEMATIC_KEYWORDS = ["BELLA CIAO", "PROFESSOR", "MINT", "BERLIN", "VAULT", "DENVER", "TOKYO", "RESISTANCE"];
+
+    const checkForKeywords = (text: string) => {
+      const upper = text.toUpperCase();
+      for (const kw of THEMATIC_KEYWORDS) {
+        if (upper.includes(kw) && !seenKeywordsRef.current.has(kw)) {
+          seenKeywordsRef.current.add(kw);
+          triggerKeywordEffect(kw);
+        }
+      }
+    };
 
     const processQueue = async () => {
       if (isProcessingQueue) return;
@@ -211,10 +247,8 @@ export function HeistTransmission({
 
       while (textQueue.length > 0) {
         const nextText = textQueue.shift()!;
+        checkForKeywords(nextText);
         setAiMessage((prev) => {
-          const currentText = prev || "";
-          // Determine newly added characters
-          const addedChars = nextText.slice(currentText.length);
           return nextText;
         });
 
@@ -247,17 +281,20 @@ export function HeistTransmission({
           processQueue().then(() => {
             setAiMessage(event.message);
             setAiLoading(false);
+            setSpeedMultiplier(1.0);
             es.close();
           });
         } else {
           // AI error — fall back to static lines.
           setAiMessage(null);
           setAiLoading(false);
+          setSpeedMultiplier(1.0);
           es.close();
         }
       } catch {
         setAiMessage(null);
         setAiLoading(false);
+        setSpeedMultiplier(1.0);
         es.close();
       }
     };
@@ -265,6 +302,7 @@ export function HeistTransmission({
     es.onerror = () => {
       setAiMessage(null);
       setAiLoading(false);
+      setSpeedMultiplier(1.0);
       es.close();
     };
 
@@ -352,7 +390,13 @@ const lines = useMemo<TransmissionLine[]>(() => {
       {/* ── Atmospheric cyber-rain backdrop (fills the empty gutters) ────
           Fixed, full-viewport, very low opacity, pointer-events: none.
           Sits behind everything; the terminal card below lifts to z-10. */}
-      <CyberRainBackground opacity={0.13} theme={bgTheme} />
+      <CyberRainBackground
+        opacity={0.13}
+        theme={bgTheme}
+        speedMultiplier={speedMultiplier}
+        isPaused={isPaused}
+        glitchActive={glitchActive}
+      />
 
       {/* Vignette so the terminal card stays the visual focal point even
           with rain behind it — darkens edges, keeps center readable. */}
@@ -368,10 +412,10 @@ const lines = useMemo<TransmissionLine[]>(() => {
       <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 relative z-10">
         <div
           className={cn(
-            "w-full max-w-3xl rounded-md border border-red-900/60 shadow-2xl",
-            "bg-[#050505] relative overflow-hidden",
-            // Soft red glow so the card separates from the rain backdrop.
-            "shadow-[0_0_60px_-15px_rgba(239,68,68,0.25)]",
+            "w-full max-w-3xl rounded-md border transition-all duration-300 relative overflow-hidden bg-[#050505]",
+            glitchActive
+              ? "border-emerald-500/80 shadow-[0_0_80px_rgba(34,197,94,0.4)] animate-pulse"
+              : "border-red-900/60 shadow-[0_0_60px_-15px_rgba(239,68,68,0.25)]",
           )}
         >
           {/* ── CRT scanline overlay (purely decorative) ─────────────────── */}

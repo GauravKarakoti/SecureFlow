@@ -45,6 +45,18 @@ export async function GET(req: NextRequest) {
     const rawStolen = searchParams.get('stolen') ?? searchParams.get('amount');
     const stolen = rawStolen ? rawStolen.trim().slice(0, 30) : undefined;
 
+    const themeParam = searchParams.get('theme')?.toLowerCase() || 'heist';
+    const isGlitchTheme = themeParam === 'glitch' || themeParam === 'matrix';
+
+    const borderColor = isGlitchTheme ? '#22c55e' : '#dc2626';
+    const accentColor = isGlitchTheme ? '#22c55e' : '#ef4444';
+    const bgGradient = isGlitchTheme
+      ? 'linear-gradient(135deg, #021a0c 0%, #09090b 45%, #3f0d12 100%)'
+      : 'linear-gradient(135deg, #09090b 0%, #18181b 45%, #3f0d12 100%)';
+    const bannerText = isGlitchTheme
+      ? 'SYSTEM GLITCH // TRANSMISSION ACTIVE'
+      : 'INCOMING TRANSMISSION...';
+
     const timestamp =
       searchParams.get('timestamp') ||
       new Date().toLocaleString('en-US', {
@@ -65,9 +77,8 @@ export async function GET(req: NextRequest) {
             justifyContent: 'space-between',
             padding: '56px',
             color: '#ffffff',
-            background:
-              'linear-gradient(135deg, #09090b 0%, #18181b 45%, #3f0d12 100%)',
-            border: '10px solid #dc2626',
+            background: bgGradient,
+            border: `10px solid ${borderColor}`,
             fontFamily: 'Orbitron'
           }}
         >
