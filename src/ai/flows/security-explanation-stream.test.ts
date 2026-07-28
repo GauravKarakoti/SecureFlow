@@ -216,6 +216,20 @@ describe('streamDeveloperSecurityExplanations', () => {
       expect(events[0].message).toContain('AI provider rate limit reached (429)');
     }
   });
+
+  it('yields a specific timeout error message when Groq connection times out', async () => {
+    const timeoutErr = new Error('Connection timed out');
+    timeoutErr.name = 'APIConnectionTimeoutError';
+    mockCustomError = timeoutErr;
+
+    const events = await collectEvents(baseInput);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('error');
+    if (events[0].type === 'error') {
+      expect(events[0].message).toContain('AI provider connection timed out');
+    }
+  });
+
 });
 
 // ────────────────────────────────────────────────────────────────────────────
