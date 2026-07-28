@@ -17,7 +17,8 @@ vi.mock('@/lib/client-ip', () => ({
   getClientIp: () => '127.0.0.1',
 }));
 
-import middleware from './proxy';
+import rawMiddleware from './proxy';
+const middleware = rawMiddleware as unknown as (req: any, ctx?: any) => Promise<NextResponse | undefined>;
 
 describe('Next.js RBAC Middleware Guarding', () => {
   const ORIGINAL_ENV = process.env;

@@ -569,8 +569,8 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
   }
 }, { connection: redis as any });
 
-worker.on('completed', (job) => console.log(`[QUEUE] Job ${job.id} completed.`));
-worker.on('failed', async (job, err) => {
+worker.on('completed', (job: Job) => console.log(`[QUEUE] Job ${job.id} completed.`));
+worker.on('failed', async (job: Job | undefined, err: Error) => {
   if (!job) return;
   const maxAttempts = job.opts.attempts || 3;
   if (job.attemptsMade >= maxAttempts) {

@@ -1,12 +1,12 @@
 import NextAuth from 'next-auth';
 import authConfig from './auth.config';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ratelimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const { auth } = NextAuth(authConfig);
 
-export default auth(async function middleware(request: any) {
+export default auth(async function middleware(request: NextRequest & { auth?: any }) {
   const token = request.auth;
   
   if (request.nextUrl.pathname.startsWith('/api/og') && ratelimit) {
