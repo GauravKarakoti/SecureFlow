@@ -308,7 +308,7 @@ export async function GET(req: NextRequest) {
             </div>
           </div>
         </div>
-      ),
+      ) as React.ReactElement,
       {
         width: 1200,
         height: 630,

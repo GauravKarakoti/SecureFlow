@@ -6,7 +6,14 @@ import { getClientIp } from '@/lib/client-ip';
 
 const { auth } = NextAuth(authConfig);
 
-export default auth(async function middleware(request: NextRequest & { auth?: any }) {
+export default auth(async function middleware(
+  request: NextRequest & {
+    auth?: {
+      user?: { roles?: string[] };
+      roles?: string[];
+    } | null;
+  }
+) {
   const token = request.auth;
   
   if (request.nextUrl.pathname.startsWith('/api/og') && ratelimit) {
