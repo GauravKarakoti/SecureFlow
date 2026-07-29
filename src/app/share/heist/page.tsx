@@ -19,7 +19,7 @@ function getRankFromScore(score: number): string {
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
-  'https://secure-flow-six.vercel.app';
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://secure-flow-six.vercel.app');
 
 type SearchParams = Promise<{
   project?: string;
@@ -72,6 +72,7 @@ export async function generateMetadata({
   const description = `${playerAlias} secured the vault with a security score of ${securityScore}.`;
 
   return {
+    metadataBase: new URL(APP_URL),
     title,
     description,
     openGraph: {
