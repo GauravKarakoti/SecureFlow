@@ -113,10 +113,84 @@ export function isRateLimitError(err: unknown): boolean {
   );
 }
 
+/**
+ * Detects whether an error thrown by the AI provider is a timeout error.
+ * Specifically handles Groq SDK's `APIConnectionTimeoutError`, HTTP 408/504,
+ * and standard network timeout error messages.
+ */
+export function isTimeoutError(err: unknown): boolean {
+  if (!err) return false;
+  const errObj = err as { name?: string; status?: number; statusCode?: number; message?: string };
+  const msg = err instanceof Error ? err.message : String(errObj.message ?? err);
+  const name = errObj.name ?? (err instanceof Error ? err.name : '');
+  const status = errObj.status ?? errObj.statusCode;
+
+  return (
+    name === 'APIConnectionTimeoutError' ||
+    status === 408 ||
+    status === 504 ||
+    /timeout|timed out|ETIMEDOUT|api_connection_timeout/i.test(msg)
+  );
+}
+
+/**
+ * Options for retrying an async operation.
+ */
+export interface RetryOptions {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  backoffFactor?: number;
+  onRetry?: (err: unknown, attempt: number) => void;
+}
+
+/**
+ * Helper to execute an async function with exponential backoff retries for transient errors
+ * (rate limits, timeouts, and 5xx server errors).
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const maxRetries = options.maxRetries ?? 3;
+  const initialDelayMs = options.initialDelayMs ?? 100;
+  const maxDelayMs = options.maxDelayMs ?? 2000;
+  const backoffFactor = options.backoffFactor ?? 2;
+
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      attempt++;
+
+      const isRateLimit = isRateLimitError(err);
+      const isTimeout = isTimeoutError(err);
+      const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+      const isServerError = typeof status === 'number' && status >= 500 && status < 600;
+
+      const isRetriable = isRateLimit || isTimeout || isServerError;
+
+      if (!isRetriable || attempt >= maxRetries) {
+        throw err;
+      }
+
+      if (options.onRetry) {
+        options.onRetry(err, attempt);
+      }
+
+      const delay = Math.min(initialDelayMs * Math.pow(backoffFactor, attempt - 1), maxDelayMs);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 // Exported for the test suite and for reuse by other flows that may want the same detectors.
 export const __internal = {
   detectPromptInjection,
   contradictsSeverity,
   buildPrompt,
   isRateLimitError,
-};
+  isTimeoutError,
+  withRetry,
+};
