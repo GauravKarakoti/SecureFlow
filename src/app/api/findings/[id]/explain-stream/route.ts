@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
 import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explanation-stream';
+import { withRateLimit } from '@/lib/middleware/rate-limit';
+import { checkRateLimit } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
+
+// IP-level: 20 requests/min (shared across all users from that IP)
+// User-level: 10 requests/min (per authenticated user)
+const WINDOW_SECONDS = 60;
 
 /**
  * Streams a live-regenerated AI explanation for a single finding as Server-Sent Events.
@@ -16,8 +22,8 @@ export const dynamic = 'force-dynamic';
  * Ownership is checked the same way the findings dashboard page checks it: the finding must
  * belong to a scan result, on a pull request, on a repository owned by the signed-in user.
  */
-export async function GET(
-  _request: NextRequest,
+async function handler(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
@@ -25,6 +31,20 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // User-based token bucket: stricter than IP limit, keyed per authenticated user
+  const userAllowed = await checkRateLimit(
+    `rate-limit:explain-stream:user:${userId}`,
+    10,
+    WINDOW_SECONDS,
+    { fallbackStrategy: 'fail-closed', timeoutMs: 1000 }
+  );
+  if (!userAllowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': WINDOW_SECONDS.toString() } }
+    );
+  }
 
   const { id } = await params;
 
@@ -89,7 +109,7 @@ export async function GET(
     },
   });
 
-  return new Response(readable, {
+  return new Response(readable as unknown as BodyInit, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -98,3 +118,15 @@ export async function GET(
     },
   });
 }
+
+// IP-based token bucket wraps the entire handler — outermost guard, fail-closed
+export const GET = withRateLimit(
+  handler as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
+  {
+    keyPrefix: 'explain-stream:ip',
+    limit: 20,
+    windowSeconds: WINDOW_SECONDS,
+    fallbackStrategy: 'fail-closed',
+    timeoutMs: 1000,
+  }
+) as typeof handler;

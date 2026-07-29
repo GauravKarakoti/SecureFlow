@@ -1,4 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextResponse } from 'next/server';
+
+let mockIpAllowed = true;
+let mockUserAllowed = true;
+
+vi.mock('@/lib/middleware/rate-limit', () => ({
+  withRateLimit: vi.fn(
+    (fn: (...a: unknown[]) => unknown) =>
+      (req: unknown, ...args: unknown[]) => {
+        if (!mockIpAllowed) {
+          return NextResponse.json(
+            { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
+            { status: 429, headers: { 'Retry-After': '60' } }
+          );
+        }
+        return fn(req, ...args);
+      }
+  ),
+}));
+
+vi.mock('@/lib/redis', () => ({
+  checkRateLimit: vi.fn(async () => mockUserAllowed),
+}));
 
 const mockFinding = {
   id: 'finding-1',
@@ -59,6 +82,8 @@ describe('GET /api/findings/[id]/explain-stream', () => {
   beforeEach(() => {
     mockSession = { user: { id: 'user-1' } };
     mockFindFirstResult = mockFinding;
+    mockIpAllowed = true;
+    mockUserAllowed = true;
     mockEvents = [
       { type: 'chunk', explanation: 'Partial' },
       {
@@ -130,5 +155,38 @@ describe('GET /api/findings/[id]/explain-stream', () => {
         scanResult: { pullRequest: { repository: { userId: 'user-1' } } },
       },
     });
+  });
+
+  it('returns 429 when the IP-based rate limit is exceeded', async () => {
+    mockIpAllowed = false;
+
+    const res = await GET({} as any, { params: Promise.resolve({ id: 'finding-1' }) });
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toBe('Too Many Requests');
+  });
+
+  it('returns 429 when the user-based rate limit is exceeded', async () => {
+    mockUserAllowed = false;
+
+    const res = await GET({} as any, { params: Promise.resolve({ id: 'finding-1' }) });
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toBe('Too Many Requests');
+  });
+
+  it('checks user-based rate limit with the authenticated user id', async () => {
+    const { checkRateLimit } = await import('@/lib/redis');
+
+    await GET({} as any, { params: Promise.resolve({ id: 'finding-1' }) });
+
+    expect(checkRateLimit).toHaveBeenCalledWith(
+      'rate-limit:explain-stream:user:user-1',
+      10,
+      60,
+      { fallbackStrategy: 'fail-closed', timeoutMs: 1000 }
+    );
   });
 });
