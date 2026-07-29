@@ -64,8 +64,6 @@ export async function GET(req: NextRequest) {
         timeStyle: 'short',
       });
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
     return new ImageResponse(
       (
         <div
@@ -321,7 +319,7 @@ export async function GET(req: NextRequest) {
             </div>
           </div>
         </div>
-      ),
+      ) as React.ReactElement,
       {
         width: 1200,
         height: 630,
