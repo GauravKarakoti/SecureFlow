@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { z } from 'zod';
 import { ai, defaultModel } from '@/ai/genkit';
+import { isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
 
 // ── Input schema ──────────────────────────────────────────────────────────────
 export const HeistMessageInputSchema = z.object({
@@ -93,14 +94,20 @@ export async function* streamHeistMessage(
   const prompt = buildPrompt(validatedInput);
 
   try {
-    // ── Stream from Groq via Genkit ─────────────────────────────────────────
+    // ── Stream from Groq via Genkit with retries ──────────────────────────────
     // We ask for plain text output (no JSON schema) so the model doesn't wrap
     // the monologue in JSON structure — the prompt explicitly says "plain prose".
-    const { stream, response } = ai.generateStream({
-      model: defaultModel,
-      system: SYSTEM_PROMPT,
-      prompt,
-    });
+    const { stream, response } = await withRetry(
+      async () =>
+        ai.generateStream({
+          model: defaultModel,
+          system: SYSTEM_PROMPT,
+          prompt,
+        }),
+      {
+        initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
+      }
+    );
 
     let accumulatedText = '';
 
@@ -123,9 +130,19 @@ export async function* streamHeistMessage(
       message: finalText || FALLBACK_HEIST_MESSAGE,
     };
   } catch (err) {
+    const isRateLimit = isRateLimitError(err);
+    const isTimeout = isTimeoutError(err);
+    const message = isRateLimit
+      ? 'Groq API rate limit reached (429). Falling back to default heist transmission.'
+      : isTimeout
+      ? 'Groq API connection timed out. Falling back to default heist transmission.'
+      : err instanceof Error
+      ? err.message
+      : 'AI generation failed.';
+
     yield {
       type: 'error',
-      message: err instanceof Error ? err.message : 'AI generation failed.',
+      message,
     };
   }
-}
+}
