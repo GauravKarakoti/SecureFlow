@@ -3,13 +3,6 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 
-/**
- * Shared guard for the dashboard's audit log actions. Returns the signed-in
- * user's id. Throws "Unauthorized" if there is no session — mirrors the
- * requireAdmin() guard in lib/actions/admin.ts, but scoped to "any signed-in
- * user" rather than "ADMIN only", since this powers the per-user dashboard
- * view rather than the admin portal.
- */
 async function requireUser(): Promise<string> {
   const session = await auth();
 
@@ -44,22 +37,16 @@ export interface UserAuditLogQuery {
   search?: string;
   page?: number;
   pageSize?: number;
+  startDate?: Date;
+  endDate?: Date;
 }
 
-/**
- * Fetches the signed-in user's audit logs with optional filtering — same
- * shape as getAuditLogs() in lib/actions/admin.ts (action/search + paginated
- * result), but always scoped to the caller's own userId so one user can
- * never see another user's audit trail.
- */
-export async function getUserAuditLogs(
-  query: UserAuditLogQuery = {}
-): Promise<UserAuditLogResult> {
-  const userId = await requireUser();
-
-  const { action, decision, search } = query;
-  const page = Math.max(1, query.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 10));
+function buildUserAuditLogWhere(
+  userId: string,
+  query: Pick<UserAuditLogQuery, "action" | "decision" | "search" | "startDate" | "endDate">
+) {
+  console.log("DEBUG buildUserAuditLogWhere called with:", query);
+  const { action, decision, search, startDate, endDate } = query;
 
   const where: any = { userId };
   if (action) where.action = action;
@@ -71,6 +58,24 @@ export async function getUserAuditLogs(
       { decision: { contains: search, mode: "insensitive" } },
     ];
   }
+  if (startDate || endDate) {
+    where.timestamp = {};
+    if (startDate) where.timestamp.gte = startDate;
+    if (endDate) where.timestamp.lte = endDate;
+  }
+
+  console.log("DEBUG final where clause:", JSON.stringify(where));
+  return where;
+}
+
+export async function getUserAuditLogs(
+  query: UserAuditLogQuery = {}
+): Promise<UserAuditLogResult> {
+  const userId = await requireUser();
+
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 10));
+  const where = buildUserAuditLogWhere(userId, query);
 
   const [logs, total] = await Promise.all([
     prisma.auditLog.findMany({
@@ -91,11 +96,21 @@ export async function getUserAuditLogs(
   };
 }
 
-/**
- * Distinct action/decision values for the signed-in user's own audit logs,
- * used to populate the filter dropdowns — equivalent to getAuditLogFilters()
- * in lib/actions/admin.ts, scoped down to just this user's data.
- */
+const MAX_EXPORT_ROWS = 5000;
+
+export async function getUserAuditLogsForExport(
+  query: Pick<UserAuditLogQuery, "action" | "decision" | "search" | "startDate" | "endDate"> = {}
+): Promise<UserAuditLogRow[]> {
+  const userId = await requireUser();
+  const where = buildUserAuditLogWhere(userId, query);
+
+  return prisma.auditLog.findMany({
+    where,
+    orderBy: { timestamp: "desc" },
+    take: MAX_EXPORT_ROWS,
+  });
+}
+
 export async function getUserAuditLogFilters(): Promise<{
   actions: string[];
   decisions: string[];

@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import {
   getUserAuditLogs,
+  getUserAuditLogsForExport,
   type UserAuditLogResult,
   type UserAuditLogRow,
 } from "@/lib/actions/audit";
@@ -47,9 +48,16 @@ export default function AuditLogTable({
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<UserAuditLogResult>(initialResult);
   const [isLoading, setIsLoading] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const hasFilters =
-    search.trim() !== "" || actionFilter !== ALL || decisionFilter !== ALL;
+    search.trim() !== "" ||
+    actionFilter !== ALL ||
+    decisionFilter !== ALL ||
+    dateFrom !== "" ||
+    dateTo !== "";
 
   // Reconstructed here from the plain `ownName` string prop — every log is
   // already scoped to this user (or is a null-userId "System" event), so
@@ -60,26 +68,46 @@ export default function AuditLogTable({
     setSearch("");
     setActionFilter(ALL);
     setDecisionFilter(ALL);
+    setDateFrom("");
+    setDateTo("");
     setPage(1);
   };
 
-  // Exports the currently loaded page of logs (respecting active filters)
-  // as a CSV, using the shared downloadCSV utility.
-  const exportLogs = () => {
-    if (!logs.length) return;
-    const rows = logs.map((log) => ({
-      action: log.action,
-      user: displayUser(log),
-      resource: log.resource,
-      decision: log.decision || "INFO",
-      timestamp: new Date(log.timestamp).toISOString(),
-    }));
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
+  // Exports every log matching the current filters — including the date
+  // range, action, decision, and search — not just the current page. The
+  // table above is paginated for readability, but an export should cover
+  // everything the user has filtered down to, not just the 10 rows shown.
+  const exportLogs = async () => {
+    setIsExporting(true);
+    try {
+      const exportRows = await getUserAuditLogsForExport({
+        action: actionFilter === ALL ? undefined : actionFilter,
+        decision: decisionFilter === ALL ? undefined : decisionFilter,
+        search: search.trim() ? search.trim() : undefined,
+        // Date inputs are "YYYY-MM-DD"; expand "to" to the end of that day
+        // so the selected end date is fully included, not cut off at midnight.
+        startDate: dateFrom ? new Date(`${dateFrom}T00:00:00`) : undefined,
+        endDate: dateTo ? new Date(`${dateTo}T23:59:59.999`) : undefined,
+      });
+
+      if (!exportRows.length) return;
+
+      const rows = exportRows.map((log) => ({
+        action: log.action,
+        user: displayUser(log),
+        resource: log.resource,
+        decision: log.decision || "INFO",
+        timestamp: new Date(log.timestamp).toISOString(),
+      }));
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Debounced so typing in the search box doesn't fire a server call per
-  // keystroke; filter dropdown changes and page changes are already
+  // keystroke; filter dropdown/date changes and page changes are already
   // immediate, so this only smooths out the free-text search.
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +118,8 @@ export default function AuditLogTable({
           action: actionFilter === ALL ? undefined : actionFilter,
           decision: decisionFilter === ALL ? undefined : decisionFilter,
           search: search.trim() ? search.trim() : undefined,
+          startDate: dateFrom ? new Date(`${dateFrom}T00:00:00`) : undefined,
+          endDate: dateTo ? new Date(`${dateTo}T23:59:59.999`) : undefined,
           page,
           pageSize: PAGE_SIZE,
         });
@@ -103,7 +133,7 @@ export default function AuditLogTable({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, actionFilter, decisionFilter, page]);
+  }, [search, actionFilter, decisionFilter, dateFrom, dateTo, page]);
 
   const { logs, total, totalPages } = result;
   const safePage = Math.min(page, totalPages);
@@ -112,21 +142,7 @@ export default function AuditLogTable({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-        <div className="relative w-full lg:max-w-sm">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search action, resource, or decision..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="pl-9"
-          />
-        </div>
-
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={actionFilter}
@@ -168,6 +184,46 @@ export default function AuditLogTable({
             </SelectContent>
           </Select>
 
+          {/* Date range + "to" + Export CSV are kept as one non-wrapping
+              unit, so Export CSV always sits directly beside the date
+              inputs instead of breaking onto a separate line. */}
+          <div className="flex flex-nowrap items-center gap-1.5 shrink-0">
+            <Input
+              type="date"
+              aria-label="Filter from date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(1);
+              }}
+              max={dateTo || undefined}
+              className="w-[140px] h-9 text-xs"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              aria-label="Filter to date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(1);
+              }}
+              min={dateFrom || undefined}
+              className="w-[140px] h-9 text-xs"
+            />
+          </div>
+
+          <Button
+            onClick={exportLogs}
+            disabled={isExporting}
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 shrink-0"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {isExporting ? "Exporting..." : "Export CSV"}
+          </Button>
+
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -176,16 +232,21 @@ export default function AuditLogTable({
               <X className="w-3.5 h-3.5" /> Clear
             </button>
           )}
+        </div>
 
-          <Button
-            onClick={exportLogs}
-            disabled={!logs.length}
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </Button>
+        {/* Search sits on its own row below the filters/date/export row. */}
+        <div className="relative w-full lg:max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search action, resource, or decision..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="pl-9"
+          />
         </div>
       </div>
 
