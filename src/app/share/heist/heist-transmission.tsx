@@ -5,6 +5,7 @@ import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTypewriter } from "@/hooks/use-typewriter";
+import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { FALLBACK_HEIST_MESSAGE } from "@/ai/flows/heist-message-stream";
 
@@ -168,6 +169,7 @@ export function HeistTransmission({
   tagline,
   imageUrl,
 }: HeistTransmissionProps) {
+  const { toast } = useToast();
   // ── AI stream & cyber-rain dynamics state ──────────────────────────────────
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
@@ -188,18 +190,28 @@ export function HeistTransmission({
         easterEggKeys.current = (easterEggKeys.current + e.key).slice(-20).toUpperCase();
         if (easterEggKeys.current.includes("BELLA CIAO")) {
           setBgTheme("matrix");
+          toast({
+            title: "BELLA CIAO ACTIVATED 🎭",
+            description: "The Resistance theme matrix engaged. Moving in silence.",
+            variant: "success",
+          });
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [toast]);
 
   const triggerKeywordEffect = (keyword: string) => {
     console.log(`🎭 Thematic Keyword Detected in Stream: "${keyword}"`);
     setGlitchActive(true);
     setBgTheme("glitch");
     setIsPaused(true);
+    toast({
+      title: "POLICE INTERCEPT / SIGNAL DETECTED 📡",
+      description: `Encrypted signal keyword "${keyword}" intercepted by command network!`,
+      variant: "destructive",
+    });
 
     // Pause rain briefly for dramatic effect, then resume with matrix color shift
     setTimeout(() => {
@@ -380,7 +392,14 @@ const lines = useMemo<TransmissionLine[]>(() => {
     }
   }, [reducedMotion, total, transmissionComplete]);
 
-  const skipIntro = () => setRevealedCount(total);
+  const skipIntro = () => {
+    setRevealedCount(total);
+    toast({
+      title: "DECRYPTION SKIPPED",
+      description: "Bypassing terminal sequence, loading vault payload.",
+      variant: "default",
+    });
+  };
 
   // How many lines are visible right now. In reduced-motion mode every line
   // is shown as plain text (no active decoder).
@@ -544,6 +563,13 @@ const lines = useMemo<TransmissionLine[]>(() => {
             <div className="flex justify-center">
               <Link
                 href="/"
+                onClick={() => {
+                  toast({
+                    title: "JOIN THE RESISTANCE 🚩",
+                    description: "Redirecting to SecureFlow command center.",
+                    variant: "success",
+                  });
+                }}
                 className="rounded bg-red-600 px-6 py-3 font-bold text-white shadow-lg transition-all hover:bg-red-700"
               >
                 Join the Resistance

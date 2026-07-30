@@ -24,6 +24,7 @@ import {
   type UserAuditLogResult,
   type UserAuditLogRow,
 } from "@/lib/actions/audit";
+import { useToast } from "@/hooks/use-toast";
 
 const PAGE_SIZE = 10;
 const ALL = "ALL";
@@ -39,6 +40,7 @@ export default function AuditLogTable({
   decisions: string[];
   ownName: string;
 }) {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState(ALL);
   const [decisionFilter, setDecisionFilter] = useState(ALL);
@@ -282,6 +284,13 @@ export default function AuditLogTable({
                                   href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`🛡️ SecureFlow Heist Broadcast: ${log.resource || "Project"} passed audit check! Join the Resistance!`)}&url=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/share/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`)}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={() => {
+                                    toast({
+                                      title: "BROADCAST TRANSMISSION DISPATCHED 📢",
+                                      description: "Publishing victory briefing to the Resistance network.",
+                                      variant: "success",
+                                    });
+                                  }}
                                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors shadow-md shadow-red-950/50"
                                 >
                                   Broadcast to the Resistance 📢
@@ -290,6 +299,13 @@ export default function AuditLogTable({
                                   href={`/share/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={() => {
+                                    toast({
+                                      title: "TRANSMISSION LINK READY 🔗",
+                                      description: "Opening encrypted public heist transmission channel.",
+                                      variant: "success",
+                                    });
+                                  }}
                                   className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-foreground/10 hover:bg-foreground/5 text-muted-foreground hover:text-foreground font-medium text-xs transition-colors text-center"
                                 >
                                   View Public Transmission 🔗
