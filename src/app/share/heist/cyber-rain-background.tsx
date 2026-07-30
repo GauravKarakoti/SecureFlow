@@ -176,8 +176,8 @@ export function CyberRainBackground({
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
         ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
-        configRef.current.columnWidth = w < 640 ? 14 : 16;
-        configRef.current.fontSize = w < 640 ? 12 : 14;
+        configRef.current.columnWidth = w < 640 ? 12 : 16;
+        configRef.current.fontSize = w < 640 ? 11 : 14;
         ctx!.font = `${configRef.current.fontSize}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
         setupColumns();
         if (configRef.current.reducedMotion) drawStaticFrame();

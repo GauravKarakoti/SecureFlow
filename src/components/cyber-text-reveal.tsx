@@ -165,6 +165,7 @@ export function CyberTextReveal({
           // Reserve the width of the longer string so the layout never jumps.
           display: "inline-block",
           minWidth: `${Math.max(from.length, to.length)}ch`,
+          maxWidth: "100%",
         }}
         onMouseEnter={() => hoverCanReveal && setIsRevealing(true)}
         onMouseLeave={() => hoverCanReveal && setIsRevealing(false)}
@@ -181,7 +182,7 @@ export function CyberTextReveal({
     <>
       <Comp
         className={cn(
-          "font-mono tracking-wider select-none",
+          "font-mono tracking-wider select-none break-words max-w-full",
           "transition-colors duration-300",
           // Pre-decode the placeholder reads as dim "encrypted" data; once the
           // decode starts the line brightens to the foreground so the resolved
@@ -193,6 +194,7 @@ export function CyberTextReveal({
           // Block elements need `display: block`; inline stays inline.
           display: Comp !== "span" ? "block" : "inline-block",
           minWidth: `${Math.max(from.length, to.length)}ch`,
+          maxWidth: "100%",
         }}
         aria-hidden="true"
       >
