@@ -3,13 +3,44 @@ import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
+async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePath: string): Promise<ArrayBuffer> {
+  try {
+    const originUrl = new URL(`/fonts/${fontFileName}`, req.url);
+    const res = await fetch(originUrl.href);
+    if (res && res.ok !== false) {
+      return await res.arrayBuffer();
+    }
+  } catch {
+    // continue to next fallback
+  }
+
+  try {
+    const localUrl = new URL(relativePath, import.meta.url);
+    const res = await fetch(localUrl);
+    if (res && res.ok !== false) {
+      return await res.arrayBuffer();
+    }
+  } catch {
+    // continue to next fallback
+  }
+
+  const cdnUrl = fontFileName.includes('Bold')
+    ? 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65bvq8.ttf'
+    : 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65dqv248s.ttf';
+  const cdnRes = await fetch(cdnUrl);
+  if (!cdnRes || cdnRes.ok === false) {
+    throw new Error(`Failed to load font ${fontFileName}`);
+  }
+  return await cdnRes.arrayBuffer();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
     const [regular, bold] = await Promise.all([
-      fetch(new URL('../../../../../public/fonts/Orbitron-Regular.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
-      fetch(new URL('../../../../../public/fonts/Orbitron-Bold.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
+      loadFontBuffer(req, 'Orbitron-Regular.ttf', '../../../../../public/fonts/Orbitron-Regular.ttf'),
+      loadFontBuffer(req, 'Orbitron-Bold.ttf', '../../../../../public/fonts/Orbitron-Bold.ttf'),
     ]);
 
     const project = (

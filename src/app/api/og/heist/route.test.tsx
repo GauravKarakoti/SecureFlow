@@ -168,7 +168,7 @@ describe('GET /api/og/heist', () => {
 
   it('returns status 500 when font loading or parsing fails', async () => {
     // Override fetch mock to reject, simulating a network / file read failure
-    vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Failed to load font files'));
+    vi.mocked(global.fetch).mockRejectedValue(new Error('Failed to load font files'));
 
     const { GET } = await import('./route');
     const { NextRequest } = await import('next/server');

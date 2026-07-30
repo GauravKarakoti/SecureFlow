@@ -236,6 +236,71 @@ export default function AuditLogTable({
                       </span>
                     </TableCell>
                   </TableRow>
+
+                  {log.decision === "PASS" && (
+                    <TableRow className="border-b border-foreground/5 bg-foreground/[0.02]">
+                      <TableCell colSpan={5} className="py-3 px-4">
+                        <details className="group rounded-xl border border-red-900/40 bg-black/60 p-4 text-xs shadow-inner">
+                          <summary className="cursor-pointer font-mono font-bold text-red-400 hover:text-red-300 flex items-center justify-between select-none">
+                            <span className="flex items-center gap-2 text-sm">
+                              <span>🎭 Heist Victory Card Preview</span>
+                            </span>
+                            <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">
+                              ▼
+                            </span>
+                          </summary>
+                          <div className="mt-4 flex flex-col lg:flex-row gap-5 items-stretch">
+                            {/* Card Preview Column */}
+                            <div className="flex-1 overflow-hidden rounded-lg border border-red-900/60 bg-black shadow-lg shadow-red-950/20">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`/api/og/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`}
+                                alt="Heist Card Preview"
+                                className="w-full h-auto object-cover"
+                              />
+                            </div>
+
+                            {/* Resistance Broadcast Side Panel */}
+                            <div className="w-full lg:w-80 flex flex-col justify-between rounded-lg border border-red-900/30 bg-red-950/20 p-4 space-y-4">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                  <span className="font-mono text-[11px] font-semibold text-red-400 uppercase tracking-wider">
+                                    Audit Clearance Passed
+                                  </span>
+                                </div>
+                                <h4 className="font-bold text-sm text-foreground truncate" title={log.resource || "SecureFlow"}>
+                                  {log.resource || "SecureFlow"}
+                                </h4>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                  The vault is secured with maximum score clearance. Broadcast this achievement to the Resistance network.
+                                </p>
+                              </div>
+
+                              <div className="pt-3 border-t border-red-900/30 space-y-2">
+                                <a
+                                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`🛡️ SecureFlow Heist Broadcast: ${log.resource || "Project"} passed audit check! Join the Resistance!`)}&url=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/share/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors shadow-md shadow-red-950/50"
+                                >
+                                  Broadcast to the Resistance 📢
+                                </a>
+                                <a
+                                  href={`/share/heist?project=${encodeURIComponent(log.resource || "SecureFlow")}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-foreground/10 hover:bg-foreground/5 text-muted-foreground hover:text-foreground font-medium text-xs transition-colors text-center"
+                                >
+                                  View Public Transmission 🔗
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </React.Fragment>
               ))
             )}
