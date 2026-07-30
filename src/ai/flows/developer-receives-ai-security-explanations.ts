@@ -92,7 +92,7 @@ export async function developerReceivesAISecurityExplanations(
   }
 
 
-  const explanation: string = parsedContent.explanation || 'No explanation provided.';
+  const explanation: string = parsedContent?.explanation || 'No explanation provided.';
 
   // Output consistency check: even with structural isolation and the pre-filter, catch cases
   // where the model's explanation ended up contradicting the finding's known severity.
@@ -100,7 +100,7 @@ export async function developerReceivesAISecurityExplanations(
 
   return AISecurityExplanationOutputSchema.parse({
     explanation,
-    remediationSuggestions: parsedContent.remediationSuggestions || 'No remediation suggestions provided.',
+    remediationSuggestions: parsedContent?.remediationSuggestions || 'No remediation suggestions provided.',
     promptInjectionSuspected: injectionPreFilterFlagged || consistencyFlagged,
   });
 }

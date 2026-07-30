@@ -223,6 +223,7 @@ export function HeistTransmission({
     esRef.current = es;
 
     // Stream token generation spike pacing
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSpeedMultiplier(2.5);
 
     // Queue for variable typing cadence processing
