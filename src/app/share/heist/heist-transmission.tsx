@@ -4,9 +4,7 @@ import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTypewriter } from "@/hooks/use-typewriter";
 import Link from "next/link";
-import { FALLBACK_HEIST_MESSAGE } from "@/ai/flows/heist-message-stream";
 
 /**
  * HeistTransmission
@@ -171,7 +169,7 @@ export function HeistTransmission({
   // ── AI stream & cyber-rain dynamics state ──────────────────────────────────
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
-  const [speedMultiplier, setSpeedMultiplier] = useState(1.0);
+  const [speedMultiplier, setSpeedMultiplier] = useState(2.5);
   const [isPaused, setIsPaused] = useState(false);
   const [glitchActive, setGlitchActive] = useState(false);
   const esRef = useRef<EventSource | null>(null);
@@ -222,9 +220,6 @@ export function HeistTransmission({
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);
     esRef.current = es;
 
-    // Stream token generation spike pacing
-    setSpeedMultiplier(2.5);
-
     // Queue for variable typing cadence processing
     const textQueue: string[] = [];
     let isProcessingQueue = false;
@@ -248,9 +243,7 @@ export function HeistTransmission({
       while (textQueue.length > 0) {
         const nextText = textQueue.shift()!;
         checkForKeywords(nextText);
-        setAiMessage((prev) => {
-          return nextText;
-        });
+        setAiMessage(nextText);
 
         // Calculate variable typing delay based on last character in chunk
         const lastChar = nextText.slice(-1);
