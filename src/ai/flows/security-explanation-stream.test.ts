@@ -232,65 +232,35 @@ describe('streamDeveloperSecurityExplanations', () => {
 
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// Issue #217: the streaming security-explanation flow must be explicitly
-// routed to securityExplanationModel (not defaultModel). This test asserts
-// the model reference actually reaches ai.generateStream.
-// ────────────────────────────────────────────────────────────────────────────
-describe('issue #217 — streaming flow uses securityExplanationModel', () => {
+describe('streaming flow uses securityExplanationModel', () => {
   it('calls ai.generateStream with securityExplanationModel, not defaultModel', async () => {
-    const streamCalls: { model?: string }[] = [];
+    // 0. Reset the mock state to prevent leakage from the previous describe block
+    mockChunks = [];
+    mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+    mockGenerateStreamThrows = false;
+    mockCustomError = null;
 
-    vi.resetModules();
-    vi.doMock('@/ai/genkit', () => ({
-      ai: {
-        generateStream: (opts: { model?: string }) => {
-          streamCalls.push({ model: opts.model });
-          return {
-            stream: (async function* () {
-              yield {
-                output: {
-                  explanation: 'This query concatenates unsanitized input.',
-                },
-              };
-            })(),
-            response: Promise.resolve({
-              text: JSON.stringify({
-                explanation: 'This query concatenates unsanitized input.',
-                remediationSuggestions: 'Use parameterized queries.',
-              }),
-            }),
-          };
-        },
-      },
-      defaultModel: 'groq/default-model',
-      securityExplanationModel: 'groq/fast-security-model',
-    }));
-    vi.doMock('dotenv/config', () => ({}));
+    // 1. Grab the 'ai' instance that was already mocked at the top of the file
+    const { ai } = await import('@/ai/genkit');
+    
+    // 2. Spy on generateStream to inspect the arguments passed to it
+    const generateStreamSpy = vi.spyOn(ai, 'generateStream');
 
-    const { streamDeveloperSecurityExplanations: rerun } = await import(
-      './security-explanation-stream'
-    );
+    // 3. Run the flow using the standard test inputs
+    const events = await collectEvents(baseInput);
 
-    const events: StreamExplanationEvent[] = [];
-    for await (const ev of rerun({
-      findingType: 'Vulnerability',
-      severity: 'HIGH',
-      description: 'SQL injection risk',
-      fileLocation: 'src/db.ts',
-      codeSnippet: 'const q = "SELECT * FROM t WHERE id=" + id;',
-    })) {
-      events.push(ev);
-    }
-
-    expect(streamCalls).toHaveLength(1);
-    expect(streamCalls[0].model).toBe('groq/fast-security-model');
-    expect(streamCalls[0].model).not.toBe('groq/default-model');
-    // The flow should still produce a done event with the validated result.
+    // 4. Assert the spy caught the call and check the model argument
+    expect(generateStreamSpy).toHaveBeenCalled();
+    const callOpts = generateStreamSpy.mock.calls[0][0] as any;
+    
+    // Assert it uses the security model defined in the top-level vi.mock
+    expect(callOpts.model).toBe('mock-security-model');
+    expect(callOpts.model).not.toBe('mock-model');
+    
+    // The flow should still produce a done event with the validated result
     expect(events.some((e) => e.type === 'done')).toBe(true);
 
-    vi.doUnmock('@/ai/genkit');
-    vi.doUnmock('dotenv/config');
-    vi.resetModules();
+    // Clean up the spy
+    generateStreamSpy.mockRestore();
   });
 });
