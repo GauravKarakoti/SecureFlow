@@ -96,6 +96,65 @@ describe('Toast Events Integration (#176)', () => {
         variant: 'success',
       })
     );
+
+    // Subsequent keystrokes should not re-trigger the Easter Egg toast repeatedly
+    mockToast.mockClear();
+    fireEvent.keyDown(window, { key: 'X' });
+    fireEvent.keyDown(window, { key: 'Y' });
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('triggers police intercept toast at most once when stream emits thematic keywords', async () => {
+    let mockEsInstance: { close: () => void; onmessage: ((ev: { data: string }) => void) | null; onerror: (() => void) | null } | null = null;
+    vi.stubGlobal(
+      'EventSource',
+      vi.fn().mockImplementation(() => {
+        const inst = {
+          close: vi.fn(),
+          onmessage: null as ((ev: { data: string }) => void) | null,
+          onerror: null as (() => void) | null,
+        };
+        mockEsInstance = inst;
+        return inst;
+      })
+    );
+
+    render(
+      <HeistTransmission
+        projectName="Royal Mint"
+        score={100}
+        rank="S"
+        tagline="Vault secured"
+        imageUrl="/api/og/heist"
+      />
+    );
+
+    expect(mockEsInstance).not.toBeNull();
+
+    // Emit chunk containing thematic keyword PROFESSOR
+    await act(async () => {
+      mockEsInstance.onmessage({
+        data: JSON.stringify({ type: 'chunk', text: '> SENDER: THE PROFESSOR' }),
+      });
+    });
+
+    const interceptCalls = mockToast.mock.calls.filter(([args]) =>
+      args?.title?.includes('POLICE INTERCEPT')
+    );
+    expect(interceptCalls).toHaveLength(1);
+
+    // Emit another chunk containing VAULT
+    await act(async () => {
+      mockEsInstance.onmessage({
+        data: JSON.stringify({ type: 'chunk', text: 'The vault is secured.' }),
+      });
+    });
+
+    // Should still only have fired once to prevent toast wild spam
+    const interceptCallsAfterSecond = mockToast.mock.calls.filter(([args]) =>
+      args?.title?.includes('POLICE INTERCEPT')
+    );
+    expect(interceptCallsAfterSecond).toHaveLength(1);
   });
 
   it('triggers toast on saving triage status', async () => {
