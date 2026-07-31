@@ -18,6 +18,7 @@ describe('AuditLogTable component', () => {
         decision: 'PASS',
         timestamp: new Date('2026-07-29T20:00:00Z'),
         userId: 'user-1',
+        metadata: null,
       },
       {
         id: 'log-2',
@@ -26,10 +27,13 @@ describe('AuditLogTable component', () => {
         decision: 'BLOCK',
         timestamp: new Date('2026-07-29T21:00:00Z'),
         userId: null,
+        metadata: null,
       },
     ],
     total: 2,
     totalPages: 1,
+    page: 1,
+    pageSize: 10,
   };
 
   it('is a valid React component and accepts props', () => {
