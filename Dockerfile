@@ -137,6 +137,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
+# --- Startup script (runs migrations then starts the server) ---------------
+COPY --chown=nextjs:nodejs entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
 USER nextjs
 
 EXPOSE 9002
@@ -146,7 +150,5 @@ EXPOSE 9002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q --spider http://127.0.0.1:9002/ || exit 1
 
-# Run migrations, then start the standalone server (`node server.js` is the
-# entrypoint emitted by `output: 'standalone'`). Using `sh -c` lets us chain
-# the two commands; the prisma CLI is found via NODE_PATH above.
-ENTRYPOINT ["sh", "-c", "node /opt/prisma-cli/node_modules/prisma/build/index.js migrate deploy && node server.js"]
+# entrypoint.sh runs `prisma migrate deploy` then `exec node server.js`.
+ENTRYPOINT ["./entrypoint.sh"]
