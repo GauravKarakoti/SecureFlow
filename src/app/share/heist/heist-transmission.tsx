@@ -318,11 +318,11 @@ const lines = useMemo<TransmissionLine[]>(() => {
   // ── Respect prefers-reduced-motion ──────────────────────────────────────────
   // Starts `false` so the SSR markup matches the first client render (avoids
   // hydration mismatch); the effect flips it after mount.
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(REDUCED_MOTION_QUERY).matches
+  );
   useEffect(() => {
     const mql = window.matchMedia(REDUCED_MOTION_QUERY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setReducedMotion(mql.matches);
     const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
@@ -367,8 +367,8 @@ const lines = useMemo<TransmissionLine[]>(() => {
   // Reduced-motion fast path: reveal the entire transmission + payload at once.
   useEffect(() => {
     if (reducedMotion && !transmissionComplete) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRevealedCount(total);
+      const id = setTimeout(() => setRevealedCount(total), 0);
+      return () => clearTimeout(id);
     }
   }, [reducedMotion, total, transmissionComplete]);
 
