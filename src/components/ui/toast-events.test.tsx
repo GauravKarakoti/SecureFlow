@@ -133,7 +133,7 @@ describe('Toast Events Integration (#176)', () => {
 
     // Emit chunk containing thematic keyword PROFESSOR
     await act(async () => {
-      mockEsInstance.onmessage({
+      mockEsInstance!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: '> SENDER: THE PROFESSOR' }),
       });
     });
@@ -145,7 +145,7 @@ describe('Toast Events Integration (#176)', () => {
 
     // Emit another chunk containing VAULT
     await act(async () => {
-      mockEsInstance.onmessage({
+      mockEsInstance!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: 'The vault is secured.' }),
       });
     });
