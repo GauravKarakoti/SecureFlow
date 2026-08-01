@@ -9,6 +9,9 @@ import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-re
 import { App } from 'octokit';
 import prisma from '@/lib/prisma';
 
+// Sanitize user-controlled strings before logging to prevent log injection (CWE-117)
+const sanitize = (s: unknown) => String(s ?? '').replace(/[\r\n]/g, ' ');
+
 // 1. Strict input validation schemas
 const repoSchema = z.object({
   id: z.union([z.number(), z.string()]),
@@ -81,7 +84,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
 
   // Event Filtering
   if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
-    console.log(`Event not tracked: ${event}`);
+    console.log(`Event not tracked: ${sanitize(event)}`);
     return;
   }
 
@@ -99,7 +102,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
     });
     
     if (existingEvent) {
-      console.log(`[Worker] Webhook ${deliveryId} already processed. Skipping.`);
+      console.log(`[Worker] Webhook ${sanitize(deliveryId)} already processed. Skipping.`);
       return;
     }
   }
@@ -137,7 +140,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
     });
 
     if (!account) {
-      console.log(`Webhook received installation for unknown user ${senderId}. Awaiting Setup URL redirect linking.`);
+      console.log(`Webhook received installation for unknown user ${sanitize(senderId)}. Awaiting Setup URL redirect linking.`);
       return; // Safe to return early here; user hasn't set up yet so we shouldn't lock the webhook.
     }
 
@@ -200,7 +203,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
     if (!['opened', 'synchronize', 'reopened'].includes(action)) {
       console.log('Action not tracked');
     } else {
-      console.log(`Processing PR #${pull_request.number} on ${repository.full_name}`);
+      console.log(`Processing PR #${sanitize(pull_request.number)} on ${sanitize(repository.full_name)}`);
 
       let dbRepo = await prisma.repository.findUnique({
         where: { githubId: BigInt(repository.id) }
@@ -223,7 +226,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
               isActive: true
             }
           });
-          console.log(`[Worker] Lazy-linked missing repository ${repository.full_name} to user ${account.userId}`);
+          console.log(`[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`);
         }
       }
 
@@ -308,7 +311,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         // Ignored if file does not exist
       }
 
-      console.log(`[DEBUG] Passing ${activePolicies.length} active policies to scanner.`);
+      console.log(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanner.`);
       const findings = await scanner.scanPullRequest(
         fileChanges,
         activePolicies,
@@ -459,7 +462,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
             });
             inlinePosted = true;
           } catch (err: any) {
-            console.error(`[REVIEW] Failed to post inline review comments, falling back to summary comment: ${err.message}`);
+            console.error(`[REVIEW] Failed to post inline review comments, falling back to summary comment: ${sanitize(err.message)}`);
           }
         }
 
@@ -553,7 +556,7 @@ export const worker = new Worker('github-webhooks', async (job: Job) => {
         pullRequestId: dbPrId,
       }
     });
-    console.log(`[Worker] Successfully processed and cached webhook ${deliveryId}`);
+    console.log(`[Worker] Successfully processed and cached webhook ${sanitize(deliveryId)}`);
   }
 }, { connection: redis as any });
 
@@ -562,7 +565,7 @@ worker.on('failed', async (job, err) => {
   if (!job) return;
   const maxAttempts = job.opts.attempts || 3;
   if (job.attemptsMade >= maxAttempts) {
-    console.error(`[DLQ] Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${err.message}`);
+    console.error(`[DLQ] Job ${sanitize(job.id)} failed permanently after ${sanitize(job.attemptsMade)} attempts: ${sanitize(err.message)}`);
     try {
       await webhookDLQ.add(
         'process-webhook-dlq',
@@ -578,9 +581,9 @@ worker.on('failed', async (job, err) => {
         }
       );
     } catch (dlqErr: any) {
-      console.error(`Failed to route job ${job.id} to DLQ:`, dlqErr.message);
+      console.error(`Failed to route job ${sanitize(job.id)} to DLQ:`, sanitize(dlqErr.message));
     }
   } else {
-    console.warn(`[QUEUE] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}), retrying with exponential backoff: ${err.message}`);
+    console.warn(`[QUEUE] Job ${sanitize(job.id)} failed (attempt ${sanitize(job.attemptsMade)}/${sanitize(maxAttempts)}), retrying with exponential backoff: ${sanitize(err.message)}`);
   }
 });
