@@ -29,30 +29,28 @@ fix/leaderboard-codename-420
 
       const createdUser = await prisma.user.create({
 
-    createUser: async (user: any) => {
-      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
-      const githubLogin = user.githubLogin ?? null;
-      const { githubLogin: _drop, ...rest } = user;
-      return prisma.user.create({
-main
-        data: {
-          ...rest,
-          githubLogin,
-          codename,
-          roles: {
-            create: [{
-              role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
-            }]
-          }
-        },
-      });
+createUser: async (user) => {
+  const existingUser = user.email
+    ? await prisma.user.findUnique({
+        where: { email: user.email },
+        select: { codename: true },
+      })
+    : null;
 
-      return createdUser as typeof createdUser & {
-        email: string;
-        emailVerified: Date | null;
-      };
+  const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
+
+  const createdUser = await prisma.user.create({
+    data: {
+      ...user,
+      codename,
     },
-  },
+  });
+
+  return createdUser as typeof createdUser & {
+    email: string;
+    emailVerified: Date | null;
+  };
+},    
   session: {
     ...authConfig.session,
     strategy: "jwt",
