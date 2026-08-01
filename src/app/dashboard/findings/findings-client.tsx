@@ -58,9 +58,9 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
   </Badge>
 </CardHeader>
         
-     <CardContent className="min-h-[520px] flex items-center justify-center">
+     <CardContent className="min-h-[520px]">
   {findings.length === 0 ? (
-   <div className="flex min-h-[320px] flex-col items-center justify-center text-center">
+   <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
      <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
 <h3 className="text-2xl font-bold">
