@@ -24,7 +24,7 @@ interface FindingsClientProps {
 
 export default function FindingsClient({ findings, stats }: FindingsClientProps) {
   return (
-  <div className="space-y-8 max-w-5xl animate-in fade-in duration-700">
+  <div className="space-y-8 w-full animate-in fade-in duration-700">
       <div>
        <span className="text-sm font-medium uppercase tracking-widest text-primary">
   Security Center
@@ -58,9 +58,9 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
   </Badge>
 </CardHeader>
         
-     <CardContent className="min-h-[520px] flex items-center justify-center">
+     <CardContent className="min-h-[520px]">
   {findings.length === 0 ? (
-   <div className="flex min-h-[320px] flex-col items-center justify-center text-center">
+   <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
      <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
 <h3 className="text-2xl font-bold">
@@ -106,7 +106,7 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="pb-6 pt-2">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pl-12 pr-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
                     <div className="space-y-6">
                       {finding.promptInjectionSuspected && (
                         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-xs text-yellow-200">
