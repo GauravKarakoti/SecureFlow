@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import {
@@ -27,10 +27,12 @@ const NAV_ITEMS = [
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
 ];
 
-
 // ─── SidebarContent ───────────────────────────────────────────────────────────
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const roles = (session?.user as any)?.roles || [];
+  const isAdmin = roles.includes("ADMIN");
 
   return (
     <>
@@ -73,6 +75,24 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             </Link>
           );
         })}
+        {isAdmin && (
+          <>
+            <div className="my-4 border-t border-zinc-800/50"></div>
+            <Link
+              href="/admin"
+              onClick={onNavClick}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-bold uppercase tracking-wide transition-all mt-4",
+                pathname?.startsWith("/admin")
+                  ? "bg-red-500/10 text-red-500 border-l-2 border-red-500"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-white border-l-2 border-transparent"
+              )}
+            >
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              Admin Portal
+            </Link>
+          </>
+        )}
       </nav>
     </>
   );
@@ -150,7 +170,6 @@ export function DashboardHeader({
   };
   onMenuClick?: () => void;
 }) {
-
   return (
     <header className="h-16 border-b border-white/5 px-4 sm:px-8 flex items-center justify-between glass-card sticky top-0 z-40">
 
@@ -175,6 +194,7 @@ export function DashboardHeader({
 
       {/* ── Right: theme toggle + avatar + logout ─────────────── */}
       <div className="flex items-center gap-3 sm:gap-4">
+        {/* ThemeToggle is the leftmost item of this action cluster */}
         <ThemeToggle />
 
         {/* Avatar — glitch-dissolves between VenetianMask and GitHub avatar (see CyberAvatarReveal) */}

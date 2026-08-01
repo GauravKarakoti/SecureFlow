@@ -1,9 +1,9 @@
-import { signIn } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { GitBranch, Shield } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { handleGithubSignIn } from "./actions";
 
 export default async function LoginPage({
   searchParams,
@@ -38,14 +38,8 @@ export default async function LoginPage({
         </p>
 
         {/* Server Action Form to trigger Auth.js SignIn */}
-        <form
-          className="w-full"
-          action={async () => {
-            "use server";
-            // Dynamically redirect to the setup callback URL, or fallback to the dashboard
-            await signIn("github", { redirectTo: callbackUrl || "/dashboard" });
-          }}
-        >
+        <form className="w-full" action={handleGithubSignIn}>
+          <input type="hidden" name="callbackUrl" value={callbackUrl || ""} />
           <Button 
             type="submit" 
             size="lg" 

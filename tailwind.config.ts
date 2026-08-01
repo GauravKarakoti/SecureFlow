@@ -1,4 +1,5 @@
 import type {Config} from 'tailwindcss';
+import tailwindcssAnimate from 'tailwindcss-animate';
 
 export default {
   darkMode: 'class',
@@ -13,6 +14,7 @@ export default {
         body: ['Inter', 'sans-serif'],
         headline: ['Roboto', 'sans-serif'], // Bold, cinematic sans-serif
         code: ['monospace'],
+        orbitron: ['Orbitron', 'monospace'], // Cyber aesthetic — heist transmission page
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -92,5 +94,5 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;

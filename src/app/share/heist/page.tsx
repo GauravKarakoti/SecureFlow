@@ -1,30 +1,84 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { HeistTransmission } from './heist-transmission';
 
-// Falls back to the production domain so this works even if the env var
-// isn't set locally — mirrors the domain already hardcoded in the tweet intent.
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://secure-flow-six.vercel.app';
+const TIER_QUOTES: Record<string, string> = {
+  S: 'Ghost protocol. Zero traces left behind.',
+  A: 'The vault is empty. Clean getaway.',
+  B: 'Job done. A few loose ends remain.',
+  C: 'Amateur hour. The vault noticed.',
+  D: 'Blown cover. Back to the drawing board.',
+};
 
-type SearchParams = Promise<{ project?: string }>;
+function getRankFromScore(score: number): string {
+  if (score >= 90) return 'S';
+  if (score >= 75) return 'A';
+  if (score >= 60) return 'B';
+  if (score >= 40) return 'C';
+  return 'D';
+}
+
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://secure-flow-six.vercel.app');
+
+type SearchParams = Promise<{
+  project?: string;
+  alias?: string;
+  score?: string;
+  timestamp?: string;
+  rank?: string;
+  findingsCount?: string;
+}>;
 
 export async function generateMetadata({
   searchParams,
 }: {
   searchParams: SearchParams;
 }): Promise<Metadata> {
-  const { project } = await searchParams;
+  const {
+    project,
+    alias,
+    score,
+    timestamp,
+    rank,
+    findingsCount,
+  } = await searchParams;
+
   const projectName = project || 'The Royal Mint';
-  const imageUrl = `${APP_URL}/api/og/heist?project=${encodeURIComponent(projectName)}`;
+  const playerAlias = alias || 'The Professor';
+  const securityScore = score || '100';
+  const operationTimestamp = timestamp || '';
+
+  const params = new URLSearchParams({
+    project: projectName,
+    alias: playerAlias,
+    score: securityScore,
+  });
+
+  if (operationTimestamp) {
+    params.set('timestamp', operationTimestamp);
+  }
+  if (rank) {
+    params.set('rank', rank);
+  }
+  if (findingsCount !== undefined) {
+    params.set('findingsCount', String(findingsCount));
+  }
+
+  const imageUrl = `${APP_URL}/api/og/heist?${params.toString()}`;
+
   const title = `Audit Passed: ${projectName} 🎭`;
-  const description = 'The vault is empty. Zero traces left behind. Audit passed via SecureFlow.';
+
+  const description = `${playerAlias} secured the vault with a security score of ${securityScore}.`;
 
   return {
+    metadataBase: new URL(APP_URL),
     title,
     description,
     openGraph: {
       title,
       description,
-      url: `${APP_URL}/share/heist?project=${encodeURIComponent(projectName)}`,
+      url: `${APP_URL}/share/heist?${params.toString()}`,
       siteName: 'SecureFlow',
       images: [
         {
@@ -50,27 +104,72 @@ export default async function HeistSharePage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { project } = await searchParams;
-  const projectName = project || 'The Royal Mint';
-  const imageUrl = `/api/og/heist?project=${encodeURIComponent(projectName)}`;
+  const {
+    project,
+    alias,
+    score,
+    timestamp,
+    rank,
+    findingsCount,
+  } = await searchParams;
 
+  const projectName = project || 'The Royal Mint';
+  const playerAlias = alias || 'The Professor';
+  const securityScore = score || '100';
+
+  // 1. Retain the URL param and image construction from `main`
+  const params = new URLSearchParams({
+    project: projectName,
+    alias: playerAlias,
+    score: securityScore,
+  });
+
+  if (timestamp) {
+    params.set('timestamp', timestamp);
+  }
+  if (rank) {
+    params.set('rank', rank);
+  }
+  if (findingsCount !== undefined) {
+    params.set('findingsCount', String(findingsCount));
+  }
+
+  const imageUrl = `/api/og/heist?${params.toString()}`;
+
+  // 2. Retain the score, rank, and tagline resolution from `#250-decode-heist`
+  const numericScore = score !== undefined ? Number(score) : undefined;
+  const cleanScore =
+    numericScore !== undefined && !Number.isNaN(numericScore)
+      ? numericScore
+      : undefined;
+
+  const resolvedRank =
+    rank?.toUpperCase() && TIER_QUOTES[rank.toUpperCase()]
+      ? rank.toUpperCase()
+      : cleanScore !== undefined
+      ? getRankFromScore(cleanScore)
+      : undefined;
+
+  const tagline = resolvedRank
+    ? TIER_QUOTES[resolvedRank]
+    : 'The vault is empty. Zero traces left behind. 🎭';
+
+  const cleanFindings =
+    findingsCount !== undefined && !Number.isNaN(Number(findingsCount))
+      ? Number(findingsCount)
+      : undefined;
+
+  // The page stays a server component (so generateMetadata + OG/Twitter
+  // cards keep working) and hands the resolved data to the client
+  // transmission component, which drives the sequential decode.
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
-      <img
-        src={imageUrl}
-        alt="Heist Success Card"
-        className="w-full max-w-2xl rounded-md border border-red-900/50 shadow-2xl mb-8"
-      />
-      <p className="text-red-500 font-bold text-lg mb-2">Audit passed via SecureFlow.</p>
-      <p className="text-zinc-400 text-sm mb-8 text-center max-w-md">
-        The vault is empty. Zero traces left behind. 🎭
-      </p>
-      <Link
-        href="/"
-        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition-all"
-      >
-        Join the Resistance
-      </Link>
-    </div>
+    <HeistTransmission
+      projectName={projectName}
+      score={cleanScore}
+      rank={resolvedRank}
+      findingsCount={cleanFindings}
+      tagline={tagline}
+      imageUrl={imageUrl}
+    />
   );
 }

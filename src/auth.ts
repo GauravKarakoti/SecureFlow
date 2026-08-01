@@ -1,13 +1,22 @@
+
 import NextAuth from "next-auth"
 import GitHub from "next-auth/providers/github"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "@/lib/prisma"
+import NextAuth from "next-auth";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import prisma from "@/lib/prisma"; 
+import authConfig from "./auth.config";
+main
 
 const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+const nextAuthResult = NextAuth({
+  // Spread authConfig first to inherit providers, pages, and base session logic
+  ...authConfig,
   adapter: {
     ...PrismaAdapter(prisma),
+fix/leaderboard-codename-420
     createUser: async (user) => {
       const existingUser = user.email
         ? await prisma.user.findUnique({
@@ -19,9 +28,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
 
       const createdUser = await prisma.user.create({
+
+    createUser: async (user: any) => {
+      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
+      const githubLogin = user.githubLogin ?? null;
+      const { githubLogin: _drop, ...rest } = user;
+      return prisma.user.create({
+main
         data: {
-          ...user,
+          ...rest,
+          githubLogin,
           codename,
+          roles: {
+            create: [{
+              role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
+            }]
+          }
         },
       });
 
@@ -32,24 +54,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
   session: {
+    ...authConfig.session,
     strategy: "jwt",
-    maxAge: 15 * 60, // 15 minutes short-lived access token
-  },
-  providers: [
-    GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      authorization: {
-        params: {
-          prompt: "consent",
-          access_type: "offline",
-          response_type: "code",
-        },
-      },
-    }),
-  ],
-  pages: {
-    signIn: '/login', // Tells NextAuth to route users here for login
+    maxAge: 365 * 24 * 60 * 60, // 1 Year
   },
   callbacks: {
     async jwt({ token, account, user }) {
@@ -74,39 +81,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         };
       }
 
-      // Return previous token if the access token has not expired yet
-      const accessTokenExpires = token.accessTokenExpires as number;
-      if (!accessTokenExpires || Date.now() < accessTokenExpires) {
-        return token;
+      // 1. Initial sign-in: Hydrate token with initial login properties
+      if (account && user) {
+        token.accessToken = account.access_token;
+        token.userId = user.id;
+        token.codename = user.codename;
       }
 
-      // Access token has expired, try to update it
-      try {
-        const response = await fetch("https://github.com/login/oauth/access_token", {
-          headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-          body: new URLSearchParams({
-            client_id: process.env.GITHUB_CLIENT_ID!,
-            client_secret: process.env.GITHUB_CLIENT_SECRET!,
-            grant_type: "refresh_token",
-            refresh_token: token.refreshToken as string,
-          }),
-          method: "POST",
+      // 2. Fetch roles if missing OR if a session update is triggered
+      const userId = (token.userId || user?.id || token.sub) as string | undefined;
+      if ((userId && (!token.roles || token.roles.length === 0)) || trigger === "update") {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: userId },
+          include: { roles: { include: { role: true } } }
         });
-
-        const refreshedTokens = await response.json();
-
-        if (!response.ok) {
-          throw refreshedTokens;
+        
+        token.roles = dbUser?.roles.map((r: any) => r.role.name) || [];
+        
+        // Failsafe: grab the codename if the old token was missing it
+        if (!token.codename && dbUser?.codename) {
+          token.codename = dbUser.codename;
         }
-
-        return {
-          ...token,
-          accessToken: refreshedTokens.access_token,
-          accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
-          refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Fall back to old refresh token
-        };
-      } catch (error) {
-        return { ...token, error: "RefreshAccessTokenError" };
       }
     },
     async session({ session, token }) {
@@ -116,10 +111,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           codename: token.codename as string,
         });
       }
-      return {
-        ...session,
-        error: token.error,
-      };
+
+      return token;
     },
   },
 })
