@@ -9,7 +9,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: {
     ...PrismaAdapter(prisma),
     createUser: async (user: any) => {
-      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
+      // Check if user already exists with a codename before creating
+      const existingUser = await prisma.user.findUnique({
+        where: { email: user.email },
+        select: { codename: true },
+      });
+
+      const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
       return prisma.user.create({
         data: {
           ...user,
@@ -42,13 +48,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account, user }) {
       // Initial sign in
       if (account && user) {
+        // Fetch existing user from DB to guarantee accurate DB codename
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { codename: true },
+        });
+
         return {
           ...token,
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
           userId: user.id,
-          codename: user.codename,
+          codename: dbUser?.codename || user.codename,
         };
       }
 
