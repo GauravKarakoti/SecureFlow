@@ -1,27 +1,34 @@
 import NextAuth from "next-auth"
 import GitHub from "next-auth/providers/github"
 import { PrismaAdapter } from "@auth/prisma-adapter"
-import prisma from "@/lib/prisma" 
+import prisma from "@/lib/prisma"
 
 const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: {
     ...PrismaAdapter(prisma),
-    createUser: async (user: any) => {
-      // Check if user already exists with a codename before creating
-      const existingUser = await prisma.user.findUnique({
-        where: { email: user.email },
-        select: { codename: true },
-      });
+    createUser: async (user) => {
+      const existingUser = user.email
+        ? await prisma.user.findUnique({
+            where: { email: user.email },
+            select: { codename: true },
+          })
+        : null;
 
       const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
-      return prisma.user.create({
+
+      const createdUser = await prisma.user.create({
         data: {
           ...user,
           codename,
         },
-      }) as any;
+      });
+
+      return createdUser as typeof createdUser & {
+        email: string;
+        emailVerified: Date | null;
+      };
     },
   },
   session: {
@@ -48,11 +55,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account, user }) {
       // Initial sign in
       if (account && user) {
-        // Fetch existing user from DB to guarantee accurate DB codename
-        const dbUser = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: { codename: true },
-        });
+        const dbUser = user.id
+          ? await prisma.user.findUnique({
+              where: { id: user.id },
+              select: { codename: true },
+            })
+          : null;
+
+        const fallbackCodename = (user as { codename?: string }).codename;
 
         return {
           ...token,
@@ -60,7 +70,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
           userId: user.id,
-          codename: dbUser?.codename || user.codename,
+          codename: dbUser?.codename || fallbackCodename,
         };
       }
 
@@ -99,10 +109,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return { ...token, error: "RefreshAccessTokenError" };
       }
     },
-    async session({ session, token }: any) {
+    async session({ session, token }) {
       if (session?.user) {
-        session.user.id = token.userId;
-        session.user.codename = token.codename;
+        Object.assign(session.user, {
+          id: token.userId as string,
+          codename: token.codename as string,
+        });
       }
       return {
         ...session,
