@@ -96,9 +96,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
           restore-keys: |
-            npm-${{ runner.os }}-node20-
+            npm-${{ runner.os }}-node22-
 
       - name: Cache node_modules
         id: node-modules-cache
@@ -194,6 +194,14 @@ jobs:
       - name: Install dependencies
         if: steps.node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'src/**/*.js', 'src/**/*.jsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-
 
       - name: Generate Prisma Client
         run: npx prisma generate
