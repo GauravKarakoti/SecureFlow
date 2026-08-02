@@ -4,6 +4,7 @@ import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 
 /**
@@ -166,6 +167,7 @@ export function HeistTransmission({
   tagline,
   imageUrl,
 }: HeistTransmissionProps) {
+  const { toast } = useToast();
   // ── AI stream & cyber-rain dynamics state ──────────────────────────────────
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
@@ -173,40 +175,70 @@ export function HeistTransmission({
   const [isPaused, setIsPaused] = useState(false);
   const [glitchActive, setGlitchActive] = useState(false);
   const esRef = useRef<EventSource | null>(null);
-  const seenKeywordsRef = useRef<Set<string>>(new Set());
+  const interceptToastFiredRef = useRef(false);
+  const glitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Easter egg state ─────────────────────────────────────────────────────────
   const [bgTheme, setBgTheme] = useState<"heist" | "matrix" | "glitch">("heist");
   const easterEggKeys = useRef<string>("");
+  const easterEggFiredRef = useRef(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Keep only letters/spaces and limit length to 20
       if (e.key.length === 1 && /[a-zA-Z\s]/.test(e.key)) {
         easterEggKeys.current = (easterEggKeys.current + e.key).slice(-20).toUpperCase();
-        if (easterEggKeys.current.includes("BELLA CIAO")) {
+        if (easterEggKeys.current.includes("BELLA CIAO") && !easterEggFiredRef.current) {
+          easterEggFiredRef.current = true;
+          easterEggKeys.current = ""; // Reset key buffer so subsequent keystrokes don't re-trigger
           setBgTheme("matrix");
+          toast({
+            title: "BELLA CIAO ACTIVATED 🎭",
+            description: "The Resistance theme matrix engaged. Moving in silence.",
+            variant: "success",
+          });
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [toast]);
 
   const triggerKeywordEffect = (keyword: string) => {
+    // Only fire visual effects + toast once across all keywords
+    if (interceptToastFiredRef.current) {
+      console.log(`🎭 Thematic keyword "${keyword}" detected (visual effect already fired, skipping)`);
+      return;
+    }
+    interceptToastFiredRef.current = true;
     console.log(`🎭 Thematic Keyword Detected in Stream: "${keyword}"`);
+
     setGlitchActive(true);
     setBgTheme("glitch");
     setIsPaused(true);
 
-    // Pause rain briefly for dramatic effect, then resume with matrix color shift
-    setTimeout(() => {
+    toast({
+      title: "POLICE INTERCEPT / SIGNAL DETECTED 📡",
+      description: `Encrypted signal keyword "${keyword}" intercepted by command network!`,
+      variant: "destructive",
+    });
+
+    // Clear any existing timeouts to prevent stacking
+    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    if (glitchTimeoutRef.current) clearTimeout(glitchTimeoutRef.current);
+
+    // Pause rain briefly for dramatic effect, then resume
+    pauseTimeoutRef.current = setTimeout(() => {
       setIsPaused(false);
+      pauseTimeoutRef.current = null;
     }, 600);
 
-    setTimeout(() => {
+    // Restore theme after glitch
+    glitchTimeoutRef.current = setTimeout(() => {
       setGlitchActive(false);
       setBgTheme((prev) => (prev === "glitch" ? "heist" : prev));
+      glitchTimeoutRef.current = null;
     }, 1400);
   };
 
@@ -225,12 +257,13 @@ export function HeistTransmission({
     let isProcessingQueue = false;
 
     const THEMATIC_KEYWORDS = ["BELLA CIAO", "PROFESSOR", "MINT", "BERLIN", "VAULT", "DENVER", "TOKYO", "RESISTANCE"];
+    const seenKeywords = new Set<string>();
 
     const checkForKeywords = (text: string) => {
       const upper = text.toUpperCase();
       for (const kw of THEMATIC_KEYWORDS) {
-        if (upper.includes(kw) && !seenKeywordsRef.current.has(kw)) {
-          seenKeywordsRef.current.add(kw);
+        if (upper.includes(kw) && !seenKeywords.has(kw)) {
+          seenKeywords.add(kw);
           triggerKeywordEffect(kw);
         }
       }
@@ -372,7 +405,14 @@ const lines = useMemo<TransmissionLine[]>(() => {
     }
   }, [reducedMotion, total, transmissionComplete]);
 
-  const skipIntro = () => setRevealedCount(total);
+  const skipIntro = () => {
+    setRevealedCount(total);
+    toast({
+      title: "DECRYPTION SKIPPED",
+      description: "Bypassing terminal sequence, loading vault payload.",
+      variant: "default",
+    });
+  };
 
   // How many lines are visible right now. In reduced-motion mode every line
   // is shown as plain text (no active decoder).
@@ -536,6 +576,13 @@ const lines = useMemo<TransmissionLine[]>(() => {
             <div className="flex justify-center w-full sm:w-auto">
               <Link
                 href="/"
+                onClick={() => {
+                  toast({
+                    title: "JOIN THE RESISTANCE 🚩",
+                    description: "Redirecting to SecureFlow command center.",
+                    variant: "success",
+                  });
+                }}
                 className="rounded bg-red-600 px-5 py-2.5 sm:px-6 sm:py-3 font-bold text-xs sm:text-base text-white shadow-lg transition-all hover:bg-red-700 w-full sm:w-auto text-center"
               >
                 Join the Resistance
