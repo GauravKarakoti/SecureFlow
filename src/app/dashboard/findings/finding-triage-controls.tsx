@@ -13,8 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { setFindingStatus } from "@/lib/actions/triage";
-import type { TriageStatus } from "@/lib/triage/types";
+import { setFindingStatus, TriageStatus } from "@/lib/actions/triage";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
@@ -57,8 +56,9 @@ export default function FindingTriageControls({
         const result = await setFindingStatus({ repositoryId, fingerprint, status, note });
         if (result.ok) {
           toast({
-            title: "Triage updated",
-            description: `Finding marked as ${STATUS_OPTIONS.find((o) => o.value === status)?.label}.`,
+            variant: "success",
+            title: "PLAN EXECUTED: TRIAGE RECORDED 🛡️",
+            description: `Finding status updated to ${STATUS_OPTIONS.find((o) => o.value === status)?.label}. Vault security updated.`,
           });
           router.refresh();
         } else {

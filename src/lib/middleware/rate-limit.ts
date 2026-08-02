@@ -10,6 +10,23 @@ export interface RateLimitConfig {
   timeoutMs?: number;
 }
 
+/**
+ * Tiered rate-limit presets.
+ *
+ * AUTH        — login/OAuth endpoints: tight window, fail-closed to block credential stuffing.
+ * AI_STREAM   — resource-heavy LLM streaming: low quota, fail-closed to protect Groq spend.
+ * AI_STREAM_USER — per-user inner guard for AI streaming (used alongside IP tier).
+ * STANDARD    — normal data-fetching routes: generous quota, fail-open for resilience.
+ * ADMIN       — admin-only routes: moderate quota, fail-closed.
+ */
+export const TIERS = {
+  AUTH:           { limit: 10,  windowSeconds: 60,  fallbackStrategy: 'fail-closed' as FallbackStrategy, timeoutMs: 1000 },
+  AI_STREAM:      { limit: 20,  windowSeconds: 60,  fallbackStrategy: 'fail-closed' as FallbackStrategy, timeoutMs: 1000 },
+  AI_STREAM_USER: { limit: 10,  windowSeconds: 60,  fallbackStrategy: 'fail-closed' as FallbackStrategy, timeoutMs: 1000 },
+  STANDARD:       { limit: 120, windowSeconds: 60,  fallbackStrategy: 'fail-open'   as FallbackStrategy },
+  ADMIN:          { limit: 30,  windowSeconds: 60,  fallbackStrategy: 'fail-closed' as FallbackStrategy, timeoutMs: 1000 },
+} as const;
+
 export function withRateLimit(
   handler: (req: NextRequest, ...args: any[]) => Promise<NextResponse>,
   config: RateLimitConfig

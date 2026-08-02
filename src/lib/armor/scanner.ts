@@ -325,10 +325,15 @@ export function filterFalsePositives(findings: ScanFinding[], customPlaceholders
   });
 }
 
+export interface ScannerPolicy {
+  description: string;
+  [key: string]: unknown;
+}
+
 export class ArmorIQScanner {
   async scanPullRequest(
     files: FileChange[],
-    activePolicies: any[] = [],
+    activePolicies: ScannerPolicy[] = [],
     customIgnores: string[] = [],
     customPlaceholders: string[] = []
   ): Promise<ScanFinding[]> {
@@ -491,7 +496,7 @@ Format:
       let findings: ScanFinding[] = [];
       let success = false;
       let retries = 3;
-      let lastError: any = null;
+      let lastError: unknown = null;
 
       while (!success && retries > 0) {
         try {
@@ -547,7 +552,7 @@ CRITICAL RULES:
 
           const cleanJsonString = jsonMatch[0];
 
-          let result;
+          let result: Record<string, unknown> | unknown[];
           try {
             result = JSON.parse(cleanJsonString);
           } catch (parseError) {
@@ -555,24 +560,27 @@ CRITICAL RULES:
             throw parseError; 
           }
 
-          let rawFindings: any[] = [];
+          let rawFindings: unknown[] = [];
 
           if (Array.isArray(result)) {
             // If the LLM returned a raw array: [ {...} ]
             rawFindings = result;
-          } else if (result.findings && Array.isArray(result.findings)) {
+          } else if (result && typeof result === 'object' && 'findings' in result && Array.isArray((result as { findings: unknown[] }).findings)) {
             // If the LLM perfectly followed instructions: { "findings": [...] }
-            rawFindings = result.findings;
-          } else {
+            rawFindings = (result as { findings: unknown[] }).findings;
+          } else if (result && typeof result === 'object') {
             // If the LLM hallucinated keys, loop through the entire object and combine ALL arrays
-            for (const key of Object.keys(result)) {
-              if (Array.isArray(result[key])) {
-                rawFindings.push(...result[key]);
+            const obj = result as Record<string, unknown>;
+            for (const key of Object.keys(obj)) {
+              const val = obj[key];
+              if (Array.isArray(val)) {
+                rawFindings.push(...val);
               }
             }
           }
           
-          const sanitizedFindings: ScanFinding[] = rawFindings.map((f: any) => {
+          const sanitizedFindings: ScanFinding[] = rawFindings.map((fItem: unknown) => {
+            const f = (fItem && typeof fItem === 'object' ? fItem : {}) as Record<string, unknown>;
             let normalizedSnippet = '';
             
             if (typeof f.codeSnippet === 'string') {
@@ -584,11 +592,13 @@ CRITICAL RULES:
             }
 
             const upperSeverity = String(f.severity || 'MEDIUM').toUpperCase();
-            const validSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
+            const validSeverities: ScanFinding['severity'][] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
 
             return {
               type: String(f.type || 'Vulnerability'),
-              severity: validSeverities.includes(upperSeverity) ? (upperSeverity as any) : 'MEDIUM',
+              severity: validSeverities.includes(upperSeverity as ScanFinding['severity'])
+                ? (upperSeverity as ScanFinding['severity'])
+                : 'MEDIUM',
               description: String(f.description || 'No description provided.'),
               fileLocation: String(f.fileLocation || 'Unknown file path'),
               codeSnippet: normalizedSnippet,
@@ -603,8 +613,9 @@ CRITICAL RULES:
             codeSnippet: maskSecrets(f.codeSnippet),
           }));
           success = true;
-        } catch (error: any) {
+        } catch (error: unknown) {
           lastError = error;
+          const errObj = error as { name?: string; status?: number; headers?: Record<string, unknown> | { get?: (k: string) => string | null } };
           
           // 🛡️ JSON PARSE FALLBACK CATCH
           if (error instanceof SyntaxError) {
@@ -613,11 +624,17 @@ CRITICAL RULES:
              continue;
           }
 
-          if (error instanceof ScannerTimeoutError || error.name === 'AbortError') {
+          if (error instanceof ScannerTimeoutError || errObj?.name === 'AbortError') {
             throw new ScannerTimeoutError('LLM scan timed out after 60 seconds');
           }
-          if (error.status === 429) {
-            const retryAfterHeader = error.headers?.get?.('retry-after') || error.headers?.['retry-after'];
+          if (errObj?.status === 429) {
+            const headers = errObj.headers;
+            let retryAfterHeader: string | undefined;
+            if (headers && typeof (headers as { get?: unknown }).get === 'function') {
+              retryAfterHeader = (headers as { get: (k: string) => string | null }).get('retry-after') ?? undefined;
+            } else if (headers && typeof headers === 'object') {
+              retryAfterHeader = (headers as Record<string, string>)['retry-after'];
+            }
             const requestedWait = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : (4 - retries) * 25000;
             const remainingBudget = MAX_TOTAL_SCAN_MS - (Date.now() - scanStartedAt);
             const waitTime = Math.max(0, Math.min(requestedWait, MAX_RETRY_WAIT_MS, remainingBudget));
@@ -630,7 +647,7 @@ CRITICAL RULES:
             console.warn(`⏳ Rate limit reached. Waiting ${waitTime / 1000} seconds...`);
             await delay(waitTime);
             retries--;
-          } else if (error instanceof Groq.APIConnectionTimeoutError || error?.name === 'APIConnectionTimeoutError') {
+          } else if (error instanceof Groq.APIConnectionTimeoutError || errObj?.name === 'APIConnectionTimeoutError') {
             console.warn(`⏱️ LLM request exceeded ${SCAN_REQUEST_TIMEOUT_MS / 1000}s timeout. Retrying... (${retries} attempts left)`);
             retries--;
             if (deadlineExceeded()) {
@@ -645,7 +662,8 @@ CRITICAL RULES:
       }
 
       if (!success) {
-        throw lastError || new Error(`ScanFailedAnalysisEngineUnavailable: LLM scan failed after all retries. Last error: ${lastError?.message || lastError || 'Unknown error'}`);
+        const lastErrMessage = (lastError as { message?: string })?.message || String(lastError || 'Unknown error');
+        throw lastError || new Error(`ScanFailedAnalysisEngineUnavailable: LLM scan failed after all retries. Last error: ${lastErrMessage}`);
       }
 
       return findings;

@@ -4,9 +4,8 @@ import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberRainBackground } from "./cyber-rain-background";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTypewriter } from "@/hooks/use-typewriter";
+import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-import { FALLBACK_HEIST_MESSAGE } from "@/ai/flows/heist-message-stream";
 
 /**
  * HeistTransmission
@@ -168,28 +167,80 @@ export function HeistTransmission({
   tagline,
   imageUrl,
 }: HeistTransmissionProps) {
-  // ── AI stream state ──────────────────────────────────────────────────────────
+  const { toast } = useToast();
+  // ── AI stream & cyber-rain dynamics state ──────────────────────────────────
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
+  const [speedMultiplier, setSpeedMultiplier] = useState(2.5);
+  const [isPaused, setIsPaused] = useState(false);
+  const [glitchActive, setGlitchActive] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+  const interceptToastFiredRef = useRef(false);
+  const glitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Easter egg state ─────────────────────────────────────────────────────────
-  const [bgTheme, setBgTheme] = useState<"heist" | "matrix">("heist");
+  const [bgTheme, setBgTheme] = useState<"heist" | "matrix" | "glitch">("heist");
   const easterEggKeys = useRef<string>("");
+  const easterEggFiredRef = useRef(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Keep only letters/spaces and limit length to 20
       if (e.key.length === 1 && /[a-zA-Z\s]/.test(e.key)) {
         easterEggKeys.current = (easterEggKeys.current + e.key).slice(-20).toUpperCase();
-        if (easterEggKeys.current.includes("BELLA CIAO")) {
+        if (easterEggKeys.current.includes("BELLA CIAO") && !easterEggFiredRef.current) {
+          easterEggFiredRef.current = true;
+          easterEggKeys.current = ""; // Reset key buffer so subsequent keystrokes don't re-trigger
           setBgTheme("matrix");
+          toast({
+            title: "BELLA CIAO ACTIVATED 🎭",
+            description: "The Resistance theme matrix engaged. Moving in silence.",
+            variant: "success",
+          });
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [toast]);
+
+  const triggerKeywordEffect = (keyword: string) => {
+    // Only fire visual effects + toast once across all keywords
+    if (interceptToastFiredRef.current) {
+      console.log(`🎭 Thematic keyword "${keyword}" detected (visual effect already fired, skipping)`);
+      return;
+    }
+    interceptToastFiredRef.current = true;
+    console.log(`🎭 Thematic Keyword Detected in Stream: "${keyword}"`);
+
+    setGlitchActive(true);
+    setBgTheme("glitch");
+    setIsPaused(true);
+
+    toast({
+      title: "POLICE INTERCEPT / SIGNAL DETECTED 📡",
+      description: `Encrypted signal keyword "${keyword}" intercepted by command network!`,
+      variant: "destructive",
+    });
+
+    // Clear any existing timeouts to prevent stacking
+    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    if (glitchTimeoutRef.current) clearTimeout(glitchTimeoutRef.current);
+
+    // Pause rain briefly for dramatic effect, then resume
+    pauseTimeoutRef.current = setTimeout(() => {
+      setIsPaused(false);
+      pauseTimeoutRef.current = null;
+    }, 600);
+
+    // Restore theme after glitch
+    glitchTimeoutRef.current = setTimeout(() => {
+      setGlitchActive(false);
+      setBgTheme((prev) => (prev === "glitch" ? "heist" : prev));
+      glitchTimeoutRef.current = null;
+    }, 1400);
+  };
 
   useEffect(() => {
     // Build the SSE URL with query params matching page.tsx logic.
@@ -205,18 +256,27 @@ export function HeistTransmission({
     const textQueue: string[] = [];
     let isProcessingQueue = false;
 
+    const THEMATIC_KEYWORDS = ["BELLA CIAO", "PROFESSOR", "MINT", "BERLIN", "VAULT", "DENVER", "TOKYO", "RESISTANCE"];
+    const seenKeywords = new Set<string>();
+
+    const checkForKeywords = (text: string) => {
+      const upper = text.toUpperCase();
+      for (const kw of THEMATIC_KEYWORDS) {
+        if (upper.includes(kw) && !seenKeywords.has(kw)) {
+          seenKeywords.add(kw);
+          triggerKeywordEffect(kw);
+        }
+      }
+    };
+
     const processQueue = async () => {
       if (isProcessingQueue) return;
       isProcessingQueue = true;
 
       while (textQueue.length > 0) {
         const nextText = textQueue.shift()!;
-        setAiMessage((prev) => {
-          const currentText = prev || "";
-          // Determine newly added characters
-          const addedChars = nextText.slice(currentText.length);
-          return nextText;
-        });
+        checkForKeywords(nextText);
+        setAiMessage(nextText);
 
         // Calculate variable typing delay based on last character in chunk
         const lastChar = nextText.slice(-1);
@@ -247,17 +307,20 @@ export function HeistTransmission({
           processQueue().then(() => {
             setAiMessage(event.message);
             setAiLoading(false);
+            setSpeedMultiplier(1.0);
             es.close();
           });
         } else {
           // AI error — fall back to static lines.
           setAiMessage(null);
           setAiLoading(false);
+          setSpeedMultiplier(1.0);
           es.close();
         }
       } catch {
         setAiMessage(null);
         setAiLoading(false);
+        setSpeedMultiplier(1.0);
         es.close();
       }
     };
@@ -265,6 +328,7 @@ export function HeistTransmission({
     es.onerror = () => {
       setAiMessage(null);
       setAiLoading(false);
+      setSpeedMultiplier(1.0);
       es.close();
     };
 
@@ -276,25 +340,22 @@ export function HeistTransmission({
 
   // ── Build the Professor's transmission ─────────────────────────────────────
   // Memoised — stable so the sequential decode indices don't reset mid-stream.
-  const typedAiMessage = useTypewriter(aiMessage, 40);
-
-  const lines = useMemo<TransmissionLine[]>(() => {
-    if (!aiLoading && typedAiMessage) {
-      return buildAiLines(projectName, score, rank, findingsCount, typedAiMessage);
+const lines = useMemo<TransmissionLine[]>(() => {
+    if (!aiLoading && aiMessage) {
+      return buildAiLines(projectName, score, rank, findingsCount, aiMessage);
     }
     return buildStaticLines(projectName, score, rank, findingsCount, tagline);
-  }, [projectName, score, rank, findingsCount, tagline, typedAiMessage, aiLoading]);
-
+  }, [projectName, score, rank, findingsCount, tagline, aiMessage, aiLoading]);
   const total = lines.length;
 
   // ── Respect prefers-reduced-motion ──────────────────────────────────────────
   // Starts `false` so the SSR markup matches the first client render (avoids
   // hydration mismatch); the effect flips it after mount.
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(REDUCED_MOTION_QUERY).matches
+  );
   useEffect(() => {
     const mql = window.matchMedia(REDUCED_MOTION_QUERY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setReducedMotion(mql.matches);
     const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
@@ -339,12 +400,19 @@ export function HeistTransmission({
   // Reduced-motion fast path: reveal the entire transmission + payload at once.
   useEffect(() => {
     if (reducedMotion && !transmissionComplete) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRevealedCount(total);
+      const id = setTimeout(() => setRevealedCount(total), 0);
+      return () => clearTimeout(id);
     }
   }, [reducedMotion, total, transmissionComplete]);
 
-  const skipIntro = () => setRevealedCount(total);
+  const skipIntro = () => {
+    setRevealedCount(total);
+    toast({
+      title: "DECRYPTION SKIPPED",
+      description: "Bypassing terminal sequence, loading vault payload.",
+      variant: "default",
+    });
+  };
 
   // How many lines are visible right now. In reduced-motion mode every line
   // is shown as plain text (no active decoder).
@@ -355,7 +423,13 @@ export function HeistTransmission({
       {/* ── Atmospheric cyber-rain backdrop (fills the empty gutters) ────
           Fixed, full-viewport, very low opacity, pointer-events: none.
           Sits behind everything; the terminal card below lifts to z-10. */}
-      <CyberRainBackground opacity={0.13} theme={bgTheme} />
+      <CyberRainBackground
+        opacity={0.13}
+        theme={bgTheme}
+        speedMultiplier={speedMultiplier}
+        isPaused={isPaused}
+        glitchActive={glitchActive}
+      />
 
       {/* Vignette so the terminal card stays the visual focal point even
           with rain behind it — darkens edges, keeps center readable. */}
@@ -368,13 +442,13 @@ export function HeistTransmission({
         }}
       />
 
-      <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 relative z-10">
+      <main className="flex-1 flex flex-col items-center justify-center p-3 sm:p-6 relative z-10 w-full max-w-full overflow-hidden">
         <div
           className={cn(
-            "w-full max-w-3xl rounded-md border border-red-900/60 shadow-2xl",
-            "bg-[#050505] relative overflow-hidden",
-            // Soft red glow so the card separates from the rain backdrop.
-            "shadow-[0_0_60px_-15px_rgba(239,68,68,0.25)]",
+            "w-full max-w-[calc(100vw-1.5rem)] sm:max-w-3xl rounded-md border transition-all duration-300 relative overflow-hidden bg-[#050505]",
+            glitchActive
+              ? "border-emerald-500/80 shadow-[0_0_80px_rgba(34,197,94,0.4)] animate-pulse"
+              : "border-red-900/60 shadow-[0_0_60px_-15px_rgba(239,68,68,0.25)]",
           )}
         >
           {/* ── CRT scanline overlay (purely decorative) ─────────────────── */}
@@ -388,23 +462,23 @@ export function HeistTransmission({
           />
 
           {/* ── Terminal title bar ─────────────────────────────────────── */}
-          <div className="relative z-10 flex items-center justify-between px-4 py-2 border-b border-red-900/50 bg-black">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-600/80" />
-              <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-              <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+          <div className="relative z-10 flex items-center justify-between px-3 sm:px-4 py-2 border-b border-red-900/50 bg-black gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-red-600/80" />
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-zinc-700" />
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-zinc-700" />
             </div>
-            <div className="font-mono text-[10px] sm:text-xs tracking-[0.3em] uppercase text-zinc-500">
+            <div className="font-mono text-[9px] sm:text-xs tracking-[0.15em] sm:tracking-[0.3em] uppercase text-zinc-500 truncate max-w-[150px] sm:max-w-none">
               SecureFlow // Heist Audit
             </div>
-            <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-xs tracking-widest uppercase text-red-500">
+            <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[9px] sm:text-xs tracking-widest uppercase text-red-500 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse motion-reduce:animate-none" />
               {aiLoading ? "Receiving" : "Live"}
             </div>
           </div>
 
           {/* ── Transmission body ──────────────────────────────────────── */}
-          <div className="relative z-10 p-5 sm:p-7 font-mono text-sm sm:text-base leading-relaxed min-h-[340px]">
+          <div className="relative z-10 p-3.5 sm:p-7 font-mono text-xs sm:text-base leading-snug sm:leading-relaxed min-h-[280px] sm:min-h-[340px] max-w-full overflow-hidden">
             {lines.slice(0, visibleCount).map((line, i) => {
               const isActive = !reducedMotion && i === revealedCount;
               const isShown = reducedMotion || i < revealedCount;
@@ -412,7 +486,7 @@ export function HeistTransmission({
               // Blank lines are layout spacers — they appear as soon as their
               // index enters the visible window, then the parent advances.
               if (line.kind === "blank") {
-                return <div key={i} className="h-4" aria-hidden />;
+                return <div key={i} className="h-3 sm:h-4" aria-hidden />;
               }
 
               // Narrative lines from the AI stream use Orbitron for the
@@ -427,7 +501,7 @@ export function HeistTransmission({
                   <div
                     key={i}
                     className={cn(
-                      "whitespace-pre-wrap break-words",
+                      "whitespace-pre-wrap break-words overflow-wrap-anywhere max-w-full",
                       lineColor(line.kind),
                       fontClass,
                     )}
@@ -440,14 +514,14 @@ export function HeistTransmission({
               // Active line: drive the sequential decode through the shared
               // CyberTextReveal component in transmission mode.
               return (
-                <div key={i} className="flex items-start gap-2 break-words">
+                <div key={i} className="flex items-start gap-1.5 sm:gap-2 break-words overflow-wrap-anywhere max-w-full overflow-hidden">
                   <CyberTextReveal
                     as="div"
                     variant="transmission"
                     text={line.text}
                     duration={Math.min(100 + line.text.length * 12, 750)}
                     className={cn(
-                      "whitespace-pre-wrap",
+                      "whitespace-pre-wrap break-words overflow-wrap-anywhere max-w-full",
                       lineColor(line.kind),
                       fontClass,
                     )}
@@ -457,7 +531,7 @@ export function HeistTransmission({
                   />
                   {isActive && (
                     <span
-                      className="terminal-blink mt-1 inline-block h-4 w-2 shrink-0 bg-red-500 sm:h-5 motion-reduce:animate-none"
+                      className="terminal-blink mt-1 inline-block h-3.5 w-1.5 shrink-0 bg-red-500 sm:h-5 sm:w-2 motion-reduce:animate-none"
                       aria-hidden
                     />
                   )}
@@ -469,7 +543,7 @@ export function HeistTransmission({
             {transmissionComplete && !reducedMotion && (
               <div className="mt-3 flex items-center gap-2 text-red-500/80">
                 <span className="terminal-blink motion-reduce:animate-none">_</span>
-                <span className="text-xs uppercase tracking-widest">channel idle</span>
+                <span className="text-[10px] sm:text-xs uppercase tracking-widest">channel idle</span>
               </div>
             )}
           </div>
@@ -477,7 +551,7 @@ export function HeistTransmission({
           {/* ── Decrypted payload: OG card + CTA (revealed post-transmission) ── */}
           <div
             className={cn(
-              "relative z-10 border-t border-red-900/50 bg-black p-5 sm:p-7",
+              "relative z-10 border-t border-red-900/50 bg-black p-4 sm:p-7 flex flex-col items-center",
               "transition-all duration-700 motion-reduce:transition-none",
               transmissionComplete
                 ? "translate-y-0 opacity-100"
@@ -491,18 +565,25 @@ export function HeistTransmission({
             <img
               src={imageUrl}
               alt="Heist Success Card"
-              className="mb-5 w-full rounded border border-red-900/50 shadow-lg"
+              className="mb-4 sm:mb-5 w-full max-w-full h-auto object-contain rounded border border-red-900/50 shadow-lg max-h-[280px] sm:max-h-none"
             />
-            <p className="mb-1 text-center text-lg font-bold text-red-500">
+            <p className="mb-1 text-center text-base sm:text-lg font-bold text-red-500">
               Audit passed via SecureFlow.
             </p>
-            <p className="mx-auto mb-5 max-w-md text-center text-sm text-zinc-400">
+            <p className="mx-auto mb-4 sm:mb-5 max-w-md text-center text-xs sm:text-sm text-zinc-400 leading-normal">
               {tagline}
             </p>
-            <div className="flex justify-center">
+            <div className="flex justify-center w-full sm:w-auto">
               <Link
                 href="/"
-                className="rounded bg-red-600 px-6 py-3 font-bold text-white shadow-lg transition-all hover:bg-red-700"
+                onClick={() => {
+                  toast({
+                    title: "JOIN THE RESISTANCE 🚩",
+                    description: "Redirecting to SecureFlow command center.",
+                    variant: "success",
+                  });
+                }}
+                className="rounded bg-red-600 px-5 py-2.5 sm:px-6 sm:py-3 font-bold text-xs sm:text-base text-white shadow-lg transition-all hover:bg-red-700 w-full sm:w-auto text-center"
               >
                 Join the Resistance
               </Link>
@@ -515,15 +596,15 @@ export function HeistTransmission({
           <button
             type="button"
             onClick={skipIntro}
-            className="mt-4 font-mono text-[10px] uppercase tracking-widest text-zinc-600 transition-colors hover:text-zinc-300 sm:text-xs"
+            className="mt-3 sm:mt-4 font-mono text-[9px] sm:text-xs uppercase tracking-widest text-zinc-600 transition-colors hover:text-zinc-300"
           >
             &gt;&gt; skip decryption
           </button>
         )}
       </main>
 
-      <footer className="py-4 text-center relative z-10">
-        <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-600 sm:text-xs">
+      <footer className="py-3 sm:py-4 text-center relative z-10">
+        <p className="font-mono text-[9px] sm:text-xs uppercase tracking-[0.2em] sm:tracking-[0.3em] text-zinc-600">
           #BellaCiao · #JoinTheResistance
         </p>
       </footer>

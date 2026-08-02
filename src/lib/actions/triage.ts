@@ -3,11 +3,25 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
-import {
-  TRIAGE_STATUSES,
-  type SetFindingStatusInput,
-  type SetFindingStatusResult,
-} from "@/lib/triage/types";
+import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+
+// The lifecycle a finding can move through. OPEN is the implicit default (no
+// triage row); the other three suppress the finding from the dashboard tiles,
+// and FALSE_POSITIVE / IGNORED additionally stop it BLOCKing the PR on re-scan.
+const TRIAGE_STATUSES = ["OPEN", "RESOLVED", "FALSE_POSITIVE", "IGNORED"] as const;
+export type TriageStatus = (typeof TRIAGE_STATUSES)[number];
+
+export interface SetFindingStatusInput {
+  repositoryId: string;
+  fingerprint: string;
+  status: TriageStatus;
+  note?: string | null;
+}
+
+export interface SetFindingStatusResult {
+  ok: boolean;
+  error?: string;
+}
 
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
@@ -31,7 +45,7 @@ export async function setFindingStatus(
   if (!repositoryId || !fingerprint) {
     return { ok: false, error: "Missing finding reference" };
   }
-  if (!(TRIAGE_STATUSES as readonly string[]).includes(status)) {
+  if (!TRIAGE_STATUSES.includes(status)) {
     return { ok: false, error: "Invalid status" };
   }
 
@@ -51,13 +65,13 @@ export async function setFindingStatus(
   });
 
   await prisma.auditLog.create({
-    data: {
+    data: sanitizeAuditLogInput({
       userId,
       action: "Finding Triage",
       resource: `${repo.fullName}:${fingerprint.slice(0, 12)}`,
       decision: status,
       metadata: { repositoryId, fingerprint, status, hasNote: note !== null },
-    },
+    }),
   });
 
   revalidatePath("/dashboard/findings");

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
 import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explanation-stream';
+import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
+import { checkRateLimit } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,8 +18,8 @@ export const dynamic = 'force-dynamic';
  * Ownership is checked the same way the findings dashboard page checks it: the finding must
  * belong to a scan result, on a pull request, on a repository owned by the signed-in user.
  */
-export async function GET(
-  _request: NextRequest,
+async function handler(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
@@ -25,6 +27,20 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // User-based token bucket: stricter than IP limit, keyed per authenticated user
+  const userAllowed = await checkRateLimit(
+    `rate-limit:explain-stream:user:${userId}`,
+    TIERS.AI_STREAM_USER.limit,
+    TIERS.AI_STREAM_USER.windowSeconds,
+    { fallbackStrategy: TIERS.AI_STREAM_USER.fallbackStrategy, timeoutMs: TIERS.AI_STREAM_USER.timeoutMs }
+  );
+  if (!userAllowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(TIERS.AI_STREAM_USER.windowSeconds) } }
+    );
+  }
 
   const { id } = await params;
 
@@ -89,7 +105,7 @@ export async function GET(
     },
   });
 
-  return new Response(readable, {
+  return new Response(readable as unknown as BodyInit, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -98,3 +114,9 @@ export async function GET(
     },
   });
 }
+
+// IP-based token bucket wraps the entire handler — outermost guard, fail-closed
+export const GET = withRateLimit(
+  handler as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
+  { ...TIERS.AI_STREAM, keyPrefix: 'explain-stream:ip' }
+) as typeof handler;
