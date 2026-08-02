@@ -13,7 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { setFindingStatus, TriageStatus } from "@/lib/actions/triage";
+import { setFindingStatus } from "@/lib/actions/triage";
+import type { TriageStatus } from "@/lib/triage/types";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },

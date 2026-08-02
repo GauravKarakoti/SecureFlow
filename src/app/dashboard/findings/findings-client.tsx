@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls from "./finding-triage-controls";
-import { TriageStatus } from "@/lib/actions/triage";
+import type { TriageStatus } from "@/lib/triage/types";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
