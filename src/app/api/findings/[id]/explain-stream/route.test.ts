@@ -5,6 +5,13 @@ let mockIpAllowed = true;
 let mockUserAllowed = true;
 
 vi.mock('@/lib/middleware/rate-limit', () => ({
+  TIERS: {
+    AUTH:           { limit: 10,  windowSeconds: 60, fallbackStrategy: 'fail-closed', timeoutMs: 1000 },
+    AI_STREAM:      { limit: 20,  windowSeconds: 60, fallbackStrategy: 'fail-closed', timeoutMs: 1000 },
+    AI_STREAM_USER: { limit: 10,  windowSeconds: 60, fallbackStrategy: 'fail-closed', timeoutMs: 1000 },
+    STANDARD:       { limit: 120, windowSeconds: 60, fallbackStrategy: 'fail-open' },
+    ADMIN:          { limit: 30,  windowSeconds: 60, fallbackStrategy: 'fail-closed', timeoutMs: 1000 },
+  },
   withRateLimit: vi.fn(
     (fn: (...a: unknown[]) => unknown) =>
       (req: unknown, ...args: unknown[]) => {
