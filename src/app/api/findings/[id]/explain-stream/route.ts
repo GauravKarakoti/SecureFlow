@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
 import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explanation-stream';
-import { withRateLimit } from '@/lib/middleware/rate-limit';
+import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 import { checkRateLimit } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
-
-// IP-level: 20 requests/min (shared across all users from that IP)
-// User-level: 10 requests/min (per authenticated user)
-const WINDOW_SECONDS = 60;
 
 /**
  * Streams a live-regenerated AI explanation for a single finding as Server-Sent Events.
@@ -35,14 +31,14 @@ async function handler(
   // User-based token bucket: stricter than IP limit, keyed per authenticated user
   const userAllowed = await checkRateLimit(
     `rate-limit:explain-stream:user:${userId}`,
-    10,
-    WINDOW_SECONDS,
-    { fallbackStrategy: 'fail-closed', timeoutMs: 1000 }
+    TIERS.AI_STREAM_USER.limit,
+    TIERS.AI_STREAM_USER.windowSeconds,
+    { fallbackStrategy: TIERS.AI_STREAM_USER.fallbackStrategy, timeoutMs: TIERS.AI_STREAM_USER.timeoutMs }
   );
   if (!userAllowed) {
     return NextResponse.json(
       { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
-      { status: 429, headers: { 'Retry-After': WINDOW_SECONDS.toString() } }
+      { status: 429, headers: { 'Retry-After': String(TIERS.AI_STREAM_USER.windowSeconds) } }
     );
   }
 
@@ -122,11 +118,5 @@ async function handler(
 // IP-based token bucket wraps the entire handler — outermost guard, fail-closed
 export const GET = withRateLimit(
   handler as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
-  {
-    keyPrefix: 'explain-stream:ip',
-    limit: 20,
-    windowSeconds: WINDOW_SECONDS,
-    fallbackStrategy: 'fail-closed',
-    timeoutMs: 1000,
-  }
+  { ...TIERS.AI_STREAM, keyPrefix: 'explain-stream:ip' }
 ) as typeof handler;

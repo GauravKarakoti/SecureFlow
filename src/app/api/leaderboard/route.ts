@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { loadLeaderboard } from "@/app/leaderboard/aggregate";
+import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
  *    Streams updated leaderboard standings every 15 seconds.
  * 2. Standard JSON: Returns current top 50 leaderboard standings as a single JSON object.
  */
-export async function GET(req: NextRequest): Promise<Response> {
+async function handler(req: NextRequest): Promise<Response> {
   const { searchParams } = req.nextUrl;
   const wantsStream =
     searchParams.get("stream") === "true" ||
@@ -82,3 +83,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     },
   });
 }
+
+export const GET = withRateLimit(
+  handler as any,
+  { ...TIERS.STANDARD, keyPrefix: 'leaderboard' }
+);

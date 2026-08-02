@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
+import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 
-export async function GET() {
+async function handler() {
   try {
     const session = await auth();
 
@@ -55,3 +56,8 @@ export async function GET() {
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
+
+export const GET = withRateLimit(
+  handler as (req: NextRequest) => Promise<NextResponse>,
+  { ...TIERS.ADMIN, keyPrefix: 'admin:export' }
+);
