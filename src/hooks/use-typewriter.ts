@@ -25,5 +25,5 @@ export function useTypewriter(incomingText: string | null, speedMs: number = 30)
     return () => clearInterval(interval);
   }, [incomingText, speedMs]);
 
-  return displayedText;
+  return incomingText ? displayedText : "";
 }

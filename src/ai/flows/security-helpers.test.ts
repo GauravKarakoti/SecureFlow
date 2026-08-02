@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { __internal, isRateLimitError } from './security-helpers';
+import { describe, expect, it, vi } from 'vitest';
+import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
 
 const {
   detectPromptInjection,
@@ -8,6 +8,7 @@ const {
 } = __internal;
 
 describe('security-helpers', () => {
+
   describe('detectPromptInjection', () => {
     it('returns false for empty input', () => {
       expect(detectPromptInjection('')).toBe(false);
@@ -231,4 +232,83 @@ describe('security-helpers', () => {
       ).toBe(false);
     });
   });
-});
+
+  describe('isTimeoutError', () => {
+    it('returns false for nullish errors', () => {
+      expect(isTimeoutError(null)).toBe(false);
+      expect(isTimeoutError(undefined)).toBe(false);
+    });
+
+    it('detects APIConnectionTimeoutError by name', () => {
+      const error = new Error('Connection timed out');
+      error.name = 'APIConnectionTimeoutError';
+      expect(isTimeoutError(error)).toBe(true);
+    });
+
+    it('detects status code 408 and 504', () => {
+      expect(isTimeoutError({ status: 408 })).toBe(true);
+      expect(isTimeoutError({ statusCode: 504 })).toBe(true);
+    });
+
+    it('detects timeout message strings', () => {
+      expect(isTimeoutError(new Error('Request timed out after 30000ms'))).toBe(true);
+      expect(isTimeoutError(new Error('ETIMEDOUT'))).toBe(true);
+      expect(isTimeoutError(new Error('api_connection_timeout'))).toBe(true);
+    });
+
+    it('returns false for non-timeout errors', () => {
+      expect(isTimeoutError(new Error('Invalid JSON'))).toBe(false);
+    });
+  });
+
+  describe('withRetry', () => {
+    it('returns result immediately on successful execution', async () => {
+      const fn = vi.fn().mockResolvedValue('success');
+      const result = await withRetry(fn, { maxRetries: 3, initialDelayMs: 1 });
+      expect(result).toBe('success');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries on rate limit (429) errors up to maxRetries', async () => {
+      const rateLimitErr = Object.assign(new Error('Rate limit exceeded'), { status: 429 });
+      const fn = vi.fn()
+        .mockRejectedValueOnce(rateLimitErr)
+        .mockRejectedValueOnce(rateLimitErr)
+        .mockResolvedValueOnce('retry-success');
+
+      const onRetry = vi.fn();
+      const result = await withRetry(fn, { maxRetries: 3, initialDelayMs: 1, onRetry });
+      expect(result).toBe('retry-success');
+      expect(fn).toHaveBeenCalledTimes(3);
+      expect(onRetry).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries on timeout errors up to maxRetries', async () => {
+      const timeoutErr = new Error('timed out');
+      timeoutErr.name = 'APIConnectionTimeoutError';
+      const fn = vi.fn()
+        .mockRejectedValueOnce(timeoutErr)
+        .mockResolvedValueOnce('timeout-recovered');
+
+      const result = await withRetry(fn, { maxRetries: 3, initialDelayMs: 1 });
+      expect(result).toBe('timeout-recovered');
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws error after exceeding maxRetries', async () => {
+      const rateLimitErr = Object.assign(new Error('Rate limit exceeded'), { status: 429 });
+      const fn = vi.fn().mockRejectedValue(rateLimitErr);
+
+      await expect(withRetry(fn, { maxRetries: 2, initialDelayMs: 1 })).rejects.toThrow('Rate limit exceeded');
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry non-retriable errors', async () => {
+      const validationErr = new Error('Invalid schema');
+      const fn = vi.fn().mockRejectedValue(validationErr);
+
+      await expect(withRetry(fn, { maxRetries: 3, initialDelayMs: 1 })).rejects.toThrow('Invalid schema');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+  });
+});

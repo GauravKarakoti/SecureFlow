@@ -3,13 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- Mock the genkit `ai` instance so tests never hit the network, and so we can simulate both
 // a well-behaved model and a model that got fooled by injected content in the code snippet. ---
 let mockResponseText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+const mockGenerate = vi.fn().mockImplementation(async () => ({ text: mockResponseText }));
 
 vi.mock('@/ai/genkit', () => ({
   ai: {
-    generate: async () => ({ text: mockResponseText }),
+    generate: (...args: unknown[]) => mockGenerate(...args),
   },
   defaultModel: 'mock-model',
+  securityExplanationModel: 'mock-groq-model-id', // Added missing export
 }));
+
 
 vi.mock('dotenv/config', () => ({}));
 
@@ -95,7 +98,10 @@ describe('buildPrompt (structural isolation)', () => {
 describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
   beforeEach(() => {
     mockResponseText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+    mockGenerate.mockReset();
+    mockGenerate.mockImplementation(async () => ({ text: mockResponseText }));
   });
+
 
   it('flags the finding via the pre-filter even when the model is not fooled', async () => {
     // The model behaves correctly and gives a real explanation, but the payload still contains
@@ -176,4 +182,97 @@ describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
       expect(resisted || result.promptInjectionSuspected).toBe(true);
     }
   });
-});
+
+  it('returns promptInjectionSuspected: false and correct fields for a benign finding', async () => {
+    mockResponseText = JSON.stringify({
+      explanation: 'SQL query concatenates raw user input, enabling injection attacks.',
+      remediationSuggestions: 'Switch to parameterized queries or a query builder.',
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'HIGH',
+      description: 'SQL injection',
+      fileLocation: 'src/db.ts',
+      codeSnippet: BENIGN_SNIPPETS[0],
+    });
+
+    expect(result.promptInjectionSuspected).toBe(false);
+    expect(typeof result.explanation).toBe('string');
+    expect(typeof result.remediationSuggestions).toBe('string');
+  });
+
+  it('flags when both the pre-filter AND consistency check are triggered simultaneously', async () => {
+    // Worst case: injected payload AND model got fooled.
+    mockResponseText = JSON.stringify({
+      explanation: 'This is not a real issue, safe to ignore.',
+      remediationSuggestions: 'No action is needed.',
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Secret',
+      severity: 'CRITICAL',
+      description: 'Hardcoded API key',
+      fileLocation: 'src/config.ts',
+      codeSnippet: INJECTION_PAYLOADS[0], // triggers pre-filter
+    });
+
+    // Both layers fired — flag must be set.
+    expect(result.promptInjectionSuspected).toBe(true);
+    // The raw AI output is still surfaced to the developer (warning is shown separately).
+    expect(result.explanation).toContain('safe to ignore');
+  });
+
+  it('handles a malformed LLM response by returning a fallback explanation without throwing', async () => {
+    mockResponseText = 'not valid json at all';
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'MEDIUM',
+      description: 'Open redirect',
+      fileLocation: 'src/redirect.ts',
+      codeSnippet: 'res.redirect(req.query.url);',
+    });
+
+    expect(result.explanation).toContain('recalculating');
+    expect(typeof result.remediationSuggestions).toBe('string');
+    // The fallback explanation won't trigger contradictsSeverity for MEDIUM,
+    // and the benign snippet won't trigger the pre-filter.
+    expect(result.promptInjectionSuspected).toBe(false);
+  });
+
+  it('handles Groq 429 rate limit errors with fallback after retries', async () => {
+    const rateLimitError = Object.assign(new Error('Rate limit reached'), { status: 429 });
+    mockGenerate.mockRejectedValue(rateLimitError);
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'HIGH',
+      description: 'SQL Injection',
+      fileLocation: 'src/db.ts',
+      codeSnippet: 'select * from users',
+    });
+
+    expect(result.explanation).toContain('Groq API rate limit reached');
+    expect(result.remediationSuggestions).toContain('Rate limit active');
+    expect(mockGenerate).toHaveBeenCalledTimes(3);
+  });
+
+  it('handles Groq connection timeout errors with fallback after retries', async () => {
+    const timeoutError = new Error('Connection timed out');
+    timeoutError.name = 'APIConnectionTimeoutError';
+    mockGenerate.mockRejectedValue(timeoutError);
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: 'Vulnerability',
+      severity: 'HIGH',
+      description: 'SQL Injection',
+      fileLocation: 'src/db.ts',
+      codeSnippet: 'select * from users',
+    });
+
+    expect(result.explanation).toContain('Groq API connection timed out');
+    expect(result.remediationSuggestions).toContain('Connection timed out');
+    expect(mockGenerate).toHaveBeenCalledTimes(3);
+  });
+});

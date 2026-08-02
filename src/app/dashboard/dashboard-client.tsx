@@ -73,7 +73,7 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
 
           <CardContent className="h-[300px]">
             {chartData.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-white/10 text-center">
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-foreground/10 text-center">
                 <Zap className="mb-4 h-12 w-12 text-primary opacity-60" />
 
                 <h3 className="text-lg font-semibold">
@@ -164,7 +164,7 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
         <CardContent>
           <div className="space-y-4">
             {prs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 py-14 text-center">
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-foreground/10 py-14 text-center">
                 <GitPullRequest className="mb-4 h-12 w-12 text-muted-foreground opacity-50" />
 
                 <h3 className="text-lg font-semibold">
@@ -180,7 +180,7 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
               prs.map((pr) => (
                 <div
                   key={pr.id}
-                  className="group flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:bg-white/10 hover:shadow-lg"
+                  className="group flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.03] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:bg-foreground/[0.06] hover:shadow-lg"
                 >
                   <div className="flex items-start sm:items-center gap-3">
                     <GitPullRequest className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground sm:mt-0" />
@@ -215,10 +215,10 @@ export default function DashboardClient({ stats, prs, chartData, distribution }:
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
                         pr.status === "BLOCKED"
-                          ? "bg-red-500/20 text-red-300"
+                          ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-300"
                           : pr.status === "PASS"
-                          ? "bg-green-500/20 text-green-300"
-                          : "bg-yellow-500/20 text-yellow-300"
+                          ? "bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-300"
+                          : "bg-yellow-500/10 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300"
                       }`}
                     >
                       {pr.status}
@@ -249,7 +249,7 @@ glass-card
 group
 overflow-hidden
 border
-border-white/10
+border-foreground/10
 transition-all
 duration-300
 hover:-translate-y-1
@@ -285,7 +285,7 @@ function DistributionRow({ label, count, total, color }: { label: string, count:
     <div className="flex items-center justify-between">
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2">
-        <div className="h-1.5 w-32 bg-white/5 rounded-full overflow-hidden">
+        <div className="h-1.5 w-32 bg-foreground/10 rounded-full overflow-hidden">
           <div className={`h-full ${color}`} style={{ width: `${percentage}%` }} />
         </div>
         <span className="text-xs font-bold w-6">{count}</span>
