@@ -99,10 +99,61 @@ export async function getDLQJobs() {
     return [
       {
         id: "mock-dlq-1",
-        name: "webhook-scan",
-        data: { repository: "mock-owner/mock-repo", event: "pull_request" },
-        timestamp: Date.now() - 60000,
-      }
+        name: "process-webhook-dlq",
+        data: {
+          originalJobId: "mock-job-999",
+          failedReason: "GitHub API rate limit exceeded after 3 attempts",
+          failedAt: new Date(Date.now() - 120000).toISOString(),
+          attemptsMade: 3,
+          data: {
+            event: "pull_request",
+            deliveryId: "e2e-mock-delivery-001",
+            payload: {
+              action: "opened",
+              pull_request: {
+                id: 9991,
+                number: 77,
+                title: "Mock PR: E2E DLQ Test",
+                state: "open",
+                head: { sha: "abc123def456" },
+                user: { login: "tokyo_coder" },
+              },
+              repository: {
+                id: 123456,
+                full_name: "mock-owner/mock-repo",
+                name: "mock-repo",
+                owner: { login: "mock-owner" },
+              },
+              installation: { id: 888999 },
+            },
+          },
+        },
+        timestamp: Date.now() - 120000,
+      },
+      {
+        id: "mock-dlq-2",
+        name: "process-webhook-dlq",
+        data: {
+          originalJobId: "mock-job-998",
+          failedReason: "Invalid payload structure: missing pull_request field",
+          failedAt: new Date(Date.now() - 3600000).toISOString(),
+          attemptsMade: 3,
+          data: {
+            event: "push",
+            deliveryId: "e2e-mock-delivery-002",
+            payload: {
+              action: "push",
+              repository: {
+                id: 654321,
+                full_name: "mock-owner/another-repo",
+                name: "another-repo",
+                owner: { login: "mock-owner" },
+              },
+            },
+          },
+        },
+        timestamp: Date.now() - 3600000,
+      },
     ];
   }
 

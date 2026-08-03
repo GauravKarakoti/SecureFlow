@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { __internal } from './security-helpers';
-import { ai, defaultModel } from '@/ai/genkit';
+import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
+import { ai, securityExplanationModel } from '@/ai/genkit';
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -10,7 +10,7 @@ import {
   type AISecurityExplanationOutput,
 } from './security-explanation-schemas';
 
-const { detectPromptInjection, contradictsSeverity, buildPrompt, isRateLimitError } = __internal;
+const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
 
 /** Streamed while the explanation text is still arriving (typewriter-style UI). */
 export type StreamExplanationChunkEvent = { type: 'chunk'; explanation: string };
@@ -54,16 +54,23 @@ export async function* streamDeveloperSecurityExplanations(
   const prompt = buildPrompt(validatedInput);
 
   try {
-    const { stream, response } = ai.generateStream({
-      model: defaultModel,
-      system: SYSTEM_PROMPT,
-      prompt,
-      output: { format: 'json', schema: StreamChunkSchema },
-      config: {
-        maxOutputTokens: 3000,
-        temperature: 0.1,
+    // Explicitly route to the fastest Groq model with retries for rate limits and timeouts on stream setup.
+    const { stream, response } = await withRetry(
+      async () =>
+        ai.generateStream({
+          model: securityExplanationModel,
+          system: SYSTEM_PROMPT,
+          prompt,
+          output: { format: 'json', schema: StreamChunkSchema },
+          config: {
+            maxOutputTokens: 3000,
+            temperature: 0.1,
+          },
+        }),
+      {
+        initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
       }
-    });
+    );
 
     let lastExplanation = '';
     for await (const chunk of stream) {
@@ -88,7 +95,6 @@ export async function* streamDeveloperSecurityExplanations(
       parsedContent = JSON.parse(jsonMatch[0]);
     } catch (error) {
       console.error("Failed to parse stream explanation JSON:", error);
-      // ADD THIS DEBUG LOG
       console.error("RAW STREAM OUTPUT WAS:\n", finalResponse.text);
 
       parsedContent = {
@@ -112,8 +118,11 @@ export async function* streamDeveloperSecurityExplanations(
     yield { type: 'done', result };
   } catch (err) {
     const isRateLimit = isRateLimitError(err);
+    const isTimeout = isTimeoutError(err);
     const message = isRateLimit
       ? 'AI provider rate limit reached (429). Please wait a moment and try again.'
+      : isTimeout
+      ? 'AI provider connection timed out. Please try again.'
       : err instanceof Error
       ? err.message
       : 'AI generation failed.';
@@ -122,4 +131,4 @@ export async function* streamDeveloperSecurityExplanations(
       message,
     };
   }
-}
+}

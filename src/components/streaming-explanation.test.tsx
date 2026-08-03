@@ -16,8 +16,11 @@ describe('StreamingExplanation', () => {
     vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
       isStreaming: false,
       explanation: '',
+      remediationSuggestions: null,
+      promptInjectionSuspected: false,
       error: null,
       start: vi.fn(),
+      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Initial stored text." />);
@@ -30,8 +33,11 @@ describe('StreamingExplanation', () => {
     vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
       isStreaming: false,
       explanation: '',
+      remediationSuggestions: null,
+      promptInjectionSuspected: false,
       error: null,
       start: startMock,
+      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);
@@ -46,8 +52,11 @@ describe('StreamingExplanation', () => {
     vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
       isStreaming: true,
       explanation: 'Streamed part',
+      remediationSuggestions: null,
+      promptInjectionSuspected: false,
       error: null,
       start: vi.fn(),
+      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);
@@ -64,8 +73,11 @@ describe('StreamingExplanation', () => {
     vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
       isStreaming: false,
       explanation: 'Partial stream',
+      remediationSuggestions: null,
+      promptInjectionSuspected: false,
       error: 'Network Error',
       start: startMock,
+      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);

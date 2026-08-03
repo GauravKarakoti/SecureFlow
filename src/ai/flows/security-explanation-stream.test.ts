@@ -28,6 +28,10 @@ vi.mock('@/ai/genkit', () => ({
     },
   },
   defaultModel: 'mock-model',
+  // The security-explanation flows now import this explicitly (issue #217),
+  // so the mock must expose it too. Keeping it distinct from `defaultModel`
+  // lets future tests assert that the flow picked the security-specific model.
+  securityExplanationModel: 'mock-security-model',
 }));
 
 vi.mock('dotenv/config', () => ({}));
@@ -211,5 +215,52 @@ describe('streamDeveloperSecurityExplanations', () => {
     if (events[0].type === 'error') {
       expect(events[0].message).toContain('AI provider rate limit reached (429)');
     }
+  });
+
+  it('yields a specific timeout error message when Groq connection times out', async () => {
+    const timeoutErr = new Error('Connection timed out');
+    timeoutErr.name = 'APIConnectionTimeoutError';
+    mockCustomError = timeoutErr;
+
+    const events = await collectEvents(baseInput);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('error');
+    if (events[0].type === 'error') {
+      expect(events[0].message).toContain('AI provider connection timed out');
+    }
+  });
+
+});
+
+describe('streaming flow uses securityExplanationModel', () => {
+  it('calls ai.generateStream with securityExplanationModel, not defaultModel', async () => {
+    // 0. Reset the mock state to prevent leakage from the previous describe block
+    mockChunks = [];
+    mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+    mockGenerateStreamThrows = false;
+    mockCustomError = null;
+
+    // 1. Grab the 'ai' instance that was already mocked at the top of the file
+    const { ai } = await import('@/ai/genkit');
+    
+    // 2. Spy on generateStream to inspect the arguments passed to it
+    const generateStreamSpy = vi.spyOn(ai, 'generateStream');
+
+    // 3. Run the flow using the standard test inputs
+    const events = await collectEvents(baseInput);
+
+    // 4. Assert the spy caught the call and check the model argument
+    expect(generateStreamSpy).toHaveBeenCalled();
+    const callOpts = generateStreamSpy.mock.calls[0][0] as any;
+    
+    // Assert it uses the security model defined in the top-level vi.mock
+    expect(callOpts.model).toBe('mock-security-model');
+    expect(callOpts.model).not.toBe('mock-model');
+    
+    // The flow should still produce a done event with the validated result
+    expect(events.some((e) => e.type === 'done')).toBe(true);
+
+    // Clean up the spy
+    generateStreamSpy.mockRestore();
   });
 });

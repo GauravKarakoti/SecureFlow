@@ -3,13 +3,44 @@ import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
+async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePath: string): Promise<ArrayBuffer> {
+  try {
+    const originUrl = new URL(`/fonts/${fontFileName}`, req.url);
+    const res = await fetch(originUrl.href);
+    if (res && res.ok !== false) {
+      return await res.arrayBuffer();
+    }
+  } catch {
+    // continue to next fallback
+  }
+
+  try {
+    const localUrl = new URL(relativePath, import.meta.url);
+    const res = await fetch(localUrl);
+    if (res && res.ok !== false) {
+      return await res.arrayBuffer();
+    }
+  } catch {
+    // continue to next fallback
+  }
+
+  const cdnUrl = fontFileName.includes('Bold')
+    ? 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65bvq8.ttf'
+    : 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65dqv248s.ttf';
+  const cdnRes = await fetch(cdnUrl);
+  if (!cdnRes || cdnRes.ok === false) {
+    throw new Error(`Failed to load font ${fontFileName}`);
+  }
+  return await cdnRes.arrayBuffer();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
     const [regular, bold] = await Promise.all([
-      fetch(new URL('../../../../../public/fonts/Orbitron-Regular.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
-      fetch(new URL('../../../../../public/fonts/Orbitron-Bold.ttf', import.meta.url)).then((res) => res.arrayBuffer()),
+      loadFontBuffer(req, 'Orbitron-Regular.ttf', '../../../../../public/fonts/Orbitron-Regular.ttf'),
+      loadFontBuffer(req, 'Orbitron-Bold.ttf', '../../../../../public/fonts/Orbitron-Bold.ttf'),
     ]);
 
     const project = (
@@ -45,6 +76,18 @@ export async function GET(req: NextRequest) {
     const rawStolen = searchParams.get('stolen') ?? searchParams.get('amount');
     const stolen = rawStolen ? rawStolen.trim().slice(0, 30) : undefined;
 
+    const themeParam = searchParams.get('theme')?.toLowerCase() || 'heist';
+    const isGlitchTheme = themeParam === 'glitch' || themeParam === 'matrix';
+
+    const borderColor = isGlitchTheme ? '#22c55e' : '#dc2626';
+    const accentColor = isGlitchTheme ? '#22c55e' : '#ef4444';
+    const bgGradient = isGlitchTheme
+      ? 'linear-gradient(135deg, #021a0c 0%, #09090b 45%, #3f0d12 100%)'
+      : 'linear-gradient(135deg, #09090b 0%, #18181b 45%, #3f0d12 100%)';
+    const bannerText = isGlitchTheme
+      ? 'SYSTEM GLITCH // TRANSMISSION ACTIVE'
+      : 'INCOMING TRANSMISSION...';
+
     const timestamp =
       searchParams.get('timestamp') ||
       new Date().toLocaleString('en-US', {
@@ -52,8 +95,6 @@ export async function GET(req: NextRequest) {
         timeStyle: 'short',
       });
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
     return new ImageResponse(
       (
         <div
@@ -65,9 +106,8 @@ export async function GET(req: NextRequest) {
             justifyContent: 'space-between',
             padding: '56px',
             color: '#ffffff',
-            background:
-              'linear-gradient(135deg, #09090b 0%, #18181b 45%, #3f0d12 100%)',
-            border: '10px solid #dc2626',
+            background: bgGradient,
+            border: `10px solid ${borderColor}`,
             fontFamily: 'Orbitron'
           }}
         >
@@ -310,7 +350,7 @@ export async function GET(req: NextRequest) {
             </div>
           </div>
         </div>
-      ),
+      ) as React.ReactElement,
       {
         width: 1200,
         height: 630,
