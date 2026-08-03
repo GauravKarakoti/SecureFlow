@@ -1,8 +1,8 @@
 'use server';
 
 import "dotenv/config";
-import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
-import { ai, securityExplanationModel } from '@/ai/genkit';
+import { __internal, evaluateForInjection } from './security-helpers';
+import { ai, defaultModel } from '@/ai/genkit';
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -11,19 +11,24 @@ import {
   type AISecurityExplanationOutput,
 } from './security-explanation-schemas';
 
-const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
+const { contradictsSeverity, buildPrompt } = __internal;
 
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput
 ): Promise<AISecurityExplanationOutput> {
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
 
-  // Pre-filter runs on the raw, attacker-controlled fields (codeSnippet + description, since
-  // both flow straight from the PR diff / scanner narrative) BEFORE anything is sent to the LLM.
-  // This is advisory: a match doesn't block the explanation, it just tells the reviewer to trust
-  // the static severity badge over the AI narrative for this specific finding.
-  const injectionPreFilterFlagged =
-    detectPromptInjection(validatedInput.codeSnippet) || detectPromptInjection(validatedInput.description);
+  // Two-layer injection check runs on the raw, attacker-controlled fields BEFORE anything is
+  // sent to the main Genkit engine:
+  //   1. Heuristic pre-filter (synchronous, zero cost).
+  //   2. If the heuristic fires, a secondary lightweight LLM call confirms it.
+  // Advisory only — a match sets promptInjectionSuspected so reviewers know to trust the
+  // static severity badge over the AI narrative, but the explanation is still generated.
+  const [snippetResult, descResult] = await Promise.all([
+    evaluateForInjection(validatedInput.codeSnippet),
+    evaluateForInjection(validatedInput.description),
+  ]);
+  const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
 
   const prompt = buildPrompt(validatedInput);
 
