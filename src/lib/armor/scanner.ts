@@ -1,6 +1,11 @@
 import Groq from 'groq-sdk';
 import fs from 'fs';
 import path from 'path';
+import {
+  computeDynamicFingerprint,
+  dynamicFingerprintEngine,
+  PayloadSignature
+} from './fingerprint';
 
 export type ScanFinding = {
   type: string;
@@ -10,6 +15,10 @@ export type ScanFinding = {
   codeSnippet: string;
   lineStart?: number;
   lineEnd?: number;
+  dynamicFingerprint?: string;
+  signatureVersion?: string;
+  matchedSignatures?: string[];
+  isZeroDay?: boolean;
 };
 
 export interface FileChange {
@@ -331,6 +340,27 @@ export interface ScannerPolicy {
 }
 
 export class ArmorIQScanner {
+  /**
+   * Rotate signature database dynamically to adapt to zero-day payload structures.
+   */
+  rotateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
+    dynamicFingerprintEngine.rotateSignatures(signatures, version);
+  }
+
+  /**
+   * Dynamically update active signature database with new payload patterns.
+   */
+  updateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
+    dynamicFingerprintEngine.updateSignatureDatabase(signatures, version);
+  }
+
+  /**
+   * Get active signature database version.
+   */
+  getSignatureVersion(): string {
+    return dynamicFingerprintEngine.getActiveVersion();
+  }
+
   async scanPullRequest(
     files: FileChange[],
     activePolicies: ScannerPolicy[] = [],
@@ -593,17 +623,25 @@ CRITICAL RULES:
 
             const upperSeverity = String(f.severity || 'MEDIUM').toUpperCase();
             const validSeverities: ScanFinding['severity'][] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
+            const fileLoc = String(f.fileLocation || 'Unknown file path');
+            const findingType = String(f.type || 'Vulnerability');
+
+            const dynFp = computeDynamicFingerprint('default-repo', fileLoc, findingType, normalizedSnippet);
 
             return {
-              type: String(f.type || 'Vulnerability'),
+              type: findingType,
               severity: validSeverities.includes(upperSeverity as ScanFinding['severity'])
                 ? (upperSeverity as ScanFinding['severity'])
                 : 'MEDIUM',
               description: String(f.description || 'No description provided.'),
-              fileLocation: String(f.fileLocation || 'Unknown file path'),
+              fileLocation: fileLoc,
               codeSnippet: normalizedSnippet,
               lineStart: typeof f.lineStart === 'number' ? f.lineStart : undefined,
-              lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : undefined
+              lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : undefined,
+              dynamicFingerprint: dynFp.fingerprint,
+              signatureVersion: dynFp.signatureVersion,
+              matchedSignatures: dynFp.matchedSignatures.map(s => s.id),
+              isZeroDay: dynFp.isZeroDayDetected
             };
           });
 
