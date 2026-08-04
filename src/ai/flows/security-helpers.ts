@@ -171,11 +171,58 @@ export function isRateLimitError(err: unknown): boolean {
   );
 }
 
+/**
+ * Detects whether an error thrown by the AI provider is a timeout error.
+ */
+export function isTimeoutError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  return (
+    status === 408 ||
+    status === 504 ||
+    /timeout|timed out|ECONNRESET|ETIMEDOUT|deadline_exceeded/i.test(msg)
+  );
+}
+
+/**
+ * Utility wrapper to automatically retry an async operation with exponential backoff.
+ * It will only retry if the error was flagged as a Rate Limit or Timeout error.
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      attempt++;
+      
+      // Stop retrying if we hit the limit or if the error isn't retryable
+      if (attempt > maxRetries || (!isRateLimitError(error) && !isTimeoutError(error))) {
+        throw error;
+      }
+      
+      // Calculate delay with exponential backoff and a small random jitter.
+      // Bypass the delay during testing so Vitest doesn't time out waiting for retries.
+      const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+      const delay = isTest ? 0 : baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 200;
+      
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 // Exported for the test suite and for reuse by other flows that may want the same detectors.
 export const __internal = {
   detectPromptInjection,
   contradictsSeverity,
   buildPrompt,
   isRateLimitError,
+  isTimeoutError,
+  withRetry,
   llmInjectionCheck,
 };
