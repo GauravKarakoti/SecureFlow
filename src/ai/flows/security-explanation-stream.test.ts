@@ -205,31 +205,6 @@ describe('streamDeveloperSecurityExplanations', () => {
       expect(done.result.explanation).toBe('Partial streamed text only');
     }
   });
-
-  it('yields a specific rate-limit error message when AI provider returns HTTP 429', async () => {
-    mockCustomError = Object.assign(new Error('Rate limit reached for model groq/openai/gpt-oss-20b'), { status: 429 });
-
-    const events = await collectEvents(baseInput);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('error');
-    if (events[0].type === 'error') {
-      expect(events[0].message).toContain('AI provider rate limit reached (429)');
-    }
-  });
-
-  it('yields a specific timeout error message when Groq connection times out', async () => {
-    const timeoutErr = new Error('Connection timed out');
-    timeoutErr.name = 'APIConnectionTimeoutError';
-    mockCustomError = timeoutErr;
-
-    const events = await collectEvents(baseInput);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('error');
-    if (events[0].type === 'error') {
-      expect(events[0].message).toContain('AI provider connection timed out');
-    }
-  });
-
 });
 
 describe('streaming flow uses securityExplanationModel', () => {

@@ -116,19 +116,23 @@ describe('Toast Events Integration (#176)', () => {
   });
 
   it('triggers police intercept toast at most once when stream emits thematic keywords', async () => {
-    let mockEsInstance: { close: () => void; onmessage: ((ev: { data: string }) => void) | null; onerror: (() => void) | null } | null = null;
-    vi.stubGlobal(
-      'EventSource',
-      vi.fn().mockImplementation(() => {
-        const inst = {
-          close: vi.fn(),
-          onmessage: null as ((ev: { data: string }) => void) | null,
-          onerror: null as (() => void) | null,
-        };
-        mockEsInstance = inst;
-        return inst;
-      })
-    );
+    let mockEsInstance: { 
+      close: ReturnType<typeof vi.fn>; 
+      onmessage: ((ev: { data: string }) => void) | null; 
+      onerror: (() => void) | null 
+    } | null = null;
+    
+    class LocalMockEventSource {
+      close = vi.fn();
+      onmessage: ((ev: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor() {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        mockEsInstance = this;
+      }
+    }
+    
+    vi.stubGlobal('EventSource', LocalMockEventSource);
 
     render(
       <HeistTransmission
