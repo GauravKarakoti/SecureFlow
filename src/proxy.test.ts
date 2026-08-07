@@ -105,6 +105,32 @@ describe('Next.js RBAC Middleware Guarding', () => {
     expect(res?.status).toBe(200); // NextResponse.next()
   });
 
+  it('returns 401 for unauthenticated requests to /api/admin/*', async () => {
+    const req = new NextRequest('http://localhost/api/admin/export') as MockAuthRequest;
+    req.auth = null;
+
+    const res = await middleware(req);
+
+    expect(res).toBeDefined();
+    expect(res?.status).toBe(401);
+  });
+
+  it('returns 403 for non-admin requests to /api/admin/*', async () => {
+    const req = new NextRequest('http://localhost/api/admin/export') as MockAuthRequest;
+    req.auth = {
+      user: {
+        id: 'user-123',
+        name: 'Standard User',
+        roles: ['USER'],
+      },
+    };
+
+    const res = await middleware(req);
+
+    expect(res).toBeDefined();
+    expect(res?.status).toBe(403);
+  });
+
   describe('Mock Auth Environment (NEXT_PUBLIC_MOCK_AUTH=true)', () => {
     beforeEach(() => {
       process.env.NEXT_PUBLIC_MOCK_AUTH = 'true';
