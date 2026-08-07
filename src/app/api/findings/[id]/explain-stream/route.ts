@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explanation-stream';
 import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 import { checkRateLimit } from '@/lib/redis';
+import { ratelimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,17 @@ async function handler(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // Upstash sliding-window rate limit check if UPSTASH_REDIS_REST_URL is set
+  if (ratelimit) {
+    const { success } = await ratelimit.limit(`explain-stream:${userId}`);
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': '60' } }
+      );
+    }
+  }
 
   // User-based token bucket: stricter than IP limit, keyed per authenticated user
   const userAllowed = await checkRateLimit(
