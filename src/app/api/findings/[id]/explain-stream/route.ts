@@ -9,6 +9,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Streams a live-regenerated AI explanation for a single finding as Server-Sent Events.
+ * Rate-limited via both IP-based token bucket (`withRateLimit`) and per-user token bucket (`checkRateLimit`).
+ * Includes error boundary catching for Groq SDK timeout or rate-limit errors.
  *
  * Each event is a JSON-encoded line of the shape emitted by streamDeveloperSecurityExplanations
  * (`{"type":"chunk",...}`, `{"type":"done",...}`, or `{"type":"error",...}`), so the client can
