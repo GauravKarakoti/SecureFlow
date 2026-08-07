@@ -1,6 +1,6 @@
 import { Client } from 'pg';
 
-export async function getUserByUsername(username: string) {
+export async function getUserByUsername(username: string): Promise<unknown[]> {
   const client = new Client({});
 
   try {

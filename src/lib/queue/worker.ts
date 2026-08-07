@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import { z } from 'zod';
 import { redis } from './redis';
-import { webhookDLQ } from './webhookQueue';
+import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
@@ -80,7 +80,7 @@ export function getCommentableLines(patch: string): Set<number> {
   return lines;
 }
 
-export const worker = new Worker('github-webhooks', async (job: Job) => {
+export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: Job<WebhookJobData>) => {
   const { payload: rawPayload, event, deliveryId } = job.data;
 
   // Event Filtering

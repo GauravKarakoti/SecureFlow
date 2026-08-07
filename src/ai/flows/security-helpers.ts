@@ -185,15 +185,23 @@ export function isTimeoutError(err: unknown): boolean {
   );
 }
 
-/**
- * Utility wrapper to automatically retry an async operation with exponential backoff.
- * It will only retry if the error was flagged as a Rate Limit or Timeout error.
- */
+export interface RetryOptions {
+  retries?: number;
+  initialDelayMs?: number;
+}
+
 export async function withRetry<T>(
   operation: () => Promise<T>,
-  maxRetries: number = 3,
+  maxRetriesOrOptions: number | RetryOptions = 3,
   baseDelayMs: number = 1000
 ): Promise<T> {
+  const maxRetries = typeof maxRetriesOrOptions === 'number' 
+    ? maxRetriesOrOptions 
+    : (maxRetriesOrOptions?.retries ?? 3);
+  const initialDelay = typeof maxRetriesOrOptions === 'object' && maxRetriesOrOptions.initialDelayMs !== undefined
+    ? maxRetriesOrOptions.initialDelayMs
+    : baseDelayMs;
+
   let attempt = 0;
   while (true) {
     try {
@@ -209,7 +217,7 @@ export async function withRetry<T>(
       // Calculate delay with exponential backoff and a small random jitter.
       // Bypass the delay during testing so Vitest doesn't time out waiting for retries.
       const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
-      const delay = isTest ? 0 : baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 200;
+      const delay = isTest ? 0 : initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
       
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
