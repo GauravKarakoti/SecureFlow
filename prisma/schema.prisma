@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  githubLogin   String?   @unique
+  codename      String?   @unique
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
+  // Updated relation field
+  repositories  Repository[]
+  policyToggles UserPolicyToggle[] // Replaced 'policies Policy[]'
+  roles         UserRole[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @id @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model Repository {
+  id       String  @id @default(cuid())
+  githubId BigInt  @unique // Changed from Int
+  fullName String
+  owner    String
+  isActive Boolean @default(true)
+
+  // Link to the User
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pullRequests PullRequest[]
+  webhookEvents WebhookEvent[]
+  triages       FindingTriage[]
+  createdAt    DateTime      @default(now())
+
+  @@index([userId])
+}
+
+model PolicyTemplate {
+  id          String  @id @default(cuid())
+  name        String
+  description String
+  severity    String  @default("HIGH")
+  action      String  @default("REVIEW REQUIRED")
+  rules       Json // Stores the conditions/glob patterns
+  isDefault   Boolean @default(false) // Whether it is toggled ON by default for new users
+
+  activeToggles UserPolicyToggle[]
+  createdAt     DateTime           @default(now())
+}
+
+model UserPolicyToggle {
+  id               String  @id @default(cuid())
+  userId           String
+  policyTemplateId String
+  isActive         Boolean @default(true)
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template  PolicyTemplate @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  // Ensure a user can only have one toggle record per template
+  @@unique([userId, policyTemplateId])
+  @@index([userId])
+  @@index([policyTemplateId])
+}
+
+model PullRequest {
+  id              String       @id @default(cuid())
+  githubId        BigInt       @unique // Changed from Int
+  prNumber        Int // Int is fine here since PR numbers are sequential per repo
+  title           String
+  state           String // open, closed, merged
+  status          String // PASS, REVIEW_REQUIRED, BLOCKED
+  authorLogin     String?   // GitHub login of the PR author (from webhook)
+  authorAvatarUrl String?   // GitHub avatar URL (from webhook)
+  repositoryId    String
+  repository      Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  scans           ScanResult[]
+  webhookEvents   WebhookEvent[]
+  createdAt       DateTime     @default(now())
+
+  @@index([repositoryId])
+  @@index([authorLogin])
+}
+
+model ScanResult {
+  id             String      @id @default(cuid())
+  pullRequestId  String
+  pullRequest    PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  findings       Finding[]
+  riskScore      Int
+  policyDecision String // PASS, REVIEW, BLOCK
+  createdAt      DateTime    @default(now())
+
+  @@index([pullRequestId])
+  @@index([pullRequestId, createdAt(sort: Desc)])
+}
+
+model Finding {
+  id           String     @id @default(cuid())
+  scanResultId String
+  scanResult   ScanResult @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
+  type         String // Secret, Vulnerability, Misconfig
+  severity     String // CRITICAL, HIGH, MEDIUM, LOW
+  fileLocation String
+  lineStart    Int?
+  lineEnd      Int?
+  codeSnippet  String?
+  explanation  String?
+  remediation  String?
+  promptInjectionSuspected Boolean @default(false)
+  // Stable content hash (repositoryId + fileLocation + type + codeSnippet)
+  // computed by the worker at write time. Triage keys off this so a dismissal
+  // survives the latest-wins re-scan that recreates Finding rows.
+  fingerprint  String     @default("")
+  createdAt    DateTime   @default(now())
+
+  @@index([scanResultId])
+  @@index([fingerprint])
+}
+
+// Triage / lifecycle state for a finding, keyed by the stable fingerprint
+// rather than Finding.id so a dismiss/resolve/false-positive decision persists
+// across re-scans (which delete and recreate the Finding rows).
+model FindingTriage {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  fingerprint  String
+  status       String     @default("OPEN") // OPEN | RESOLVED | FALSE_POSITIVE | IGNORED
+  note         String?
+  resolvedById String? // User.id of whoever set the current status
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([repositoryId, fingerprint])
+  @@index([repositoryId])
+  @@index([fingerprint])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  resource  String
+  decision  String?
+  metadata  Json?
+  timestamp DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, timestamp(sort: Desc)])
+}
+
+model WebhookEvent {
+  id            String       @id @default(cuid())
+  deliveryId    String       @unique
+  repositoryId  String?
+  repository    Repository?  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  pullRequestId String?
+  pullRequest   PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+
+  @@index([repositoryId])
+  @@index([pullRequestId])
+}
+
+// --- RBAC & Access Control Models ---
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique // e.g., "ADMIN", "USER", "AUDITOR"
+  description String?
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  action      String           @unique // e.g., "read:audit", "delete:user"
+  description String?
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+}
