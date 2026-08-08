@@ -11,7 +11,13 @@ export type AISecurityExplanationInput = z.infer<typeof AISecurityExplanationInp
 
 export const AISecurityExplanationOutputSchema = z.object({
   explanation: z.string(),
-  remediationSuggestions: z.any().transform((val) => typeof val === 'string' ? val : JSON.stringify(val)),
+  remediationSuggestions: z
+    .union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown())])
+    .optional()
+    .transform((val) => {
+      if (!val) return 'No remediation suggestions provided.';
+      return typeof val === 'string' ? val : JSON.stringify(val);
+    }),
   promptInjectionSuspected: z.boolean().default(false),
 });
 export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOutputSchema>;
@@ -23,7 +29,7 @@ export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOu
 // on the complete response via AISecurityExplanationOutputSchema once the stream ends.
 export const StreamChunkSchema = z.object({
   explanation: z.string().optional(),
-  remediationSuggestions: z.any().optional(),
+  remediationSuggestions: z.union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown())]).optional(),
 });
 
 export const SYSTEM_PROMPT =
