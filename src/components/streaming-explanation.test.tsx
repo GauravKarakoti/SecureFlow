@@ -5,30 +5,35 @@ import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const mockUseStreamingExplanation = vi.hoisted(() => vi.fn());
+
+vi.mock('@/hooks/use-streaming-explanation', () => ({
+  useStreamingExplanation: mockUseStreamingExplanation,
+}));
+
 import StreamingExplanation from './streaming-explanation';
-import * as hooks from '@/hooks/use-streaming-explanation';
 
 const baseMock = {
   stop: vi.fn(),
+  retry: vi.fn(),
   remediationSuggestions: null,
   promptInjectionSuspected: false,
+  isError: false,
 };
 
 describe('StreamingExplanation', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders stored explanation initially', () => {
-    vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
+    mockUseStreamingExplanation.mockReturnValue({
       ...baseMock,
       isStreaming: false,
       explanation: '',
-      remediationSuggestions: null,
-      promptInjectionSuspected: false,
       error: null,
       start: vi.fn(),
-      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Initial stored text." />);
@@ -38,65 +43,54 @@ describe('StreamingExplanation', () => {
 
   it('calls start when Live Analysis button is clicked', () => {
     const startMock = vi.fn();
-    vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
+    mockUseStreamingExplanation.mockReturnValue({
       ...baseMock,
       isStreaming: false,
       explanation: '',
-      remediationSuggestions: null,
-      promptInjectionSuspected: false,
       error: null,
       start: startMock,
-      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);
 
-    const button = screen.getByRole('button', { name: /Live analysis/i });
-    fireEvent.click(button);
+    fireEvent.click(screen.getByRole('button', { name: /Live analysis/i }));
 
     expect(startMock).toHaveBeenCalledTimes(1);
   });
 
   it('displays streaming explanation when streaming', () => {
-    vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
+    mockUseStreamingExplanation.mockReturnValue({
       ...baseMock,
       isStreaming: true,
       explanation: 'Streamed part',
-      remediationSuggestions: null,
-      promptInjectionSuspected: false,
       error: null,
       start: vi.fn(),
-      stop: vi.fn(),
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);
 
     expect(screen.getByText(/\"Streamed part\"/)).toBeInTheDocument();
-
-    const button = screen.getByRole('button', { name: /Receiving transmission.../i });
-    expect(button).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Receiving transmission.../i })).toBeDisabled();
   });
 
   it('displays error and retry button if transmission fails', () => {
-    const startMock = vi.fn();
-    vi.spyOn(hooks, 'useStreamingExplanation').mockReturnValue({
+    const retryMock = vi.fn();
+    mockUseStreamingExplanation.mockReturnValue({
       ...baseMock,
       isStreaming: false,
       explanation: 'Partial stream',
-      remediationSuggestions: null,
-      promptInjectionSuspected: false,
       error: 'Network Error',
-      start: startMock,
-      stop: vi.fn(),
+      isError: true,
+      start: vi.fn(),
+      retry: retryMock,
     });
 
     render(<StreamingExplanation findingId="123" storedExplanation="Stored" />);
 
     expect(screen.getByText(/Transmission failed: Network Error/)).toBeInTheDocument();
 
-    const retryButton = screen.getByRole('button', { name: /Retry Explanation/i });
-    fireEvent.click(retryButton);
+    fireEvent.click(screen.getByRole('button', { name: /Retry Explanation/i }));
 
-    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(retryMock).toHaveBeenCalledTimes(1);
   });
 });
