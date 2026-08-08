@@ -48,6 +48,8 @@ vi.mock('@/lib/actions/triage', () => ({
 describe('Toast Events Integration (#176)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Restore the default EventSource stub after clearAllMocks wipes mock implementations
+    vi.stubGlobal('EventSource', MockEventSource);
   });
 
   it('triggers toast on skip decryption in HeistTransmission', () => {
@@ -105,19 +107,14 @@ describe('Toast Events Integration (#176)', () => {
   });
 
   it('triggers police intercept toast at most once when stream emits thematic keywords', async () => {
-    let mockEsInstance: { close: () => void; onmessage: ((ev: { data: string }) => void) | null; onerror: (() => void) | null } | null = null;
-    vi.stubGlobal(
-      'EventSource',
-      vi.fn().mockImplementation(() => {
-        const inst = {
-          close: vi.fn(),
-          onmessage: null as ((ev: { data: string }) => void) | null,
-          onerror: null as (() => void) | null,
-        };
-        mockEsInstance = inst;
-        return inst;
-      })
-    );
+    class CapturingEventSource {
+      close = vi.fn();
+      onmessage: ((ev: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor() { CapturingEventSource.last = this; }
+      static last: CapturingEventSource | null = null;
+    }
+    vi.stubGlobal('EventSource', CapturingEventSource);
 
     render(
       <HeistTransmission
@@ -129,11 +126,11 @@ describe('Toast Events Integration (#176)', () => {
       />
     );
 
-    expect(mockEsInstance).not.toBeNull();
+    expect(CapturingEventSource.last).not.toBeNull();
 
     // Emit chunk containing thematic keyword PROFESSOR
     await act(async () => {
-      mockEsInstance!.onmessage!({
+      CapturingEventSource.last!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: '> SENDER: THE PROFESSOR' }),
       });
     });
@@ -145,7 +142,7 @@ describe('Toast Events Integration (#176)', () => {
 
     // Emit another chunk containing VAULT
     await act(async () => {
-      mockEsInstance!.onmessage!({
+      CapturingEventSource.last!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: 'The vault is secured.' }),
       });
     });
