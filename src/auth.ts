@@ -1,7 +1,13 @@
+
+import NextAuth from "next-auth"
+import GitHub from "next-auth/providers/github"
+import { PrismaAdapter } from "@auth/prisma-adapter"
+import prisma from "@/lib/prisma"
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import prisma from "@/lib/prisma"; 
 import authConfig from "./auth.config";
+main
 
 const CITIES = ["Tokyo", "Denver", "Helsinki", "Nairobi", "Berlin", "Rio", "Moscow", "Oslo", "Bogota", "Palermo"];
 
@@ -10,33 +16,68 @@ const nextAuthResult = NextAuth({
   ...authConfig,
   adapter: {
     ...PrismaAdapter(prisma),
-    createUser: async (user: any) => {
-      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
-      const githubLogin = user.githubLogin ?? null;
-      const { githubLogin: _drop, ...rest } = user;
-      return prisma.user.create({
-        data: {
-          ...rest,
-          githubLogin,
-          codename,
-          roles: {
-            create: [{
-              role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
-            }]
-          }
-        },
-      }) as any;
+fix/leaderboard-codename-420
+    createUser: async (user) => {
+      const existingUser = user.email
+        ? await prisma.user.findUnique({
+            where: { email: user.email },
+            select: { codename: true },
+          })
+        : null;
+
+      const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
+
+      const createdUser = await prisma.user.create({
+
+createUser: async (user) => {
+  const existingUser = user.email
+    ? await prisma.user.findUnique({
+        where: { email: user.email },
+        select: { codename: true },
+      })
+    : null;
+
+  const codename = existingUser?.codename || CITIES[Math.floor(Math.random() * CITIES.length)];
+
+  const createdUser = await prisma.user.create({
+    data: {
+      ...user,
+      codename,
     },
-  },
+  });
+
+  return createdUser as typeof createdUser & {
+    email: string;
+    emailVerified: Date | null;
+  };
+},    
   session: {
     ...authConfig.session,
     strategy: "jwt",
     maxAge: 365 * 24 * 60 * 60, // 1 Year
   },
   callbacks: {
-    ...authConfig.callbacks,
-    async jwt(params: any) {
-      const { token, user, account, trigger } = params;
+    async jwt({ token, account, user }) {
+      // Initial sign in
+      if (account && user) {
+        const dbUser = user.id
+          ? await prisma.user.findUnique({
+              where: { id: user.id },
+              select: { codename: true },
+            })
+          : null;
+
+        const fallbackCodename = (user as { codename?: string }).codename;
+
+        return {
+          ...token,
+          accessToken: account.access_token,
+          refreshToken: account.refresh_token,
+          accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
+          userId: user.id,
+          codename: dbUser?.codename || fallbackCodename,
+        };
+      }
 
       // 1. Initial sign-in: Hydrate token with initial login properties
       if (account && user) {
@@ -60,58 +101,16 @@ const nextAuthResult = NextAuth({
           token.codename = dbUser.codename;
         }
       }
-
-      // Defer to authConfig jwt callback to handle the GitHub access token refresh
-      if (authConfig.callbacks?.jwt) {
-        // Pass the updated roles down the chain
-        const finalUser = user ? { ...user, roles: token.roles } : undefined;
-        return authConfig.callbacks.jwt({ ...params, token, user: finalUser });
+    },
+    async session({ session, token }) {
+      if (session?.user) {
+        Object.assign(session.user, {
+          id: token.userId as string,
+          codename: token.codename as string,
+        });
       }
 
       return token;
     },
   },
-});
-
-export const handlers = nextAuthResult.handlers;
-export const signIn = nextAuthResult.signIn;
-export const signOut = nextAuthResult.signOut;
-export const auth = async (...args: any[]) => {
-  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
-    let mockSessionCookie: string | undefined;
-    try {
-      const { cookies } = await import("next/headers");
-      const cookieStore = await cookies();
-      mockSessionCookie = cookieStore.get("mock-session")?.value;
-    } catch (e) {
-      // Ignore if called outside of request context (like early static build phase)
-    }
-
-    if (mockSessionCookie === "admin") {
-      return {
-        user: {
-          id: "mock-admin-id",
-          name: "Mock Admin",
-          email: "admin@secureflow.test",
-          roles: ["ADMIN", "USER"],
-          codename: "Professor",
-        },
-        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
-      } as any;
-    } else if (mockSessionCookie === "user") {
-      return {
-        user: {
-          id: "mock-user-id",
-          name: "Mock User",
-          email: "user@secureflow.test",
-          roles: ["USER"],
-          codename: "Rio",
-        },
-        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
-      } as any;
-    } else if (mockSessionCookie === "none") {
-      return null;
-    }
-  }
-  return (nextAuthResult.auth as any)(...args);
-};
+})
