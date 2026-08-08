@@ -35,8 +35,8 @@ const initialState: StreamingExplanationState = {
   error: null,
 };
 
-/** Stream idle timeout in milliseconds (30 seconds without data). */
-const STREAM_IDLE_TIMEOUT_MS = 30000;
+/** Stream idle timeout in milliseconds (15 seconds without data). */
+const STREAM_IDLE_TIMEOUT_MS = 15000;
 
 /**
  * Consumes the /api/findings/[id]/explain-stream Server-Sent Events endpoint, exposing the
@@ -201,5 +201,8 @@ export function useStreamingExplanation(findingId: string) {
     }
   }, [findingId, stop, toast]);
 
-  return { ...state, start, stop };
+  const retry = start;
+  const isError = state.error !== null;
+
+  return { ...state, isError, start, stop, retry };
 }
