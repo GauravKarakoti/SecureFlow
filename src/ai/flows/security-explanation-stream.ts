@@ -2,6 +2,7 @@ import "dotenv/config";
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
 import { ai, securityExplanationModel } from '@/ai/genkit';
 import {
+  AISecurityExplanationApiSchema,
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
   SYSTEM_PROMPT,
@@ -62,7 +63,7 @@ export async function* streamDeveloperSecurityExplanations(
           prompt,
           output: {
             format: 'json',
-            schema: AISecurityExplanationOutputSchema,
+            schema: AISecurityExplanationApiSchema,
           },
           config: {
             maxOutputTokens: 3000,

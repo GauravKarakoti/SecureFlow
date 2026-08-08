@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AISecurityExplanationApiSchema,
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
   StreamChunkSchema,
@@ -101,6 +102,43 @@ describe('security-explanation-schemas', () => {
         explanation: 'Security issue detected.',
         remediationSuggestions: 'Apply validation.',
         promptInjectionSuspected: 'yes',
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('AISecurityExplanationApiSchema', () => {
+    it('accepts a valid API response', () => {
+      const result = AISecurityExplanationApiSchema.safeParse({
+        explanation: 'SQL injection detected.',
+        remediationSuggestions: 'Use parameterized queries.',
+        promptInjectionSuspected: false,
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts output without optional fields', () => {
+      const result = AISecurityExplanationApiSchema.safeParse({
+        explanation: 'Security issue detected.',
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects output without explanation', () => {
+      const result = AISecurityExplanationApiSchema.safeParse({
+        remediationSuggestions: 'Fix it.',
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects non-string remediationSuggestions', () => {
+      const result = AISecurityExplanationApiSchema.safeParse({
+        explanation: 'Issue found.',
+        remediationSuggestions: { action: 'fix' },
       });
 
       expect(result.success).toBe(false);
