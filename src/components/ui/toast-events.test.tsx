@@ -59,6 +59,8 @@ vi.mock('next/navigation', () => ({
 describe('Toast Events Integration (#176)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Restore the default EventSource stub after clearAllMocks wipes mock implementations
+    vi.stubGlobal('EventSource', MockEventSource);
   });
 
   it('triggers toast on skip decryption in HeistTransmission', () => {
@@ -116,23 +118,14 @@ describe('Toast Events Integration (#176)', () => {
   });
 
   it('triggers police intercept toast at most once when stream emits thematic keywords', async () => {
-    let mockEsInstance: { 
-      close: ReturnType<typeof vi.fn>; 
-      onmessage: ((ev: { data: string }) => void) | null; 
-      onerror: (() => void) | null 
-    } | null = null;
-    
-    class LocalMockEventSource {
+    class CapturingEventSource {
       close = vi.fn();
       onmessage: ((ev: { data: string }) => void) | null = null;
       onerror: (() => void) | null = null;
-      constructor() {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        mockEsInstance = this;
-      }
+      constructor() { CapturingEventSource.last = this; }
+      static last: CapturingEventSource | null = null;
     }
-    
-    vi.stubGlobal('EventSource', LocalMockEventSource);
+    vi.stubGlobal('EventSource', CapturingEventSource);
 
     render(
       <HeistTransmission
@@ -144,11 +137,11 @@ describe('Toast Events Integration (#176)', () => {
       />
     );
 
-    expect(mockEsInstance).not.toBeNull();
+    expect(CapturingEventSource.last).not.toBeNull();
 
     // Emit chunk containing thematic keyword PROFESSOR
     await act(async () => {
-      mockEsInstance!.onmessage!({
+      CapturingEventSource.last!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: '> SENDER: THE PROFESSOR' }),
       });
     });
@@ -160,7 +153,7 @@ describe('Toast Events Integration (#176)', () => {
 
     // Emit another chunk containing VAULT
     await act(async () => {
-      mockEsInstance!.onmessage!({
+      CapturingEventSource.last!.onmessage!({
         data: JSON.stringify({ type: 'chunk', text: 'The vault is secured.' }),
       });
     });

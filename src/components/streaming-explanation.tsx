@@ -14,7 +14,7 @@ interface StreamingExplanationProps {
  * cutting perceived latency versus waiting for a full non-streamed response (issue #218).
  */
 export default function StreamingExplanation({ findingId, storedExplanation }: StreamingExplanationProps) {
-  const { isStreaming, explanation, error, start } = useStreamingExplanation(findingId);
+  const { isStreaming, explanation, isError, error, retry, start } = useStreamingExplanation(findingId);
 
   const displayText = isStreaming || explanation ? explanation : storedExplanation;
 
@@ -44,14 +44,14 @@ export default function StreamingExplanation({ findingId, storedExplanation }: S
         )}
       </p>
 
-      {error && (
+      {isError && (
         <div className="mt-3 flex items-center justify-between gap-4">
           <p className="text-xs text-destructive flex-1">
             Transmission failed: {error}. Showing last known analysis.
           </p>
           <button
             type="button"
-            onClick={start}
+            onClick={retry}
             className="flex items-center gap-1.5 px-3 py-1 bg-destructive/10 hover:bg-destructive/20 border border-destructive/30 hover:border-destructive/50 text-destructive text-xs font-bold uppercase tracking-wider rounded-lg transition-colors shrink-0"
             title="Retry the AI analysis and explanation stream"
           >
