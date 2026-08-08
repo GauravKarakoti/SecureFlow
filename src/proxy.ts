@@ -25,12 +25,21 @@ export default auth(async function middleware(
     }
   }
   
-  // RBAC Admin Route Guarding (/admin/*)
-  if (request.nextUrl.pathname.startsWith('/admin')) {
+  // RBAC Admin Route Guarding (/admin/* and /api/admin/*)
+  const isAdminWebRoute = request.nextUrl.pathname.startsWith('/admin');
+  const isAdminApiRoute = request.nextUrl.pathname.startsWith('/api/admin');
+
+  if (isAdminWebRoute || isAdminApiRoute) {
     if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
       const mockSession = request.cookies.get('mock-session')?.value;
       if (mockSession === 'admin') {
         return NextResponse.next();
+      }
+      if (isAdminApiRoute) {
+        return NextResponse.json(
+          { error: 'Unauthorized', message: 'Forbidden' },
+          { status: mockSession === 'user' ? 403 : 401 }
+        );
       }
       if (mockSession === 'user') {
         return NextResponse.redirect(new URL('/dashboard', request.nextUrl));
@@ -42,10 +51,22 @@ export default auth(async function middleware(
       (token?.user?.roles as string[]) || (token?.roles as string[]) || [];
 
     if (!token) {
+      if (isAdminApiRoute) {
+        return NextResponse.json(
+          { error: 'Unauthorized', message: 'Authentication required' },
+          { status: 401 }
+        );
+      }
       return NextResponse.redirect(new URL('/login', request.nextUrl));
     }
 
     if (!roles.includes('ADMIN')) {
+      if (isAdminApiRoute) {
+        return NextResponse.json(
+          { error: 'Forbidden', message: 'Admin role required' },
+          { status: 403 }
+        );
+      }
       return NextResponse.redirect(new URL('/dashboard', request.nextUrl));
     }
   }
@@ -54,5 +75,5 @@ export default auth(async function middleware(
 });
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/admin/:path*', '/api/admin/:path*', '/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };

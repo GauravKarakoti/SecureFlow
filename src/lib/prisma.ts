@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-(BigInt.prototype as any).toJSON = function () {
+BigInt.prototype.toJSON = function (this: bigint): string {
   return this.toString();
 };
 

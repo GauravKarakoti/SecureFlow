@@ -45,6 +45,17 @@ vi.mock('@/lib/actions/triage', () => ({
   setFindingStatus: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+  }),
+}));
+
 describe('Toast Events Integration (#176)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
