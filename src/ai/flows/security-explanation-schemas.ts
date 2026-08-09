@@ -16,6 +16,22 @@ export const AISecurityExplanationOutputSchema = z.object({
 });
 export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOutputSchema>;
 
+// API-safe schema used exclusively in the `output` option of `ai.generateStream()`.
+//
+// Why a separate schema? AISecurityExplanationOutputSchema uses `z.any()` and `.transform()`,
+// which produce invalid JSON Schema fragments (empty `{}` objects) when Genkit's `zodToJsonSchema`
+// converts them. Groq's strict JSON Schema validator rejects those fragments and the model
+// returns null, causing the `(root): must be object` error.
+//
+// This schema uses only simple Zod types (z.string, z.boolean) that map to clean, valid JSON
+// Schema. The model's raw JSON response is then post-processed through
+// AISecurityExplanationOutputSchema locally for the `.transform()` logic.
+export const AISecurityExplanationApiSchema = z.object({
+  explanation: z.string(),
+  remediationSuggestions: z.string().optional(),
+  promptInjectionSuspected: z.boolean().optional(),
+});
+
 // Lenient/partial schema used only to type the incrementally-parsed JSON chunks Genkit hands
 // back mid-stream. Unlike AISecurityExplanationOutputSchema, fields here are optional (the
 // object is necessarily incomplete for most of the stream) and remediationSuggestions is left
