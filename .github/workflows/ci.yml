@@ -114,6 +114,12 @@ jobs:
       - name: Run Tests
         run: npm test
 
+      - name: Install coverage provider
+        run: npm install --no-save @vitest/coverage-v8
+
+      - name: Run Tests with Coverage
+        run: npm run test:coverage
+
   red-team:
     name: Adversarial AI Red-Team Tests
     runs-on: ubuntu-latest
