@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:redteam": "vitest run src/ai/flows",
     "test:e2e": "playwright test",
     "db:gen": "npx prisma generate",
