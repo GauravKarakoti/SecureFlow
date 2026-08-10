@@ -29,7 +29,7 @@
     "ngrok": "ngrok http 9002"
   },
   "dependencies": {
-    "@armoriq/sdk": "^0.6.7",
+    "@armoriq/sdk": "^0.6.8",
     "@auth/prisma-adapter": "^2.11.3",
     "@genkit-ai/compat-oai": "^1.40.1",
     "@hookform/resolvers": "^5.7.1",
@@ -58,8 +58,8 @@
     "@radix-ui/react-toast": "^1.2.23",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.38.1",
-    "bullmq": "^6.0.7",
+    "@upstash/redis": "^1.38.2",
+    "bullmq": "^6.0.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.4",
@@ -71,7 +71,7 @@
     "genkitx-groq": "^0.31.0",
     "groq-sdk": "^1.5.0",
     "ioredis": "^6.0.0",
-    "lucide-react": "^1.28.0",
+    "lucide-react": "^1.30.0",
     "next": "16.3.0",
     "next-auth": "^5.0.0-beta.32",
     "octokit": "^5.0.5",
@@ -97,7 +97,7 @@
     "@testing-library/user-event": "^14.6.3",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.2",
-    "@types/pg": "^8.20.3",
+    "@types/pg": "^8.20.4",
     "@types/react": "^19.2.18",
     "@types/react-countup": "^4.3.1",
     "@types/react-dom": "^19.2.4",
@@ -110,7 +110,7 @@
     "prettier": "^3.9.6",
     "prisma": "^7.9.1",
     "tailwindcss": "^4.3.2",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.10",
     "typescript": "^6",
     "vitest": "^4.1.10"
   }
