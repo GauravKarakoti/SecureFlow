@@ -1,10 +1,6 @@
-import '@testing-library/jest-dom/vitest';
-import { vi, afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
-
-afterEach(() => {
-  cleanup();
-});
+import { expect, vi } from 'vitest';
+import * as matchers from '@testing-library/jest-dom/matchers';
+expect.extend(matchers);
 
 // Stub @/lib/prisma so tests never open a real DB connection while preserving helper utilities.
 // NOTE: We do NOT use importOriginal() here because it triggers loading the real @/lib/prisma
