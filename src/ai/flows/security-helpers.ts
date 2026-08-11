@@ -164,9 +164,11 @@ Respond ONLY with a valid JSON object with keys "explanation" and "remediationSu
 export function isRateLimitError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string }).code ?? '';
   const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
   return (
     status === 429 ||
+    /rate_limit|rate-limit|too_many_requests/i.test(code) ||
     /429|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
   );
 }
@@ -177,11 +179,13 @@ export function isRateLimitError(err: unknown): boolean {
 export function isTimeoutError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string }).code ?? '';
   const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
   return (
     status === 408 ||
     status === 504 ||
-    /timeout|timed out|ECONNRESET|ETIMEDOUT|deadline_exceeded/i.test(msg)
+    /ETIMEDOUT|ECONNABORTED|ECONNRESET/i.test(code) ||
+    /timeout|timed out|ECONNRESET|ETIMEDOUT|ECONNABORTED|deadline_exceeded/i.test(msg)
   );
 }
 
