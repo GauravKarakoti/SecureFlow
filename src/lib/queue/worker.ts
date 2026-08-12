@@ -46,10 +46,190 @@ const payloadSchema = z.object({
   }).passthrough().optional(),
   repositories: z.array(repoSchema).optional(),
   repositories_added: z.array(repoSchema).optional(),
+  // Present on `installation_repositories` deliveries with action 'removed'.
+  // Previously absent from the schema entirely, which is part of why that
+  // action fell through to code expecting `repositories_added`.
+  repositories_removed: z.array(repoSchema).optional(),
   sender: z.object({
     id: z.union([z.number(), z.string()])
   }).passthrough().optional()
 }).passthrough();
+
+/** Cap on how much of a Zod error is embedded in a thrown message. */
+export const MAX_VALIDATION_ERROR_LENGTH = 500;
+
+/**
+ * Trim `text` so a failure reason stays a reasonable size.
+ *
+ * The formatted Zod error for a large webhook payload can run to many kilobytes,
+ * and BullMQ writes the failure reason into Redis on every failed attempt.
+ */
+export function truncateForError(text: string, maxLength: number = MAX_VALIDATION_ERROR_LENGTH): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}… (truncated, ${text.length} chars total)`;
+}
+
+/**
+ * A problem with the deployment itself rather than with the delivery.
+ *
+ * Retrying cannot help — the same missing variable will still be missing — so
+ * this is thrown with a message that names the variable instead of surfacing as
+ * a confusing dereference error three attempts later.
+ */
+export class WebhookConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WebhookConfigurationError';
+  }
+}
+
+/**
+ * Read and validate the GitHub App credentials.
+ *
+ * The previous `process.env.GITHUB_PRIVATE_KEY!.replace(...)` produced
+ * "Cannot read properties of undefined (reading 'replace')" when the variable
+ * was unset — a misleading error for a straightforward misconfiguration.
+ */
+export function getGitHubAppCredentials(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): { appId: string; privateKey: string } {
+  const appId = env.GITHUB_APP_ID?.trim();
+  const rawPrivateKey = env.GITHUB_PRIVATE_KEY;
+
+  if (!appId) {
+    throw new WebhookConfigurationError('GITHUB_APP_ID is not set; cannot authenticate as the GitHub App.');
+  }
+  if (!rawPrivateKey || rawPrivateKey.trim() === '') {
+    throw new WebhookConfigurationError('GITHUB_PRIVATE_KEY is not set; cannot authenticate as the GitHub App.');
+  }
+
+  // Keys are commonly stored with literal "\n" sequences in a single-line env var.
+  return { appId, privateKey: rawPrivateKey.replace(/\\n/g, '\n') };
+}
+
+export interface RepoLike {
+  id: number | string;
+  full_name: string;
+  [key: string]: unknown;
+}
+
+export type RepositoryListIntent = 'add' | 'remove' | 'ignore';
+
+export interface RepositoryListSelection {
+  intent: RepositoryListIntent;
+  repositories: RepoLike[];
+}
+
+/**
+ * Work out which repository list an installation-flavoured delivery carries.
+ *
+ * GitHub does not always send the field the old code assumed:
+ *  - `installation` / 'created' normally carries `repositories`, but omits it in
+ *    some selected-repository flows;
+ *  - `installation_repositories` / 'added' carries `repositories_added`;
+ *  - `installation_repositories` / 'removed' carries `repositories_removed`,
+ *    which the old code did not handle at all.
+ *
+ * Returning an empty list rather than throwing means a delivery with nothing to
+ * do is a no-op, not three retries and a DLQ entry.
+ */
+export function selectRepositoryList(
+  event: string | null | undefined,
+  action: string | null | undefined,
+  payload: {
+    repositories?: unknown;
+    repositories_added?: unknown;
+    repositories_removed?: unknown;
+  }
+): RepositoryListSelection {
+  const asList = (value: unknown): RepoLike[] =>
+    Array.isArray(value)
+      ? (value.filter(
+          (r) => r && typeof r === 'object' && 'id' in r && 'full_name' in r
+        ) as RepoLike[])
+      : [];
+
+  if (event === 'installation' && action === 'created') {
+    return { intent: 'add', repositories: asList(payload.repositories) };
+  }
+
+  if (event === 'installation_repositories') {
+    if (action === 'added') {
+      return { intent: 'add', repositories: asList(payload.repositories_added) };
+    }
+    if (action === 'removed') {
+      return { intent: 'remove', repositories: asList(payload.repositories_removed) };
+    }
+  }
+
+  return { intent: 'ignore', repositories: [] };
+}
+
+export interface PullRequestContext {
+  pullRequest: Record<string, any>;
+  repository: Record<string, any>;
+  ownerLogin: string;
+  repoName: string;
+  headSha: string;
+  prNumber: number;
+}
+
+/**
+ * Assert that a `pull_request` delivery carries everything the handler needs.
+ *
+ * Every one of these fields is `.optional()` in the schema, so a partial payload
+ * used to validate cleanly and then throw deep inside the handler — after the
+ * pending PR comment had already been posted, leaving a permanent
+ * "⏳ Evaluating..." comment that nothing ever updated.
+ */
+export function assertPullRequestContext(payload: {
+  pull_request?: any;
+  repository?: any;
+}): PullRequestContext {
+  const missing: string[] = [];
+
+  const pullRequest = payload.pull_request;
+  const repository = payload.repository;
+
+  if (!pullRequest) missing.push('pull_request');
+  if (!repository) missing.push('repository');
+
+  const prNumber = pullRequest?.number;
+  if (typeof prNumber !== 'number') missing.push('pull_request.number');
+
+  const headSha = pullRequest?.head?.sha;
+  if (typeof headSha !== 'string' || headSha === '') missing.push('pull_request.head.sha');
+
+  // `name` is optional in the schema but always derivable from `full_name`.
+  const repoName =
+    typeof repository?.name === 'string' && repository.name !== ''
+      ? repository.name
+      : typeof repository?.full_name === 'string'
+        ? repository.full_name.split('/')[1]
+        : undefined;
+  if (!repoName) missing.push('repository.name');
+
+  const ownerLogin =
+    typeof repository?.owner?.login === 'string' && repository.owner.login !== ''
+      ? repository.owner.login
+      : typeof repository?.full_name === 'string'
+        ? repository.full_name.split('/')[0]
+        : undefined;
+  if (!ownerLogin) missing.push('repository.owner.login');
+
+  if (missing.length > 0) {
+    throw new Error(`Incomplete pull_request payload; missing: ${missing.join(', ')}`);
+  }
+
+  return {
+    pullRequest,
+    repository,
+    ownerLogin: ownerLogin as string,
+    repoName: repoName as string,
+    headSha: headSha as string,
+    prNumber: prNumber as number,
+  };
+}
 
 
 /**
@@ -92,7 +272,9 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
   // 2. Validate Payload
   const parsed = payloadSchema.safeParse(rawPayload);
   if (!parsed.success) {
-    throw new Error(`Invalid payload structure: ${JSON.stringify(parsed.error.format())}`);
+    throw new Error(
+      `Invalid payload structure: ${truncateForError(JSON.stringify(parsed.error.format()))}`
+    );
   }
   const payload = parsed.data;
 
@@ -109,7 +291,11 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
   }
 
   // Destructure validated payload properties for processing
-  const { action, pull_request, repository, installation, repositories, repositories_added } = payload as any;
+  const { action, pull_request, repository, installation } = payload as any;
+
+  // Resolved once here so every installation-flavoured branch reads the same
+  // field, including the 'removed' action the old code never handled.
+  const repoSelection = selectRepositoryList(event, action, payload as any);
 
   if (!installation || !installation.id) {
     throw new Error('No GitHub App installation ID found');
@@ -145,39 +331,14 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       return; // Safe to return early here; user hasn't set up yet so we shouldn't lock the webhook.
     }
 
-    await prisma.$transaction([
-      ...repositories.map((repo: any) =>
-        prisma.repository.upsert({
-          where: { githubId: BigInt(repo.id) },
-          update: { isActive: true },
-          create: {
-            githubId: BigInt(repo.id),
-            fullName: repo.full_name,
-            owner: repo.full_name.split('/')[0],
-            userId: account.userId,
-          }
-        })
-      ),
-      prisma.auditLog.create({
-        data: sanitizeAuditLogInput({
-          userId: account.userId,
-          action: 'Repository Added',
-          resource: repositories.map((r: any) => r.full_name).join(', '),
-          metadata: { count: repositories.length, event: 'installation' }
-        })
-      })
-    ]);
-    console.log(`Successfully installed app and populated ${repositories.length} repositories.`);
-  
-  } else if (event === 'installation_repositories' && action === 'added') {
-    const senderId = payload.sender?.id?.toString();
-    const account = await prisma.account.findFirst({
-      where: { provider: 'github', providerAccountId: senderId },
-    });
-
-    if (account) {
+    // GitHub omits `repositories` from some selected-repository install flows.
+    // The old code called .map() on it unconditionally and threw a TypeError,
+    // burning three retries before landing a valid delivery in the DLQ.
+    if (repoSelection.repositories.length === 0) {
+      console.log('[Worker] Installation delivery carried no repositories; nothing to link.');
+    } else {
       await prisma.$transaction([
-        ...repositories_added.map((repo: any) =>
+        ...repoSelection.repositories.map((repo) =>
           prisma.repository.upsert({
             where: { githubId: BigInt(repo.id) },
             update: { isActive: true },
@@ -193,17 +354,77 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
           data: sanitizeAuditLogInput({
             userId: account.userId,
             action: 'Repository Added',
-            resource: repositories_added.map((r: any) => r.full_name).join(', '),
-            metadata: { count: repositories_added.length, event: 'installation_repositories' }
+            resource: repoSelection.repositories.map((r) => r.full_name).join(', '),
+            metadata: { count: repoSelection.repositories.length, event: 'installation' }
+          })
+        })
+      ]);
+      console.log(`Successfully installed app and populated ${repoSelection.repositories.length} repositories.`);
+    }
+
+  } else if (event === 'installation_repositories' && (action === 'added' || action === 'removed')) {
+    const senderId = payload.sender?.id?.toString();
+    const account = await prisma.account.findFirst({
+      where: { provider: 'github', providerAccountId: senderId },
+    });
+
+    if (!account) {
+      console.log(`[Worker] installation_repositories for unknown user ${sanitize(senderId)}; skipping.`);
+    } else if (repoSelection.repositories.length === 0) {
+      console.log(`[Worker] installation_repositories '${sanitize(action)}' carried no repositories; nothing to do.`);
+    } else if (repoSelection.intent === 'remove') {
+      // 'removed' deliveries were previously routed into the 'added' branch's
+      // shape and threw on the missing `repositories_added` field. Repositories
+      // are deactivated rather than deleted so their scan history survives.
+      await prisma.$transaction([
+        prisma.repository.updateMany({
+          where: { githubId: { in: repoSelection.repositories.map((r) => BigInt(r.id)) } },
+          data: { isActive: false },
+        }),
+        prisma.auditLog.create({
+          data: sanitizeAuditLogInput({
+            userId: account.userId,
+            action: 'Repository Removed',
+            resource: repoSelection.repositories.map((r) => r.full_name).join(', '),
+            metadata: { count: repoSelection.repositories.length, event: 'installation_repositories' }
+          })
+        })
+      ]);
+    } else {
+      await prisma.$transaction([
+        ...repoSelection.repositories.map((repo) =>
+          prisma.repository.upsert({
+            where: { githubId: BigInt(repo.id) },
+            update: { isActive: true },
+            create: {
+              githubId: BigInt(repo.id),
+              fullName: repo.full_name,
+              owner: repo.full_name.split('/')[0],
+              userId: account.userId,
+            }
+          })
+        ),
+        prisma.auditLog.create({
+          data: sanitizeAuditLogInput({
+            userId: account.userId,
+            action: 'Repository Added',
+            resource: repoSelection.repositories.map((r) => r.full_name).join(', '),
+            metadata: { count: repoSelection.repositories.length, event: 'installation_repositories' }
           })
         })
       ]);
     }
-  
+
   } else if (event === 'pull_request') {
     if (!['opened', 'synchronize', 'reopened'].includes(action)) {
       console.log('Action not tracked');
     } else {
+      // Fail fast on an incomplete payload. Every field used below is
+      // `.optional()` in the schema, so a partial delivery used to validate
+      // cleanly and then throw after the pending PR comment had been posted —
+      // leaving a permanent "⏳ Evaluating..." comment nothing ever updated.
+      assertPullRequestContext(payload as any);
+
       console.log(`Processing PR #${sanitize(pull_request.number)} on ${sanitize(repository.full_name)}`);
 
       let dbRepo = await prisma.repository.findUnique({
@@ -260,8 +481,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         });
       }
 
-      const appId = process.env.GITHUB_APP_ID!;
-      const privateKey = process.env.GITHUB_PRIVATE_KEY!.replace(/\\n/g, '\n'); 
+      const { appId, privateKey } = getGitHubAppCredentials();
 
       const appClient = new App({ appId, privateKey });
       const octokit = await appClient.getInstallationOctokit(installation.id);
