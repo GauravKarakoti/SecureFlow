@@ -1,23 +1,17 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================================
-# SecureFlow — optimized Next.js 16 production image
+# SecureFlow — Next.js Standalone Production Dockerfile (#478)
 #
-# Multi-stage build leveraging `output: 'standalone'` (see next.config.ts).
-# Next.js output tracing produces a self-contained `.next/standalone` bundle
-# containing only the modules the app actually imports. The final `runner`
-# stage therefore does NOT copy `node_modules` wholesale — only the standalone
-# server, static assets, public files, and a tiny Prisma CLI layer for
-# `prisma migrate deploy` at startup.
+# Multi-stage build leveraging `output: 'standalone'` in next.config.ts.
+# Next.js output tracing produces a self-contained `.next/standalone` bundle.
+# The final `runner` stage copies only standalone server artifacts, static
+# assets, public files, and a minimal Prisma CLI layer for startup migrations.
 #
-# `output: 'standalone'` is enabled conditionally in next.config.ts via the
-# DOCKER_BUILD env var (set below in the builder stage). This keeps local
-# `npm run dev` / `npm run build` / `npm run start` unaffected.
-#
-# Stages:
-#   1. deps         — install ALL deps (cached on package*.json change only)
-#   2. builder      — prisma generate + next build (produces .next/standalone)
-#   3. prisma-cli   — isolated Prisma CLI for startup migrations
-#   4. runner       — minimal runtime image (non-root, no shell deps beyond wget)
+# Multi-stage targets:
+#   1. deps       — install npm dependencies with build caching
+#   2. builder    — prisma generate & next build with DOCKER_BUILD=true
+#   3. prisma-cli — isolated Prisma CLI installation for startup migrations
+#   4. runner     — minimal non-root execution container
 # ============================================================================
 
 
