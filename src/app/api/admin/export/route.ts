@@ -3,6 +3,18 @@ import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
+import { toCsv } from "@/lib/utils/csv";
+
+/** Column order of the export. Fixed rather than derived so the file shape is stable. */
+export const AUDIT_LOG_EXPORT_COLUMNS = [
+  "id",
+  "userId",
+  "action",
+  "resource",
+  "decision",
+  "metadata",
+  "timestamp",
+] as const;
 
 async function handler() {
   const session = await auth();
@@ -19,28 +31,21 @@ async function handler() {
     throw new AppError("No data available", 404);
   }
 
-  const headers = ["id", "userId", "action", "resource", "decision", "metadata", "timestamp"];
-
-  const csvRows = logs.map((log: any) => {
-    return headers.map(header => {
-      let val = (log as any)[header];
-      if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
-      if (val === null || val === undefined) val = "";
-      let stringVal = String(val);
-      if (stringVal.includes(',') || stringVal.includes('"') || stringVal.includes('\n')) {
-        stringVal = `"${stringVal.replace(/"/g, '""')}"`;
-      }
-      return stringVal;
-    }).join(',');
+  // Serialisation (quoting, CRLF records, BOM and formula-injection neutralisation)
+  // is shared with the client-side download helper so both paths emit the same bytes.
+  const csvContent = toCsv(logs as Array<Record<string, unknown>>, {
+    headers: [...AUDIT_LOG_EXPORT_COLUMNS],
   });
-
-  const csvContent = [headers.join(','), ...csvRows].join('\n');
 
   return new NextResponse(csvContent, {
     status: 200,
     headers: {
-      'Content-Type': 'text/csv',
+      // The charset is explicit so the BOM is interpreted rather than shown as
+      // stray characters in the first header cell.
+      'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="audit_logs_export.csv"',
+      // Audit data must never be cached by an intermediary.
+      'Cache-Control': 'no-store',
     },
   });
 }
