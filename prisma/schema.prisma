@@ -262,3 +262,16 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
 }
+
+// --- Event Sourcing Models ---
+model WorkflowEvent {
+  id          String   @id @default(cuid())
+  workflowId  String
+  eventType   String
+  payload     Json
+  actorId     String?
+  timestamp   DateTime @default(now())
+
+  @@index([workflowId])
+  @@index([workflowId, timestamp(sort: Asc)])
+}
