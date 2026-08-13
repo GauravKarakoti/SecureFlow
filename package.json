@@ -26,7 +26,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "ngrok": "ngrok http 9002"
+    "ngrok": "ngrok http 9002",
+    "secureflow": "npx secureflow"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.6.8",
@@ -109,6 +110,7 @@
     "postcss": "^8",
     "prettier": "^3.9.6",
     "prisma": "^7.9.1",
+    "secureflow-cli": "^1.0.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.11",
     "typescript": "^6",
