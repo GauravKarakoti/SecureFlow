@@ -7,6 +7,7 @@ import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
+import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
 
@@ -266,13 +267,24 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       const appClient = new App({ appId, privateKey });
       const octokit = await appClient.getInstallationOctokit(installation.id);
 
-      const { data: pullRequestFiles } = await octokit.rest.pulls.listFiles({
+      // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
+      // call left every file past the 30th unscanned while still reporting a
+      // policy decision as though the whole PR had been reviewed.
+      const pullRequestFilesResult = await fetchPullRequestFiles(octokit as any, {
         owner: repository.owner.login,
         repo: repository.name,
-        pull_number: pull_request.number,
+        pullNumber: pull_request.number,
+        changedFiles: typeof pull_request.changed_files === 'number' ? pull_request.changed_files : null,
       });
 
-      const fileChanges = pullRequestFiles
+      const coverageNotice = formatCoverageNotice(pullRequestFilesResult);
+      if (coverageNotice) {
+        console.warn(
+          `[Worker] Partial file coverage on ${sanitize(repository.full_name)}#${sanitize(pull_request.number)}: analysed ${sanitize(pullRequestFilesResult.fetched)} of ${sanitize(pullRequestFilesResult.totalChanged ?? 'unknown')} changed files.`
+        );
+      }
+
+      const fileChanges = pullRequestFilesResult.files
         .filter((file: any) => file.patch && file.status !== 'removed')
         .map((file: any) => ({
           filename: file.filename,
@@ -290,7 +302,9 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         owner: repository.owner.login,
         repo: repository.name,
         issue_number: pull_request.number,
-        body: `### ⏳ SecureFlow AI Security Scan\n\nEvaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...`,
+        body:
+          `### ⏳ SecureFlow AI Security Scan\n\nEvaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...` +
+          (coverageNotice ? `\n\n${coverageNotice}` : ''),
       });
 
       let customIgnores: string[] = [];
@@ -394,7 +408,11 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         conclusion: conclusion as any,
         output: {
           title: `Policy Decision: ${decision}`,
-          summary: `SecureFlow detected ${findings.length} potential security issues.`,
+          // The scanned-file count is stated explicitly so a truncated scan can
+          // never read as a clean bill of health for the whole PR.
+          summary:
+            `SecureFlow detected ${findings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
+            (coverageNotice ? `\n\n${coverageNotice}` : ''),
         }
       });
 
@@ -439,6 +457,9 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         const renderSummary = (findingsToRender: any[]) => {
           let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies. Please review them before merging.\n\n`;
+          if (coverageNotice) {
+            body += `${coverageNotice}\n\n`;
+          }
           if (inlineComments.length > 0 && findingsToRender.length < enrichedFindings.length) {
             body += `📍 **${inlineComments.length}** finding(s) are annotated inline on the exact changed lines below.\n\n`;
           }
@@ -506,7 +527,11 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
           owner: repository.owner.login,
           repo: repository.name,
           comment_id: pendingComment.data.id,
-          body: `### 🛡️ SecureFlow AI Security Report\n\n✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.`,
+          body:
+            `### 🛡️ SecureFlow AI Security Report\n\n✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
+            // A clean result on a partial scan must say so — this is exactly the
+            // case where silent truncation was most misleading.
+            (coverageNotice ? `\n\n${coverageNotice}` : ''),
         });
       }
 
