@@ -20,34 +20,54 @@ import { createHash } from "crypto";
 // ── Sensitive key patterns ────────────────────────────────────────────────────
 
 /**
- * Keys whose values should be redacted entirely when found in metadata objects.
- * Checked case-insensitively.
+ * Normalise a metadata key for sensitive-key matching: lowercase, with
+ * separators squashed out, so `API_KEY`, `api-key` and `Api Key` all collapse
+ * onto the same lookup value.
  */
-const REDACTED_KEYS = new Set([
-  "password",
-  "passwd",
-  "secret",
-  "token",
-  "apikey",
-  "api_key",
-  "accesstoken",
-  "access_token",
-  "refreshtoken",
-  "refresh_token",
-  "client_secret",
-  "clientsecret",
-  "private_key",
-  "privatekey",
-  "authorization",
-  "cookie",
-  "session",
-  "credential",
-  "credentials",
-  "webhook_secret",
-  "webhooksecret",
-  "github_token",
-  "githubtoken",
-]);
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[-_\s]/g, "");
+}
+
+/**
+ * Keys whose values should be redacted entirely when found in metadata objects.
+ * Checked case-insensitively and ignoring separators.
+ *
+ * The list is written in its readable form and normalised once at module load.
+ * Previously the raw strings were compared against an already-normalised key,
+ * so every underscored entry (`api_key`, `access_token`, `private_key`, …) was
+ * dead weight that could never match — each happened to have a squashed twin,
+ * but the next entry added in that style would have silently done nothing.
+ */
+const REDACTED_KEYS = new Set(
+  [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "client_secret",
+    "private_key",
+    "authorization",
+    "cookie",
+    "session",
+    "credential",
+    "credentials",
+    "webhook_secret",
+    "github_token",
+  ].map(normalizeKey),
+);
+
+/**
+ * Caps on how much of a single metadata payload we persist. An audit row is
+ * evidence, not a dump: without these one oversized job payload can bloat the
+ * `AuditLog` table and slow every query against it.
+ */
+const MAX_ARRAY_ITEMS = 100;
+const MAX_OBJECT_KEYS = 100;
+const MAX_STRING_LENGTH = 4096;
+const MAX_DEPTH = 8;
 
 /**
  * Pattern matching common secret value shapes (API keys, JWTs, Bearer tokens,
@@ -152,45 +172,161 @@ export function hashIdentifier(raw: string, prefix?: string): string {
  * mutating the original.
  */
 export function sanitizeAuditMetadata(metadata: unknown, depth = 0): unknown {
+  return sanitizeValue(metadata, depth, new WeakSet<object>());
+}
+
+/**
+ * Sanitise a single string value: fingerprints pass through untouched, secrets
+ * are redacted, emails masked, and anything absurdly long is truncated.
+ */
+function sanitizeString(value: string): string {
+  // Pure hex strings are SHA-256 fingerprints or similar identifiers — do NOT
+  // redact them, but they are still subject to the length cap below.
+  const cleaned = isPureHex(value) ? value : maskSecretValue(value);
+
+  // Simple heuristic for detecting email strings.
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
+    return maskEmail(cleaned);
+  }
+
+  if (cleaned.length > MAX_STRING_LENGTH) {
+    return `${cleaned.slice(0, MAX_STRING_LENGTH)}…[TRUNCATED]`;
+  }
+
+  return cleaned;
+}
+
+/**
+ * The real recursion. `seen` tracks the objects on the current walk so a
+ * circular reference is reported once instead of being re-expanded at every
+ * level until the depth cap bails out.
+ */
+function sanitizeValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   // Prevent accidental infinite recursion on deeply nested (or circular) data.
-  if (depth > 8) return "[TRUNCATED]";
+  if (depth > MAX_DEPTH) return "[TRUNCATED]";
 
-  if (metadata === null || metadata === undefined) return metadata;
-  if (typeof metadata === "boolean" || typeof metadata === "number") {
-    return metadata;
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === "boolean") return value;
+
+  if (typeof value === "number") {
+    // NaN / Infinity are not representable in JSON and become null on write.
+    return Number.isFinite(value) ? value : String(value);
   }
 
-  if (typeof metadata === "string") {
-    // Pure hex strings are SHA-256 fingerprints or similar identifiers — do NOT redact.
-    if (isPureHex(metadata)) return metadata;
-    // Replace secret-shaped strings first, then check for emails.
-    const afterSecret = maskSecretValue(metadata);
-    // Simple heuristic for detecting email strings.
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(afterSecret)) {
-      return maskEmail(afterSecret);
+  if (typeof value === "string") return sanitizeString(value);
+
+  if (typeof value === "bigint") return `${value.toString()}n`;
+
+  if (typeof value === "symbol") return value.toString();
+
+  if (typeof value === "function") {
+    return `[Function${value.name ? `: ${value.name}` : ""}]`;
+  }
+
+  // ── Built-ins that carry their data in internal slots ────────────────────
+  //
+  // Everything below reaches the generic object branch as `typeof === "object"`
+  // but has no own enumerable properties, so `Object.entries()` returns `[]`
+  // and the value would serialise to `{}` — silently destroying the evidence
+  // the audit row exists to capture.
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "[Invalid Date]" : value.toISOString();
+  }
+
+  if (value instanceof RegExp) return value.toString();
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: sanitizeString(value.message ?? ""),
+    };
+  }
+
+  if (value instanceof URL) {
+    // Credentials can live in the userinfo component of a URL.
+    const cloned = new URL(value.href);
+    if (cloned.username || cloned.password) {
+      cloned.username = "";
+      cloned.password = "";
+      return `${cloned.href} [CREDENTIALS_REDACTED]`;
     }
-    return afterSecret;
+    return sanitizeString(cloned.href);
   }
 
-  if (Array.isArray(metadata)) {
-    return metadata.map((item) => sanitizeAuditMetadata(item, depth + 1));
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    // Buffers/TypedArrays would otherwise expand into a per-byte object like
+    // { "0": 104, "1": 105, … }, which is both useless and unbounded.
+    return `[Binary: ${value.byteLength} bytes]`;
   }
 
-  if (typeof metadata === "object") {
-    const sanitized: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(metadata as Record<string, unknown>)) {
-      const keyLower = key.toLowerCase().replace(/[-_\s]/g, "");
-      if (REDACTED_KEYS.has(keyLower)) {
-        sanitized[key] = "[REDACTED]";
-      } else {
-        sanitized[key] = sanitizeAuditMetadata(value, depth + 1);
+  // ── Containers ───────────────────────────────────────────────────────────
+
+  if (typeof value === "object") {
+    if (seen.has(value as object)) return "[CIRCULAR]";
+    seen.add(value as object);
+
+    try {
+      if (value instanceof Map) {
+        const entries: Record<string, unknown> = {};
+        let count = 0;
+        for (const [rawKey, rawValue] of value.entries()) {
+          if (count >= MAX_OBJECT_KEYS) {
+            entries["[TRUNCATED]"] = `${value.size - MAX_OBJECT_KEYS} more entries`;
+            break;
+          }
+          const key = String(rawKey);
+          entries[key] = REDACTED_KEYS.has(normalizeKey(key))
+            ? "[REDACTED]"
+            : sanitizeValue(rawValue, depth + 1, seen);
+          count += 1;
+        }
+        return entries;
       }
+
+      if (value instanceof Set) {
+        const items = Array.from(value.values(), (item) => sanitizeValue(item, depth + 1, seen));
+        return items.length > MAX_ARRAY_ITEMS
+          ? [
+              ...items.slice(0, MAX_ARRAY_ITEMS),
+              `[TRUNCATED: ${items.length - MAX_ARRAY_ITEMS} more]`,
+            ]
+          : items;
+      }
+
+      if (Array.isArray(value)) {
+        const items = value
+          .slice(0, MAX_ARRAY_ITEMS)
+          .map((item) => sanitizeValue(item, depth + 1, seen));
+        return value.length > MAX_ARRAY_ITEMS
+          ? [...items, `[TRUNCATED: ${value.length - MAX_ARRAY_ITEMS} more]`]
+          : items;
+      }
+
+      const sanitized: Record<string, unknown> = {};
+      const allEntries = Object.entries(value as Record<string, unknown>);
+
+      for (const [key, entryValue] of allEntries.slice(0, MAX_OBJECT_KEYS)) {
+        sanitized[key] = REDACTED_KEYS.has(normalizeKey(key))
+          ? "[REDACTED]"
+          : sanitizeValue(entryValue, depth + 1, seen);
+      }
+
+      if (allEntries.length > MAX_OBJECT_KEYS) {
+        sanitized["[TRUNCATED]"] = `${allEntries.length - MAX_OBJECT_KEYS} more keys`;
+      }
+
+      return sanitized;
+    } finally {
+      // Only the *current* path matters: two sibling references to the same
+      // object are not a cycle and should both be expanded.
+      seen.delete(value as object);
     }
-    return sanitized;
   }
 
-  // Fallback: convert unknown types (BigInt, Symbol, etc.) to a safe string.
-  return String(metadata);
+  // Fallback for anything genuinely unknown.
+  return String(value);
 }
 
 // ── Top-level audit log input sanitiser ──────────────────────────────────────
