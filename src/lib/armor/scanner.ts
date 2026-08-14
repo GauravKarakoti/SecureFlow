@@ -208,6 +208,39 @@ export function shouldIgnore(filename: string, customIgnores: RegExp[] = []): bo
   return false;
 }
 
+/**
+ * Highest code point Unicode defines. `String.fromCodePoint` throws a
+ * RangeError above this, which would escape `sanitizeRecursively()`.
+ */
+const MAX_CODE_POINT = 0x10ffff;
+
+/**
+ * Turn a numeric character reference into its character, or `null` when the
+ * reference is malformed and should be left alone.
+ *
+ * `String.fromCharCode(parseInt(...))` was wrong twice over: it truncates
+ * astral code points (`&#x1F600;` became U+F600, a private-use glyph), and an
+ * unparseable reference such as `&#xZZ;` produced `fromCharCode(NaN)` \u2014 a NUL
+ * byte injected straight into the text handed to the model.
+ */
+function decodeNumericReference(digits: string, radix: 10 | 16): string | null {
+  if (!digits) return null;
+
+  const valid = radix === 16 ? /^[0-9a-f]+$/i : /^[0-9]+$/;
+  if (!valid.test(digits)) return null;
+
+  const codePoint = parseInt(digits, radix);
+
+  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > MAX_CODE_POINT) {
+    return null;
+  }
+
+  // Lone surrogates are not valid scalar values and corrupt downstream encoding.
+  if (codePoint >= 0xd800 && codePoint <= 0xdfff) return null;
+
+  return String.fromCodePoint(codePoint);
+}
+
 function decode(str: string): string {
   if (!str) return '';
   return str.replace(/&[#\w]+;/g, (entity) => {
@@ -216,15 +249,18 @@ function decode(str: string): string {
     if (entity === '&amp;') return '&';
     if (entity === '&quot;') return '"';
     if (entity === '&apos;') return "'";
-    
-    if (entity.startsWith('&#x')) {
-      const hex = entity.slice(3, -1);
-      return String.fromCharCode(parseInt(hex, 16));
+
+    // `&#x41;` and `&#X41;` are both valid hexadecimal references.
+    const hexMatch = entity.match(/^&#[xX](.+);$/);
+    if (hexMatch) {
+      return decodeNumericReference(hexMatch[1], 16) ?? entity;
     }
-    if (entity.startsWith('&#')) {
-      const dec = entity.slice(2, -1);
-      return String.fromCharCode(parseInt(dec, 10));
+
+    const decMatch = entity.match(/^&#(.+);$/);
+    if (decMatch) {
+      return decodeNumericReference(decMatch[1], 10) ?? entity;
     }
+
     return entity;
   });
 }
@@ -233,6 +269,15 @@ function decodeOneLayer(input: string): string {
   let out = decode(input);
 
   out = out.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, "");
+
+  // Strip C0/C1 control characters (keeping tab, newline and carriage return).
+  // A NUL or other control byte carries no meaning in source text but can be
+  // used to split a flagged keyword apart, which is exactly what this
+  // normalisation loop exists to prevent.
+  out = out.replace(
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
+    ""
+  );
 
   out = out.normalize("NFKC");
 
@@ -259,28 +304,77 @@ export function sanitizeRecursively(input: string): string {
   return current;
 }
 
+/**
+ * Turn a unified diff patch into the numbered snippet handed to the model.
+ *
+ * Emits added and context lines with their line number in the *new* file.
+ * Deleted lines are skipped: they no longer exist in the merged result, and the
+ * scan prompt instructs the model to flag anything it sees, so surfacing them
+ * would produce findings against code the PR removes.
+ *
+ * A `---`/`+++` file header only appears before the first `@@` hunk and always
+ * carries a space before its path (`+++ b/src/app.ts`). Testing
+ * `line.startsWith('+++')` against every line meant an added source line that
+ * itself began with `++` (`++i;`, `++count`) was mistaken for a header: it was
+ * dropped from the scan entirely, and because the line counter was not advanced
+ * with it every following line in that hunk was reported one number too low.
+ */
 export function extractAddedLines(patch: string): string {
   if (!patch) return '';
-  
+
   const processedLines: string[] = [];
-  let newLine = 0; // Track the line number
-  
-  for (const line of patch.split('\n')) {
-    // Extract the starting line number from the hunk header
+  let newLine = 0; // Line number in the new file.
+  let inHunk = false;
+
+  // A trailing newline would otherwise yield a spurious empty final entry.
+  const body = patch.endsWith('\n') ? patch.slice(0, -1) : patch;
+
+  for (const line of body.split('\n')) {
+    // Extract the starting line number from the hunk header.
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunk) {
       newLine = parseInt(hunk[1], 10);
-      continue; 
-    } 
-    
-    if (line.startsWith('---') || line.startsWith('+++')) continue;
-    
-    // Pass the actual line number instead of [ADDED]
-    if (line.startsWith('+') || line.startsWith(' ')) {
-      processedLines.push(`${newLine}: ${line.substring(1)}`);
+      inHunk = true;
+      continue;
+    }
+
+    // File headers and git metadata. Only recognised before the first hunk,
+    // and only in their real form — marker followed by whitespace — so that
+    // `+++i;` (an added `++i;`) is treated as content, which is the bug this
+    // guards against.
+    if (!inHunk && /^(?:---|\+\+\+)(?:\s|$)/.test(line)) continue;
+    if (!inHunk && /^(?:diff |index |old mode|new mode|similarity |rename |new file|deleted file)/.test(line)) {
+      continue;
+    }
+
+    // "\ No newline at end of file" is a note about the previous line.
+    if (line.startsWith('\\')) continue;
+
+    if (line.startsWith('+')) {
+      processedLines.push(`${newLine}: ${line.slice(1)}`);
       newLine++;
-    } 
+      continue;
+    }
+
+    if (line.startsWith('-')) {
+      // Removed from the new file, so it consumes no new-file line number.
+      continue;
+    }
+
+    if (line.startsWith(' ')) {
+      processedLines.push(`${newLine}: ${line.slice(1)}`);
+      newLine++;
+      continue;
+    }
+
+    if (line === '') {
+      // Some diff producers strip the marker from an empty context line.
+      // Treating it as "not a line" desynchronised everything after it.
+      processedLines.push(`${newLine}: `);
+      newLine++;
+    }
   }
+
   return processedLines.join('\n');
 }
 
