@@ -66,11 +66,123 @@ const DEFAULT_PAYLOAD_SIGNATURES: PayloadSignature[] = [
   }
 ];
 
+/** Severity → risk score contribution for a single matched signature. */
+const SEVERITY_RISK_WEIGHTS: Record<PayloadSignature['severity'], number> = {
+  CRITICAL: 40,
+  HIGH: 25,
+  MEDIUM: 15,
+  LOW: 5
+};
+
+const VALID_SEVERITIES = new Set(Object.keys(SEVERITY_RISK_WEIGHTS));
+const VALID_CATEGORIES = new Set<PayloadSignature['category']>([
+  'ZERO_DAY_EXPLOIT',
+  'SECRET_LEAK',
+  'INJECTION',
+  'RCE',
+  'ANOMALOUS_PAYLOAD'
+]);
+
+/**
+ * Regex flags that are safe to keep on a signature pattern.
+ *
+ * `g` and `y` are deliberately excluded: both make `RegExp.prototype.test`
+ * stateful via `lastIndex`, so the same signature tested against the same
+ * payload twice returns true, then false, then true. Since the engine is a
+ * long-lived singleton reused across every snippet in a scan, that turns into
+ * roughly half the matches for that signature being silently dropped.
+ */
+const SAFE_REGEX_FLAGS = ['i', 'm', 's', 'u', 'v'] as const;
+
+/**
+ * Raised when a signature batch cannot be applied. Carries every problem found
+ * rather than only the first, so an operator pushing a bad update sees the
+ * whole list in one go.
+ */
+export class SignatureValidationError extends Error {
+  public readonly issues: string[];
+
+  constructor(issues: string[]) {
+    super(`Invalid signature batch:\n  - ${issues.join('\n  - ')}`);
+    this.name = 'SignatureValidationError';
+    this.issues = issues;
+    Object.setPrototypeOf(this, SignatureValidationError.prototype);
+  }
+}
+
+/** Internal storage shape: the public signature plus its stateless compiled pattern. */
+type CompiledSignature = PayloadSignature & { readonly compiled: RegExp };
+
+/** Strip the internal `compiled` field so callers only ever see the public shape. */
+function toPublicSignature(signature: CompiledSignature): PayloadSignature {
+  const { compiled: _compiled, ...publicSignature } = signature;
+  void _compiled;
+  return publicSignature;
+}
+
+/**
+ * Compile a signature pattern into a stateless RegExp.
+ *
+ * String patterns are compiled once here rather than on every snippet, and any
+ * caller-supplied `g`/`y` flag is stripped so `test()` can never carry
+ * `lastIndex` between payloads.
+ */
+export function compileSignaturePattern(pattern: RegExp | string): RegExp {
+  if (typeof pattern === 'string') {
+    return new RegExp(pattern, 'i');
+  }
+
+  const flags = SAFE_REGEX_FLAGS.filter(flag => pattern.flags.includes(flag)).join('');
+  // `u` and `v` are mutually exclusive; prefer `v` when a caller supplied both.
+  const deduped = flags.includes('v') ? flags.replace('u', '') : flags;
+
+  return new RegExp(pattern.source, deduped.includes('i') ? deduped : `${deduped}i`);
+}
+
+/**
+ * Collect every problem with a candidate signature. An empty array means valid.
+ */
+export function validateSignature(signature: PayloadSignature, label: string): string[] {
+  const issues: string[] = [];
+
+  if (!signature || typeof signature !== 'object') {
+    return [`${label}: signature must be an object`];
+  }
+
+  if (!signature.id || typeof signature.id !== 'string' || !signature.id.trim()) {
+    issues.push(`${label}: missing a non-empty string id`);
+  }
+
+  if (signature.pattern === undefined || signature.pattern === null || signature.pattern === '') {
+    issues.push(`${label}: missing a pattern`);
+  } else if (typeof signature.pattern !== 'string' && !(signature.pattern instanceof RegExp)) {
+    issues.push(`${label}: pattern must be a string or RegExp`);
+  } else {
+    try {
+      compileSignaturePattern(signature.pattern);
+    } catch (err) {
+      issues.push(
+        `${label}: pattern is not a valid regular expression (${err instanceof Error ? err.message : String(err)})`
+      );
+    }
+  }
+
+  if (signature.severity && !VALID_SEVERITIES.has(signature.severity)) {
+    issues.push(`${label}: unknown severity "${signature.severity}"`);
+  }
+
+  if (signature.category && !VALID_CATEGORIES.has(signature.category)) {
+    issues.push(`${label}: unknown category "${signature.category}"`);
+  }
+
+  return issues;
+}
+
 /**
  * Dynamic Signature Registry for managing, updating, and rotating security payload signatures.
  */
 export class DynamicFingerprintEngine {
-  private signatures: Map<string, PayloadSignature> = new Map();
+  private signatures: Map<string, CompiledSignature> = new Map();
   private activeVersion: string = '1.0.0';
 
   constructor() {
@@ -78,36 +190,79 @@ export class DynamicFingerprintEngine {
   }
 
   /**
+   * Validate and compile a batch, or throw with every problem listed.
+   *
+   * Nothing here touches engine state — callers build the finished entries
+   * first and only mutate `this.signatures` once the whole batch is known good.
+   */
+  private prepareBatch(signatures: PayloadSignature[]): CompiledSignature[] {
+    if (!Array.isArray(signatures)) {
+      throw new SignatureValidationError(['expected an array of signatures']);
+    }
+
+    const issues: string[] = [];
+    const prepared: CompiledSignature[] = [];
+    const seenIds = new Set<string>();
+
+    signatures.forEach((signature, index) => {
+      const label = `signature[${index}]${signature?.id ? ` (${signature.id})` : ''}`;
+      const problems = validateSignature(signature, label);
+
+      if (problems.length > 0) {
+        issues.push(...problems);
+        return;
+      }
+
+      if (seenIds.has(signature.id)) {
+        issues.push(`${label}: duplicate id within the same batch`);
+        return;
+      }
+      seenIds.add(signature.id);
+
+      prepared.push({
+        ...signature,
+        compiled: compileSignaturePattern(signature.pattern),
+        updatedAt: signature.updatedAt || new Date().toISOString()
+      });
+    });
+
+    if (issues.length > 0) {
+      throw new SignatureValidationError(issues);
+    }
+
+    return prepared;
+  }
+
+  /**
    * Reset signature database back to default initial state.
    */
   public resetToDefaults(): void {
-    this.signatures.clear();
+    const prepared = this.prepareBatch(DEFAULT_PAYLOAD_SIGNATURES);
+    this.signatures = new Map(prepared.map(sig => [sig.id, sig]));
     this.activeVersion = '1.0.0';
-    for (const sig of DEFAULT_PAYLOAD_SIGNATURES) {
-      this.signatures.set(sig.id, { ...sig });
-    }
   }
 
   /**
    * Register a new signature into the active database.
    */
   public registerSignature(signature: PayloadSignature): void {
-    if (!signature.id || !signature.pattern) {
-      throw new Error('Signature must contain a valid id and pattern');
-    }
-    this.signatures.set(signature.id, {
-      ...signature,
-      updatedAt: signature.updatedAt || new Date().toISOString()
-    });
+    const [prepared] = this.prepareBatch([signature]);
+    this.signatures.set(prepared.id, prepared);
   }
 
   /**
    * Dynamically update existing signatures or add new ones without clearing database.
+   *
+   * The whole batch is validated before anything is written, so a malformed
+   * entry halfway through leaves the database exactly as it was.
    */
   public updateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
-    for (const sig of signatures) {
-      this.registerSignature(sig);
+    const prepared = this.prepareBatch(signatures);
+
+    for (const sig of prepared) {
+      this.signatures.set(sig.id, sig);
     }
+
     if (version) {
       this.activeVersion = version;
     }
@@ -115,17 +270,32 @@ export class DynamicFingerprintEngine {
 
   /**
    * Atomically rotate signature database to a fresh set of signatures.
+   *
+   * "Atomically" is now literal: the replacement map is built and validated off
+   * to the side and only swapped in once every entry is known good. Previously
+   * this cleared the live map first and registered entries one at a time, so a
+   * single malformed signature left the engine with a partial — or completely
+   * empty — database. Because the engine is a shared singleton, that meant
+   * every subsequent scan reported zero matches while still looking successful.
    */
   public rotateSignatures(newSignatures: PayloadSignature[], newVersion?: string): void {
-    this.signatures.clear();
-    for (const sig of newSignatures) {
-      this.registerSignature(sig);
+    const prepared = this.prepareBatch(newSignatures);
+
+    if (prepared.length === 0) {
+      throw new SignatureValidationError([
+        'refusing to rotate to an empty signature database — this would disable detection entirely'
+      ]);
     }
+
+    // Swap only after the batch is fully built.
+    this.signatures = new Map(prepared.map(sig => [sig.id, sig]));
+
     if (newVersion) {
       this.activeVersion = newVersion;
     } else {
       const parsed = parseInt(this.activeVersion.split('.')[0] || '1', 10);
-      this.activeVersion = `${parsed + 1}.0.0`;
+      const major = Number.isNaN(parsed) ? 1 : parsed;
+      this.activeVersion = `${major + 1}.0.0`;
     }
   }
 
@@ -140,7 +310,7 @@ export class DynamicFingerprintEngine {
    * Retrieve all currently active signatures.
    */
   public getSignatures(): PayloadSignature[] {
-    return Array.from(this.signatures.values());
+    return Array.from(this.signatures.values(), toPublicSignature);
   }
 
   /**
@@ -157,13 +327,11 @@ export class DynamicFingerprintEngine {
     let riskScore = 0;
 
     for (const sig of this.signatures.values()) {
-      const regex = typeof sig.pattern === 'string' ? new RegExp(sig.pattern, 'i') : sig.pattern;
-      if (regex.test(rawSnippet)) {
-        matchedSignatures.push(sig);
-        if (sig.severity === 'CRITICAL') riskScore += 40;
-        else if (sig.severity === 'HIGH') riskScore += 25;
-        else if (sig.severity === 'MEDIUM') riskScore += 15;
-        else riskScore += 5;
+      // `compiled` is stateless by construction, so repeated tests against the
+      // same payload are consistent and no per-snippet recompilation is needed.
+      if (sig.compiled.test(rawSnippet)) {
+        matchedSignatures.push(toPublicSignature(sig));
+        riskScore += SEVERITY_RISK_WEIGHTS[sig.severity] ?? SEVERITY_RISK_WEIGHTS.LOW;
       }
     }
 
