@@ -17,6 +17,9 @@ export default auth(async function middleware(
   const token = request.auth;
   
   if (request.nextUrl.pathname.startsWith('/api/og') && ratelimit) {
+    // Derived from the trusted portion of X-Forwarded-For — see getClientIp and
+    // the TRUSTED_PROXY_HOP_COUNT setting. Reading a client-supplied header here
+    // would let a caller mint a fresh bucket on every request.
     const ip = getClientIp(request.headers);
     const { success } = await ratelimit.limit(ip);
     
