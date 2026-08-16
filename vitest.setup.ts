@@ -56,3 +56,7 @@ vi.mock('@/auth', () => ({
 vi.mock('@auth/prisma-adapter', () => ({
   PrismaAdapter: vi.fn(() => ({})),
 }));
+
+// Stub server-only package
+vi.mock('server-only', () => ({}));
+

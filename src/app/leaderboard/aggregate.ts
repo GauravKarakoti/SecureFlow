@@ -37,14 +37,34 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
     prisma.pullRequest.groupBy({ by: ["authorLogin"], where: authored, _count: { _all: true } }),
     prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "merged" }, _count: { _all: true } }),
     prisma.pullRequest.findMany({ where: { ...authored, authorAvatarUrl: { not: null } }, select: { authorLogin: true, authorAvatarUrl: true }, distinct: ["authorLogin"] }),
-    prisma.user.findMany({ where: { githubLogin: { not: null } }, select: { githubLogin: true, codename: true } }),
+    prisma.user.findMany({
+      where: { codename: { not: null } },
+      select: { githubLogin: true, name: true, email: true, codename: true },
+    }),
   ]);
 
   const mergedByLogin = new Map(merged.map((row: any) => [row.authorLogin, row._count._all]));
   const avatarByLogin = new Map(avatars.map((row: any) => [row.authorLogin, row.authorAvatarUrl]));
-  const codenameByLogin = new Map<string, string>(
-    users.filter((u: any) => u.githubLogin && u.codename).map((u: any) => [u.githubLogin.toLowerCase(), u.codename])
-  );
+  const codenameByLogin = new Map<string, string>();
+
+  for (const u of users as any[]) {
+    if (!u.codename) continue;
+    if (u.githubLogin) {
+      codenameByLogin.set(u.githubLogin.toLowerCase(), u.codename);
+    }
+    if (u.name) {
+      const normalizedName = u.name.toLowerCase();
+      if (!codenameByLogin.has(normalizedName)) {
+        codenameByLogin.set(normalizedName, u.codename);
+      }
+    }
+    if (u.email) {
+      const emailPrefix = u.email.split("@")[0].toLowerCase();
+      if (!codenameByLogin.has(emailPrefix)) {
+        codenameByLogin.set(emailPrefix, u.codename);
+      }
+    }
+  }
 
   return totals.map((row: any) => {
     const login = row.authorLogin as string;
