@@ -133,9 +133,16 @@ USER nextjs
 
 EXPOSE 9002
 
-# Liveness probe — Next.js always responds at `/`
+# Liveness probe. `/api/health` performs no I/O, so it answers as soon as the
+# HTTP server is up and cannot be made to fail by a Postgres or Redis outage —
+# which is what a liveness probe needs, since restarting the container would not
+# fix a dependency being down. Probing `/` also rendered the marketing page on
+# every check, for no extra signal.
+#
+# Readiness (`/api/health/ready`, which does verify Postgres and Redis) is a
+# separate endpoint and belongs in the orchestrator's readiness probe, not here.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:9002/ || exit 1
+  CMD wget -q --spider http://127.0.0.1:9002/api/health || exit 1
 
 # entrypoint.sh runs `prisma migrate deploy` then `exec node server.js`.
 ENTRYPOINT ["./entrypoint.sh"]
