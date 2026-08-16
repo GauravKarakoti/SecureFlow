@@ -150,3 +150,13 @@ model AuditLog {
   metadata  Json?
   timestamp DateTime @default(now())
 }
+
+model AuditEventLedger {
+  id           String   @id @default(cuid())
+  sequenceNum  Int      @unique @default(autoincrement())
+  action       String
+  payload      Json
+  timestamp    DateTime @default(now())
+  previousHash String
+  currentHash  String   @unique
+}
