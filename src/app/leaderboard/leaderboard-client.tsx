@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Swords } from "lucide-react";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
-import { formatBounty } from "./scoring";
+import { formatBounty, type Badge, type FormResult, type SeverityCounts } from "./scoring";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -82,11 +82,67 @@ export type ContributorRow = {
   codename: string | null;
   htmlUrl: string;
   avatarUrl: string;
+  /** Security score (0-100) from `computeContributorScore`, not a PR count. */
   score: number;
   rank: number;
   prCount: number;
   mergedCount: number;
+  /** Pull requests that scanned clean (`status = "PASS"`). */
+  passedCount: number;
+  /** Vulnerabilities the author's most recent scans still attribute to them. */
+  findings: SeverityCounts;
+  badges: Badge[];
+  /** Outcome of the five most recent pull requests, newest first. */
+  form: FormResult[];
 };
+
+/** Colour treatment for the W / D / L pips. */
+const FORM_STYLE: Record<FormResult, { className: string; title: string }> = {
+  W: { className: "bg-emerald-500/20 text-emerald-400 ring-emerald-500/40", title: "Passed" },
+  D: { className: "bg-yellow-500/20 text-yellow-400 ring-yellow-500/40", title: "Review required" },
+  L: { className: "bg-red-500/20 text-red-400 ring-red-500/40", title: "Blocked" },
+};
+
+function FormStrip({ form }: { form: FormResult[] }) {
+  if (!form || form.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1" aria-label="Recent pull request outcomes">
+      {form.map((result, i) => (
+        <span
+          key={i}
+          title={FORM_STYLE[result].title}
+          className={`inline-flex h-4 w-4 items-center justify-center rounded-sm font-mono text-[9px] font-bold ring-1 ${FORM_STYLE[result].className}`}
+        >
+          {result}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function BadgeStrip({ badges }: { badges: Badge[] }) {
+  if (!badges || badges.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {badges.map((badge) => (
+        <span
+          key={badge.label}
+          title={badge.label}
+          className="inline-flex items-center gap-1 rounded-full border border-red-900/40 bg-black/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"
+        >
+          <span aria-hidden>{badge.emoji}</span>
+          {badge.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Total vulnerabilities across all severities, for the compact summary line. */
+function totalFindings(counts: SeverityCounts | undefined): number {
+  if (!counts) return 0;
+  return counts.critical + counts.high + counts.medium + counts.low;
+}
 
 function useCountUp(target: number, active: boolean) {
   const [value, setValue] = useState(() => (active ? 0 : target));
@@ -155,6 +211,12 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
         {formatBounty(shown)}
         <span className="ml-1 font-mono text-[11px] font-normal uppercase tracking-widest text-red-400/70">bounty</span>
       </div>
+      <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        Security score {entry.score}/100
+      </div>
+      <div className="mt-3">
+        <FormStrip form={entry.form} />
+      </div>
       <div className="mt-4 flex gap-5 border-t border-red-900/30 pt-3">
         <div className="text-[11px] text-muted-foreground">
           Heists<strong className="mt-0.5 block text-base font-semibold text-foreground">{entry.prCount}</strong>
@@ -162,6 +224,22 @@ function PodiumCard({ entry, isHero }: { entry: ContributorRow; isHero: boolean 
         <div className="text-[11px] text-muted-foreground">
           Extractions<strong className="mt-0.5 block text-base font-semibold text-foreground">{entry.mergedCount}</strong>
         </div>
+        <div className="text-[11px] text-muted-foreground">
+          Clean<strong className="mt-0.5 block text-base font-semibold text-foreground">{entry.passedCount}</strong>
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          Breaches
+          <strong
+            className={`mt-0.5 block text-base font-semibold ${
+              totalFindings(entry.findings) > 0 ? "text-red-400" : "text-emerald-400"
+            }`}
+          >
+            {totalFindings(entry.findings)}
+          </strong>
+        </div>
+      </div>
+      <div className="mt-3">
+        <BadgeStrip badges={entry.badges} />
       </div>
     </a>
   );
@@ -189,7 +267,7 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-2.5">
-            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per extraction (Merged PR)</span>
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-red-400">€10K per security point</span>
           </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5">
             <span className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
@@ -206,14 +284,15 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
         </div>
       </div>
 
-      <p className="mt-4 max-w-[52ch] text-sm text-muted-foreground">
-        The Resistance is ranked by bounty — every merged pull request earns the operative €10,000.
+      <p className="mt-4 max-w-[58ch] text-sm text-muted-foreground">
+        The Resistance is ranked by security score — clean, merged work earns bounty, and every
+        vulnerability an operative ships takes it back. Volume alone will not move you up the board.
         Hover a codename to reveal their true identity.
       </p>
 
       {isEmpty ? (
         <div className="mt-16 flex min-h-[30vh] items-center justify-center px-4 text-center">
-          <p className="text-sm text-muted-foreground">No operatives yet. Merge a pull request to claim your first bounty.</p>
+          <p className="text-sm text-muted-foreground">No operatives yet. Merge a clean pull request to claim your first bounty.</p>
         </div>
       ) : (
         <>
@@ -234,6 +313,8 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
                   <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-red-400/50">#</th>
                   <th className="px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-red-400/50">Operative</th>
                   <th className="hidden px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-red-400/50 sm:table-cell">Heists</th>
+                  <th className="hidden px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-red-400/50 sm:table-cell">Breaches</th>
+                  <th className="hidden px-5 py-3 text-center font-mono text-[10px] uppercase tracking-widest text-red-400/50 md:table-cell">Form</th>
                   <th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-red-400/50">Bounty</th>
                 </tr>
               </thead>
@@ -258,6 +339,18 @@ export default function LeaderboardClient({ contributors }: { contributors: Cont
                       </div>
                     </td>
                     <td className="hidden px-5 py-3 text-right tabular-nums text-foreground sm:table-cell">{e.prCount}</td>
+                    <td
+                      className={`hidden px-5 py-3 text-right tabular-nums sm:table-cell ${
+                        totalFindings(e.findings) > 0 ? "text-red-400" : "text-emerald-400"
+                      }`}
+                    >
+                      {totalFindings(e.findings)}
+                    </td>
+                    <td className="hidden px-5 py-3 md:table-cell">
+                      <div className="flex justify-center">
+                        <FormStrip form={e.form} />
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-right font-mono text-lg font-black tabular-nums text-foreground">
                       <span className="inline-flex items-center gap-1.5">
                         {formatBounty(e.score)}
