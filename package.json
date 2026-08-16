@@ -23,6 +23,7 @@
     "postinstall": "prisma generate",
     "worker": "tsx --env-file=.env scripts/start-worker.ts",
     "worker:render": "tsx scripts/start-worker.ts",
+    "retention": "tsx --env-file=.env scripts/retention.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
