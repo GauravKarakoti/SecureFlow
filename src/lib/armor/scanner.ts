@@ -6,10 +6,12 @@ import {
   dynamicFingerprintEngine,
   PayloadSignature
 } from './fingerprint';
+import { normalizeSeverity, type Severity } from '@/lib/severity';
 
 export type ScanFinding = {
   type: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  /** Canonical severity — see `@/lib/severity` for parsing and ordering. */
+  severity: Severity;
   description: string;
   fileLocation: string;
   codeSnippet: string;
@@ -715,8 +717,6 @@ CRITICAL RULES:
                 : String(f.codeSnippet);
             }
 
-            const upperSeverity = String(f.severity || 'MEDIUM').toUpperCase();
-            const validSeverities: ScanFinding['severity'][] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
             const fileLoc = String(f.fileLocation || 'Unknown file path');
             const findingType = String(f.type || 'Vulnerability');
 
@@ -724,9 +724,11 @@ CRITICAL RULES:
 
             return {
               type: findingType,
-              severity: validSeverities.includes(upperSeverity as ScanFinding['severity'])
-                ? (upperSeverity as ScanFinding['severity'])
-                : 'MEDIUM',
+              // Shared normalization rather than a local valid-list: the model
+              // routinely answers with "moderate", "sev1" or "error" instead of
+              // one of the five canonical levels, and the local check discarded
+              // all of those down to MEDIUM.
+              severity: normalizeSeverity(f.severity),
               description: String(f.description || 'No description provided.'),
               fileLocation: fileLoc,
               codeSnippet: normalizedSnippet,

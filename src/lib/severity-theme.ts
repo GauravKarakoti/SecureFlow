@@ -1,18 +1,22 @@
 /**
  * Heist-themed presentation layer for severity levels.
+ *
  * NOTE: This is a DISPLAY-ONLY mapping. The underlying severity values
  * (CRITICAL/HIGH/MEDIUM/LOW/NONE) are intentionally left untouched since
  * they're the contract used by the DB, the LLM prompt, policy gating in
  * armor/iq.ts, and the GitHub webhook alerts. Only the findings dashboard
  * should render through this mapping.
  *
- * This file is deliberately kept free of any server-only imports (Groq,
- * Prisma, etc.) so it's safe to import from client components like
- * findings-client.tsx without pulling server-side code into the browser
- * bundle.
+ * The canonical `Severity` type and the parsing rules now live in
+ * `@/lib/severity`; this module re-exports the type so existing importers keep
+ * working. That module is likewise free of server-only imports, so this file is
+ * still safe to import from client components like `findings-client.tsx`
+ * without pulling server-side code into the browser bundle.
  */
 
-export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+import { normalizeSeverity, parseSeverity, type Severity } from './severity';
+
+export type { Severity };
 
 export const SEVERITY_THEME: Record<Severity, { label: string; badgeClass: string }> = {
   CRITICAL: { label: 'Interpol Breach', badgeClass: 'bg-red-500' },
@@ -22,9 +26,25 @@ export const SEVERITY_THEME: Record<Severity, { label: string; badgeClass: strin
   NONE: { label: 'All Clear', badgeClass: 'bg-emerald-500' },
 };
 
-export function getSeverityTheme(severity: string) {
-  return SEVERITY_THEME[severity as Severity] ?? {
-    label: severity,
+/**
+ * Resolve the themed label and badge classes for a severity.
+ *
+ * Values are normalized first, so a row stored as `"critical"` or `" High "`
+ * renders as "Interpol Breach" / "Hostage Crisis" instead of falling through to
+ * the neutral grey badge with the raw string echoed back at the user.
+ *
+ * A value that genuinely cannot be interpreted still echoes back — showing the
+ * user what the database actually holds is more useful than pretending it is
+ * MEDIUM — but it does so through a stringified, trimmed form so a non-string
+ * value cannot render as `[object Object]`.
+ */
+export function getSeverityTheme(severity: unknown): { label: string; badgeClass: string } {
+  const parsed = parseSeverity(severity);
+  if (parsed !== null) return SEVERITY_THEME[parsed];
+
+  const raw = typeof severity === 'string' ? severity.trim() : '';
+  return {
+    label: raw || SEVERITY_THEME[normalizeSeverity(severity, 'NONE')].label,
     badgeClass: 'bg-slate-500',
   };
 }

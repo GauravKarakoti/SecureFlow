@@ -10,6 +10,7 @@ import { App } from 'octokit';
 import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
+import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
 
 // Sanitize user-controlled strings before logging to prevent log injection (CWE-117)
 const sanitize = (s: unknown) => String(s ?? '').replace(/[\r\n]/g, ' ');
@@ -637,8 +638,10 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       });
 
       if (enrichedFindings.length > 0) {
-        const severityBadge = (severity: string) =>
-          severity === 'CRITICAL' ? '🔴 CRITICAL' : (severity === 'HIGH' ? '🟠 HIGH' : '🟡 MEDIUM');
+        // Badge rendering comes from `@/lib/severity`. The previous inline
+        // ternary only special-cased CRITICAL and HIGH, so LOW and NONE findings
+        // were both labelled "🟡 MEDIUM" in the pull request comment — the report
+        // overstated the severity of the least severe findings.
 
         // Resolve the diff line to anchor an inline comment on, or null when the
         // finding has no usable line inside the PR diff (GitHub would reject it).
@@ -777,8 +780,13 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
 
         // Risk score ignores dismissed findings so triaged-away issues stop
         // counting toward the stored score (and the risk-trend average).
-        const severityScores: Record<string, number> = { CRITICAL: 10, HIGH: 5, MEDIUM: 3, LOW: 1 };
-        const riskScore = activeFindings.reduce((score: number, f: any) => score + (severityScores[f.severity.toUpperCase()] || 0), 0);
+        //
+        // The weights live in `@/lib/severity` now. The previous inline reducer
+        // called `f.severity.toUpperCase()` directly, which threw a TypeError on
+        // a null severity — after the pending "⏳ Evaluating..." comment had
+        // already been posted, so the job retried three times, landed in the DLQ,
+        // and left the comment stranded on the pull request forever.
+        const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
         await prisma.scanResult.create({
           data: {
@@ -788,7 +796,12 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
             findings: {
               create: enrichedFindings.map((f: any) => ({
                 type: f.type,
-                severity: f.severity,
+                // Persist the canonical spelling. `Finding.severity` is an
+                // unconstrained `String` column, so without this a non-canonical
+                // value written once stays wrong for every later read — the
+                // dashboard, the policy engine and the risk trend all re-derive
+                // from this column.
+                severity: normalizeSeverity(f.severity),
                 fileLocation: f.fileLocation,
                 lineStart: typeof f.lineStart === 'number' ? f.lineStart : null,
                 lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : null,
