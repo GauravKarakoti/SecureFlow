@@ -1,5 +1,6 @@
 import Groq from 'groq-sdk';
 import type { AISecurityExplanationInput } from "./security-explanation-schemas";
+import { isAtLeast } from '@/lib/severity';
 
 const _groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
@@ -121,7 +122,10 @@ const DISMISSIVE_PHRASES: RegExp[] = [
 ];
 
 function contradictsSeverity(severity: string, explanation: string): boolean {
-  const highStakes = ['CRITICAL', 'HIGH'].includes(severity.toUpperCase());
+  // `isAtLeast` replaces an open-coded membership list, so this threshold moves
+  // with the shared severity ordering rather than needing a hand edit here. It
+  // is also null-safe, where `severity.toUpperCase()` was not.
+  const highStakes = isAtLeast(severity, 'HIGH');
   if (!highStakes || !explanation) return false;
   return DISMISSIVE_PHRASES.some((pattern) => pattern.test(explanation));
 }
