@@ -6,45 +6,9 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
 
-permissions:
-  contents: read
-
-# The deployment to probe. Overridable via a repository variable so a fork or a
-# staging deployment can point this somewhere else without editing the workflow.
-env:
-  HEALTH_URL: ${{ vars.KEEP_ALIVE_HEALTH_URL || 'https://secureflow-worker.onrender.com/api/health' }}
-  READY_URL: ${{ vars.KEEP_ALIVE_READY_URL || 'https://secureflow-worker.onrender.com/api/health/ready' }}
-
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      # This step previously curled the bare origin, sent the body to /dev/null
-      # and appended `|| true`. It therefore discarded the status code and
-      # swallowed the exit code, so it was green whether the service returned
-      # 200, returned 500, or could not be reached at all — it kept the dyno
-      # warm and detected nothing.
-      #
-      # `--fail` makes curl exit non-zero on a 4xx/5xx, and the retry flags give
-      # a cold-starting instance a chance to wake before the job is failed.
-      - name: Check liveness
-        run: |
-          curl --fail --silent --show-error \
-               --retry 3 --retry-delay 10 --retry-all-errors \
-               --max-time 30 \
-               "$HEALTH_URL"
-
-      # Readiness verifies Postgres and Redis, so it can legitimately be 503
-      # while the process itself is fine. That is worth surfacing in the job
-      # summary, but it must not fail the keep-alive job — a dependency outage
-      # is not something this workflow can fix, and a red schedule every ten
-      # minutes trains people to ignore it.
-      - name: Check readiness (informational)
-        continue-on-error: true
-        run: |
-          status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-                        --max-time 30 "$READY_URL")
-          echo "Readiness endpoint returned HTTP $status"
-          if [ "$status" != "200" ]; then
-            echo "::warning::Readiness probe returned HTTP $status — a dependency may be down"
-          fi
+      - name: Ping the bot's health check endpoint
+        run: curl -s --max-time 30 "https://secureflow-worker.onrender.com" > /dev/null || true

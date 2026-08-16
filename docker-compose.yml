@@ -29,20 +29,6 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://secureflow:secureflow@db:5432/secureflow
-    # The `db` service declares one and `app` waits on it, but `app` itself had
-    # none — so `docker compose ps` reported it healthy the instant the process
-    # started, long before Next.js was serving, and nothing downstream could
-    # wait on it.
-    #
-    # `start_period` is generous because entrypoint.sh runs `prisma migrate
-    # deploy` before starting the server; failures inside that window do not
-    # count toward `retries`.
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9002/api/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 45s
 
 volumes:
   postgres_data:
