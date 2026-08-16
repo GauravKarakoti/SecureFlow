@@ -51,9 +51,10 @@ export function withRateLimit(
   config: RateLimitConfig
 ) {
   return async (req: NextRequest, ...args: any[]) => {
-    // Resolve a single client IP rather than the raw, client-appendable
-    // X-Forwarded-For string (see getClientIp), so the limit can't be bypassed
-    // by varying the header.
+    // Resolve the client IP from the trusted portion of the forwarding chain
+    // (see getClientIp), so the limit cannot be bypassed by varying the header.
+    // The result is always a normalized IP literal or the `unknown` sentinel, so
+    // nothing attacker-controlled reaches the Redis key.
     const ip = getClientIp(req.headers);
     const key = `rate-limit:${config.keyPrefix}:${ip}`;
 
