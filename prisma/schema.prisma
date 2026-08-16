@@ -150,3 +150,14 @@ model AuditLog {
   metadata  Json?
   timestamp DateTime @default(now())
 }
+
+model ScanJob {
+  id                  String   @id @default(cuid())
+  repositoryId        String
+  status              String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  scannedFiles        Int      @default(0)
+  totalFiles          Int      @default(0)
+  vulnerabilitiesFound Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
