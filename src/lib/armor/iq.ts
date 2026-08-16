@@ -2,6 +2,7 @@ import { ArmorIQClient, IntentToken } from '@armoriq/sdk';
 import { ScanFinding } from './scanner';
 import prisma from '@/lib/prisma';
 import { z } from 'zod';
+import { isAtLeast, parseSeverity } from '@/lib/severity';
 
 const armorIQConfigSchema = z.object({
   apiKey: z.string().default(''),
@@ -18,12 +19,26 @@ const armorIQConfig = armorIQConfigSchema.parse({
 export type PolicyResult = 'PASS' | 'REVIEW REQUIRED' | 'BLOCKED';
 
 export class ArmorIQPolicyEngine {
+  /**
+   * Decide whether a pull request is blocked, needs review, or passes.
+   *
+   * Comparison goes through `@/lib/severity` instead of `===` on the raw value.
+   * The exact-match version silently passed any finding whose severity was not
+   * spelled in canonical uppercase: `Finding.severity` is an unconstrained
+   * `String` in the schema, so a row reading `"critical"` failed the
+   * `=== 'CRITICAL'` test, fell through both branches, and the pull request was
+   * decided `PASS` with a critical vulnerability in it.
+   *
+   * A severity that cannot be interpreted at all is routed to REVIEW REQUIRED
+   * rather than BLOCKED or PASS — we know the scanner reported something, we
+   * just cannot rank it, so a human should look.
+   */
   evaluateFindings(findings: ScanFinding[]): PolicyResult {
-    if (findings.some(f => f.severity === 'CRITICAL')) {
+    if (findings.some(f => parseSeverity(f.severity) === 'CRITICAL')) {
       return 'BLOCKED';
     }
-    
-    if (findings.some(f => f.severity === 'HIGH' || f.severity === 'MEDIUM')) {
+
+    if (findings.some(f => isAtLeast(f.severity, 'MEDIUM') || parseSeverity(f.severity) === null)) {
       return 'REVIEW REQUIRED';
     }
 
