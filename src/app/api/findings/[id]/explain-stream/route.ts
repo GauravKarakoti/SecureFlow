@@ -58,16 +58,26 @@ async function handler(
 
   const { id } = await params;
 
-  const finding = await prisma.finding.findFirst({
-    where: {
-      id,
-      scanResult: { pullRequest: { repository: { userId } } },
-    },
-  });
+// FIX: First, check if the finding exists at all to prevent BOLA/IDOR masking
+    const existingFinding = await prisma.finding.findUnique({
+      where: { id },
+    });
 
-  if (!finding) {
-    return NextResponse.json({ error: 'Finding not found' }, { status: 404 });
-  }
+    if (!existingFinding) {
+      return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+    }
+
+    // Next, verify that the authenticated user actually owns this finding
+    const finding = await prisma.finding.findFirst({
+      where: {
+        id,
+        scanResult: { pullRequest: { repository: { userId } } },
+      },
+    });
+
+    if (!finding) {
+      return NextResponse.json({ error: "Forbidden: You do not have access to this finding" }, { status: 403 });
+    }
 
   const encoder = new TextEncoder();
 
