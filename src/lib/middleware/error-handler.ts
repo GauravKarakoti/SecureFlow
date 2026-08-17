@@ -1,27 +1,20 @@
 import { NextResponse } from 'next/server';
 import { resolveErrorStatus, DEFAULT_ERROR_STATUS } from './http-status';
+import { scrubSensitiveData } from '@/lib/redaction';
+import { logger } from '@/lib/logger';
 
-// Standard backend logger
-export const logger = {
-  error: (message: string, meta?: Record<string, unknown>) => {
-    const logOutput = {
-      timestamp: new Date().toISOString(),
-      level: 'ERROR',
-      message,
-      ...meta,
-    };
-    console.error(`[Backend Logger] ${JSON.stringify(logOutput)}`);
-  },
-  info: (message: string, meta?: Record<string, unknown>) => {
-    const logOutput = {
-      timestamp: new Date().toISOString(),
-      level: 'INFO',
-      message,
-      ...meta,
-    };
-    console.info(`[Backend Logger] ${JSON.stringify(logOutput)}`);
-  }
-};
+/**
+ * Backend logger.
+ *
+ * Was an inline object literal with two methods, no levels, no way to silence
+ * it and no redaction -- and it wrote the raw error message, stack and Prisma
+ * `meta` to stdout while scrubSensitiveData() protected only the response.
+ * It now delegates to the shared logger in src/lib/logger.ts, which redacts
+ * metadata recursively and gates on LOG_LEVEL (#563).
+ *
+ * Re-exported under the same name so existing callers are unaffected.
+ */
+export { logger };
 
 // Standard custom error class for known operational/client errors
 export class AppError extends Error {
@@ -56,28 +49,12 @@ const STATUS_TO_ERROR_CODE: Record<number, string> = {
   504: 'GATEWAY_TIMEOUT',
 };
 
-// Scrub sensitive details such as paths, credentials, and connection strings
-export function scrubSensitiveData(text: string): string {
-  if (!text) return text;
-  let sanitized = text;
-
-  // Redact PostgreSQL / Database connection URLs (e.g., postgresql://username:password@host/db)
-  sanitized = sanitized.replace(/[a-zA-Z]+:\/\/[^/\s]+:[^/\s]+@[^\s]+/g, '[REDACTED_CONNECTION_STRING]');
-
-  // Redact potential passwords/keys in connection strings
-  sanitized = sanitized.replace(/:\/\/[^@]+@/g, '://[REDACTED_CREDENTIALS]@');
-
-  // Redact file paths (both Windows and Unix paths)
-  // Windows paths: e.g. D:\Struggle\Open Source\SecureFlow\...
-  sanitized = sanitized.replace(/[a-zA-Z]:\\[\\\w\s.-]+/g, '[REDACTED_PATH]');
-  // Unix paths: e.g. /usr/local/bin/...
-  sanitized = sanitized.replace(/\/(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+/g, '[REDACTED_PATH]');
-
-  // Redact potential environment variable patterns (e.g. GITHUB_CLIENT_SECRET=...)
-  sanitized = sanitized.replace(/[\w.-]*(?:key|secret|token|password|auth|db_url|database_url)[\w.-]*\s*=\s*[^\s]+/gi, '[REDACTED_SECRET]');
-
-  return sanitized;
-}
+// Scrub sensitive details such as paths, credentials, and connection strings.
+//
+// The implementation moved to src/lib/redaction.ts (#563) so the logger can
+// share it without the two modules importing each other. Re-exported here
+// unchanged, so every existing import keeps working.
+export { scrubSensitiveData };
 
 /**
  * Error class names we are willing to echo back to the client as an error code.

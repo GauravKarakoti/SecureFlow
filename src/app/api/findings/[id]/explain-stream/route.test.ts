@@ -49,6 +49,7 @@ vi.mock('@/auth', () => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     finding: {
+      findUnique: vi.fn(async () => mockFindFirstResult),
       findFirst: vi.fn(async () => mockFindFirstResult),
       update: vi.fn(async () => ({})),
     },

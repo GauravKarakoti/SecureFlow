@@ -15,27 +15,53 @@ vi.mock('ioredis', () => {
 });
 
 // ---- getClientIp ----
+//
+// The exhaustive cases (spoofing, hop counting, the trusted-proxy allowlist,
+// IPv6 and port normalization) live in ./client-ip.test.ts. What is kept here is
+// the contract the rate-limit middleware below depends on.
 
-import { getClientIp } from './client-ip';
+import { UNKNOWN_CLIENT_IP, getClientIp } from './client-ip';
 
 describe('getClientIp', () => {
   const h = (entries: Record<string, string>) =>
     ({ get: (k: string) => entries[k] ?? null }) as unknown as Headers;
 
-  it('prefers x-real-ip over x-forwarded-for', () => {
-    expect(getClientIp(h({ 'x-real-ip': '1.2.3.4', 'x-forwarded-for': '9.9.9.9' }))).toBe('1.2.3.4');
+  it('reads the trusted hop from x-forwarded-for, not the client-supplied left-most entry', () => {
+    // Previously this returned "9.9.9.9" — whatever the caller typed — which is
+    // what made every rate limit bypassable.
+    expect(
+      getClientIp(h({ 'x-real-ip': '1.2.3.4', 'x-forwarded-for': '9.9.9.9, 203.0.113.7' }), {
+        trustedHopCount: 1,
+        trustedProxies: [],
+      })
+    ).toBe('203.0.113.7');
   });
 
-  it('returns the first entry of x-forwarded-for when x-real-ip is absent', () => {
-    expect(getClientIp(h({ 'x-forwarded-for': '5.6.7.8, 10.0.0.1' }))).toBe('5.6.7.8');
+  it('ignores x-real-ip while a forwarded chain is present', () => {
+    expect(
+      getClientIp(h({ 'x-real-ip': '1.2.3.4', 'x-forwarded-for': '203.0.113.7' }), {
+        trustedHopCount: 1,
+        trustedProxies: [],
+      })
+    ).toBe('203.0.113.7');
   });
 
-  it('falls back to 127.0.0.1 when no IP headers are present', () => {
-    expect(getClientIp(h({}))).toBe('127.0.0.1');
+  it('uses x-real-ip when the trusted proxy set no forwarded chain', () => {
+    expect(getClientIp(h({ 'x-real-ip': '5.6.7.8' }), { trustedHopCount: 1, trustedProxies: [] })).toBe(
+      '5.6.7.8'
+    );
+  });
+
+  it('returns a sentinel rather than 127.0.0.1 when no usable header is present', () => {
+    // The old loopback fallback put every header-less caller in one shared
+    // bucket, so a single noisy client rate-limited everybody else.
+    expect(getClientIp(h({}), { trustedHopCount: 1, trustedProxies: [] })).toBe(UNKNOWN_CLIENT_IP);
   });
 
   it('trims whitespace from x-real-ip', () => {
-    expect(getClientIp(h({ 'x-real-ip': '  3.3.3.3  ' }))).toBe('3.3.3.3');
+    expect(getClientIp(h({ 'x-real-ip': '  3.3.3.3  ' }), { trustedHopCount: 1, trustedProxies: [] })).toBe(
+      '3.3.3.3'
+    );
   });
 });
 
