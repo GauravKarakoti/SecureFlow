@@ -1,78 +1,111 @@
 'use server';
 
-import { z } from 'zod';
-import Groq from 'groq-sdk';
 import "dotenv/config";
+import { __internal, evaluateForInjection, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
+import { ai, defaultModel, securityExplanationModel } from '@/ai/genkit';
+import {
+  AISecurityExplanationInputSchema,
+  AISecurityExplanationOutputSchema,
+  SYSTEM_PROMPT,
+  type AISecurityExplanationInput,
+  type AISecurityExplanationOutput,
+} from './security-explanation-schemas';
 
-const AISecurityExplanationInputSchema = z.object({
-  findingType: z.string(),
-  severity: z.string(),
-  description: z.string(),
-  fileLocation: z.string(),
-  codeSnippet: z.string(),
-});
-export type AISecurityExplanationInput = z.infer<typeof AISecurityExplanationInputSchema>;
-
-const AISecurityExplanationOutputSchema = z.object({
-  explanation: z.string(),
-  remediationSuggestions: z.string(),
-});
-export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOutputSchema>;
-
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+const { contradictsSeverity, buildPrompt } = __internal;
 
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput
 ): Promise<AISecurityExplanationOutput> {
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
 
-  const prompt = `You are a security expert auditing a Pull Request. Your task is to briefly explain a finding and provide highly actionable remediation steps.
+  // Two-layer injection check runs on the raw, attacker-controlled fields BEFORE anything is
+  // sent to the main Genkit engine:
+  //   1. Heuristic pre-filter (synchronous, zero cost).
+  //   2. If the heuristic fires, a secondary lightweight LLM call confirms it.
+  // Advisory only — a match sets promptInjectionSuspected so reviewers know to trust the
+  // static severity badge over the AI narrative, but the explanation is still generated.
+  const [snippetResult, descResult] = await Promise.all([
+    evaluateForInjection(validatedInput.codeSnippet),
+    evaluateForInjection(validatedInput.description),
+  ]);
+  const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
 
-CRITICAL LENGTH CONSTRAINTS:
-- Explanation: Must be maximum 2 sentences long. State only the direct impact.
-- Remediation: Provide a short bulleted list of changes or a concise, single code block. Do NOT write an introduction, multiple phases, or an essay.
+  const prompt = buildPrompt(validatedInput);
 
-Security Finding Details:
-Type: ${validatedInput.findingType}
-Severity: ${validatedInput.severity}
-Description: ${validatedInput.description}
-File Location: ${validatedInput.fileLocation}
-Code Snippet:
-"""
-${validatedInput.codeSnippet}
-"""
+  let responseText: string | undefined;
+  let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
-You MUST respond strictly with a valid JSON object containing exactly two keys: "explanation" and "remediationSuggestions". Do not include any other text.`;
-
-  const chatCompletion = await groq.chat.completions.create({
-    messages: [
-      { 
-        role: 'system', 
-        content: 'You are an elite application security assistant. Keep all outputs ultra-short, concise, and output ONLY a valid JSON object containing the keys "explanation" and "remediationSuggestions".' 
-      },
-      { role: 'user', content: prompt }
-    ],
-    // model: 'llama-3.3-70b-versatile',
-    model: 'llama-3.1-8b-instant',
-    response_format: { type: 'json_object' }
-  });
-
-  const responseText = chatCompletion.choices[0]?.message?.content || '{}';
-  let parsedContent;
-  
   try {
-    parsedContent = JSON.parse(responseText);
-  } catch (error) {
-    parsedContent = {
-      explanation: 'No explanation provided.',
-      remediationSuggestions: 'No remediation suggestions provided.'
-    };
+    // Explicitly route to the fastest Groq model with retry logic for rate limits and timeouts.
+    const res = await withRetry(
+      () =>
+        ai.generate({
+          model: securityExplanationModel,
+          system: SYSTEM_PROMPT,
+          prompt,
+          config: {
+            maxOutputTokens: 3000,
+            temperature: 0.1,
+          },
+        }),
+      {
+        initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
+      }
+    );
+    responseText = res.text;
+  } catch (genError) {
+    if (isRateLimitError(genError)) {
+      console.warn("Groq API rate limit reached after retries:", genError);
+      parsedContent = {
+        explanation: 'Groq API rate limit reached (429). The Professor will retry transmission shortly.',
+        remediationSuggestions: 'Rate limit active: review static scanner details or wait a moment before re-evaluating.',
+      };
+    } else if (isTimeoutError(genError)) {
+      console.warn("Groq API connection timed out after retries:", genError);
+      parsedContent = {
+        explanation: 'Groq API connection timed out. The Professor is standing by.',
+        remediationSuggestions: 'Connection timed out: verify model availability and inspect the vulnerability manually.',
+      };
+    } else {
+      console.error("AI generation failed after retries:", genError);
+      parsedContent = {
+        explanation: 'Signal lost. The Professor is recalculating.',
+        remediationSuggestions: 'Adjust the plan: lock down the perimeter manually and review the intercepted payload.',
+      };
+    }
   }
 
+  if (responseText && !parsedContent) {
+    try {
+      const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/ig, '');
+      const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
+      
+      if (!jsonMatch) {
+        throw new Error("No JSON object found in response");
+      }
+
+      parsedContent = JSON.parse(jsonMatch[0]);
+    } catch (error) {
+      console.error("Failed to parse explanation JSON:", error);
+      console.error("RAW OUTPUT WAS:\n", responseText); 
+      
+      parsedContent = {
+        explanation: 'Signal lost. The Professor is recalculating.',
+        remediationSuggestions: 'Adjust the plan: lock down the perimeter manually and review the intercepted payload.'
+      };
+    }
+  }
+
+
+  const explanation: string = parsedContent?.explanation || 'No explanation provided.';
+
+  // Output consistency check: even with structural isolation and the pre-filter, catch cases
+  // where the model's explanation ended up contradicting the finding's known severity.
+  const consistencyFlagged = contradictsSeverity(validatedInput.severity, explanation);
+
   return AISecurityExplanationOutputSchema.parse({
-    explanation: parsedContent.explanation || 'No explanation provided.',
-    remediationSuggestions: parsedContent.remediationSuggestions || 'No remediation suggestions provided.'
+    explanation,
+    remediationSuggestions: parsedContent?.remediationSuggestions || 'No remediation suggestions provided.',
+    promptInjectionSuspected: injectionPreFilterFlagged || consistencyFlagged,
   });
 }

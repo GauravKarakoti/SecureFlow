@@ -12,7 +12,7 @@ export async function LoginButton() {
   return (
     // Update the href to point to the new /login route
     <Link href={isLoggedIn ? "/dashboard" : "/login"}>
-      <Button variant="outline">
+      <Button className="hover:border-primary/30 hover:bg-primary/5" variant="outline">
         {isLoggedIn ? "Dashboard" : "Login"}
       </Button>
     </Link>

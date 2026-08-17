@@ -1,8 +1,9 @@
-import { signIn } from "@/auth";
 import { Button } from "@/components/ui/button";
-import { Github, Shield } from "lucide-react";
+import { GitBranch, Shield } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { handleGithubSignIn } from "./actions";
 
 export default async function LoginPage({
   searchParams,
@@ -14,16 +15,19 @@ export default async function LoginPage({
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden px-4">
+      <div className="absolute top-6 right-6 z-20">
+        <ThemeToggle />
+      </div>
       {/* Background Gradients to match landing page */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl h-[600px] bg-[radial-gradient(circle_at_center,rgba(146,123,255,0.15)_0%,transparent_60%)] pointer-events-none" />
 
       <div className="w-full max-w-md p-8 rounded-2xl glass-card border border-white/10 shadow-2xl relative z-10 flex flex-col items-center">
-        <div className="w-14 h-14 rounded-xl flex items-center justify-center glow-primary mb-6 bg-white/5">
+        <div className="w-14 h-14 rounded-xl flex items-center justify-center glow-primary mb-6 bg-primary">
           <Image
-            src="/logo.jpeg"
+            src="/logo.png"
             alt="SecureFlow Logo"
-            width={40}
-            height={40}
+            width={64}
+            height={64}
             className="object-contain rounded-md"
           />
         </div>
@@ -34,20 +38,14 @@ export default async function LoginPage({
         </p>
 
         {/* Server Action Form to trigger Auth.js SignIn */}
-        <form
-          className="w-full"
-          action={async () => {
-            "use server";
-            // Dynamically redirect to the setup callback URL, or fallback to the dashboard
-            await signIn("github", { redirectTo: callbackUrl || "/dashboard" });
-          }}
-        >
+        <form className="w-full" action={handleGithubSignIn}>
+          <input type="hidden" name="callbackUrl" value={callbackUrl || ""} />
           <Button 
             type="submit" 
             size="lg" 
             className="w-full bg-primary text-background hover:bg-primary/90 glow-primary font-semibold h-12 text-md"
           >
-            <Github className="w-5 h-5 mr-2" />
+            <GitBranch className="w-5 h-5 mr-2" />
             Continue with GitHub
           </Button>
         </form>

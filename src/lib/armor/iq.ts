@@ -1,23 +1,79 @@
 import { ArmorIQClient, IntentToken } from '@armoriq/sdk';
 import { ScanFinding } from './scanner';
+import prisma from '@/lib/prisma';
+import { z } from 'zod';
+import { isAtLeast, parseSeverity } from '@/lib/severity';
+
+const armorIQConfigSchema = z.object({
+  apiKey: z.string().default(''),
+  userId: z.string().default('fallback-user'),
+  agentId: z.string().default('fallback-agent'),
+});
+
+const armorIQConfig = armorIQConfigSchema.parse({
+  apiKey: process.env.ARMORIQ_API_KEY || undefined,
+  userId: process.env.USER_ID || undefined,
+  agentId: process.env.AGENT_ID || undefined,
+});
 
 export type PolicyResult = 'PASS' | 'REVIEW REQUIRED' | 'BLOCKED';
 
 export class ArmorIQPolicyEngine {
+  /**
+   * Decide whether a pull request is blocked, needs review, or passes.
+   *
+   * Comparison goes through `@/lib/severity` instead of `===` on the raw value.
+   * The exact-match version silently passed any finding whose severity was not
+   * spelled in canonical uppercase: `Finding.severity` is an unconstrained
+   * `String` in the schema, so a row reading `"critical"` failed the
+   * `=== 'CRITICAL'` test, fell through both branches, and the pull request was
+   * decided `PASS` with a critical vulnerability in it.
+   *
+   * A severity that cannot be interpreted at all is routed to REVIEW REQUIRED
+   * rather than BLOCKED or PASS — we know the scanner reported something, we
+   * just cannot rank it, so a human should look.
+   */
   evaluateFindings(findings: ScanFinding[]): PolicyResult {
-    if (findings.some(f => f.severity === 'CRITICAL')) {
+    if (findings.some(f => parseSeverity(f.severity) === 'CRITICAL')) {
       return 'BLOCKED';
     }
-    
-    if (findings.some(f => f.severity === 'HIGH' || f.severity === 'MEDIUM')) {
+
+    if (findings.some(f => isAtLeast(f.severity, 'MEDIUM') || parseSeverity(f.severity) === null)) {
       return 'REVIEW REQUIRED';
     }
 
     return 'PASS';
   }
 
-  getRiskTrend(): number {
-    return Math.random() * 100;
+  async getRiskTrend(filters?: { userId?: string; repositoryId?: string }): Promise<number> {
+    try {
+      const where: any = {};
+
+      if (filters) {
+        if (filters.repositoryId) {
+          where.pullRequest = {
+            repositoryId: filters.repositoryId,
+          };
+        } else if (filters.userId) {
+          where.pullRequest = {
+            repository: {
+              userId: filters.userId,
+            },
+          };
+        }
+      }
+
+      const aggregation = await prisma.scanResult.aggregate({
+        where,
+        _avg: {
+          riskScore: true,
+        },
+      });
+      return aggregation._avg.riskScore ?? 0;
+    } catch (error) {
+      console.error('Error fetching risk trend:', error);
+      return 0;
+    }
   }
 }
 
@@ -27,15 +83,28 @@ export class ArmorIQService {
   private static client: ArmorIQClient | null = null;
 
   /**
-   * Singleton pattern for ArmorIQClient.
-   * Includes fallback 'userId' and 'agentId' to satisfy SDK initialization requirements.
+   * True when an ArmorIQ API key is configured (ARMORIQ_API_KEY).
+   * The cloud client can only be constructed when this is true.
    */
-  static getClient(): ArmorIQClient {
+  static isConfigured(): boolean {
+    return armorIQConfig.apiKey.trim().length > 0;
+  }
+
+  /**
+   * Singleton accessor for ArmorIQClient.
+   * Returns null when ARMORIQ_API_KEY is not set, so callers can degrade
+   * gracefully instead of crashing. The SDK itself throws if given an empty key.
+   * Set ARMORIQ_API_KEY (get one at https://dev.armoriq.ai) to activate.
+   */
+  static getClient(): ArmorIQClient | null {
+    if (!ArmorIQService.isConfigured()) {
+      return null;
+    }
     if (!ArmorIQService.client) {
       ArmorIQService.client = new ArmorIQClient({
-        apiKey: process.env.ARMORIQ_API_KEY || '', 
-        userId: process.env.USER_ID,
-        agentId: process.env.AGENT_ID
+        apiKey: armorIQConfig.apiKey,
+        userId: armorIQConfig.userId,
+        agentId: armorIQConfig.agentId,
       });
     }
     return ArmorIQService.client;
@@ -80,6 +149,11 @@ export class ArmorIQService {
    */
   static async getProtectedToken(userEmail: string, planCapture: any, dbPolicies: any[]): Promise<IntentToken> {
     const client = this.getClient();
+    if (!client) {
+      throw new Error(
+        "ArmorIQ is not configured. Set ARMORIQ_API_KEY (get one at https://dev.armoriq.ai) to mint intent tokens."
+      );
+    }
     const scope = client.forUser(userEmail);
     const policy = this.compileToArmorIQPolicy(dbPolicies);
 

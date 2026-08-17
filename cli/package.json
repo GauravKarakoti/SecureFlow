@@ -1,0 +1,32 @@
+{
+  "name": "secureflow-cli",
+  "version": "1.0.0",
+  "description": "Pre-commit secret logging detector for secure development workflows",
+  "main": "./dist/index.js",
+  "bin": {
+    "secureflow": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "publish": "npm publish --access public"
+  },
+  "keywords": [
+    "security",
+    "secrets",
+    "scanner",
+    "pre-commit",
+    "husky",
+    "secureflow"
+  ],
+  "author": "Gaurav Karakoti",
+  "license": "ISC",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}

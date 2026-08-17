@@ -111,6 +111,12 @@ const Carousel = React.forwardRef<
         return
       }
 
+      // Sync the initial scroll-button state immediately (Embla's api is
+      // already initialized by the time this effect runs), then subscribe
+      // for future updates. This is the pattern documented by shadcn/ui and
+      // Embla themselves; react-hooks/set-state-in-effect currently has no
+      // accepted alternative for it (see shadcn-ui/ui#10564, open upstream).
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
       onSelect(api)
       api.on("reInit", onSelect)
       api.on("select", onSelect)

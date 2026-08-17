@@ -25,6 +25,23 @@ export default async function GitHubSetupPage({
     redirect(`/login?callbackUrl=${callback}`);
   }
 
+  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+    await prisma.repository.upsert({
+      where: { githubId: BigInt(123456) },
+      update: { 
+        isActive: true,
+        userId: userId
+      }, 
+      create: {
+        githubId: BigInt(123456),
+        fullName: 'mock-owner/mock-repo',
+        owner: 'mock-owner',
+        userId: userId,
+      },
+    });
+    redirect('/dashboard');
+  }
+
   const appId = process.env.GITHUB_APP_ID!;
   const privateKey = process.env.GITHUB_PRIVATE_KEY!.replace(/\\n/g, '\n');
 
