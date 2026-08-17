@@ -1,4 +1,8 @@
 import type { NextConfig } from 'next';
+import {
+  buildNextSecurityHeaderRules,
+  securityHeaderOptionsFromEnv,
+} from './src/lib/security-headers';
 
 // Enable `output: 'standalone'` conditionally for Docker builds (#478).
 //
@@ -54,6 +58,22 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+  },
+
+  // Security response headers (#559).
+  //
+  // The policy itself lives in src/lib/security-headers.ts so it can be unit
+  // tested without a server; this only decides where it is attached. Two rules
+  // are emitted, most specific first: `/api/:path*` gets the locked-down
+  // `default-src 'none'` policy plus `no-store`, and `/:path*` gets the
+  // document policy. Next.js applies both to an API request, so the API rule's
+  // values overwrite the catch-all's for the keys they share.
+  //
+  // Middleware short-circuits (the admin guard's 401/403, the rate limiter's
+  // 429) never reach this layer, so src/proxy.ts applies the same header set to
+  // the responses it builds itself.
+  async headers() {
+    return buildNextSecurityHeaderRules(securityHeaderOptionsFromEnv());
   },
 };
 
