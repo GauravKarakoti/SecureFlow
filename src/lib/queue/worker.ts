@@ -11,9 +11,13 @@ import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-r
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
 import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
+import { sanitizeLogValue } from '@/lib/logger';
 
-// Sanitize user-controlled strings before logging to prevent log injection (CWE-117)
-const sanitize = (s: unknown) => String(s ?? '').replace(/[\r\n]/g, ' ');
+// Sanitize user-controlled strings before logging to prevent log injection
+// (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
+// it rather than only this one (#563); the local alias keeps the ~40 call sites
+// below unchanged.
+const sanitize = sanitizeLogValue;
 
 // 1. Strict input validation schemas
 const repoSchema = z.object({
