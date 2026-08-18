@@ -247,19 +247,23 @@ describe("aggregateContributors", () => {
       prs: [
         { authorLogin: "delhi_user", status: "PASS", createdAt: day(1) },
         { authorLogin: "gaurav_login", status: "PASS", createdAt: day(1) },
+        { authorLogin: "GauravKarakoti", status: "PASS", createdAt: day(1) },
       ],
       codenames: [
         { githubLogin: null, name: "Delhi_User", email: "other@example.com", codename: "Delhi" },
         { githubLogin: null, name: null, email: "gaurav_login@example.com", codename: "Mumbai" },
+        { githubLogin: null, name: "Gaurav Karakoti", email: "gk@example.com", codename: "Tokyo" },
       ],
     });
 
     const rows = await loadContributors();
     const delhiRow = rows.find((r) => r.login === "delhi_user");
     const gauravRow = rows.find((r) => r.login === "gaurav_login");
+    const karakotiRow = rows.find((r) => r.login === "GauravKarakoti");
 
     expect(delhiRow?.codename).toBe("Delhi");
     expect(gauravRow?.codename).toBe("Mumbai");
+    expect(karakotiRow?.codename).toBe("Tokyo");
   });
 
   it("breaks score ties deterministically by merges then login", async () => {

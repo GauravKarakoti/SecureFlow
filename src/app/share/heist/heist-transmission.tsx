@@ -180,7 +180,7 @@ export function HeistTransmission({
   const interceptToastFiredRef = useRef(false);
   const glitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const streamStartTimeRef = useRef<number>(Date.now());
+  const streamStartTimeRef = useRef<number>(0);
   const streamCharCountRef = useRef<number>(0);
 
   // ── Easter egg state ─────────────────────────────────────────────────────────
@@ -255,6 +255,7 @@ export function HeistTransmission({
 
     streamStartTimeRef.current = Date.now();
     streamCharCountRef.current = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsTyping(true);
 
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);

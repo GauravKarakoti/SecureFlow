@@ -143,20 +143,32 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
 
   for (const u of users as any[]) {
     if (!u.codename) continue;
+
+    const registerAlias = (val: string | null | undefined) => {
+      if (!val) return;
+      const raw = val.trim().toLowerCase();
+      if (!raw) return;
+
+      if (!codenameByLogin.has(raw)) {
+        codenameByLogin.set(raw, u.codename);
+      }
+
+      // Stripped alphanumeric alias (e.g. "Gaurav Karakoti" -> "gauravkarakoti")
+      const alphanumeric = raw.replace(/[^a-z0-9]/g, "");
+      if (alphanumeric && !codenameByLogin.has(alphanumeric)) {
+        codenameByLogin.set(alphanumeric, u.codename);
+      }
+    };
+
     if (u.githubLogin) {
-      codenameByLogin.set(u.githubLogin.toLowerCase(), u.codename);
+      registerAlias(u.githubLogin);
     }
     if (u.name) {
-      const normalizedName = u.name.toLowerCase();
-      if (!codenameByLogin.has(normalizedName)) {
-        codenameByLogin.set(normalizedName, u.codename);
-      }
+      registerAlias(u.name);
     }
     if (u.email) {
-      const emailPrefix = u.email.split("@")[0].toLowerCase();
-      if (!codenameByLogin.has(emailPrefix)) {
-        codenameByLogin.set(emailPrefix, u.codename);
-      }
+      const emailPrefix = u.email.split("@")[0];
+      registerAlias(emailPrefix);
     }
   }
 
