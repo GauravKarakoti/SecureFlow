@@ -62,7 +62,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
-    "bullmq": "^6.1.1",
+    "bullmq": "^6.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.5",
