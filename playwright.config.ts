@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
 
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:9002',
+    baseURL: process.env.AUTH_URL || 'http://localhost:9002',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -18,7 +18,7 @@ export default defineConfig({
 
   webServer: {
     command: process.env.CI ? 'npm run build && npm run start -- -p 9002' : 'npm run dev',
-    url: process.env.E2E_BASE_URL || 'http://localhost:9002',
+    url: process.env.AUTH_URL || 'http://localhost:9002',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     stdout: 'pipe',
@@ -27,8 +27,8 @@ export default defineConfig({
       // ⭐ NEW: Auth.js configuration for E2E test server
       AUTH_TRUST_HOST: 'true',
       NEXTAUTH_TRUST_HOST: 'true',
-      AUTH_URL: process.env.E2E_BASE_URL || 'http://localhost:9002',
-      NEXTAUTH_URL: process.env.E2E_BASE_URL || 'http://localhost:9002',
+      AUTH_URL: process.env.AUTH_URL || 'http://localhost:9002',
+      NEXTAUTH_URL: process.env.AUTH_URL || 'http://localhost:9002',
       AUTH_SECRET: 'e2e-test-secret-key',
       NEXTAUTH_SECRET: 'e2e-test-secret-key',
       NEXT_PUBLIC_MOCK_DB: 'true',
@@ -41,6 +41,14 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'Mobile Safari',
+      use: { ...devices['Mobile Safari'] },
+    },
+    {
+      name: 'Pixel 5',
+      use: { ...devices['Pixel 5'] },
     },
   ],
 });

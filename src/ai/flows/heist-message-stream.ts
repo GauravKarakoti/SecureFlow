@@ -67,6 +67,14 @@ function buildPrompt(input: HeistMessageInput): string {
 
 // ── Main streaming generator ──────────────────────────────────────────────────
 
+export interface StreamHeistMessageOptions {
+  /**
+   * Aborts the underlying generation. Pass the request signal so a client
+   * disconnecting mid-stream stops us paying for the rest of the completion.
+   */
+  signal?: AbortSignal;
+}
+
 /**
  * Streams a unique, cryptic "Professor-style" heist transmission for a given
  * share-link payload.
@@ -75,10 +83,19 @@ function buildPrompt(input: HeistMessageInput): string {
  *   - `chunk` events with the accumulated text as the model speaks (typewriter UI)
  *   - a single `done` event once the full message has arrived
  *   - a single `error` event if generation fails (caller should use FALLBACK_HEIST_MESSAGE)
+ *
+ * When `options.signal` aborts, the generator returns without yielding a
+ * terminal event: an abort means the caller went away, which is not a failure
+ * anyone is left to hear about.
  */
 export async function* streamHeistMessage(
   input: HeistMessageInput,
+  options: StreamHeistMessageOptions = {},
 ): AsyncGenerator<HeistStreamEvent, void, unknown> {
+  const { signal } = options;
+
+  if (signal?.aborted) return;
+
   // ── Validate input ──────────────────────────────────────────────────────────
   let validatedInput: HeistMessageInput;
   try {
@@ -103,6 +120,7 @@ export async function* streamHeistMessage(
           model: defaultModel,
           system: SYSTEM_PROMPT,
           prompt,
+          ...(signal ? { abortSignal: signal } : {}),
         }),
       {
         initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
@@ -112,6 +130,10 @@ export async function* streamHeistMessage(
     let accumulatedText = '';
 
     for await (const chunk of stream) {
+      // Stop pulling as soon as the caller is gone. Returning here finalises
+      // the generator, which closes the underlying stream.
+      if (signal?.aborted) return;
+
       // Genkit streams raw text chunks for non-JSON output.
       // chunk.text is the incremental delta; we accumulate it.
       const delta: string = chunk.text ?? '';
@@ -120,6 +142,8 @@ export async function* streamHeistMessage(
         yield { type: 'chunk', text: accumulatedText };
       }
     }
+
+    if (signal?.aborted) return;
 
     // ── Await the final response to get the canonical complete text ─────────
     const finalResponse = await response;
@@ -130,6 +154,9 @@ export async function* streamHeistMessage(
       message: finalText || FALLBACK_HEIST_MESSAGE,
     };
   } catch (err) {
+    // An abort is the caller leaving, not a generation failure.
+    if (signal?.aborted) return;
+
     const isRateLimit = isRateLimitError(err);
     const isTimeout = isTimeoutError(err);
     const message = isRateLimit
@@ -145,4 +172,4 @@ export async function* streamHeistMessage(
       message,
     };
   }
-}
+}

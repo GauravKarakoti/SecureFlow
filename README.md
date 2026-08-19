@@ -352,6 +352,34 @@ npm run genkit:dev
 | `ARMORIQ_API_KEY`       | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                 |
 | `USER_ID`               | ⬜       | Optional — ArmorIQ user ID                                                              |
 | `AGENT_ID`              | ⬜       | Optional — ArmorIQ agent ID                                                             |
+| `TRUSTED_PROXY_HOP_COUNT` | ⬜     | Trusted proxies in front of the app (default: `1`). Set `0` when exposed directly — see below |
+| `TRUSTED_PROXY_IPS`     | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count |
+
+### Trusted proxies and rate limiting
+
+Rate limits are bucketed per client IP, and that IP is derived from
+`X-Forwarded-For`. Because any caller can put whatever they like at the front of
+that header, the app has to know how many hops in front of it are actually
+trustworthy — otherwise a caller can vary the header and land in a fresh bucket
+on every request, which makes every rate limit unenforceable.
+
+Set `TRUSTED_PROXY_HOP_COUNT` to the number of proxies between the internet and
+the app:
+
+| Deployment                              | Value             |
+| --------------------------------------- | ----------------- |
+| Vercel / Render / Fly / a single nginx  | `1` (the default) |
+| Cloudflare in front of one of the above | `2`               |
+| App exposed directly, no proxy          | `0`               |
+
+With `0`, the forwarding headers are ignored entirely — nothing in front of the
+app is authoritative, so nothing in them is believed.
+
+If the hop count varies (multiple ingress paths), set `TRUSTED_PROXY_IPS`
+instead — e.g. `TRUSTED_PROXY_IPS=10.0.0.0/8,192.168.1.1`. The chain is then
+walked from the right past known proxies rather than counting a fixed number of
+hops. IPv4 CIDR blocks and bare addresses are supported; IPv6 entries are matched
+exactly.
 
 ---
 

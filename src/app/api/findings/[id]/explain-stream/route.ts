@@ -4,11 +4,14 @@ import prisma from '@/lib/prisma';
 import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explanation-stream';
 import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 import { checkRateLimit } from '@/lib/redis';
+import { ratelimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Streams a live-regenerated AI explanation for a single finding as Server-Sent Events.
+ * Rate-limited via both IP-based token bucket (`withRateLimit`) and per-user token bucket (`checkRateLimit`).
+ * Includes error boundary catching for Groq SDK timeout or rate-limit errors.
  *
  * Each event is a JSON-encoded line of the shape emitted by streamDeveloperSecurityExplanations
  * (`{"type":"chunk",...}`, `{"type":"done",...}`, or `{"type":"error",...}`), so the client can
@@ -28,6 +31,17 @@ async function handler(
   }
   const userId = session.user.id;
 
+  // Upstash sliding-window rate limit check if UPSTASH_REDIS_REST_URL is set
+  if (ratelimit) {
+    const { success } = await ratelimit.limit(`explain-stream:${userId}`);
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too Many Requests', message: 'You have exceeded the rate limit. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': '60' } }
+      );
+    }
+  }
+
   // User-based token bucket: stricter than IP limit, keyed per authenticated user
   const userAllowed = await checkRateLimit(
     `rate-limit:explain-stream:user:${userId}`,
@@ -44,16 +58,26 @@ async function handler(
 
   const { id } = await params;
 
-  const finding = await prisma.finding.findFirst({
-    where: {
-      id,
-      scanResult: { pullRequest: { repository: { userId } } },
-    },
-  });
+// FIX: First, check if the finding exists at all to prevent BOLA/IDOR masking
+    const existingFinding = await prisma.finding.findUnique({
+      where: { id },
+    });
 
-  if (!finding) {
-    return NextResponse.json({ error: 'Finding not found' }, { status: 404 });
-  }
+    if (!existingFinding) {
+      return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+    }
+
+    // Next, verify that the authenticated user actually owns this finding
+    const finding = await prisma.finding.findFirst({
+      where: {
+        id,
+        scanResult: { pullRequest: { repository: { userId } } },
+      },
+    });
+
+    if (!finding) {
+      return NextResponse.json({ error: "Forbidden: You do not have access to this finding" }, { status: 403 });
+    }
 
   const encoder = new TextEncoder();
 

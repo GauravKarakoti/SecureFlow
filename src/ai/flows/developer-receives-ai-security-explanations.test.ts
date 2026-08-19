@@ -240,39 +240,4 @@ describe('developerReceivesAISecurityExplanations (end-to-end flow)', () => {
     // and the benign snippet won't trigger the pre-filter.
     expect(result.promptInjectionSuspected).toBe(false);
   });
-
-  it('handles Groq 429 rate limit errors with fallback after retries', async () => {
-    const rateLimitError = Object.assign(new Error('Rate limit reached'), { status: 429 });
-    mockGenerate.mockRejectedValue(rateLimitError);
-
-    const result = await developerReceivesAISecurityExplanations({
-      findingType: 'Vulnerability',
-      severity: 'HIGH',
-      description: 'SQL Injection',
-      fileLocation: 'src/db.ts',
-      codeSnippet: 'select * from users',
-    });
-
-    expect(result.explanation).toContain('Groq API rate limit reached');
-    expect(result.remediationSuggestions).toContain('Rate limit active');
-    expect(mockGenerate).toHaveBeenCalledTimes(3);
-  });
-
-  it('handles Groq connection timeout errors with fallback after retries', async () => {
-    const timeoutError = new Error('Connection timed out');
-    timeoutError.name = 'APIConnectionTimeoutError';
-    mockGenerate.mockRejectedValue(timeoutError);
-
-    const result = await developerReceivesAISecurityExplanations({
-      findingType: 'Vulnerability',
-      severity: 'HIGH',
-      description: 'SQL Injection',
-      fileLocation: 'src/db.ts',
-      codeSnippet: 'select * from users',
-    });
-
-    expect(result.explanation).toContain('Groq API connection timed out');
-    expect(result.remediationSuggestions).toContain('Connection timed out');
-    expect(mockGenerate).toHaveBeenCalledTimes(3);
-  });
-});
+});

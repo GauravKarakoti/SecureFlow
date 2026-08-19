@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ export default function FindingTriageControls({
   currentNote,
 }: FindingTriageControlsProps) {
   const { toast } = useToast();
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
   const [note, setNote] = useState(currentNote ?? "");
@@ -50,18 +52,27 @@ export default function FindingTriageControls({
 
   const save = () => {
     startTransition(async () => {
-      const result = await setFindingStatus({ repositoryId, fingerprint, status, note });
-      if (result.ok) {
-        toast({
-          variant: "success",
-          title: "PLAN EXECUTED: TRIAGE RECORDED 🛡️",
-          description: `Finding status updated to ${STATUS_OPTIONS.find((o) => o.value === status)?.label}. Vault security updated.`,
-        });
-      } else {
+      try {
+        const result = await setFindingStatus({ repositoryId, fingerprint, status, note });
+        if (result.ok) {
+          toast({
+            variant: "success",
+            title: "PLAN EXECUTED: TRIAGE RECORDED 🛡️",
+            description: `Finding status updated to ${STATUS_OPTIONS.find((o) => o.value === status)?.label}. Vault security updated.`,
+          });
+          router.refresh();
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Couldn't update triage",
+            description: result.error ?? "An unexpected error occurred.",
+          });
+        }
+      } catch {
         toast({
           variant: "destructive",
           title: "Couldn't update triage",
-          description: result.error ?? "An unexpected error occurred.",
+          description: "An unexpected error occurred. Please try again.",
         });
       }
     });

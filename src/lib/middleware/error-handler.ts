@@ -1,26 +1,20 @@
 import { NextResponse } from 'next/server';
+import { resolveErrorStatus, DEFAULT_ERROR_STATUS } from './http-status';
+import { scrubSensitiveData } from '@/lib/redaction';
+import { logger } from '@/lib/logger';
 
-// Standard backend logger
-export const logger = {
-  error: (message: string, meta?: Record<string, unknown>) => {
-    const logOutput = {
-      timestamp: new Date().toISOString(),
-      level: 'ERROR',
-      message,
-      ...meta,
-    };
-    console.error(`[Backend Logger] ${JSON.stringify(logOutput)}`);
-  },
-  info: (message: string, meta?: Record<string, unknown>) => {
-    const logOutput = {
-      timestamp: new Date().toISOString(),
-      level: 'INFO',
-      message,
-      ...meta,
-    };
-    console.info(`[Backend Logger] ${JSON.stringify(logOutput)}`);
-  }
-};
+/**
+ * Backend logger.
+ *
+ * Was an inline object literal with two methods, no levels, no way to silence
+ * it and no redaction -- and it wrote the raw error message, stack and Prisma
+ * `meta` to stdout while scrubSensitiveData() protected only the response.
+ * It now delegates to the shared logger in src/lib/logger.ts, which redacts
+ * metadata recursively and gates on LOG_LEVEL (#563).
+ *
+ * Re-exported under the same name so existing callers are unaffected.
+ */
+export { logger };
 
 // Standard custom error class for known operational/client errors
 export class AppError extends Error {
@@ -55,28 +49,21 @@ const STATUS_TO_ERROR_CODE: Record<number, string> = {
   504: 'GATEWAY_TIMEOUT',
 };
 
-// Scrub sensitive details such as paths, credentials, and connection strings
-export function scrubSensitiveData(text: string): string {
-  if (!text) return text;
-  let sanitized = text;
+// Scrub sensitive details such as paths, credentials, and connection strings.
+//
+// The implementation moved to src/lib/redaction.ts (#563) so the logger can
+// share it without the two modules importing each other. Re-exported here
+// unchanged, so every existing import keeps working.
+export { scrubSensitiveData };
 
-  // Redact PostgreSQL / Database connection URLs (e.g., postgresql://username:password@host/db)
-  sanitized = sanitized.replace(/[a-zA-Z]+:\/\/[^/\s]+:[^/\s]+@[^\s]+/g, '[REDACTED_CONNECTION_STRING]');
-
-  // Redact potential passwords/keys in connection strings
-  sanitized = sanitized.replace(/:\/\/[^@]+@/g, '://[REDACTED_CREDENTIALS]@');
-
-  // Redact file paths (both Windows and Unix paths)
-  // Windows paths: e.g. D:\Struggle\Open Source\SecureFlow\...
-  sanitized = sanitized.replace(/[a-zA-Z]:\\[\\\w\s.-]+/g, '[REDACTED_PATH]');
-  // Unix paths: e.g. /usr/local/bin/...
-  sanitized = sanitized.replace(/\/(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+/g, '[REDACTED_PATH]');
-
-  // Redact potential environment variable patterns (e.g. GITHUB_CLIENT_SECRET=...)
-  sanitized = sanitized.replace(/[\w.-]*(?:key|secret|token|password|auth|db_url|database_url)[\w.-]*\s*=\s*[^\s]+/gi, '[REDACTED_SECRET]');
-
-  return sanitized;
-}
+/**
+ * Error class names we are willing to echo back to the client as an error code.
+ *
+ * Anything outside this list (`PrismaClientKnownRequestError`, `GenkitError`,
+ * `TypeError`, …) tells a caller which libraries we run and how our internals
+ * are wired, so those collapse to the generic status-derived code instead.
+ */
+const EXPOSABLE_ERROR_NAMES = new Set(['AppError', 'ValidationError']);
 
 export function withErrorHandler<Args extends unknown[], Result>(
   handler: (...args: Args) => Promise<Result>
@@ -86,8 +73,14 @@ export function withErrorHandler<Args extends unknown[], Result>(
       return await handler(...args);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
-      // 1. Extract error details
-      const statusCode = err?.statusCode || err?.status || 500;
+      // 1. Extract error details.
+      //
+      // The status is normalised rather than trusted: a thrown value can carry
+      // a `status` that is not an HTTP status at all (Genkit uses string enums
+      // such as 'FAILED_PRECONDITION'; WebSocket/undici use codes like 1006),
+      // and handing one of those to NextResponse.json throws a RangeError from
+      // inside this very handler. See src/lib/middleware/http-status.ts.
+      const statusCode = resolveErrorStatus(err, DEFAULT_ERROR_STATUS);
       const originalMessage = err?.message || String(err);
       const stack = err?.stack;
 
@@ -95,7 +88,13 @@ export function withErrorHandler<Args extends unknown[], Result>(
       const prismaCode = err?.code;
       const prismaMeta = err?.meta;
 
-      // 2. Pipe the full, unredacted context to the backend logger
+      // 2. Pipe the error context to the backend logger.
+      //
+      // We log named fields explicitly instead of spreading the error. `...err`
+      // dragged in every own property the thrown object happened to carry —
+      // including a Prisma `meta` holding query parameter values and any
+      // request/response objects an HTTP client attached — which is how raw
+      // credentials end up in log aggregation.
       logger.error("API route error caught by global handler", {
         error: {
           name: err?.name || 'Error',
@@ -103,9 +102,9 @@ export function withErrorHandler<Args extends unknown[], Result>(
           stack,
           code: prismaCode,
           meta: prismaMeta,
-          ...err
         },
         statusCode,
+        rawStatus: err?.statusCode ?? err?.status ?? null,
       });
 
       // 3. Construct strict, standardized client error response
@@ -118,7 +117,7 @@ export function withErrorHandler<Args extends unknown[], Result>(
 
       // If it's a client/operational error, we can safely expose the message
       if (isClientError || isOperational) {
-        if (err?.name && err?.name !== 'Error') {
+        if (err?.name && EXPOSABLE_ERROR_NAMES.has(err.name)) {
           clientErrorCode = err.name;
         } else {
           clientErrorCode = STATUS_TO_ERROR_CODE[statusCode] || 'CLIENT_ERROR';

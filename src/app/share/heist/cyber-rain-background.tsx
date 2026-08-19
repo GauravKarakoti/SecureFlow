@@ -73,6 +73,10 @@ interface CyberRainBackgroundProps {
   isPaused?: boolean;
   /** Temporary visual glitch effect. */
   glitchActive?: boolean;
+  /** Active streaming state of the heist transmission. */
+  isTyping?: boolean;
+  /** Estimated tokens or characters per second metric from active transmission. */
+  tokensPerSecond?: number;
 }
 
 export function CyberRainBackground({
@@ -82,6 +86,8 @@ export function CyberRainBackground({
   densityMultiplier = 1.0,
   isPaused = false,
   glitchActive = false,
+  isTyping = false,
+  tokensPerSecond = 0,
 }: CyberRainBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -98,16 +104,22 @@ export function CyberRainBackground({
     densityMultiplier: densityMultiplier,
     isPaused: isPaused,
     glitchActive: glitchActive,
+    isTyping: isTyping,
+    tokensPerSecond: tokensPerSecond,
   });
   
   // Update refs on prop changes
   useEffect(() => {
     configRef.current.theme = theme;
-    configRef.current.speedMultiplier = speedMultiplier;
+    // Calculate dynamic speed scaling based on speedMultiplier or active token stream rate
+    const tokenSpeedBoost = isTyping ? Math.min(4.0, Math.max(1.5, 1.0 + tokensPerSecond * 0.05)) : 1.0;
+    configRef.current.speedMultiplier = speedMultiplier * tokenSpeedBoost;
     configRef.current.densityMultiplier = densityMultiplier;
     configRef.current.isPaused = isPaused;
     configRef.current.glitchActive = glitchActive;
-  }, [theme, speedMultiplier, densityMultiplier, isPaused, glitchActive]);
+    configRef.current.isTyping = isTyping;
+    configRef.current.tokensPerSecond = tokensPerSecond;
+  }, [theme, speedMultiplier, densityMultiplier, isPaused, glitchActive, isTyping, tokensPerSecond]);
 
   useEffect(() => {
     isMountedRef.current = true;

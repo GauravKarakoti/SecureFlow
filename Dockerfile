@@ -1,23 +1,17 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================================
-# SecureFlow — optimized Next.js 16 production image
+# SecureFlow — Next.js Standalone Production Dockerfile (#478)
 #
-# Multi-stage build leveraging `output: 'standalone'` (see next.config.ts).
-# Next.js output tracing produces a self-contained `.next/standalone` bundle
-# containing only the modules the app actually imports. The final `runner`
-# stage therefore does NOT copy `node_modules` wholesale — only the standalone
-# server, static assets, public files, and a tiny Prisma CLI layer for
-# `prisma migrate deploy` at startup.
+# Multi-stage build leveraging `output: 'standalone'` in next.config.ts.
+# Next.js output tracing produces a self-contained `.next/standalone` bundle.
+# The final `runner` stage copies only standalone server artifacts, static
+# assets, public files, and a minimal Prisma CLI layer for startup migrations.
 #
-# `output: 'standalone'` is enabled conditionally in next.config.ts via the
-# DOCKER_BUILD env var (set below in the builder stage). This keeps local
-# `npm run dev` / `npm run build` / `npm run start` unaffected.
-#
-# Stages:
-#   1. deps         — install ALL deps (cached on package*.json change only)
-#   2. builder      — prisma generate + next build (produces .next/standalone)
-#   3. prisma-cli   — isolated Prisma CLI for startup migrations
-#   4. runner       — minimal runtime image (non-root, no shell deps beyond wget)
+# Multi-stage targets:
+#   1. deps       — install npm dependencies with build caching
+#   2. builder    — prisma generate & next build with DOCKER_BUILD=true
+#   3. prisma-cli — isolated Prisma CLI installation for startup migrations
+#   4. runner     — minimal non-root execution container
 # ============================================================================
 
 
@@ -36,9 +30,8 @@ COPY package.json package-lock.json* ./
 # have to regenerate the client, slowing iteration.
 COPY prisma ./prisma
 
-# `npm ci` respects the lockfile exactly. The postinstall hook runs
-# `prisma generate`, which only needs the schema (copied above).
-RUN npm ci --legacy-peer-deps
+# `npm ci` respects the lockfile exactly. Mount build cache to speed up dependency installs.
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 
 
 # ----------------------------------------------------------------------------
@@ -69,10 +62,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # would break the runner stage below (it copies from .next/standalone).
 ENV DOCKER_BUILD=true
 
-# Generate the Prisma client (in case postinstall didn't, e.g. if the
-# schema changed since the deps stage) and then build Next.js.
+# Generate the Prisma client and build Next.js.
 # With DOCKER_BUILD=true set above, `next build` produces `.next/standalone`.
-RUN npx prisma generate && npx next build
+RUN --mount=type=cache,target=/root/.npm npx prisma generate && npx next build
 
 
 # ----------------------------------------------------------------------------
@@ -85,7 +77,7 @@ RUN npx prisma generate && npx next build
 # ----------------------------------------------------------------------------
 FROM node:22-alpine AS prisma-cli
 WORKDIR /opt/prisma-cli
-RUN npm init -y \
+RUN --mount=type=cache,target=/root/.npm npm init -y \
  && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
       dotenv@16.6.1 prisma@7.8.0
 
@@ -106,7 +98,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_PATH=/opt/prisma-cli/node_modules
 
 # Dedicated non-root user. A compromised Next.js process should not have
-# root inside the container (reduces attack surface per #194).
+# root inside the container.
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
@@ -130,10 +122,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
 
 # --- Generated Prisma client runtime artifacts -----------------------------
-# `outputFileTracingIncludes` in next.config.ts already pulls
-# `node_modules/.prisma/client/**/*` into the standalone bundle, so in
-# practice these two copies are belt-and-suspenders for any Prisma version
-# that resolves the client outside the traced path. Cheap to keep.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
@@ -145,8 +133,7 @@ USER nextjs
 
 EXPOSE 9002
 
-# Liveness probe — Next.js always responds at `/` (200 even without a route,
-# because the root layout renders). `wget` is available on alpine by default.
+# Liveness probe — Next.js always responds at `/`
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q --spider http://127.0.0.1:9002/ || exit 1
 

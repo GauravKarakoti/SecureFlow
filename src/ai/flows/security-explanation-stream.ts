@@ -2,9 +2,9 @@ import "dotenv/config";
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
 import { ai, securityExplanationModel } from '@/ai/genkit';
 import {
+  AISecurityExplanationApiSchema,
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
-  StreamChunkSchema,
   SYSTEM_PROMPT,
   type AISecurityExplanationInput,
   type AISecurityExplanationOutput,
@@ -61,7 +61,10 @@ export async function* streamDeveloperSecurityExplanations(
           model: securityExplanationModel,
           system: SYSTEM_PROMPT,
           prompt,
-          output: { format: 'json', schema: StreamChunkSchema },
+          output: {
+            format: 'json',
+            schema: AISecurityExplanationApiSchema,
+          },
           config: {
             maxOutputTokens: 3000,
             temperature: 0.1,
@@ -74,7 +77,7 @@ export async function* streamDeveloperSecurityExplanations(
 
     let lastExplanation = '';
     for await (const chunk of stream) {
-      const partial = chunk.output as { explanation?: string } | undefined;
+      const partial = chunk.output as Partial<AISecurityExplanationOutput> | undefined;
       if (partial?.explanation && partial.explanation !== lastExplanation) {
         lastExplanation = partial.explanation;
         yield { type: 'chunk', explanation: lastExplanation };
@@ -82,25 +85,29 @@ export async function* streamDeveloperSecurityExplanations(
     }
 
     const finalResponse = await response;
-    let parsedContent: { explanation?: string; remediationSuggestions?: unknown };
-    
-    try {
-      const withoutThoughts = finalResponse.text.replace(/<think>[\s\S]*?(<\/think>|$)/ig, '');
-      const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
-      
-      if (!jsonMatch) {
-        throw new Error("No JSON object found in response");
+    let parsedContent: Partial<AISecurityExplanationOutput> = {};
+
+    if (finalResponse.output) {
+      parsedContent = finalResponse.output as AISecurityExplanationOutput;
+    } else {
+      try {
+        const withoutThoughts = finalResponse.text.replace(/<think>[\s\S]*?(<\/think>|$)/ig, '');
+        const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
+
+        if (!jsonMatch) {
+          throw new Error("No JSON object found in response");
+        }
+
+        parsedContent = JSON.parse(jsonMatch[0]);
+      } catch (error) {
+        console.error("Failed to parse stream explanation JSON:", error);
+        console.error("RAW STREAM OUTPUT WAS:\n", finalResponse.text);
+
+        parsedContent = {
+          explanation: 'Signal lost. The Professor is recalculating.',
+          remediationSuggestions: 'Adjust the plan: lock down the perimeter manually and review the intercepted payload.',
+        };
       }
-
-      parsedContent = JSON.parse(jsonMatch[0]);
-    } catch (error) {
-      console.error("Failed to parse stream explanation JSON:", error);
-      console.error("RAW STREAM OUTPUT WAS:\n", finalResponse.text);
-
-      parsedContent = {
-        explanation: 'Signal lost. The Professor is recalculating.',
-        remediationSuggestions: 'Adjust the plan: lock down the perimeter manually and review the intercepted payload.',
-      };
     }
 
     const explanation: string = parsedContent.explanation || lastExplanation || 'No explanation provided.';

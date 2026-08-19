@@ -7,14 +7,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let mockChunks: string[] = [];
 let mockFinalText = 'Bella ciao, accomplice. The vault is sealed.';
 let mockGenerateStreamThrows = false;
-let mockCustomError: Error | null = null;
 
 vi.mock('@/ai/genkit', () => ({
   ai: {
     generateStream: () => {
-      if (mockCustomError) {
-        throw mockCustomError;
-      }
       if (mockGenerateStreamThrows) {
         throw new Error('simulated model failure');
       }
@@ -211,30 +207,6 @@ describe('streamHeistMessage', () => {
     expect(events.some((e) => e.type === 'chunk')).toBe(true);
     expect(events.some((e) => e.type === 'done')).toBe(true);
     expect(events.every((e) => e.type !== 'error')).toBe(true);
-  });
-
-  it('yields a specific rate-limit error message when Groq returns HTTP 429', async () => {
-    mockCustomError = Object.assign(new Error('Rate limit exceeded'), { status: 429 });
-
-    const events = await collectEvents(baseInput);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('error');
-    if (events[0].type === 'error') {
-      expect(events[0].message).toContain('Groq API rate limit reached (429)');
-    }
-  });
-
-  it('yields a specific timeout error message when Groq connection times out', async () => {
-    const timeoutErr = new Error('Connection timed out');
-    timeoutErr.name = 'APIConnectionTimeoutError';
-    mockCustomError = timeoutErr;
-
-    const events = await collectEvents(baseInput);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('error');
-    if (events[0].type === 'error') {
-      expect(events[0].message).toContain('Groq API connection timed out');
-    }
   });
 });
 

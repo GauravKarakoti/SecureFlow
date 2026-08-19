@@ -1,5 +1,6 @@
 import Groq from 'groq-sdk';
 import type { AISecurityExplanationInput } from "./security-explanation-schemas";
+import { isAtLeast } from '@/lib/severity';
 
 const _groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
@@ -121,7 +122,10 @@ const DISMISSIVE_PHRASES: RegExp[] = [
 ];
 
 function contradictsSeverity(severity: string, explanation: string): boolean {
-  const highStakes = ['CRITICAL', 'HIGH'].includes(severity.toUpperCase());
+  // `isAtLeast` replaces an open-coded membership list, so this threshold moves
+  // with the shared severity ordering rather than needing a hand edit here. It
+  // is also null-safe, where `severity.toUpperCase()` was not.
+  const highStakes = isAtLeast(severity, 'HIGH');
   if (!highStakes || !explanation) return false;
   return DISMISSIVE_PHRASES.some((pattern) => pattern.test(explanation));
 }
@@ -164,11 +168,68 @@ Respond ONLY with a valid JSON object with keys "explanation" and "remediationSu
 export function isRateLimitError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string }).code ?? '';
   const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
   return (
     status === 429 ||
+    /rate_limit|rate-limit|too_many_requests/i.test(code) ||
     /429|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
   );
+}
+
+/**
+ * Detects whether an error thrown by the AI provider is a timeout error.
+ */
+export function isTimeoutError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string }).code ?? '';
+  const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  return (
+    status === 408 ||
+    status === 504 ||
+    /ETIMEDOUT|ECONNABORTED|ECONNRESET/i.test(code) ||
+    /timeout|timed out|ECONNRESET|ETIMEDOUT|ECONNABORTED|deadline_exceeded/i.test(msg)
+  );
+}
+
+export interface RetryOptions {
+  retries?: number;
+  initialDelayMs?: number;
+}
+
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetriesOrOptions: number | RetryOptions = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  const maxRetries = typeof maxRetriesOrOptions === 'number' 
+    ? maxRetriesOrOptions 
+    : (maxRetriesOrOptions?.retries ?? 3);
+  const initialDelay = typeof maxRetriesOrOptions === 'object' && maxRetriesOrOptions.initialDelayMs !== undefined
+    ? maxRetriesOrOptions.initialDelayMs
+    : baseDelayMs;
+
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      attempt++;
+      
+      // Stop retrying if we hit the limit or if the error isn't retryable
+      if (attempt > maxRetries || (!isRateLimitError(error) && !isTimeoutError(error))) {
+        throw error;
+      }
+      
+      // Calculate delay with exponential backoff and a small random jitter.
+      // Bypass the delay during testing so Vitest doesn't time out waiting for retries.
+      const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+      const delay = isTest ? 0 : initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
+      
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 // Exported for the test suite and for reuse by other flows that may want the same detectors.
@@ -177,5 +238,7 @@ export const __internal = {
   contradictsSeverity,
   buildPrompt,
   isRateLimitError,
+  isTimeoutError,
+  withRetry,
   llmInjectionCheck,
 };

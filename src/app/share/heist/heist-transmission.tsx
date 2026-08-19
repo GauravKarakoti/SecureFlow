@@ -172,12 +172,16 @@ export function HeistTransmission({
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
   const [speedMultiplier, setSpeedMultiplier] = useState(2.5);
+  const [isTyping, setIsTyping] = useState(true);
+  const [tokensPerSecond, setTokensPerSecond] = useState(30);
   const [isPaused, setIsPaused] = useState(false);
   const [glitchActive, setGlitchActive] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const interceptToastFiredRef = useRef(false);
   const glitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamStartTimeRef = useRef<number>(Date.now());
+  const streamCharCountRef = useRef<number>(0);
 
   // ── Easter egg state ─────────────────────────────────────────────────────────
   const [bgTheme, setBgTheme] = useState<"heist" | "matrix" | "glitch">("heist");
@@ -249,6 +253,10 @@ export function HeistTransmission({
     if (rank)                params.set("rank", rank);
     if (findingsCount !== undefined) params.set("findingsCount", String(findingsCount));
 
+    streamStartTimeRef.current = Date.now();
+    streamCharCountRef.current = 0;
+    setIsTyping(true);
+
     const es = new EventSource(`/api/heist-transmission?${params.toString()}`);
     esRef.current = es;
 
@@ -299,6 +307,13 @@ export function HeistTransmission({
           | { type: "error"; message: string };
 
         if (event.type === "chunk") {
+          // Calculate tokens per second (approx 4 chars per token)
+          streamCharCountRef.current = event.text.length;
+          const elapsedSec = Math.max(0.1, (Date.now() - streamStartTimeRef.current) / 1000);
+          const tps = Math.round((streamCharCountRef.current / 4) / elapsedSec);
+          setTokensPerSecond(tps || 30);
+          setIsTyping(true);
+
           // Push accumulating text into typing queue for variable cadence rendering
           textQueue.push(event.text);
           processQueue();
@@ -307,6 +322,8 @@ export function HeistTransmission({
           processQueue().then(() => {
             setAiMessage(event.message);
             setAiLoading(false);
+            setIsTyping(false);
+            setTokensPerSecond(0);
             setSpeedMultiplier(1.0);
             es.close();
           });
@@ -314,12 +331,16 @@ export function HeistTransmission({
           // AI error — fall back to static lines.
           setAiMessage(null);
           setAiLoading(false);
+          setIsTyping(false);
+          setTokensPerSecond(0);
           setSpeedMultiplier(1.0);
           es.close();
         }
       } catch {
         setAiMessage(null);
         setAiLoading(false);
+        setIsTyping(false);
+        setTokensPerSecond(0);
         setSpeedMultiplier(1.0);
         es.close();
       }
@@ -328,6 +349,8 @@ export function HeistTransmission({
     es.onerror = () => {
       setAiMessage(null);
       setAiLoading(false);
+      setIsTyping(false);
+      setTokensPerSecond(0);
       setSpeedMultiplier(1.0);
       es.close();
     };
@@ -429,6 +452,8 @@ const lines = useMemo<TransmissionLine[]>(() => {
         speedMultiplier={speedMultiplier}
         isPaused={isPaused}
         glitchActive={glitchActive}
+        isTyping={isTyping}
+        tokensPerSecond={tokensPerSecond}
       />
 
       {/* Vignette so the terminal card stays the visual focal point even
