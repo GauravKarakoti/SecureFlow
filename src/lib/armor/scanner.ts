@@ -6,8 +6,8 @@ import {
   dynamicFingerprintEngine,
   PayloadSignature
 } from './fingerprint';
-import { normalizeSeverity, type Severity } from '@/lib/severity';
 import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
+import { normalizeSeverity, type Severity } from '@/lib/severity';
 
 export type ScanFinding = {
   type: string;
