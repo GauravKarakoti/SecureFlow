@@ -6,6 +6,7 @@ import {
   dynamicFingerprintEngine,
   PayloadSignature
 } from './fingerprint';
+import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
 import { normalizeSeverity, type Severity } from '@/lib/severity';
 import { parseUnifiedPatch, renderNumberedLines } from './diff';
 
@@ -664,7 +665,12 @@ CRITICAL RULES:
             }
 
             const fileLoc = String(f.fileLocation || 'Unknown file path');
-            const findingType = String(f.type || 'Vulnerability');
+            // Normalised on write, the way severity already is. The column was
+            // taking the model's phrasing verbatim, so `"hardcoded_secret"` and
+            // `"Secrets"` were distinct values that no dashboard query matched
+            // (#590). The taxonomy still recognises every legacy spelling on
+            // read, so old rows keep counting.
+            const findingType = normalizeFindingTypeLabel(f.type);
 
             const dynFp = computeDynamicFingerprint('default-repo', fileLoc, findingType, normalizedSnippet);
 

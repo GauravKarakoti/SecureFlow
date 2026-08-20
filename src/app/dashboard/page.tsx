@@ -3,6 +3,7 @@ import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage } from "@/lib/triage/queries";
+import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +34,15 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } }
   });
 
-  // FIX: Categorize all variation of secrets
+  // Secret membership comes from `@/lib/finding-taxonomy` rather than from a
+  // hand-grown list of exact-cased strings. `Finding.type` is stored verbatim
+  // from the model response and is never normalised, so a row typed `"secret"`
+  // or `"Credential Leak"` was counted as zero here while being listed on
+  // /dashboard/findings (#590). The two pages also carried *different* lists,
+  // so the same finding could be a secret on one page and nothing on the other.
   const secretsDetected = await prisma.finding.count({
     where: {
-      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] },
+      type: findingCategoryFilter("SECRET"),
       scanResult: { pullRequest: { repository: { userId } } },
       ...notDismissed
     }
@@ -56,18 +62,23 @@ export default async function OverviewPage() {
   }));
 
   // 3. Fetch Severity Distribution (dismissed findings excluded)
-  const critical = await prisma.finding.count({
-    where: { severity: 'CRITICAL', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const high = await prisma.finding.count({
-    where: { severity: 'HIGH', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const medium = await prisma.finding.count({
-    where: { severity: 'MEDIUM', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const low = await prisma.finding.count({
-    where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
+  //
+  // Through `severityFilter` rather than `severity: 'CRITICAL'`. The column is
+  // an unconstrained String; `iq.ts` documents that the exact match let a row
+  // reading `"critical"` decide a pull request PASS, and
+  // `leaderboard/aggregate.ts` compares on the trimmed, upper-cased value for
+  // the same reason. This page was the last exact match left.
+  const severityScope = {
+    scanResult: { pullRequest: { repository: { userId } } },
+    ...notDismissed,
+  };
+
+  const [critical, high, medium, low] = await Promise.all([
+    prisma.finding.count({ where: { severity: severityFilter("CRITICAL"), ...severityScope } }),
+    prisma.finding.count({ where: { severity: severityFilter("HIGH"), ...severityScope } }),
+    prisma.finding.count({ where: { severity: severityFilter("MEDIUM"), ...severityScope } }),
+    prisma.finding.count({ where: { severity: severityFilter("LOW"), ...severityScope } }),
+  ]);
 
   // 4. FIX: Generate real Chart Data (Last 7 days of scans)
   const sevenDaysAgo = new Date();
