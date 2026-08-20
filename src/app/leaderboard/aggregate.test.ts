@@ -36,7 +36,7 @@ function seed(options: {
   findings?: Array<{ scanResultId: string; severity: string | null }>;
   scans?: Array<{ id: string; authorLogin: string | null }>;
   suppressed?: string[];
-  codenames?: Array<{ githubLogin: string; codename: string }>;
+  codenames?: Array<{ githubLogin?: string | null; name?: string | null; email?: string | null; codename: string }>;
 }) {
   const { prs, findings = [], scans = [], suppressed = [], codenames = [] } = options;
 
@@ -139,14 +139,10 @@ describe("aggregateContributors", () => {
 
     expect(ranked[0].login).toBe("bob");
     expect(ranked[1].login).toBe("alice");
-    // The old implementation returned `score: mergedCount`, so alice scored 10
-    // and bob scored 4. Neither score should be a raw PR count now.
     expect(ranked[0].score).not.toBe(ranked[0].mergedCount);
   });
 
   it("does not double-count findings when a PR is re-scanned", async () => {
-    // `scanResult.findMany` is called with `distinct: ['pullRequestId']`, so only
-    // the newest scan reaches the finding lookup. Assert the query asks for that.
     seed({
       prs: [{ authorLogin: "alice", status: "PASS", createdAt: day(1) }],
       scans: [{ id: "newest", authorLogin: "alice" }],
@@ -239,11 +235,35 @@ describe("aggregateContributors", () => {
   it("prefers a stored codename over the generated one", async () => {
     seed({
       prs: [{ authorLogin: "Alice", status: "PASS", createdAt: day(1) }],
-      codenames: [{ githubLogin: "alice", codename: "Tokyo" }],
+      codenames: [{ githubLogin: "alice", codename: "Delhi" }],
     });
 
     const rows = await loadContributors();
-    expect(rows[0].codename).toBe("Tokyo");
+    expect(rows[0].codename).toBe("Delhi");
+  });
+
+  it("uses the user's custom codename from database when matched by name or email prefix (#420)", async () => {
+    seed({
+      prs: [
+        { authorLogin: "delhi_user", status: "PASS", createdAt: day(1) },
+        { authorLogin: "gaurav_login", status: "PASS", createdAt: day(1) },
+        { authorLogin: "GauravKarakoti", status: "PASS", createdAt: day(1) },
+      ],
+      codenames: [
+        { githubLogin: null, name: "Delhi_User", email: "other@example.com", codename: "Delhi" },
+        { githubLogin: null, name: null, email: "gaurav_login@example.com", codename: "Mumbai" },
+        { githubLogin: null, name: "Gaurav Karakoti", email: "gk@example.com", codename: "Tokyo" },
+      ],
+    });
+
+    const rows = await loadContributors();
+    const delhiRow = rows.find((r) => r.login === "delhi_user");
+    const gauravRow = rows.find((r) => r.login === "gaurav_login");
+    const karakotiRow = rows.find((r) => r.login === "GauravKarakoti");
+
+    expect(delhiRow?.codename).toBe("Delhi");
+    expect(gauravRow?.codename).toBe("Mumbai");
+    expect(karakotiRow?.codename).toBe("Tokyo");
   });
 
   it("breaks score ties deterministically by merges then login", async () => {
@@ -320,3 +340,4 @@ describe("aggregateContributors", () => {
     expect(ranked.every((r) => typeof r.rank === "number")).toBe(true);
   });
 });
+
