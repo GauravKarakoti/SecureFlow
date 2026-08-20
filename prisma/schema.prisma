@@ -202,6 +202,12 @@ model AuditLog {
 
   @@index([userId])
   @@index([userId, timestamp(sort: Desc)])
+  // Serves the two queries that scan this table without a userId predicate:
+  // the admin CSV export (ORDER BY timestamp DESC over a date range) and the
+  // retention purge (WHERE timestamp < cutoff, run up to 200 times per pass).
+  // The composite above cannot serve either — it needs a leading userId — so
+  // both were sequential scans plus an external sort of the whole table (#592).
+  @@index([timestamp(sort: Desc)])
 }
 
 model WebhookEvent {
