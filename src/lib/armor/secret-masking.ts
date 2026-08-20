@@ -122,7 +122,15 @@ const RULES: readonly MaskRule[] = [
   { id: 'github-token', pattern: /gh[oprsu]_[a-zA-Z0-9]{36,}/g },
   { id: 'stripe', pattern: /[sr]k_(?:live|test)_[a-zA-Z0-9]{24,}/g },
   { id: 'slack', pattern: /xox[baprse]-[a-zA-Z0-9-]{10,}/g },
-  { id: 'slack-webhook', pattern: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]+/g },
+  // The scheme prefix already does most of the work here, but CodeQL's
+  // missing-anchor rule is right that nothing pins the *end* of the host
+  // label, so the lookbehind is added as cheap defence in depth. It cannot be
+  // `^`-anchored: this is redaction, so it has to match wherever the URL
+  // appears inside a snippet, and matching too eagerly is the safe direction.
+  {
+    id: 'slack-webhook',
+    pattern: /(?<![\w.-])https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_\-/]+/g,
+  },
   { id: 'aws-access-key-id', pattern: /(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}/g },
   { id: 'google-api-key', pattern: /AIza[0-9A-Za-z\-_]{35}/g },
   { id: 'sendgrid', pattern: /SG\.[A-Za-z0-9\-_]{16,}\.[A-Za-z0-9\-_]{16,}/g },

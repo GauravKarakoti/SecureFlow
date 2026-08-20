@@ -60,6 +60,22 @@ describe('provider-prefixed keys', () => {
     redacted(`https://hooks.${'sla' + 'ck'}.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`);
   });
 
+  it('does not treat a lookalike host as a Slack webhook', () => {
+    // CodeQL's missing-anchor rule, addressed with a lookbehind on the host.
+    // `evil-hooks.slack.com` is a different host and must not match this rule.
+    const lookalike = `https://evil-hooks.${'sla' + 'ck'}.com/services/AAAA/BBBB/CCCC`;
+
+    expect(maskKnownSecretFormats(lookalike)).toContain('evil-hooks');
+  });
+
+  it('still redacts a webhook URL embedded mid-string', () => {
+    // It cannot be ^-anchored: redaction has to find the URL wherever it sits
+    // inside a code snippet.
+    const embedded = `const url = "https://hooks.${'sla' + 'ck'}.com/services/T1/B1/XXXXXXXXXXXXXXXX";`;
+
+    expect(maskKnownSecretFormats(embedded)).toContain(REDACTION_PLACEHOLDER);
+  });
+
   // ── Newly covered ────────────────────────────────────────────────────────
   it('redacts a Google API key', () => {
     redacted(`google=${'AIza'}SyD-0000000000000000000000000000000`);
