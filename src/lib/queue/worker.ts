@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
+import { maskFindingText } from '@/lib/armor/secret-masking';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
@@ -596,8 +597,15 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         });
         return {
           ...finding,
-          explanation: aiResponse.explanation,
-          remediation: aiResponse.remediationSuggestions,
+          // Redacted before anything else touches them. These two fields are
+          // generated after the scanner has finished, so they never passed
+          // through maskSecrets — and they go straight into a pull request
+          // comment and into Postgres. Remediation text is the worst case:
+          // its natural shape is to quote the offending line back at you
+          // ("move DB_PASSWORD=… into an environment variable"), and on a
+          // public repository that comment is world-readable (#591).
+          explanation: maskFindingText(aiResponse.explanation),
+          remediation: maskFindingText(aiResponse.remediationSuggestions),
           // Layer 4 (UI surfacing): carry the injection flag through to the PR comment
           // and dashboard so reviewers are warned when the AI narrative may be unreliable.
           promptInjectionSuspected: aiResponse.promptInjectionSuspected,
