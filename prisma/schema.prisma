@@ -262,3 +262,13 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
 }
+
+model AuditEventLedger {
+  id           String   @id @default(cuid())
+  sequenceNum  Int      @unique @default(autoincrement())
+  action       String
+  payload      Json
+  timestamp    DateTime @default(now())
+  previousHash String
+  currentHash  String   @unique
+}
