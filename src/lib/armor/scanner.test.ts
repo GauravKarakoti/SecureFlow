@@ -268,7 +268,13 @@ another_placeholder
 
     const findings1 = await scannerInstance.scanPullRequest(files, []);
     expect(findings1).toHaveLength(1);
-    expect(findings1[0].codeSnippet).toBe('const secret = "MY_SPECIAL_MOCK_VALUE";');
+    // The finding survives the filter (no placeholder was configured), and the
+    // assigned value is redacted on the way out — a literal assigned to a
+    // variable named `secret` is exactly what must not reach a PR comment
+    // (#591). The variable name is kept: it is not the secret, and a reviewer
+    // needs it. Redaction happens after filterFalsePositives, so the placeholder
+    // matching below still sees the original text.
+    expect(findings1[0].codeSnippet).toBe('const secret = "[REDACTED_BY_THE_PROFESSOR]";');
 
     mockCreate.mockResolvedValueOnce({
       choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
