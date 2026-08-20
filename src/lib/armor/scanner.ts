@@ -7,6 +7,7 @@ import {
   PayloadSignature
 } from './fingerprint';
 import { normalizeSeverity, type Severity } from '@/lib/severity';
+import { parseUnifiedPatch, renderNumberedLines } from './diff';
 
 export type ScanFinding = {
   type: string;
@@ -309,75 +310,20 @@ export function sanitizeRecursively(input: string): string {
 /**
  * Turn a unified diff patch into the numbered snippet handed to the model.
  *
+ * The parsing itself now lives in `./diff`, which the webhook worker reads too.
+ * It used to live here, and the worker carried its own second implementation
+ * that had never received any of the fixes this one accumulated — so the line
+ * numbers the model was given and the line numbers a review comment could be
+ * anchored on drifted apart inside the same hunk (#589). One parser, one
+ * numbering, both callers.
+ *
  * Emits added and context lines with their line number in the *new* file.
  * Deleted lines are skipped: they no longer exist in the merged result, and the
  * scan prompt instructs the model to flag anything it sees, so surfacing them
  * would produce findings against code the PR removes.
- *
- * A `---`/`+++` file header only appears before the first `@@` hunk and always
- * carries a space before its path (`+++ b/src/app.ts`). Testing
- * `line.startsWith('+++')` against every line meant an added source line that
- * itself began with `++` (`++i;`, `++count`) was mistaken for a header: it was
- * dropped from the scan entirely, and because the line counter was not advanced
- * with it every following line in that hunk was reported one number too low.
  */
 export function extractAddedLines(patch: string): string {
-  if (!patch) return '';
-
-  const processedLines: string[] = [];
-  let newLine = 0; // Line number in the new file.
-  let inHunk = false;
-
-  // A trailing newline would otherwise yield a spurious empty final entry.
-  const body = patch.endsWith('\n') ? patch.slice(0, -1) : patch;
-
-  for (const line of body.split('\n')) {
-    // Extract the starting line number from the hunk header.
-    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      newLine = parseInt(hunk[1], 10);
-      inHunk = true;
-      continue;
-    }
-
-    // File headers and git metadata. Only recognised before the first hunk,
-    // and only in their real form — marker followed by whitespace — so that
-    // `+++i;` (an added `++i;`) is treated as content, which is the bug this
-    // guards against.
-    if (!inHunk && /^(?:---|\+\+\+)(?:\s|$)/.test(line)) continue;
-    if (!inHunk && /^(?:diff |index |old mode|new mode|similarity |rename |new file|deleted file)/.test(line)) {
-      continue;
-    }
-
-    // "\ No newline at end of file" is a note about the previous line.
-    if (line.startsWith('\\')) continue;
-
-    if (line.startsWith('+')) {
-      processedLines.push(`${newLine}: ${line.slice(1)}`);
-      newLine++;
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      // Removed from the new file, so it consumes no new-file line number.
-      continue;
-    }
-
-    if (line.startsWith(' ')) {
-      processedLines.push(`${newLine}: ${line.slice(1)}`);
-      newLine++;
-      continue;
-    }
-
-    if (line === '') {
-      // Some diff producers strip the marker from an empty context line.
-      // Treating it as "not a line" desynchronised everything after it.
-      processedLines.push(`${newLine}: `);
-      newLine++;
-    }
-  }
-
-  return processedLines.join('\n');
+  return renderNumberedLines(parseUnifiedPatch(patch));
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
