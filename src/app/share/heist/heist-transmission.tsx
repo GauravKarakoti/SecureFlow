@@ -92,12 +92,12 @@ function buildStaticLines(
   const out: TransmissionLine[] = [
     { kind: "system",    text: "> INITIALIZING SECURE CHANNEL............ [OK]", decode: true },
     { kind: "system",    text: "> DECRYPTING TRANSMISSION................. [OK]", decode: true },
-    { kind: "system",    text: "> SENDER: THE PROFESSOR",                          decode: true },
-    { kind: "blank",     text: "",                                              decode: false },
-    { kind: "narrative", text: "Bella ciao, accomplice.",                        decode: true },
-    { kind: "blank",     text: "",                                              decode: false },
+    { kind: "system",    text: "> SENDER: THE PROFESSOR",                  decode: true },
+    { kind: "blank",     text: "",                                         decode: false },
+    { kind: "narrative", text: "Bella ciao, accomplice.",                  decode: true },
+    { kind: "blank",     text: "",                                         decode: false },
     { kind: "narrative", text: `The heist on ${projectName} is complete.`,       decode: true },
-    { kind: "data",      text: "Audit status: PASSED",                           decode: true },
+    { kind: "data",      text: "Audit status: PASSED",                     decode: true },
   ];
   if (score !== undefined) {
     out.push({ kind: "data", text: `Security score: ${score}/100`, decode: true });
@@ -128,10 +128,10 @@ function buildAiLines(
   const out: TransmissionLine[] = [
     { kind: "system",    text: "> INITIALIZING SECURE CHANNEL............ [OK]", decode: true },
     { kind: "system",    text: "> DECRYPTING TRANSMISSION................. [OK]", decode: true },
-    { kind: "system",    text: "> SENDER: THE PROFESSOR",                          decode: true },
-    { kind: "blank",     text: "",                                              decode: false },
-    { kind: "data",      text: `TARGET: ${projectName}`,                         decode: true },
-    { kind: "data",      text: "Audit status: PASSED",                           decode: true },
+    { kind: "system",    text: "> SENDER: THE PROFESSOR",                  decode: true },
+    { kind: "blank",     text: "",                                         decode: false },
+    { kind: "data",      text: `TARGET: ${projectName}`,                  decode: true },
+    { kind: "data",      text: "Audit status: PASSED",                     decode: true },
   ];
   if (score !== undefined) {
     out.push({ kind: "data", text: `Security score: ${score}/100`, decode: true });
@@ -142,7 +142,7 @@ function buildAiLines(
   if (findingsCount !== undefined) {
     out.push({ kind: "data", text: `Findings logged: ${findingsCount}`, decode: true });
   }
-  out.push({ kind: "blank",     text: "",            decode: false });
+  out.push({ kind: "blank",     text: "",             decode: false });
 
   // Wrap each sentence of the AI message as its own narrative line for sequential decode.
   const sentences = aiMessage
@@ -154,7 +154,7 @@ function buildAiLines(
     out.push({ kind: "narrative", text: sentence, decode: true });
   }
 
-  out.push({ kind: "blank",  text: "",                   decode: false });
+  out.push({ kind: "blank",  text: "",                 decode: false });
   out.push({ kind: "system", text: "> END OF TRANSMISSION.", decode: true });
   return out;
 }
