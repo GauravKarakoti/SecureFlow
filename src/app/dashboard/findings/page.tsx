@@ -3,6 +3,7 @@ import FindingsClient from "./findings-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage, triageKey } from "@/lib/triage/queries";
+import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 
 export const dynamic = "force-dynamic";
 
@@ -20,31 +21,40 @@ export default async function FindingsPage() {
   const { suppressedFingerprints, byKey } = await getUserTriage(userId);
   const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
 
-  // FIX: Map arrays of similar types to capture all variations
-  const criticalSecrets = await prisma.finding.count({
-    where: {
-      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] },
-      severity: 'CRITICAL',
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
+  // Scope shared by every tile, so no tile can disagree with its siblings about
+  // which repositories it is counting.
+  const ownedByUser = { scanResult: { pullRequest: { repository: { userId } } } };
 
-  const vulnerabilities = await prisma.finding.count({
-    where: {
-      type: { in: ['Vulnerability', 'Logic Flaw'] },
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
-
-  const misconfigs = await prisma.finding.count({
-    where: {
-      type: { in: ['Misconfig', 'Potential Misconfig'] },
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
+  // Category membership comes from `@/lib/finding-taxonomy` rather than from a
+  // list of exact-cased strings maintained here. `Finding.type` is written
+  // verbatim from the model response and is never normalised, so
+  // `type: { in: ['Vulnerability', 'Logic Flaw'] }` counted zero for a row typed
+  // `"vulnerability"` or `"SQL Injection"` — while that same row was rendered in
+  // the table below (#590). Severity goes through the same helper for the reason
+  // `iq.ts` and `leaderboard/aggregate.ts` already document: the column is an
+  // unconstrained String and an exact match silently misses.
+  //
+  // `OTHER` is a real fourth bucket rather than a silent drop, so the tiles
+  // always sum to the number of findings.
+  const [criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
+    prisma.finding.count({
+      where: {
+        type: findingCategoryFilter("SECRET"),
+        severity: severityFilter("CRITICAL"),
+        ...ownedByUser,
+        ...notDismissed,
+      },
+    }),
+    prisma.finding.count({
+      where: { type: findingCategoryFilter("VULNERABILITY"), ...ownedByUser, ...notDismissed },
+    }),
+    prisma.finding.count({
+      where: { type: findingCategoryFilter("MISCONFIG"), ...ownedByUser, ...notDismissed },
+    }),
+    prisma.finding.count({
+      where: { type: findingCategoryFilter("OTHER"), ...ownedByUser, ...notDismissed },
+    }),
+  ]);
 
   // Fetch the actual findings for this user's repos
   const findingsRaw = await prisma.finding.findMany({
@@ -77,7 +87,7 @@ export default async function FindingsPage() {
     };
   });
 
-  const stats = { criticalSecrets, vulnerabilities, misconfigs };
+  const stats = { criticalSecrets, vulnerabilities, misconfigs, other };
 
   return <FindingsClient findings={findings} stats={stats} />;
 }
