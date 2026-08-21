@@ -581,7 +581,7 @@ CRITICAL RULES:
           }, { timeout: SCAN_REQUEST_TIMEOUT_MS });
 
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new ScannerTimeoutError('LLM scan timed out after 60 seconds')), 120000);
+            setTimeout(() => reject(new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`)), SCAN_REQUEST_TIMEOUT_MS);
           });
 
           const chatCompletion = await Promise.race([
@@ -691,7 +691,7 @@ CRITICAL RULES:
           }
 
           if (error instanceof ScannerTimeoutError || errObj?.name === 'AbortError') {
-            throw new ScannerTimeoutError('LLM scan timed out after 60 seconds');
+            throw new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`);
           }
           if (errObj?.status === 429) {
             const headers = errObj.headers;
