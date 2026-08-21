@@ -34,7 +34,8 @@ export default auth(async function middleware(
 ) {
   const token = request.auth;
   
-  if (request.nextUrl.pathname.startsWith('/api/og') && ratelimit) {
+  // 1. Blanket DoS Protection: Rate limit ALL /api routes
+  if (request.nextUrl.pathname.startsWith('/api') && ratelimit) {
     // Derived from the trusted portion of X-Forwarded-For — see getClientIp and
     // the TRUSTED_PROXY_HOP_COUNT setting. Reading a client-supplied header here
     // would let a caller mint a fresh bucket on every request.
@@ -42,11 +43,17 @@ export default auth(async function middleware(
     const { success } = await ratelimit.limit(ip);
     
     if (!success) {
-      return secured(new NextResponse('Too Many Requests', { status: 429 }));
+      return secured(new NextResponse(
+        JSON.stringify({ error: 'Too Many Requests', message: 'Rate limit exceeded' }), 
+        { 
+          status: 429,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ));
     }
   }
   
-  // RBAC Admin Route Guarding (/admin/* and /api/admin/*)
+  // 2. RBAC Admin Route Guarding (/admin/* and /api/admin/*)
   const isAdminWebRoute = request.nextUrl.pathname.startsWith('/admin');
   const isAdminApiRoute = request.nextUrl.pathname.startsWith('/api/admin');
 
@@ -102,5 +109,7 @@ export default auth(async function middleware(
 });
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/admin/:path*', '/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  // 3. Matcher Update: Removed 'api|' from the negative lookahead
+  // This ensures the middleware actually triggers on all /api/ requests
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
