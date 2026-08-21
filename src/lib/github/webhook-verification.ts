@@ -201,17 +201,8 @@ export function normalizeDeliveryId(raw: string | null | undefined): string | nu
   return trimmed;
 }
 
-/**
- * Deterministic BullMQ job ID for a delivery.
- *
- * `addWebhookJob` did not set one, so the queue had no dedupe of its own and the
- * worker's database check was the only thing standing between a replayed
- * delivery and a full re-scan. A stable job ID makes BullMQ collapse duplicates
- * before a worker ever picks one up — cheaper, and it holds even when the
- * database check is skipped.
- */
 export function webhookJobId(deliveryId: string): string {
-  return `delivery:${deliveryId}`;
+  return `delivery-${deliveryId}`;
 }
 
 export interface WebhookAdmission {
