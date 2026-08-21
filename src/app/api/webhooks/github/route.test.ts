@@ -145,7 +145,7 @@ describe('GitHub webhook route', () => {
 
       expect(addWebhookJob).toHaveBeenCalledWith(
         expect.objectContaining({ deliveryId: 'delivery-xyz', event: 'pull_request' }),
-        { jobId: 'delivery:delivery-xyz' }
+        { jobId: 'delivery-delivery-xyz' }
       );
     });
   });
@@ -267,7 +267,7 @@ describe('GitHub webhook route', () => {
       await POST(req);
       expect(addWebhookJob).toHaveBeenCalledWith(
         expect.objectContaining({ deliveryId, event: 'pull_request' }),
-        expect.objectContaining({ jobId: `delivery:${deliveryId}` })
+        expect.objectContaining({ jobId: `delivery-${deliveryId}` })
       );
     });
   });
