@@ -112,7 +112,7 @@
     "postcss": "^8",
     "prettier": "^3.9.6",
     "prisma": "^7.9.1",
-    "secureflow-cli": "^1.0.0",
+    "secureflow-cli": "^1.1.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.12",
     "typescript": "^6",
