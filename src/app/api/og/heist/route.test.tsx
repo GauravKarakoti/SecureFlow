@@ -32,12 +32,35 @@ vi.mock('next/og', () => {
   };
 });
 
-// 3. Mock next/server to provide Request as NextRequest
+// 3. Mock next/server to provide Request as NextRequest + a minimal NextResponse
 vi.mock('next/server', () => {
   return {
     NextRequest: Request,
+    NextResponse: {
+      json: (body: unknown, init?: ResponseInit) =>
+        new Response(JSON.stringify(body), {
+          ...init,
+          headers: { 'Content-Type': 'application/json', ...init?.headers },
+        }),
+    },
   };
 });
+
+// 4. Mock the IP rate-limit middleware as a pass-through, toggleable to 429.
+let mockIpAllowed = true;
+vi.mock('@/lib/middleware/rate-limit', () => ({
+  TIERS: { STANDARD: { limit: 120, windowSeconds: 60, fallbackStrategy: 'fail-open' } },
+  withRateLimit: (fn: (...a: unknown[]) => unknown) =>
+    (req: unknown, ...args: unknown[]) => {
+      if (!mockIpAllowed) {
+        return new Response(
+          JSON.stringify({ error: 'Too Many Requests' }),
+          { status: 429, headers: { 'Retry-After': '60' } }
+        );
+      }
+      return fn(req, ...args);
+    },
+}));
 
 // 4. Test suite
 describe('GET /api/og/heist', () => {
@@ -45,6 +68,20 @@ describe('GET /api/og/heist', () => {
     mockImageResponseConstructor.mockClear();
     vi.mocked(global.fetch).mockClear();
     vi.resetModules();
+    mockIpAllowed = true;
+  });
+
+  it('rate-limits the route by IP: returns 429 when the IP budget is exceeded (#579)', async () => {
+    mockIpAllowed = false;
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(429);
+    // The handler must not even run when rate-limited.
+    expect(mockImageResponseConstructor).not.toHaveBeenCalled();
   });
 
   it('successfully returns a valid image response with default parameters', async () => {
