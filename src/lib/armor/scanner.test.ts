@@ -298,4 +298,17 @@ another_placeholder
     expect(promptContent).toContain('src/index.ts');
     expect(promptContent).not.toContain('src/app.test.ts');
   });
+
+  it('passes an AbortSignal to the LLM call so the abort timer can cancel it (#582)', async () => {
+    const scannerInstance = new ArmorIQScanner();
+    const files = [{ filename: 'src/index.ts', patch: '+const x = 5;' }];
+
+    await scannerInstance.scanPullRequest(files, []);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const requestOptions = mockCreate.mock.calls[0][1];
+    // Without the signal wired in, controller.abort() was a no-op and the
+    // AbortError handler was unreachable dead code.
+    expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
+  });
 });
