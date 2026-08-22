@@ -11,14 +11,13 @@ const nextAuthResult = NextAuth({
   adapter: {
     ...PrismaAdapter(prisma),
     createUser: async (user: any) => {
-      const codename = CITIES[Math.floor(Math.random() * CITIES.length)];
       const githubLogin = user.githubLogin ?? null;
       const { githubLogin: _drop, ...rest } = user;
       return prisma.user.create({
         data: {
           ...rest,
           githubLogin,
-          codename,
+          codename: null,
           roles: {
             create: [{
               role: { connectOrCreate: { where: { name: "USER" }, create: { name: "USER", description: "Standard user access" } } }
@@ -42,7 +41,7 @@ const nextAuthResult = NextAuth({
       if (account && user) {
         token.accessToken = account.access_token;
         token.userId = user.id;
-        token.codename = user.codename;
+        token.codename = user.codename ?? null;
       }
 
       // 2. Fetch roles if missing OR if a session update is triggered
@@ -55,9 +54,11 @@ const nextAuthResult = NextAuth({
         
         token.roles = dbUser?.roles.map((r: any) => r.role.name) || [];
         
-        // Failsafe: grab the codename if the old token was missing it
-        if (!token.codename && dbUser?.codename) {
+        // Sync codename from database
+        if (dbUser?.codename) {
           token.codename = dbUser.codename;
+        } else if (trigger === "update" && !dbUser?.codename) {
+          token.codename = null;
         }
       }
 
