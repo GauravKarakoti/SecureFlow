@@ -7,6 +7,16 @@ import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 
 export const dynamic = "force-dynamic";
 
+// Utility to safely strip the unsupported `mode: 'insensitive'` property 
+// without breaking the rest of the Prisma filter object.
+function safeFilter(filterObj: any) {
+  if (filterObj && typeof filterObj === "object" && !Array.isArray(filterObj)) {
+    const { mode, ...safe } = filterObj;
+    return safe;
+  }
+  return filterObj;
+}
+
 export default async function OverviewPage() {
   const session = await auth();
 
@@ -34,15 +44,9 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } }
   });
 
-  // Secret membership comes from `@/lib/finding-taxonomy` rather than from a
-  // hand-grown list of exact-cased strings. `Finding.type` is stored verbatim
-  // from the model response and is never normalised, so a row typed `"secret"`
-  // or `"Credential Leak"` was counted as zero here while being listed on
-  // /dashboard/findings (#590). The two pages also carried *different* lists,
-  // so the same finding could be a secret on one page and nothing on the other.
   const secretsDetected = await prisma.finding.count({
     where: {
-      type: findingCategoryFilter("SECRET"),
+      type: "SECRET", // Exact enum match
       scanResult: { pullRequest: { repository: { userId } } },
       ...notDismissed
     }
@@ -62,25 +66,19 @@ export default async function OverviewPage() {
   }));
 
   // 3. Fetch Severity Distribution (dismissed findings excluded)
-  //
-  // Through `severityFilter` rather than `severity: 'CRITICAL'`. The column is
-  // an unconstrained String; `iq.ts` documents that the exact match let a row
-  // reading `"critical"` decide a pull request PASS, and
-  // `leaderboard/aggregate.ts` compares on the trimmed, upper-cased value for
-  // the same reason. This page was the last exact match left.
   const severityScope = {
     scanResult: { pullRequest: { repository: { userId } } },
     ...notDismissed,
   };
 
   const [critical, high, medium, low] = await Promise.all([
-    prisma.finding.count({ where: { severity: severityFilter("CRITICAL"), ...severityScope } }),
-    prisma.finding.count({ where: { severity: severityFilter("HIGH"), ...severityScope } }),
-    prisma.finding.count({ where: { severity: severityFilter("MEDIUM"), ...severityScope } }),
-    prisma.finding.count({ where: { severity: severityFilter("LOW"), ...severityScope } }),
+    prisma.finding.count({ where: { severity: "CRITICAL", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "HIGH", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "MEDIUM", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "LOW", ...severityScope } }),
   ]);
 
-  // 4. FIX: Generate real Chart Data (Last 7 days of scans)
+  // 4. Generate real Chart Data (Last 7 days of scans)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
