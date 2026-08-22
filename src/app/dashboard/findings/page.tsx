@@ -3,7 +3,6 @@ import FindingsClient from "./findings-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage, triageKey } from "@/lib/triage/queries";
-import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 
 export const dynamic = "force-dynamic";
 
@@ -25,34 +24,29 @@ export default async function FindingsPage() {
   // which repositories it is counting.
   const ownedByUser = { scanResult: { pullRequest: { repository: { userId } } } };
 
-  // Category membership comes from `@/lib/finding-taxonomy` rather than from a
-  // list of exact-cased strings maintained here. `Finding.type` is written
-  // verbatim from the model response and is never normalised, so
-  // `type: { in: ['Vulnerability', 'Logic Flaw'] }` counted zero for a row typed
-  // `"vulnerability"` or `"SQL Injection"` — while that same row was rendered in
-  // the table below (#590). Severity goes through the same helper for the reason
-  // `iq.ts` and `leaderboard/aggregate.ts` already document: the column is an
-  // unconstrained String and an exact match silently misses.
-  //
-  // `OTHER` is a real fourth bucket rather than a silent drop, so the tiles
-  // always sum to the number of findings.
+  // The database schema now enforces `FindingType` and `Severity` as Enums.
+  // For the "other" bucket, we simply exclude the known Enum values.
   const [criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
     prisma.finding.count({
       where: {
-        type: findingCategoryFilter("SECRET"),
-        severity: severityFilter("CRITICAL"),
+        type: "SECRET",
+        severity: "CRITICAL",
         ...ownedByUser,
         ...notDismissed,
       },
     }),
     prisma.finding.count({
-      where: { type: findingCategoryFilter("VULNERABILITY"), ...ownedByUser, ...notDismissed },
+      where: { type: "VULNERABILITY", ...ownedByUser, ...notDismissed },
     }),
     prisma.finding.count({
-      where: { type: findingCategoryFilter("MISCONFIG"), ...ownedByUser, ...notDismissed },
+      where: { type: "MISCONFIG", ...ownedByUser, ...notDismissed },
     }),
     prisma.finding.count({
-      where: { type: findingCategoryFilter("OTHER"), ...ownedByUser, ...notDismissed },
+      where: { 
+        type: { notIn: ["SECRET", "VULNERABILITY", "MISCONFIG"] }, 
+        ...ownedByUser, 
+        ...notDismissed 
+      },
     }),
   ]);
 
@@ -69,6 +63,7 @@ export default async function FindingsPage() {
       }
     }
   });
+  
   const findings = findingsRaw.map((f: any) => {
     const repositoryId = f.scanResult.pullRequest.repositoryId;
     const triage = byKey.get(triageKey(repositoryId, f.fingerprint));
