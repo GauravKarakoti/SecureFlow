@@ -11,6 +11,34 @@ import { scanFile, type FileScanResult } from './scanner.js';
 
 const VERBOSE = process.argv.includes('--verbose');
 
+export function parseArgs(argv: string[]): Record<string, string | boolean> {
+  const args: Record<string, string | boolean> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const next = argv[i + 1];
+      if (next && !next.startsWith('--')) {
+        args[key] = next;
+        i++;
+      } else {
+        args[key] = true;
+      }
+    }
+  }
+  return args;
+}
+
+export function formatFinding(finding: {
+  type: string;
+  severity: string;
+  file: string;
+  line?: number;
+}): string {
+  const loc = finding.line ? `:${finding.line}` : '';
+  return `[${finding.severity}] ${finding.type} — ${finding.file}${loc}`;
+}
+
 function reportSkipped(result: FileScanResult): void {
   if (VERBOSE && result.skipped) {
     console.log(`   ↷ skipped ${result.path} (${result.skipped})`);
@@ -86,4 +114,6 @@ function main(): number {
   return 0;
 }
 
-process.exit(main());
+// Only run when executed directly, not when imported by tests.
+const isMain = process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js');
+if (isMain) process.exit(main());
