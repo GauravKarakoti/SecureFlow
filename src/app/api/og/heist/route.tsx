@@ -377,11 +377,13 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error(error);
 
+    // Never cache the error path: a transient failure (e.g. a font-CDN blip)
+    // must not be frozen by CDNs/browsers for a year. Only successful 200s above
+    // carry the immutable cache header.
     return new Response('Failed to generate image', {
       status: 500,
       headers: {
-        'Cache-Control':
-          'public, max-age=31536000, immutable',
+        'Cache-Control': 'no-store',
       },
     });
   }
