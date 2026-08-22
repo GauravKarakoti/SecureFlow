@@ -1,6 +1,5 @@
 import Groq from 'groq-sdk';
-import type { AISecurityExplanationInput } from "./security-explanation-schemas";
-import { isAtLeast } from '@/lib/severity';
+import type { AISecurityExplanationInput } from "./security-explanation-schemas"; // type-only: never triggers genkit module init at runtime
 
 const _groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
@@ -122,10 +121,7 @@ const DISMISSIVE_PHRASES: RegExp[] = [
 ];
 
 function contradictsSeverity(severity: string, explanation: string): boolean {
-  // `isAtLeast` replaces an open-coded membership list, so this threshold moves
-  // with the shared severity ordering rather than needing a hand edit here. It
-  // is also null-safe, where `severity.toUpperCase()` was not.
-  const highStakes = isAtLeast(severity, 'HIGH');
+  const highStakes = ['CRITICAL', 'HIGH'].includes(severity.toUpperCase());
   if (!highStakes || !explanation) return false;
   return DISMISSIVE_PHRASES.some((pattern) => pattern.test(explanation));
 }
@@ -168,68 +164,54 @@ Respond ONLY with a valid JSON object with keys "explanation" and "remediationSu
 export function isRateLimitError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
-  const code = (err as { code?: string }).code ?? '';
   const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
   return (
     status === 429 ||
-    /rate_limit|rate-limit|too_many_requests/i.test(code) ||
     /429|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
   );
 }
 
 /**
- * Detects whether an error thrown by the AI provider is a timeout error.
+ * Detects whether an error is a network timeout or connection timeout.
  */
 export function isTimeoutError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
-  const code = (err as { code?: string }).code ?? '';
-  const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  const code = (err as { code?: string }).code;
   return (
-    status === 408 ||
-    status === 504 ||
-    /ETIMEDOUT|ECONNABORTED|ECONNRESET/i.test(code) ||
-    /timeout|timed out|ECONNRESET|ETIMEDOUT|ECONNABORTED|deadline_exceeded/i.test(msg)
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNABORTED' ||
+    /timeout|timed out|ETIMEDOUT|ECONNABORTED/i.test(msg)
   );
 }
 
-export interface RetryOptions {
-  retries?: number;
+export interface WithRetryOptions {
+  maxAttempts?: number;
   initialDelayMs?: number;
 }
 
+/**
+ * Retries an async operation on rate-limit or timeout errors with exponential backoff.
+ * Fails fast on all other errors.
+ */
 export async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetriesOrOptions: number | RetryOptions = 3,
-  baseDelayMs: number = 1000
+  fn: () => Promise<T>,
+  options: WithRetryOptions = {}
 ): Promise<T> {
-  const maxRetries = typeof maxRetriesOrOptions === 'number' 
-    ? maxRetriesOrOptions 
-    : (maxRetriesOrOptions?.retries ?? 3);
-  const initialDelay = typeof maxRetriesOrOptions === 'object' && maxRetriesOrOptions.initialDelayMs !== undefined
-    ? maxRetriesOrOptions.initialDelayMs
-    : baseDelayMs;
-
-  let attempt = 0;
-  while (true) {
+  const { maxAttempts = 3, initialDelayMs = 100 } = options;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      return await operation();
-    } catch (error) {
-      attempt++;
-      
-      // Stop retrying if we hit the limit or if the error isn't retryable
-      if (attempt > maxRetries || (!isRateLimitError(error) && !isTimeoutError(error))) {
-        throw error;
+      return await fn();
+    } catch (err) {
+      if (!isRateLimitError(err) && !isTimeoutError(err)) throw err;
+      lastError = err;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, initialDelayMs * 2 ** attempt));
       }
-      
-      // Calculate delay with exponential backoff and a small random jitter.
-      // Bypass the delay during testing so Vitest doesn't time out waiting for retries.
-      const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
-      const delay = isTest ? 0 : initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
-      
-      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+  throw lastError;
 }
 
 // Exported for the test suite and for reuse by other flows that may want the same detectors.

@@ -120,6 +120,39 @@ jobs:
       - name: Run Tests with Coverage
         run: npm run test:coverage
 
+  cli:
+    name: CLI Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache cli node_modules
+        id: cli-node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: cli/node_modules
+          key: cli-node-modules-${{ runner.os }}-${{ hashFiles('cli/package.json') }}
+
+      - name: Install CLI dependencies
+        if: steps.cli-node-modules-cache.outputs.cache-hit != 'true'
+        run: npm install
+        working-directory: cli
+
+      - name: Typecheck CLI
+        run: npm run typecheck
+        working-directory: cli
+
+      - name: Run CLI Tests
+        run: npm test
+        working-directory: cli
+
   red-team:
     name: Adversarial AI Red-Team Tests
     runs-on: ubuntu-latest
