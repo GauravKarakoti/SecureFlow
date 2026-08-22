@@ -20,31 +20,35 @@ export default async function FindingsPage() {
   const { suppressedFingerprints, byKey } = await getUserTriage(userId);
   const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
 
-  // FIX: Map arrays of similar types to capture all variations
-  const criticalSecrets = await prisma.finding.count({
-    where: {
-      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] },
-      severity: 'CRITICAL',
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
+  // Scope shared by every tile, so no tile can disagree with its siblings about
+  // which repositories it is counting.
+  const ownedByUser = { scanResult: { pullRequest: { repository: { userId } } } };
 
-  const vulnerabilities = await prisma.finding.count({
-    where: {
-      type: { in: ['Vulnerability', 'Logic Flaw'] },
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
-
-  const misconfigs = await prisma.finding.count({
-    where: {
-      type: { in: ['Misconfig', 'Potential Misconfig'] },
-      scanResult: { pullRequest: { repository: { userId } } },
-      ...notDismissed
-    }
-  });
+  // The database schema now enforces `FindingType` and `Severity` as Enums.
+  // For the "other" bucket, we simply exclude the known Enum values.
+  const [criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
+    prisma.finding.count({
+      where: {
+        type: "SECRET",
+        severity: "CRITICAL",
+        ...ownedByUser,
+        ...notDismissed,
+      },
+    }),
+    prisma.finding.count({
+      where: { type: "VULNERABILITY", ...ownedByUser, ...notDismissed },
+    }),
+    prisma.finding.count({
+      where: { type: "MISCONFIG", ...ownedByUser, ...notDismissed },
+    }),
+    prisma.finding.count({
+      where: { 
+        type: { notIn: ["SECRET", "VULNERABILITY", "MISCONFIG"] }, 
+        ...ownedByUser, 
+        ...notDismissed 
+      },
+    }),
+  ]);
 
   // Fetch the actual findings for this user's repos
   const findingsRaw = await prisma.finding.findMany({
@@ -59,6 +63,7 @@ export default async function FindingsPage() {
       }
     }
   });
+  
   const findings = findingsRaw.map((f: any) => {
     const repositoryId = f.scanResult.pullRequest.repositoryId;
     const triage = byKey.get(triageKey(repositoryId, f.fingerprint));
@@ -77,7 +82,7 @@ export default async function FindingsPage() {
     };
   });
 
-  const stats = { criticalSecrets, vulnerabilities, misconfigs };
+  const stats = { criticalSecrets, vulnerabilities, misconfigs, other };
 
   return <FindingsClient findings={findings} stats={stats} />;
 }

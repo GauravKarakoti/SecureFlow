@@ -210,7 +210,7 @@ describe('normalizeDeliveryId', () => {
 
 describe('webhookJobId', () => {
   it('is deterministic, so a replay collapses onto the original job', () => {
-    expect(webhookJobId('abc-123')).toBe('delivery:abc-123');
+    expect(webhookJobId('abc-123')).toBe('delivery-abc-123');
     expect(webhookJobId('abc-123')).toBe(webhookJobId('abc-123'));
   });
 

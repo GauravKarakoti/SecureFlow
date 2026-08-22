@@ -11,6 +11,14 @@
     "noEmit": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Tests run through the repository-root vitest config, which resolves
+    // TypeScript directly. Compiling them into dist/ would ship them to npm.
+    "src/**/*.test.ts"
+  ]
 }

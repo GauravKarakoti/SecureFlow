@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
+import { maskFindingText } from '@/lib/armor/secret-masking';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
+import { commentableLineNumbers, parseUnifiedPatch } from '@/lib/armor/diff';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
@@ -239,31 +241,23 @@ export function assertPullRequestContext(payload: {
 
 
 /**
- * Parse a unified-diff patch and return the set of new-file line numbers that
- * are addressable by a GitHub review comment. GitHub only accepts inline review
- * comments on lines that appear in the diff (added `+` lines or context lines);
- * a comment on any other line is rejected and would fail the whole review call.
+ * The set of new-file line numbers an inline review comment may anchor on.
+ *
+ * GitHub only accepts an inline comment on a line that appears in the diff
+ * (added `+` lines or context lines); a comment on any other line is rejected
+ * and fails the whole `pulls.createReview` call, taking every other comment in
+ * the batch with it.
+ *
+ * This was a second, independent diff parser until #589. It disagreed with the
+ * scanner's `extractAddedLines` on marker-less empty context lines, on `+++`
+ * file headers and on the no-newline marker — so the line number the model was
+ * shown was not always the line number this set contained, and findings were
+ * either demoted to the summary body or anchored one line off. Both now read
+ * the same walk in `@/lib/armor/diff`, which makes the disagreement structurally
+ * impossible rather than fixed-for-now.
  */
 export function getCommentableLines(patch: string): Set<number> {
-  const lines = new Set<number>();
-  let newLine = 0;
-  for (const row of patch.split('\n')) {
-    const hunk = row.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      newLine = parseInt(hunk[1], 10);
-      continue;
-    }
-    if (row.startsWith('-')) {
-      // Removed line: exists only on the old side, not addressable via `line`.
-      continue;
-    }
-    if (row.startsWith('+') || row.startsWith(' ')) {
-      // Added or context line: part of the diff on the new side.
-      lines.add(newLine);
-      newLine++;
-    }
-  }
-  return lines;
+  return commentableLineNumbers(parseUnifiedPatch(patch));
 }
 
 export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: Job<WebhookJobData>) => {
@@ -596,8 +590,15 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         });
         return {
           ...finding,
-          explanation: aiResponse.explanation,
-          remediation: aiResponse.remediationSuggestions,
+          // Redacted before anything else touches them. These two fields are
+          // generated after the scanner has finished, so they never passed
+          // through maskSecrets — and they go straight into a pull request
+          // comment and into Postgres. Remediation text is the worst case:
+          // its natural shape is to quote the offending line back at you
+          // ("move DB_PASSWORD=… into an environment variable"), and on a
+          // public repository that comment is world-readable (#591).
+          explanation: maskFindingText(aiResponse.explanation),
+          remediation: maskFindingText(aiResponse.remediationSuggestions),
           // Layer 4 (UI surfacing): carry the injection flag through to the PR comment
           // and dashboard so reviewers are warned when the AI narrative may be unreliable.
           promptInjectionSuspected: aiResponse.promptInjectionSuspected,
