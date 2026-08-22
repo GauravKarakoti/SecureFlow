@@ -10,6 +10,7 @@ import {
   ChevronRight as ChevronR,
   History,
   X,
+  Download,
 } from "lucide-react";
 import { getAuditLogs } from "@/lib/actions/admin";
 import type { AuditLogRow } from "@/lib/actions/admin";
@@ -132,6 +133,13 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
               <X className="w-3.5 h-3.5" /> Clear
             </button>
           )}
+          <a
+            href="/api/admin/export"
+            download
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </a>
         </div>
       </div>
 
