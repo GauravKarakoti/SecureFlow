@@ -68,7 +68,7 @@ export function PolicyCard({
             <TooltipContent 
               side="bottom" 
               align="start" 
-              className="max-w-xs md:max-w-sm glass-card bg-black/90 border-white/10 text-slate-200 z-50 p-3"
+              className="max-w-xs md:max-w-sm bg-popover text-popover-foreground border border-border shadow-2xl z-50 p-3 rounded-md"
             >
               <p className="text-xs leading-relaxed">{description}</p>
             </TooltipContent>
