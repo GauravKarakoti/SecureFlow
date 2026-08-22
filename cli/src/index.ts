@@ -53,7 +53,7 @@ function reportViolations(result: FileScanResult): void {
   }
 }
 
-function main(): number {
+export function main(): number {
   let staged: string[];
 
   try {
