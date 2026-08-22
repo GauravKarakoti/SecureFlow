@@ -105,6 +105,42 @@ export default auth(async function middleware(
     }
   }
 
+  // 3. Codename Onboarding Interception ("The Naming Ceremony") (#185)
+  const isCodenameSetupRoute = request.nextUrl.pathname === '/setup/codename';
+  const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard');
+
+  if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+    const mockSession = request.cookies.get('mock-session')?.value;
+    if (isCodenameSetupRoute) {
+      if (!mockSession || mockSession === 'none') {
+        return secured(NextResponse.redirect(new URL('/login', request.nextUrl)));
+      }
+      if (mockSession === 'admin' || mockSession === 'user') {
+        return secured(NextResponse.redirect(new URL('/dashboard', request.nextUrl)));
+      }
+      return NextResponse.next();
+    }
+    if (isDashboardRoute && (mockSession === 'no-codename' || mockSession === 'recruit')) {
+      return secured(NextResponse.redirect(new URL('/setup/codename', request.nextUrl)));
+    }
+  } else {
+    const userCodename = (token?.user as any)?.codename || (token as any)?.codename;
+
+    if (isCodenameSetupRoute) {
+      if (!token) {
+        return secured(NextResponse.redirect(new URL('/login', request.nextUrl)));
+      }
+      if (userCodename) {
+        return secured(NextResponse.redirect(new URL('/dashboard', request.nextUrl)));
+      }
+      return NextResponse.next();
+    }
+
+    if (isDashboardRoute && token && !userCodename) {
+      return secured(NextResponse.redirect(new URL('/setup/codename', request.nextUrl)));
+    }
+  }
+
   return NextResponse.next();
 });
 
