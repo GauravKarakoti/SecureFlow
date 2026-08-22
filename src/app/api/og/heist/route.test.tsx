@@ -181,5 +181,9 @@ describe('GET /api/og/heist', () => {
 
     const bodyText = await res.text();
     expect(bodyText).toBe('Failed to generate image');
+
+    // A transient failure must never be cached: the error path sends no-store,
+    // so a one-off font-CDN blip can't freeze a broken image for a year (#581).
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });
