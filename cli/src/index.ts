@@ -27,3 +27,20 @@ export function formatFinding(finding: {
   const loc = finding.line ? `:${finding.line}` : '';
   return `[${finding.severity}] ${finding.type} — ${finding.file}${loc}`;
 }
+
+function main(): void {
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.help) {
+    console.log('Usage: secureflow [--repo <name>] [--verbose]');
+    process.exit(0);
+  }
+
+  if (args.verbose) {
+    console.log('SecureFlow CLI — verbose mode enabled');
+  }
+
+  console.log('Parsed args:', args);
+}
+
+main();
