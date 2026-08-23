@@ -138,7 +138,7 @@ export class ArmorIQService {
 
     // Default deny if no explicit allows are set, to adhere to zero-trust
     if (compiledPolicy.allow.length === 0 && compiledPolicy.deny.length === 0) {
-       compiledPolicy.allow.push('*:*');
+       compiledPolicy.deny.push('*:*');
     }
 
     return compiledPolicy;

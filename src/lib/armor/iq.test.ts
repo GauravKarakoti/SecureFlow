@@ -197,19 +197,20 @@ describe('ArmorIQService', () => {
   });
 
   describe('compileToArmorIQPolicy', () => {
-    it('creates allow-all fallback when no active policies exist', () => {
+    it('defaults to deny-all (zero-trust) when no active policies exist', () => {
       const policy = ArmorIQService.compileToArmorIQPolicy([]);
-      expect(policy.allow).toEqual(['*:*']);
-      expect(policy.deny).toEqual([]);
+      expect(policy.deny).toEqual(['*:*']);
+      expect(policy.allow).toEqual([]);
       expect(policy.priority).toBe(50);
     });
 
-    it('creates allow-all fallback when all policies are inactive', () => {
+    it('defaults to deny-all when all policies are inactive', () => {
       const policies = [
         { isActive: false, rules: { action: 'BLOCKED', conditions: ['secret/*'] } },
       ];
       const policy = ArmorIQService.compileToArmorIQPolicy(policies);
-      expect(policy.allow).toEqual(['*:*']);
+      expect(policy.deny).toEqual(['*:*']);
+      expect(policy.allow).toEqual([]);
     });
 
     it('maps BLOCKED action to deny array', () => {
