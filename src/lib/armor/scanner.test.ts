@@ -230,6 +230,30 @@ describe('filterFalsePositives', () => {
     const findings = [makeFinding({ fileLocation: 'src/api/route.ts', codeSnippet: 'console.log(process.env.API_KEY)' })];
     expect(filterFalsePositives(findings)).toHaveLength(1);
   });
+
+  it('retains console.log(process.env...) leaks even inside seed files', () => {
+    // The core rule says these MUST be flagged; the old bare console.log filter
+    // silently discarded this genuine secret leak.
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'console.log(process.env.DATABASE_PASSWORD)' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+
+  it('still drops plain console.log noise in seed files', () => {
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'console.log("seeding users...")' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('retains schema.prisma findings whose snippet merely contains "int"/"string" as a substring', () => {
+    // "userFingerprint" contains the substring "int"; the old includes('int')
+    // check dropped this real finding. No standalone Int/String type token here.
+    const findings = [makeFinding({ fileLocation: 'prisma/schema.prisma', codeSnippet: 'userFingerprint @default("leaked-secret-abc123")', description: 'Hardcoded default value' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+
+  it('still drops real Prisma type-only findings on word boundaries', () => {
+    const findings = [makeFinding({ type: 'Vulnerability', fileLocation: 'prisma/schema.prisma', codeSnippet: 'id Int @id', description: 'Int type used' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
 });
 
 // ─── Configurable ignores (.secureflowignore) ────────────────────────────────
