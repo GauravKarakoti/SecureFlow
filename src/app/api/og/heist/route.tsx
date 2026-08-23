@@ -1,7 +1,10 @@
 import { ImageResponse } from 'next/og';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 
-export const runtime = 'edge';
+// Node.js runtime (not edge): the IP rate limiter is backed by the redis
+// (ioredis) client, which is not available in the edge runtime.
+export const runtime = 'nodejs';
 
 async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePath: string): Promise<ArrayBuffer> {
   try {
@@ -34,7 +37,7 @@ async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePa
   return await cdnRes.arrayBuffer();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGet(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
@@ -388,3 +391,11 @@ export async function GET(req: NextRequest) {
     });
   }
 }
+
+// Public, unauthenticated route that fetches remote fonts and renders an image:
+// rate-limit by IP so it can't be hammered to exhaust CPU (client-ip.ts even
+// names /api/og/heist as the canonical example of a route that must be limited).
+export const GET = withRateLimit(
+  handleGet as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
+  { ...TIERS.STANDARD, keyPrefix: 'og:heist:ip' }
+) as typeof handleGet;
