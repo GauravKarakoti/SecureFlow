@@ -37,19 +37,21 @@ export default async function CodenameSetupPage() {
         aria-hidden="true"
       />
 
-      <div className="w-full max-w-lg relative z-10">
+      <div className="w-full max-w-2xl lg:max-w-3xl relative z-10 my-auto py-8">
         {/* Header Branding */}
         <div className="text-center mb-8 space-y-2">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/30 text-primary mb-3 shadow-lg shadow-primary/10">
             <VenetianMask className="w-7 h-7" />
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-primary text-[10px] font-mono font-bold tracking-widest uppercase mb-1">
-            <Sparkles className="w-3 h-3" /> Operation Vault Shield // Induction
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-primary text-[10px] font-mono font-bold tracking-widest uppercase mb-2">
+              <Sparkles className="w-3 h-3" /> Operation Vault Shield // Induction
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight font-headline">
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight font-headline">
             The Naming Ceremony
           </h1>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto leading-relaxed">
+          <p className="text-sm sm:text-base text-muted-foreground max-w-lg mx-auto leading-relaxed">
             Welcome to the Resistance. To safeguard operations and protect your fellow crew members, real names are strictly prohibited.
           </p>
         </div>

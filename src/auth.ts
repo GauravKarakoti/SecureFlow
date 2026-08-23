@@ -44,9 +44,12 @@ const nextAuthResult = NextAuth({
         token.codename = user.codename ?? null;
       }
 
-      // 2. Fetch roles if missing OR if a session update is triggered
+      // 2. Fetch roles and codename if missing OR if a session update is triggered
       const userId = (token.userId || user?.id || token.sub) as string | undefined;
-      if ((userId && (!token.roles || token.roles.length === 0)) || trigger === "update") {
+      if (
+        (userId && (!token.roles || token.roles.length === 0 || !token.codename)) ||
+        trigger === "update"
+      ) {
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
           include: { roles: { include: { role: true } } }
@@ -54,9 +57,11 @@ const nextAuthResult = NextAuth({
         
         token.roles = dbUser?.roles.map((r: any) => r.role.name) || [];
         
-        // Sync codename from database
+        // Sync codename from database or session payload
         if (dbUser?.codename) {
           token.codename = dbUser.codename;
+        } else if (params.session?.codename) {
+          token.codename = params.session.codename;
         } else if (trigger === "update" && !dbUser?.codename) {
           token.codename = null;
         }

@@ -3,10 +3,10 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { setCrewCodename, RESISTANCE_CITIES } from "./actions";
+import { setCrewCodename } from "./actions";
+import { RESISTANCE_CITIES } from "./constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dice5,
@@ -72,9 +72,9 @@ export function CodenameForm({ initialName }: { initialName?: string | null }) {
           variant: "success",
         });
         // Refresh session state to propagate new codename to JWT token
-        await update();
-        router.push("/dashboard");
-        router.refresh();
+        await update({ codename: res.codename });
+        // Full navigation ensures middleware and SSR components receive updated session cookie
+        window.location.href = "/dashboard";
       }
     });
   };
@@ -82,7 +82,7 @@ export function CodenameForm({ initialName }: { initialName?: string | null }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Warning Notice Banner */}
-      <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-3.5 text-xs text-red-400 flex items-start gap-3 shadow-inner">
+      <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-3.5 text-xs sm:text-sm text-red-400 flex items-start gap-3 shadow-inner">
         <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
         <div>
           <span className="font-mono font-bold uppercase tracking-wider block mb-0.5">
@@ -144,10 +144,11 @@ export function CodenameForm({ initialName }: { initialName?: string | null }) {
 
       {/* Suggested Resistance Cities */}
       <div className="space-y-2 pt-1">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-          Resistance City Registry (Quick Pick)
+        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center justify-between">
+          <span>Resistance City Registry (Quick Pick)</span>
+          <span className="text-[9px] text-muted-foreground/60">{RESISTANCE_CITIES.length} Available</span>
         </div>
-        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 p-0.5">
           {RESISTANCE_CITIES.map((city) => {
             const isSelected = codename.toLowerCase() === city.toLowerCase();
             return (
@@ -156,10 +157,10 @@ export function CodenameForm({ initialName }: { initialName?: string | null }) {
                 type="button"
                 onClick={() => handleSelectCity(city)}
                 disabled={isPending}
-                className={`px-2.5 py-1 text-xs font-mono rounded border transition-all ${
+                className={`px-3 py-1.5 text-xs font-mono rounded-md border text-center transition-all ${
                   isSelected
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm scale-105"
-                    : "bg-background/40 hover:bg-primary/10 border-foreground/10 text-muted-foreground hover:text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20 scale-[1.02] font-semibold"
+                    : "bg-background/40 hover:bg-primary/10 hover:border-primary/30 border-foreground/10 text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {city}
