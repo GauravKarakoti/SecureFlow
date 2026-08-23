@@ -166,6 +166,36 @@ describe('GET /api/og/heist', () => {
     expect(elementString).toContain('5000000');
   });
 
+  it('applies the glitch theme to the banner (text + accent color), not just the outer frame', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist?theme=glitch');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    const [element] = mockImageResponseConstructor.mock.calls[0];
+    const elementString = JSON.stringify(element);
+
+    // The banner text + accent must follow the theme; previously they were
+    // hardcoded so glitch only recolored the outer border/background (#584).
+    expect(elementString).toContain('SYSTEM GLITCH // TRANSMISSION ACTIVE');
+    expect(elementString).not.toContain('INCOMING TRANSMISSION...');
+    expect(elementString).toContain('#22c55e');
+  });
+
+  it('uses the default heist banner text when no theme is given', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    const [element] = mockImageResponseConstructor.mock.calls[0];
+    expect(JSON.stringify(element)).toContain('INCOMING TRANSMISSION...');
+  });
+
   it('returns status 500 when font loading or parsing fails', async () => {
     // Override fetch mock to reject, simulating a network / file read failure
     vi.mocked(global.fetch).mockRejectedValue(new Error('Failed to load font files'));

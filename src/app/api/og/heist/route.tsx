@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
                   alignItems: 'center',
                   gap: 10,
                   backgroundColor: '#000000',
-                  border: '1px solid #ef4444',
+                  border: `1px solid ${accentColor}`,
                   padding: '6px 16px',
                   borderRadius: 4,
                   width: 'fit-content',
@@ -156,19 +156,19 @@ export async function GET(req: NextRequest) {
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    backgroundColor: '#ef4444',
+                    backgroundColor: accentColor,
                   }}
                 />
                 <span
                   style={{
-                    color: '#ef4444',
+                    color: accentColor,
                     fontSize: 16,
                     fontWeight: 700,
                     letterSpacing: 4,
                     textTransform: 'uppercase',
                   }}
                 >
-                  INCOMING TRANSMISSION...
+                  {bannerText}
                 </span>
               </div>
 
