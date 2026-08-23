@@ -589,7 +589,7 @@ CRITICAL RULES:
             model: process.env.GROQ_MODEL!,
             temperature: 0.1,
             max_tokens: 3000,
-          }, { timeout: SCAN_REQUEST_TIMEOUT_MS });
+          }, { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal });
 
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => reject(new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`)), SCAN_REQUEST_TIMEOUT_MS);
