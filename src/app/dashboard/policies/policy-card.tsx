@@ -29,20 +29,18 @@ export function PolicyCard({
       <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(hsl(var(--foreground)/0.45)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--foreground)/0.45)_1px,transparent_1px)] [background-size:18px_18px] pointer-events-none" aria-hidden="true" />
       <div className="absolute -right-12 -top-12 h-28 w-28 rotate-45 border border-primary/20 bg-primary/5" aria-hidden="true" />
       <div className="absolute top-5 right-5 z-10">
-        <form action={async (formData) => {
-          // 1. Instantly flip the UI state locally
-          addOptimisticActive(!optimisticActive);
-          
-          // 2. Perform the server update in the background
-          await toggleAction(formData);
-        }}>
-          <input type="hidden" name="templateId" value={id} />
-          {/* Note: We pass the real DB isActive state to the server, not the optimistic one */}
-          <input type="hidden" name="currentState" value={String(isActive)} />
-          <button type="submit" className="rounded-sm hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={`${optimisticActive ? 'Disable' : 'Enable'} rule: ${title}`}>
-             <Switch checked={optimisticActive} className="pointer-events-none" aria-readonly />
-          </button>
-        </form>
+        <Switch 
+          checked={optimisticActive} 
+          onCheckedChange={async (checked) => {
+            addOptimisticActive(checked);
+            const formData = new FormData();
+            formData.append("templateId", id);
+            formData.append("currentState", String(isActive));
+            await toggleAction(formData);
+          }}
+          aria-label={`${optimisticActive ? 'Disable' : 'Enable'} rule: ${title}`}
+          className="focus-visible:ring-2 focus-visible:ring-primary"
+        />
       </div>
       
       <CardHeader className="relative z-[1] pt-7 pb-4">
@@ -60,17 +58,17 @@ export function PolicyCard({
           </Badge>
         </div>
         
-        <TooltipProvider delayDuration={200}>
+        <TooltipProvider delayDuration={150}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <CardTitle className="text-lg leading-tight pr-12">{title}</CardTitle>
+              <CardTitle className="text-lg leading-tight pr-12 cursor-help select-none">{title}</CardTitle>
             </TooltipTrigger>
             <TooltipContent 
               side="bottom" 
               align="start" 
-              className="max-w-xs md:max-w-sm bg-popover text-popover-foreground border border-border shadow-2xl z-50 p-3 rounded-md"
+              className="max-w-xs md:max-w-sm bg-neutral-950 dark:bg-zinc-950 text-neutral-100 dark:text-zinc-100 border border-neutral-800 dark:border-zinc-800 shadow-2xl z-50 p-3 rounded-md opacity-100 backdrop-blur-none"
             >
-              <p className="text-xs leading-relaxed">{description}</p>
+              <p className="text-xs leading-relaxed font-normal">{description}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>        
