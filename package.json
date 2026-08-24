@@ -62,7 +62,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
-    "bullmq": "^6.1.2",
+    "bullmq": "^6.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.5",
@@ -74,8 +74,8 @@
     "genkitx-groq": "^0.31.0",
     "groq-sdk": "^1.5.0",
     "ioredis": "^6.0.0",
-    "lucide-react": "^1.32.0",
-    "next": "16.3.1",
+    "lucide-react": "^1.33.0",
+    "next": "16.3.2",
     "next-auth": "^5.0.0-beta.32",
     "octokit": "^5.0.5",
     "patch-package": "^8.0.1",
@@ -105,7 +105,7 @@
     "@types/react-countup": "^4.3.1",
     "@types/react-dom": "^19.2.4",
     "eslint": "^10.8.1",
-    "eslint-config-next": "^16.3.1",
+    "eslint-config-next": "^16.3.2",
     "genkit-cli": "^1.41.0",
     "husky": "^9.1.7",
     "jsdom": "^30.0.1",
@@ -116,6 +116,6 @@
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.12",
     "typescript": "^6",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
