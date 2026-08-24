@@ -65,8 +65,10 @@ export function PolicyCard({
             </TooltipTrigger>
             <TooltipContent 
               side="bottom" 
-              align="start" 
-              className="max-w-xs md:max-w-sm bg-neutral-950 dark:bg-zinc-950 text-neutral-100 dark:text-zinc-100 border border-neutral-800 dark:border-zinc-800 shadow-2xl z-50 p-3 rounded-md opacity-100 backdrop-blur-none"
+              align="center"
+              sideOffset={6}
+              collisionPadding={12}
+              className="w-[calc(100vw-2rem)] max-w-[var(--radix-tooltip-trigger-width)] bg-neutral-950 dark:bg-zinc-950 text-neutral-100 dark:text-zinc-100 border border-neutral-800 dark:border-zinc-800 shadow-2xl z-50 p-3 rounded-md opacity-100 backdrop-blur-none"
             >
               <p className="text-xs leading-relaxed font-normal">{description}</p>
             </TooltipContent>
