@@ -580,7 +580,10 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       // fingerprint) so the dashboard can show dismissed items and left-join triage.
       const activeFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
 
-      const enrichedFindings = await Promise.all(findings.map(async (finding: any) => {
+      // Enrich and post ONLY the active findings: a finding the user dismissed
+      // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
+      // spend) nor re-posted as a PR comment on every re-scan.
+      const enrichedFindings = await Promise.all(activeFindings.map(async (finding: any) => {
         const aiResponse = await developerReceivesAISecurityExplanations({
           findingType: finding.type,
           severity: finding.severity,
@@ -604,6 +607,13 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
           promptInjectionSuspected: aiResponse.promptInjectionSuspected,
         };
       }));
+
+      // The full list is still persisted (active + dismissed) so the dashboard
+      // can show dismissed items via the triage left-join. Dismissed findings
+      // are stored as-is (no AI enrichment) — enrichment is reserved for the
+      // active findings above.
+      const suppressedFindings = findings.filter((f: any) => suppressedFingerprints.has(f.fingerprint));
+      const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
 
       // Evaluate only the findings the user hasn't dismissed, so a triaged-away
       // critical no longer BLOCKs the PR on every subsequent re-scan.
@@ -637,7 +647,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
           // The scanned-file count is stated explicitly so a truncated scan can
           // never read as a clean bill of health for the whole PR.
           summary:
-            `SecureFlow detected ${findings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
+            `SecureFlow detected ${activeFindings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
             (coverageNotice ? `\n\n${coverageNotice}` : ''),
         }
       });
@@ -799,7 +809,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
             riskScore,
             policyDecision: decision,
             findings: {
-              create: enrichedFindings.map((f: any) => ({
+              create: findingsToPersist.map((f: any) => ({
                 type: f.type,
                 // Persist the canonical spelling. `Finding.severity` is an
                 // unconstrained `String` column, so without this a non-canonical

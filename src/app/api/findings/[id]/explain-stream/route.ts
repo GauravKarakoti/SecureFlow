@@ -80,24 +80,65 @@ async function handler(
     }
 
   const encoder = new TextEncoder();
+  const controllerAbort = new AbortController();
+
+  // Tie the stream's lifetime to the client connection. When the browser closes
+  // the EventSource, request.signal aborts, we stop pulling tokens from Groq for
+  // a reader that has gone away, and no further enqueue is attempted. Mirrors the
+  // sibling heist-transmission stream (#530/#535).
+  const upstreamSignal = request.signal;
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) controllerAbort.abort();
+    else upstreamSignal.addEventListener('abort', () => controllerAbort.abort(), { once: true });
+  }
+
+  let closed = false;
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (payload: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      const send = (payload: unknown): void => {
+        if (closed || controllerAbort.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          // The reader is already gone; stop enqueueing so the next send doesn't
+          // throw "Invalid state: Controller is already closed".
+          closed = true;
+        }
       };
 
+      const finish = (): void => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {}
+      };
+
+      if (controllerAbort.signal.aborted) {
+        finish();
+        return;
+      }
+
       try {
-        for await (const event of streamDeveloperSecurityExplanations({
-          findingType: finding.type,
-          severity: finding.severity,
-          // The Finding model doesn't persist the original scanner-generated `description` -
-          // only the AI's resulting explanation/remediation are stored. type/severity/
-          // fileLocation/codeSnippet still give the model full context for re-analysis.
-          description: '',
-          fileLocation: finding.fileLocation,
-          codeSnippet: finding.codeSnippet || '',
-        })) {
+        for await (const event of streamDeveloperSecurityExplanations(
+          {
+            findingType: finding.type,
+            severity: finding.severity,
+            // The Finding model doesn't persist the original scanner-generated `description` -
+            // only the AI's resulting explanation/remediation are stored. type/severity/
+            // fileLocation/codeSnippet still give the model full context for re-analysis.
+            description: '',
+            fileLocation: finding.fileLocation,
+            codeSnippet: finding.codeSnippet || '',
+          },
+          { signal: controllerAbort.signal },
+        )) {
+          if (closed || controllerAbort.signal.aborted) {
+            finish();
+            return;
+          }
+
           send(event);
 
           if (event.type === 'done') {
@@ -119,13 +160,22 @@ async function handler(
           }
         }
       } catch (err) {
-        send({
-          type: 'error',
-          message: err instanceof Error ? err.message : 'AI generation failed.',
-        });
+        // A disconnect surfaces here as an abort — that's expected teardown, not an error.
+        if (!controllerAbort.signal.aborted) {
+          send({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'AI generation failed.',
+          });
+        }
       } finally {
-        controller.close();
+        finish();
       }
+    },
+
+    cancel() {
+      // Reader (client) went away — abort the generator so it stops pulling tokens.
+      closed = true;
+      controllerAbort.abort();
     },
   });
 

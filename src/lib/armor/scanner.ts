@@ -342,12 +342,23 @@ export function filterFalsePositives(findings: ScanFinding[], customPlaceholders
     // 2. Filter out mock credentials in seed files
     if (lowerFile.includes('seed.ts')) {
       if (combinedPlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) return false;
-      if (lowerSnippet.includes('console.error') || lowerSnippet.includes('console.log')) return false;
+      // A bare console.log/console.error in a seed file is noise, but
+      // `console.log(process.env...)` is the exact contextual leak the core
+      // rule says we MUST flag — never drop those, even in seed files.
+      if (
+        (lowerSnippet.includes('console.error') || lowerSnippet.includes('console.log')) &&
+        !lowerSnippet.includes('process.env')
+      ) {
+        return false;
+      }
     }
 
-    // 3. Filter out false logic flaws in Prisma schemas
+    // 3. Filter out false logic flaws in Prisma schemas.
+    // Match Prisma field types (`id Int`, `name String`) on word boundaries —
+    // a bare `includes('int'/'string')` also swallowed real findings whose
+    // snippet merely contained print, point, constraint, fingerprint, mint, ...
     if (lowerFile.includes('schema.prisma')) {
-      if (lowerSnippet.includes('int') || lowerSnippet.includes('string')) return false;
+      if (/\bint\b/.test(lowerSnippet) || /\bstring\b/.test(lowerSnippet)) return false;
     }
 
     return true;
@@ -578,10 +589,10 @@ CRITICAL RULES:
             model: process.env.GROQ_MODEL!,
             temperature: 0.1,
             max_tokens: 3000,
-          }, { timeout: SCAN_REQUEST_TIMEOUT_MS });
+          }, { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal });
 
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new ScannerTimeoutError('LLM scan timed out after 60 seconds')), 120000);
+            setTimeout(() => reject(new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`)), SCAN_REQUEST_TIMEOUT_MS);
           });
 
           const chatCompletion = await Promise.race([
@@ -691,7 +702,7 @@ CRITICAL RULES:
           }
 
           if (error instanceof ScannerTimeoutError || errObj?.name === 'AbortError') {
-            throw new ScannerTimeoutError('LLM scan timed out after 60 seconds');
+            throw new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`);
           }
           if (errObj?.status === 429) {
             const headers = errObj.headers;

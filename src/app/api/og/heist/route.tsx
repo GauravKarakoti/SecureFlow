@@ -1,7 +1,10 @@
 import { ImageResponse } from 'next/og';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 
-export const runtime = 'edge';
+// Node.js runtime (not edge): the IP rate limiter is backed by the redis
+// (ioredis) client, which is not available in the edge runtime.
+export const runtime = 'nodejs';
 
 async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePath: string): Promise<ArrayBuffer> {
   try {
@@ -34,7 +37,7 @@ async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePa
   return await cdnRes.arrayBuffer();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGet(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
@@ -145,7 +148,7 @@ export async function GET(req: NextRequest) {
                   alignItems: 'center',
                   gap: 10,
                   backgroundColor: '#000000',
-                  border: '1px solid #ef4444',
+                  border: `1px solid ${accentColor}`,
                   padding: '6px 16px',
                   borderRadius: 4,
                   width: 'fit-content',
@@ -156,19 +159,19 @@ export async function GET(req: NextRequest) {
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    backgroundColor: '#ef4444',
+                    backgroundColor: accentColor,
                   }}
                 />
                 <span
                   style={{
-                    color: '#ef4444',
+                    color: accentColor,
                     fontSize: 16,
                     fontWeight: 700,
                     letterSpacing: 4,
                     textTransform: 'uppercase',
                   }}
                 >
-                  INCOMING TRANSMISSION...
+                  {bannerText}
                 </span>
               </div>
 
@@ -377,12 +380,22 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error(error);
 
+    // Never cache the error path: a transient failure (e.g. a font-CDN blip)
+    // must not be frozen by CDNs/browsers for a year. Only successful 200s above
+    // carry the immutable cache header.
     return new Response('Failed to generate image', {
       status: 500,
       headers: {
-        'Cache-Control':
-          'public, max-age=31536000, immutable',
+        'Cache-Control': 'no-store',
       },
     });
   }
 }
+
+// Public, unauthenticated route that fetches remote fonts and renders an image:
+// rate-limit by IP so it can't be hammered to exhaust CPU (client-ip.ts even
+// names /api/og/heist as the canonical example of a route that must be limited).
+export const GET = withRateLimit(
+  handleGet as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
+  { ...TIERS.STANDARD, keyPrefix: 'og:heist:ip' }
+) as typeof handleGet;
