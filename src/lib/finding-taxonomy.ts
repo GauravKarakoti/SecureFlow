@@ -310,3 +310,51 @@ export function findingCategoryFilter(category: FindingCategory) {
 export function severityFilter(level: Severity) {
   return { in: [...severitySpellings(level)], mode: 'insensitive' as const };
 }
+
+/**
+ * Maps arbitrary finding type strings to the valid Prisma FindingType enum values:
+ * 'SECRET' | 'VULNERABILITY' | 'MISCONFIG' (#633).
+ */
+export function normalizeFindingTypeEnum(value: unknown): 'SECRET' | 'VULNERABILITY' | 'MISCONFIG' {
+  const category = normalizeFindingType(value);
+  if (category === 'SECRET') return 'SECRET';
+  if (category === 'MISCONFIG') return 'MISCONFIG';
+  return 'VULNERABILITY';
+}
+
+/**
+ * Normalizes decision strings to the Prisma PolicyDecision enum values:
+ * 'PASS' | 'REVIEW' | 'BLOCK' (#633).
+ */
+export function normalizePolicyDecisionEnum(decision: unknown): 'PASS' | 'REVIEW' | 'BLOCK' {
+  if (typeof decision !== 'string') return 'REVIEW';
+  const clean = decision.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (clean === 'PASS' || clean === 'SUCCESS' || clean === 'APPROVED') return 'PASS';
+  if (clean === 'BLOCK' || clean === 'BLOCKED' || clean === 'FAIL' || clean === 'FAILURE') return 'BLOCK';
+  return 'REVIEW';
+}
+
+/**
+ * Normalizes status strings to the Prisma PRStatus enum values:
+ * 'PASS' | 'REVIEW_REQUIRED' | 'BLOCKED' (#633).
+ */
+export function normalizePrStatusEnum(status: unknown): 'PASS' | 'REVIEW_REQUIRED' | 'BLOCKED' {
+  if (typeof status !== 'string') return 'REVIEW_REQUIRED';
+  const clean = status.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (clean === 'PASS' || clean === 'SUCCESS' || clean === 'APPROVED') return 'PASS';
+  if (clean === 'BLOCK' || clean === 'BLOCKED' || clean === 'FAIL' || clean === 'FAILURE') return 'BLOCKED';
+  return 'REVIEW_REQUIRED';
+}
+
+/**
+ * Normalizes state strings to the Prisma PRState enum values:
+ * 'OPEN' | 'CLOSED' | 'MERGED' (#633).
+ */
+export function normalizePrStateEnum(state: unknown): 'OPEN' | 'CLOSED' | 'MERGED' {
+  if (typeof state !== 'string') return 'OPEN';
+  const clean = state.trim().toUpperCase();
+  if (clean === 'CLOSED') return 'CLOSED';
+  if (clean === 'MERGED') return 'MERGED';
+  return 'OPEN';
+}
+

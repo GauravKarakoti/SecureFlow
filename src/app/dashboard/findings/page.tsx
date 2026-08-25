@@ -24,9 +24,8 @@ export default async function FindingsPage() {
   // which repositories it is counting.
   const ownedByUser = { scanResult: { pullRequest: { repository: { userId } } } };
 
-  // The database schema now enforces `FindingType` and `Severity` as Enums.
-  // For the "other" bucket, we simply exclude the known Enum values.
-  const [criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
+  // The database schema enforces `FindingType` and `FindingSeverity` as Enums.
+  const [criticalSecrets, vulnerabilities, misconfigs] = await Promise.all([
     prisma.finding.count({
       where: {
         type: "SECRET",
@@ -41,14 +40,8 @@ export default async function FindingsPage() {
     prisma.finding.count({
       where: { type: "MISCONFIG", ...ownedByUser, ...notDismissed },
     }),
-    prisma.finding.count({
-      where: { 
-        type: { notIn: ["SECRET", "VULNERABILITY", "MISCONFIG"] }, 
-        ...ownedByUser, 
-        ...notDismissed 
-      },
-    }),
   ]);
+  const other = 0;
 
   // Fetch the actual findings for this user's repos
   const findingsRaw = await prisma.finding.findMany({
