@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage } from "@/lib/triage/queries";
 import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
+import { syncUserRepositories } from "@/lib/github/sync-user-repos";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,30 @@ export default async function OverviewPage() {
   }
 
   const userId = session.user.id;
+
+  // 0. Auto-sync repositories for returning users or check GitHub App status (#634)
+  let repoCount = await prisma.repository.count({
+    where: { userId, isActive: true }
+  });
+
+  let needsGitHubAppInstall = false;
+
+  if (repoCount === 0) {
+    try {
+      const syncResult = await syncUserRepositories(
+        userId,
+        (session.user as any).githubLogin,
+        (session as any).accessToken
+      );
+      if (syncResult.synced > 0) {
+        repoCount = syncResult.synced;
+      } else if (!syncResult.hasInstallation) {
+        needsGitHubAppInstall = true;
+      }
+    } catch (e) {
+      console.warn("[Dashboard] Automatic repo sync on login encountered an error:", e);
+    }
+  }
 
   // Dismissed (FALSE_POSITIVE / IGNORED) findings must not count toward the
   // finding tiles or the severity distribution. Exclude them by fingerprint.
@@ -115,6 +140,9 @@ export default async function OverviewPage() {
       prs={recentPRs} 
       distribution={distribution} 
       chartData={chartData} 
+      repoCount={repoCount}
+      needsGitHubAppInstall={needsGitHubAppInstall}
+      githubAppUrl={process.env.GITHUB_APP_URL || '/setup'}
     />
   );
 }
