@@ -59,6 +59,40 @@ describe("FindingsPagination", () => {
     expect(screen.getByRole("button", { name: /next page/i })).toBeDisabled();
   });
 
+  it("gives a disabled button a not-allowed cursor", () => {
+    // `Button` sets `disabled:pointer-events-none`, so a cursor rule on the
+    // button itself never fires — the pointer stays a plain arrow and the
+    // control reads as clickable. The cursor has to sit on an ancestor that
+    // still accepts pointer events.
+    render(<FindingsPagination page={1} pageSize={20} total={57} totalPages={3} />);
+
+    const previous = screen.getByRole("button", { name: /previous page/i });
+    const next = screen.getByRole("button", { name: /next page/i });
+
+    expect(previous.parentElement?.className).toContain("cursor-not-allowed");
+    expect(next.parentElement?.className).not.toContain("cursor-not-allowed");
+  });
+
+  it("dulls the affordances of a disabled button, not just its opacity", () => {
+    // opacity-50 alone leaves a crisp border and a crisp label, which still
+    // read as clickable on the outline variant.
+    render(<FindingsPagination page={1} pageSize={20} total={57} totalPages={3} />);
+
+    const previous = screen.getByRole("button", { name: /previous page/i });
+
+    expect(previous.className).toContain("disabled:border-foreground/10");
+    expect(previous.className).toContain("disabled:text-muted-foreground");
+    expect(previous.className).toContain("disabled:opacity-40");
+  });
+
+  it("does not navigate when a disabled button is clicked", () => {
+    render(<FindingsPagination page={1} pageSize={20} total={57} totalPages={3} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /previous page/i }));
+
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("writes the page number into the URL", () => {
     render(<FindingsPagination page={1} pageSize={20} total={57} totalPages={3} />);
 
