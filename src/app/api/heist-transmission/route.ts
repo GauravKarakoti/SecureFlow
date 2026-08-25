@@ -5,8 +5,13 @@ import {
   type HeistMessageInput,
 } from "@/ai/flows/heist-message-stream";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
+import { screenProjectName } from "@/ai/flows/heist-prompt-guard";
+import {
+  getTransmissionCache,
+  transmissionKey,
+  type TransmissionCache,
+} from "@/lib/heist/transmission-cache";
 
-const MAX_PROJECT_NAME_LENGTH = 120;
 const MIN_SCORE = 0;
 const MAX_SCORE = 100;
 const MAX_FINDINGS_COUNT = 100_000;
@@ -26,9 +31,18 @@ export function parseBoundedInt(raw: string | null, min: number, max: number): n
   return rounded;
 }
 
+/**
+ * Parse and screen the query string.
+ *
+ * `project` is the only free-text parameter and this endpoint is public and
+ * unauthenticated, so it is cleaned and screened here rather than being sliced
+ * to 120 characters and forwarded (#643). `screenProjectName` strips control
+ * characters and zero-width splitters, collapses whitespace, enforces the
+ * length cap, and replaces anything matching an injection pattern with the
+ * default name.
+ */
 export function parseHeistParams(searchParams: URLSearchParams): HeistMessageInput {
-  const rawProject = searchParams.get("project")?.trim();
-  const projectName = rawProject ? rawProject.slice(0, MAX_PROJECT_NAME_LENGTH) : "The Royal Mint";
+  const { projectName } = screenProjectName(searchParams.get("project"));
 
   const score = parseBoundedInt(searchParams.get("score"), MIN_SCORE, MAX_SCORE);
   const findingsCount = parseBoundedInt(searchParams.get("findingsCount"), 0, MAX_FINDINGS_COUNT);
@@ -45,12 +59,34 @@ export function parseHeistParams(searchParams: URLSearchParams): HeistMessageInp
   };
 }
 
+/**
+ * Replay a cached transmission as if it had just been generated.
+ *
+ * The client renders `chunk` events with a typewriter effect and only treats
+ * `done` as authoritative, so a cache hit emits one `chunk` carrying the whole
+ * text followed by `done`. The page looks the same; it simply cost nothing.
+ */
+export function cachedTransmissionEvents(message: string): Record<string, unknown>[] {
+  return [
+    { type: "chunk", text: message },
+    { type: "done", message, cached: true },
+  ];
+}
+
+export interface HeistStreamOptions {
+  /** Injected so tests can supply their own cache instead of the shared one. */
+  cache?: TransmissionCache;
+}
+
 export function createHeistStream(
   input: HeistMessageInput,
   upstreamSignal?: AbortSignal,
+  options: HeistStreamOptions = {},
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const controllerAbort = new AbortController();
+  const cache = options.cache ?? getTransmissionCache();
+  const cacheKey = transmissionKey(input);
 
   if (upstreamSignal) {
     if (upstreamSignal.aborted) controllerAbort.abort();
@@ -83,6 +119,16 @@ export function createHeistStream(
         return;
       }
 
+      // A share link that circulates is a thousand callers with one request
+      // each, which the per-IP rate limit does nothing about. Identical
+      // parameters produce identical decorative text, so serve it from memory.
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        for (const event of cachedTransmissionEvents(cached)) send(event);
+        finish();
+        return;
+      }
+
       try {
         for await (const event of streamHeistMessage(input, {
           signal: controllerAbort.signal,
@@ -94,7 +140,16 @@ export function createHeistStream(
 
           send(event);
 
-          if (event.type === "done" || event.type === "error") {
+          if (event.type === "done") {
+            // A guarded transmission is the static fallback, not a generated
+            // one — caching it would pin the fallback to a key whose next
+            // caller might have supplied a perfectly good name.
+            if (!event.guarded) cache.set(cacheKey, event.message);
+            finish();
+            return;
+          }
+
+          if (event.type === "error") {
             finish();
             return;
           }
