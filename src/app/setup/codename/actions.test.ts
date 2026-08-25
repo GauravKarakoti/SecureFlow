@@ -9,6 +9,7 @@ vi.mock("@/lib/prisma", () => ({
   default: {
     user: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
     auditLog: {
@@ -92,6 +93,7 @@ describe("setCrewCodename Server Action", () => {
     } as any);
 
     vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ codename: null } as any);
     vi.mocked(prisma.user.update).mockResolvedValue({
       id: "user-123",
       codename: "Tokyo",
@@ -106,17 +108,18 @@ describe("setCrewCodename Server Action", () => {
       data: { codename: "Tokyo" },
     });
 
-    expect(prisma.auditLog.create).toHaveBeenCalledWith({
-      data: {
-        userId: "user-123",
-        action: "CREW_CODENAME_ASSIGNED",
-        resource: "User:user-123",
-        decision: "PASS",
-        metadata: {
-          assignedCodename: "Tokyo",
-          previousCodename: null,
-        },
-      },
+    // The entry now goes through sanitizeAuditLogInput like every other write
+    // in the project, so the persisted shape is whatever the minimiser produces
+    // rather than the raw literal — assert the fields that matter.
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    const auditArgs = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(auditArgs.data).toMatchObject({
+      action: "CREW_CODENAME_ASSIGNED",
+      decision: "PASS",
+    });
+    expect(auditArgs.data.metadata).toMatchObject({
+      assignedCodename: "Tokyo",
+      previousCodename: null,
     });
   });
 });
