@@ -61,6 +61,8 @@ export interface FindingsStats {
   criticalSecrets: number;
   vulnerabilities: number;
   misconfigs: number;
+  /** Everything outside the three named buckets, so the tiles always sum. */
+  other: number;
 }
 
 export interface UserFindingsResult {
@@ -78,9 +80,23 @@ export interface FindingFilterOptions {
 }
 
 /** Types counted by each stat tile. Unchanged from the previous inline query. */
-const SECRET_TYPES = ["Secret", "Hardcoded Secret", "Data Leak", "Contextual Leak"];
-const VULNERABILITY_TYPES = ["Vulnerability", "Logic Flaw"];
-const MISCONFIG_TYPES = ["Misconfig", "Potential Misconfig"];
+/**
+ * The tile buckets.
+ *
+ * `Finding.type` is a Prisma enum (`FindingType`), so these are the exact
+ * values the column can hold and an exact match is correct. This branch was cut
+ * before that migration and carried free-text lists ("Hardcoded Secret",
+ * "Logic Flaw", ...) inherited from when the column was an unconstrained
+ * String; against the enum those match nothing at all and every tile would read
+ * zero. Kept aligned with `page.tsx` on main, which counts the same way.
+ *
+ * `OTHER` is the complement rather than a list, so the four tiles always sum to
+ * the number of findings even if a new member is added to the enum.
+ */
+const SECRET_TYPES = ["SECRET"];
+const VULNERABILITY_TYPES = ["VULNERABILITY"];
+const MISCONFIG_TYPES = ["MISCONFIG"];
+const CATEGORISED_TYPES = [...SECRET_TYPES, ...VULNERABILITY_TYPES, ...MISCONFIG_TYPES];
 
 /**
  * Group triaged fingerprints by status so the status filter can resolve to a
@@ -125,13 +141,14 @@ export async function getUserFindings(
   const listWhere = buildFindingsWhere(context, normalized);
   const statWhere = buildFindingsWhere(context, normalized, { includeDismissed: false });
 
-  const [total, criticalSecrets, vulnerabilities, misconfigs] = await Promise.all([
+  const [total, criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
     prisma.finding.count({ where: listWhere }),
     prisma.finding.count({
       where: { ...statWhere, type: { in: SECRET_TYPES }, severity: "CRITICAL" },
     }),
     prisma.finding.count({ where: { ...statWhere, type: { in: VULNERABILITY_TYPES } } }),
     prisma.finding.count({ where: { ...statWhere, type: { in: MISCONFIG_TYPES } } }),
+    prisma.finding.count({ where: { ...statWhere, type: { notIn: CATEGORISED_TYPES } } }),
   ]);
 
   const page = resolvePage(normalized.page, total, normalized.pageSize);
@@ -222,7 +239,7 @@ export async function getUserFindings(
     page,
     pageSize: normalized.pageSize,
     totalPages: totalPagesFor(total, normalized.pageSize),
-    stats: { criticalSecrets, vulnerabilities, misconfigs },
+    stats: { criticalSecrets, vulnerabilities, misconfigs, other },
   };
 }
 

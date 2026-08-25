@@ -3,8 +3,19 @@ import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage } from "@/lib/triage/queries";
+import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 
 export const dynamic = "force-dynamic";
+
+// Utility to safely strip the unsupported `mode: 'insensitive'` property 
+// without breaking the rest of the Prisma filter object.
+function safeFilter(filterObj: any) {
+  if (filterObj && typeof filterObj === "object" && !Array.isArray(filterObj)) {
+    const { mode, ...safe } = filterObj;
+    return safe;
+  }
+  return filterObj;
+}
 
 export default async function OverviewPage() {
   const session = await auth();
@@ -33,10 +44,9 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } }
   });
 
-  // FIX: Categorize all variation of secrets
   const secretsDetected = await prisma.finding.count({
     where: {
-      type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] },
+      type: "SECRET", // Exact enum match
       scanResult: { pullRequest: { repository: { userId } } },
       ...notDismissed
     }
@@ -56,20 +66,19 @@ export default async function OverviewPage() {
   }));
 
   // 3. Fetch Severity Distribution (dismissed findings excluded)
-  const critical = await prisma.finding.count({
-    where: { severity: 'CRITICAL', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const high = await prisma.finding.count({
-    where: { severity: 'HIGH', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const medium = await prisma.finding.count({
-    where: { severity: 'MEDIUM', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
-  const low = await prisma.finding.count({
-    where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } }, ...notDismissed }
-  });
+  const severityScope = {
+    scanResult: { pullRequest: { repository: { userId } } },
+    ...notDismissed,
+  };
 
-  // 4. FIX: Generate real Chart Data (Last 7 days of scans)
+  const [critical, high, medium, low] = await Promise.all([
+    prisma.finding.count({ where: { severity: "CRITICAL", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "HIGH", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "MEDIUM", ...severityScope } }),
+    prisma.finding.count({ where: { severity: "LOW", ...severityScope } }),
+  ]);
+
+  // 4. Generate real Chart Data (Last 7 days of scans)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);

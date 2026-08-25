@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '30 4 * * 0' 
+    - cron: '30 4 * * 0'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,23 +39,18 @@ jobs:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
 
-      - name: Cache Next.js build cache
-        uses: actions/cache@v4
-        with:
-          path: .next/cache
-          key: nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') }}
-          restore-keys: |
-            nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Audit Production Dependencies
+        run: npm audit --audit-level=high --production
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: 'javascript-typescript'
           queries: security-extended,security-and-quality
-
-      - name: Install dependencies
-        if: steps.node-modules-cache.outputs.cache-hit != 'true'
-        run: npm ci --legacy-peer-deps
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

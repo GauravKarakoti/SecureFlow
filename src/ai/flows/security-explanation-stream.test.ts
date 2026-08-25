@@ -239,3 +239,30 @@ describe('streaming flow uses securityExplanationModel', () => {
     generateStreamSpy.mockRestore();
   });
 });
+
+describe('streamDeveloperSecurityExplanations — abort signal (#576)', () => {
+  it('yields nothing when the caller signal is already aborted', async () => {
+    mockChunks = [{ explanation: 'partial' }];
+    const controller = new AbortController();
+    controller.abort();
+
+    const events: StreamExplanationEvent[] = [];
+    for await (const e of streamDeveloperSecurityExplanations(baseInput, { signal: controller.signal })) {
+      events.push(e);
+    }
+    expect(events).toEqual([]);
+  });
+
+  it('stops pulling once the signal aborts mid-stream (no done event)', async () => {
+    mockChunks = [{ explanation: 'a' }, { explanation: 'ab' }, { explanation: 'abc' }];
+    const controller = new AbortController();
+
+    const events: StreamExplanationEvent[] = [];
+    for await (const e of streamDeveloperSecurityExplanations(baseInput, { signal: controller.signal })) {
+      events.push(e);
+      controller.abort(); // caller disconnects after the first event
+    }
+    expect(events.length).toBeLessThan(3);
+    expect(events.some((e) => e.type === 'done')).toBe(false);
+  });
+});

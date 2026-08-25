@@ -25,3 +25,18 @@ export const redis = globalForRedis.redis || (
 if (process.env.NODE_ENV !== 'production') {
   globalForRedis.redis = redis;
 }
+
+/**
+ * Gracefully close Queue Redis connection if active.
+ */
+export async function closeQueueRedis(): Promise<void> {
+  if (redis && typeof redis.quit === 'function') {
+    try {
+      await redis.quit();
+    } catch {
+      if (typeof redis.disconnect === 'function') {
+        redis.disconnect();
+      }
+    }
+  }
+}

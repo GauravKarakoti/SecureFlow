@@ -254,3 +254,17 @@ export async function checkRateLimit(
   const result = await checkRateLimitDetailed(key, limit, windowSeconds, options);
   return result.allowed;
 }
+
+/**
+ * Gracefully close Redis connection if active.
+ */
+export async function closeRedis(): Promise<void> {
+  if (redisInstance) {
+    try {
+      await redisInstance.quit();
+    } catch {
+      redisInstance.disconnect();
+    }
+  }
+}
+

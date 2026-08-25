@@ -65,10 +65,15 @@ export default function FindingsClient({
         <p className="text-muted-foreground">Analysis of all detected issues across your organization.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Four tiles, not three. Every finding lands in exactly one bucket, so a
+          type the model spelled in a way nobody has catalogued yet shows up as
+          "Other" instead of being counted nowhere while sitting in the list
+          below (#590). */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
         <StatBox icon={<AlertOctagon />} value={stats.criticalSecrets} label="Critical Secrets" color="red" />
         <StatBox icon={<ShieldAlert />} value={stats.vulnerabilities} label="Vulnerabilities" color="orange" />
         <StatBox icon={<Info />} value={stats.misconfigs} label="Misconfigs" color="blue" />
+        <StatBox icon={<Terminal />} value={stats.other} label="Other" color="slate" />
       </div>
 
       <FindingsToolbar options={filterOptions} total={total} />
@@ -207,7 +212,7 @@ function StatBox({
   icon: React.ReactNode;
   value: number;
   label: string;
-  color: "red" | "orange" | "blue";
+  color: "red" | "orange" | "blue" | "slate";
 }) {
   const styles = {
     red: {
@@ -224,6 +229,13 @@ function StatBox({
       border: "border-blue-500/20",
       bg: "bg-blue-500/10",
       text: "text-blue-400",
+    },
+    // Deliberately the least alarming of the four. "Other" is an
+    // unclassified finding, not a more severe one.
+    slate: {
+      border: "border-slate-500/20",
+      bg: "bg-slate-500/10",
+      text: "text-slate-400",
     },
   };
 

@@ -173,5 +173,112 @@ describe('Next.js RBAC Middleware Guarding', () => {
       expect(res?.status).toBe(307);
       expect(res?.headers.get('location')).toBe('http://localhost/login');
     });
+
+    it('redirects to /setup/codename when mock-session cookie is "recruit" on /dashboard', async () => {
+      const req = new NextRequest('http://localhost/dashboard', {
+        headers: { cookie: 'mock-session=recruit' },
+      }) as MockAuthRequest;
+      req.auth = null;
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get('location')).toBe('http://localhost/setup/codename');
+    });
+
+    it('redirects to /dashboard from /setup/codename when mock-session is already "user" or "admin"', async () => {
+      const req = new NextRequest('http://localhost/setup/codename', {
+        headers: { cookie: 'mock-session=user' },
+      }) as MockAuthRequest;
+      req.auth = null;
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get('location')).toBe('http://localhost/dashboard');
+    });
+  });
+
+  describe('Codename Onboarding Interception (#185)', () => {
+    it('redirects authenticated user without codename attempting to access /dashboard to /setup/codename', async () => {
+      const req = new NextRequest('http://localhost/dashboard') as MockAuthRequest;
+      req.auth = {
+        user: {
+          id: 'user-recruit',
+          name: 'New Recruit',
+          roles: ['USER'],
+        },
+      };
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get('location')).toBe('http://localhost/setup/codename');
+    });
+
+    it('allows authenticated user with codename to access /dashboard', async () => {
+      const req = new NextRequest('http://localhost/dashboard') as MockAuthRequest;
+      req.auth = {
+        user: {
+          id: 'user-recruit',
+          name: 'New Recruit',
+          roles: ['USER'],
+          codename: 'Tokyo',
+        } as any,
+      };
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(200);
+    });
+
+    it('redirects unauthenticated user attempting to access /setup/codename to /login', async () => {
+      const req = new NextRequest('http://localhost/setup/codename') as MockAuthRequest;
+      req.auth = null;
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get('location')).toBe('http://localhost/login');
+    });
+
+    it('redirects authenticated user who already has a codename from /setup/codename to /dashboard', async () => {
+      const req = new NextRequest('http://localhost/setup/codename') as MockAuthRequest;
+      req.auth = {
+        user: {
+          id: 'user-recruit',
+          name: 'New Recruit',
+          roles: ['USER'],
+          codename: 'Berlin',
+        } as any,
+      };
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get('location')).toBe('http://localhost/dashboard');
+    });
+
+    it('allows authenticated user without codename to access /setup/codename', async () => {
+      const req = new NextRequest('http://localhost/setup/codename') as MockAuthRequest;
+      req.auth = {
+        user: {
+          id: 'user-recruit',
+          name: 'New Recruit',
+          roles: ['USER'],
+        },
+      };
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(200);
+    });
   });
 });

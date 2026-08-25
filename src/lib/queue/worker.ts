@@ -3,17 +3,23 @@ import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
+import { maskFindingText } from '@/lib/armor/secret-masking';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
+import { commentableLineNumbers, parseUnifiedPatch } from '@/lib/armor/diff';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
 import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
+import { sanitizeLogValue } from '@/lib/logger';
 
-// Sanitize user-controlled strings before logging to prevent log injection (CWE-117)
-const sanitize = (s: unknown) => String(s ?? '').replace(/[\r\n]/g, ' ');
+// Sanitize user-controlled strings before logging to prevent log injection
+// (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
+// it rather than only this one (#563); the local alias keeps the ~40 call sites
+// below unchanged.
+const sanitize = sanitizeLogValue;
 
 // 1. Strict input validation schemas
 const repoSchema = z.object({
@@ -235,31 +241,23 @@ export function assertPullRequestContext(payload: {
 
 
 /**
- * Parse a unified-diff patch and return the set of new-file line numbers that
- * are addressable by a GitHub review comment. GitHub only accepts inline review
- * comments on lines that appear in the diff (added `+` lines or context lines);
- * a comment on any other line is rejected and would fail the whole review call.
+ * The set of new-file line numbers an inline review comment may anchor on.
+ *
+ * GitHub only accepts an inline comment on a line that appears in the diff
+ * (added `+` lines or context lines); a comment on any other line is rejected
+ * and fails the whole `pulls.createReview` call, taking every other comment in
+ * the batch with it.
+ *
+ * This was a second, independent diff parser until #589. It disagreed with the
+ * scanner's `extractAddedLines` on marker-less empty context lines, on `+++`
+ * file headers and on the no-newline marker — so the line number the model was
+ * shown was not always the line number this set contained, and findings were
+ * either demoted to the summary body or anchored one line off. Both now read
+ * the same walk in `@/lib/armor/diff`, which makes the disagreement structurally
+ * impossible rather than fixed-for-now.
  */
 export function getCommentableLines(patch: string): Set<number> {
-  const lines = new Set<number>();
-  let newLine = 0;
-  for (const row of patch.split('\n')) {
-    const hunk = row.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      newLine = parseInt(hunk[1], 10);
-      continue;
-    }
-    if (row.startsWith('-')) {
-      // Removed line: exists only on the old side, not addressable via `line`.
-      continue;
-    }
-    if (row.startsWith('+') || row.startsWith(' ')) {
-      // Added or context line: part of the diff on the new side.
-      lines.add(newLine);
-      newLine++;
-    }
-  }
-  return lines;
+  return commentableLineNumbers(parseUnifiedPatch(patch));
 }
 
 export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: Job<WebhookJobData>) => {
@@ -582,7 +580,10 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       // fingerprint) so the dashboard can show dismissed items and left-join triage.
       const activeFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
 
-      const enrichedFindings = await Promise.all(findings.map(async (finding: any) => {
+      // Enrich and post ONLY the active findings: a finding the user dismissed
+      // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
+      // spend) nor re-posted as a PR comment on every re-scan.
+      const enrichedFindings = await Promise.all(activeFindings.map(async (finding: any) => {
         const aiResponse = await developerReceivesAISecurityExplanations({
           findingType: finding.type,
           severity: finding.severity,
@@ -592,13 +593,27 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         });
         return {
           ...finding,
-          explanation: aiResponse.explanation,
-          remediation: aiResponse.remediationSuggestions,
+          // Redacted before anything else touches them. These two fields are
+          // generated after the scanner has finished, so they never passed
+          // through maskSecrets — and they go straight into a pull request
+          // comment and into Postgres. Remediation text is the worst case:
+          // its natural shape is to quote the offending line back at you
+          // ("move DB_PASSWORD=… into an environment variable"), and on a
+          // public repository that comment is world-readable (#591).
+          explanation: maskFindingText(aiResponse.explanation),
+          remediation: maskFindingText(aiResponse.remediationSuggestions),
           // Layer 4 (UI surfacing): carry the injection flag through to the PR comment
           // and dashboard so reviewers are warned when the AI narrative may be unreliable.
           promptInjectionSuspected: aiResponse.promptInjectionSuspected,
         };
       }));
+
+      // The full list is still persisted (active + dismissed) so the dashboard
+      // can show dismissed items via the triage left-join. Dismissed findings
+      // are stored as-is (no AI enrichment) — enrichment is reserved for the
+      // active findings above.
+      const suppressedFindings = findings.filter((f: any) => suppressedFingerprints.has(f.fingerprint));
+      const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
 
       // Evaluate only the findings the user hasn't dismissed, so a triaged-away
       // critical no longer BLOCKs the PR on every subsequent re-scan.
@@ -632,7 +647,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
           // The scanned-file count is stated explicitly so a truncated scan can
           // never read as a clean bill of health for the whole PR.
           summary:
-            `SecureFlow detected ${findings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
+            `SecureFlow detected ${activeFindings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
             (coverageNotice ? `\n\n${coverageNotice}` : ''),
         }
       });
@@ -794,7 +809,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
             riskScore,
             policyDecision: decision,
             findings: {
-              create: enrichedFindings.map((f: any) => ({
+              create: findingsToPersist.map((f: any) => ({
                 type: f.type,
                 // Persist the canonical spelling. `Finding.severity` is an
                 // unconstrained `String` column, so without this a non-canonical

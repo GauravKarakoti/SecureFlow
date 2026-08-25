@@ -32,12 +32,35 @@ vi.mock('next/og', () => {
   };
 });
 
-// 3. Mock next/server to provide Request as NextRequest
+// 3. Mock next/server to provide Request as NextRequest + a minimal NextResponse
 vi.mock('next/server', () => {
   return {
     NextRequest: Request,
+    NextResponse: {
+      json: (body: unknown, init?: ResponseInit) =>
+        new Response(JSON.stringify(body), {
+          ...init,
+          headers: { 'Content-Type': 'application/json', ...init?.headers },
+        }),
+    },
   };
 });
+
+// 4. Mock the IP rate-limit middleware as a pass-through, toggleable to 429.
+let mockIpAllowed = true;
+vi.mock('@/lib/middleware/rate-limit', () => ({
+  TIERS: { STANDARD: { limit: 120, windowSeconds: 60, fallbackStrategy: 'fail-open' } },
+  withRateLimit: (fn: (...a: unknown[]) => unknown) =>
+    (req: unknown, ...args: unknown[]) => {
+      if (!mockIpAllowed) {
+        return new Response(
+          JSON.stringify({ error: 'Too Many Requests' }),
+          { status: 429, headers: { 'Retry-After': '60' } }
+        );
+      }
+      return fn(req, ...args);
+    },
+}));
 
 // 4. Test suite
 describe('GET /api/og/heist', () => {
@@ -45,6 +68,20 @@ describe('GET /api/og/heist', () => {
     mockImageResponseConstructor.mockClear();
     vi.mocked(global.fetch).mockClear();
     vi.resetModules();
+    mockIpAllowed = true;
+  });
+
+  it('rate-limits the route by IP: returns 429 when the IP budget is exceeded (#579)', async () => {
+    mockIpAllowed = false;
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(429);
+    // The handler must not even run when rate-limited.
+    expect(mockImageResponseConstructor).not.toHaveBeenCalled();
   });
 
   it('successfully returns a valid image response with default parameters', async () => {
@@ -166,6 +203,36 @@ describe('GET /api/og/heist', () => {
     expect(elementString).toContain('5000000');
   });
 
+  it('applies the glitch theme to the banner (text + accent color), not just the outer frame', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist?theme=glitch');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    const [element] = mockImageResponseConstructor.mock.calls[0];
+    const elementString = JSON.stringify(element);
+
+    // The banner text + accent must follow the theme; previously they were
+    // hardcoded so glitch only recolored the outer border/background (#584).
+    expect(elementString).toContain('SYSTEM GLITCH // TRANSMISSION ACTIVE');
+    expect(elementString).not.toContain('INCOMING TRANSMISSION...');
+    expect(elementString).toContain('#22c55e');
+  });
+
+  it('uses the default heist banner text when no theme is given', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const req = new NextRequest('http://localhost/api/og/heist');
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(200);
+    const [element] = mockImageResponseConstructor.mock.calls[0];
+    expect(JSON.stringify(element)).toContain('INCOMING TRANSMISSION...');
+  });
+
   it('returns status 500 when font loading or parsing fails', async () => {
     // Override fetch mock to reject, simulating a network / file read failure
     vi.mocked(global.fetch).mockRejectedValue(new Error('Failed to load font files'));
@@ -181,5 +248,9 @@ describe('GET /api/og/heist', () => {
 
     const bodyText = await res.text();
     expect(bodyText).toBe('Failed to generate image');
+
+    // A transient failure must never be cached: the error path sends no-store,
+    // so a one-off font-CDN blip can't freeze a broken image for a year (#581).
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });

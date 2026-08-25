@@ -1,0 +1,312 @@
+/**
+ * The single source of truth for what kind of thing a finding is.
+ *
+ * `@/lib/severity` exists because four call sites had four incompatible answers
+ * to "what is a valid severity". `Finding.type` is in the state severity was in
+ * before that module: it is written to the database **verbatim from the model
+ * response** —
+ *
+ *     const findingType = String(f.type || 'Vulnerability');   // scanner.ts
+ *
+ * — with no enum, no allow-list and no normalization anywhere in the codebase.
+ * The prompt asks for `"Secret | Vulnerability | Misconfig"`, but a model under
+ * no obligation to produce one of three exact strings routinely answers
+ * `"Hardcoded Secret"`, `"hardcoded_secret"`, `"Secrets"`, `"Security
+ * Misconfiguration"` or `"Injection"`.
+ *
+ * The dashboard then counted those with exact, case-sensitive membership of
+ * lists that had visibly been grown by hand as people noticed misses:
+ *
+ *     type: { in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak'] }
+ *     type: { in: ['Vulnerability', 'Logic Flaw'] }
+ *     type: { in: ['Misconfig', 'Potential Misconfig'] }
+ *
+ * A finding typed `"secret"` matched none of them. A SQL-injection finding
+ * typed `"Injection"` matched none of them either, and was therefore counted in
+ * no tile at all while being rendered in the table directly underneath (#590).
+ *
+ * Three layers, most specific first, so the answer is predictable:
+ *
+ *  1. the canonical category names themselves;
+ *  2. an explicit alias table of spellings seen in the wild;
+ *  3. an ordered keyword scan, so a phrasing nobody has seen yet still lands in
+ *     the right bucket instead of vanishing.
+ *
+ * Anything that survives all three is `OTHER` — a real bucket with its own
+ * tile, not a silent drop. Every finding is counted exactly once, so the tiles
+ * always sum to the number of rows.
+ *
+ * Pure and free of server-only imports, like `severity.ts`, so client
+ * components can use it too.
+ */
+
+import { severitySpellings, type Severity } from './severity';
+
+/**
+ * The categories the dashboard reports on.
+ *
+ * `OTHER` is last and is the fallback. Order is not load-bearing the way
+ * `SEVERITY_ORDER` is — nothing derives a rank from the index here — but it is
+ * the display order of the tiles.
+ */
+export const FINDING_CATEGORIES = ['SECRET', 'VULNERABILITY', 'MISCONFIG', 'OTHER'] as const;
+
+export type FindingCategory = (typeof FINDING_CATEGORIES)[number];
+
+/** The spelling written to `Finding.type` for each category on new scans. */
+export const FINDING_CATEGORY_LABEL: Readonly<Record<FindingCategory, string>> = {
+  SECRET: 'Secret',
+  VULNERABILITY: 'Vulnerability',
+  MISCONFIG: 'Misconfig',
+  OTHER: 'Other',
+};
+
+/** Human-readable tile heading for each category. */
+export const FINDING_CATEGORY_TITLE: Readonly<Record<FindingCategory, string>> = {
+  SECRET: 'Secrets',
+  VULNERABILITY: 'Vulnerabilities',
+  MISCONFIG: 'Misconfigs',
+  OTHER: 'Other',
+};
+
+/**
+ * Exact spellings observed in `Finding.type`, mapped to their category.
+ *
+ * Keys are matched after upper-casing and stripping separators, so only one
+ * casing of each needs listing — `hardcoded_secret`, `Hardcoded Secret` and
+ * `HARDCODED-SECRET` all reach `HARDCODEDSECRET`.
+ *
+ * The first four groups are the strings the two dashboard pages used to
+ * enumerate by hand; they are kept so historical rows keep counting exactly as
+ * they did. The rest are what the model actually produces.
+ */
+const TYPE_ALIASES: Readonly<Record<string, FindingCategory>> = {
+  // ── Secrets ──────────────────────────────────────────────────────────────
+  SECRET: 'SECRET',
+  SECRETS: 'SECRET',
+  HARDCODEDSECRET: 'SECRET',
+  HARDCODEDSECRETS: 'SECRET',
+  HARDCODEDCREDENTIAL: 'SECRET',
+  HARDCODEDCREDENTIALS: 'SECRET',
+  HARDCODEDPASSWORD: 'SECRET',
+  HARDCODEDAPIKEY: 'SECRET',
+  DATALEAK: 'SECRET',
+  CONTEXTUALLEAK: 'SECRET',
+  CREDENTIALLEAK: 'SECRET',
+  SECRETLEAK: 'SECRET',
+  SECRETEXPOSURE: 'SECRET',
+  CREDENTIAL: 'SECRET',
+  CREDENTIALS: 'SECRET',
+  APIKEY: 'SECRET',
+  APIKEYEXPOSURE: 'SECRET',
+  ACCESSTOKEN: 'SECRET',
+  PRIVATEKEY: 'SECRET',
+  EXPOSEDSECRET: 'SECRET',
+  SENSITIVEDATAEXPOSURE: 'SECRET',
+  INFORMATIONDISCLOSURE: 'SECRET',
+
+  // ── Vulnerabilities ──────────────────────────────────────────────────────
+  VULNERABILITY: 'VULNERABILITY',
+  VULNERABILITIES: 'VULNERABILITY',
+  VULN: 'VULNERABILITY',
+  LOGICFLAW: 'VULNERABILITY',
+  LOGICERROR: 'VULNERABILITY',
+  INJECTION: 'VULNERABILITY',
+  SQLINJECTION: 'VULNERABILITY',
+  COMMANDINJECTION: 'VULNERABILITY',
+  CODEINJECTION: 'VULNERABILITY',
+  XSS: 'VULNERABILITY',
+  CROSSSITESCRIPTING: 'VULNERABILITY',
+  CSRF: 'VULNERABILITY',
+  SSRF: 'VULNERABILITY',
+  PATHTRAVERSAL: 'VULNERABILITY',
+  DIRECTORYTRAVERSAL: 'VULNERABILITY',
+  INSECUREDESERIALIZATION: 'VULNERABILITY',
+  BROKENACCESSCONTROL: 'VULNERABILITY',
+  BROKENAUTHENTICATION: 'VULNERABILITY',
+  RACECONDITION: 'VULNERABILITY',
+  BUFFEROVERFLOW: 'VULNERABILITY',
+  DENIALOFSERVICE: 'VULNERABILITY',
+  DOS: 'VULNERABILITY',
+
+  // ── Misconfigurations ────────────────────────────────────────────────────
+  MISCONFIG: 'MISCONFIG',
+  MISCONFIGS: 'MISCONFIG',
+  MISCONFIGURATION: 'MISCONFIG',
+  POTENTIALMISCONFIG: 'MISCONFIG',
+  SECURITYMISCONFIGURATION: 'MISCONFIG',
+  INSECURECONFIGURATION: 'MISCONFIG',
+  INSECURECONFIG: 'MISCONFIG',
+  CONFIGURATION: 'MISCONFIG',
+  CONFIGURATIONERROR: 'MISCONFIG',
+  WEAKCRYPTOGRAPHY: 'MISCONFIG',
+  WEAKCRYPTO: 'MISCONFIG',
+  INSECURETRANSPORT: 'MISCONFIG',
+  MISSINGSECURITYHEADER: 'MISCONFIG',
+  MISSINGSECURITYHEADERS: 'MISCONFIG',
+  PERMISSIVECORS: 'MISCONFIG',
+  OVERLYPERMISSIVEPERMISSIONS: 'MISCONFIG',
+};
+
+/**
+ * Ordered keyword fallback for a phrasing that is not in the alias table.
+ *
+ * Order matters and is the reason this is an array rather than an object: a
+ * type reading `"Hardcoded credential in an insecure config"` should be a
+ * secret, not a misconfiguration, so `SECRET` keywords are tested first.
+ *
+ * The keywords are deliberately specific. A substring rule that is too loose
+ * does real damage — `filterFalsePositives` drops any Prisma-schema finding
+ * whose snippet contains `"int"`, which also matches `print`, `point` and
+ * `integrity` — so nothing here is shorter than four characters and none of it
+ * is a fragment of a common English word.
+ */
+const TYPE_KEYWORDS: ReadonlyArray<readonly [FindingCategory, readonly string[]]> = [
+  [
+    'SECRET',
+    ['SECRET', 'CREDENTIAL', 'PASSWORD', 'APIKEY', 'TOKEN', 'PRIVATEKEY', 'LEAK', 'DISCLOSURE'],
+  ],
+  [
+    'VULNERABILITY',
+    [
+      'VULNERAB',
+      'INJECT',
+      'TRAVERSAL',
+      'OVERFLOW',
+      'SCRIPTING',
+      'DESERIAL',
+      'FORGERY',
+      'RACECONDITION',
+      'PRIVILEGEESCALATION',
+      'EXPLOIT',
+      'FLAW',
+    ],
+  ],
+  [
+    'MISCONFIG',
+    ['MISCONFIG', 'CONFIG', 'HEADER', 'PERMISSION', 'CORS', 'CIPHER', 'CRYPTO', 'HARDENING'],
+  ],
+];
+
+/**
+ * Reduce arbitrary input to the form the alias table is keyed on.
+ *
+ * Same treatment `severity.ts` applies: trim, upper-case, drop separators. Any
+ * non-string input becomes the empty string, which callers read as "no type
+ * given".
+ */
+function canonicalizeKey(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_\-/.]+/g, '');
+}
+
+/** Narrowing predicate for a value that is already a canonical category. */
+export function isFindingCategory(value: unknown): value is FindingCategory {
+  return typeof value === 'string' && (FINDING_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * Classify `value`, or return `null` when it cannot be interpreted at all.
+ *
+ * Total: never throws, for any input including `null`, `undefined`, numbers and
+ * objects. Use this when "I could not tell" is a meaningful answer; use
+ * {@link normalizeFindingType} when you need a category regardless.
+ */
+export function parseFindingType(value: unknown): FindingCategory | null {
+  const key = canonicalizeKey(value);
+  if (!key) return null;
+
+  if (isFindingCategory(key)) return key;
+
+  const aliased = TYPE_ALIASES[key];
+  if (aliased) return aliased;
+
+  for (const [category, keywords] of TYPE_KEYWORDS) {
+    if (keywords.some((keyword) => key.includes(keyword))) return category;
+  }
+
+  return null;
+}
+
+/**
+ * Classify `value`, falling back to `OTHER`.
+ *
+ * `OTHER` rather than `VULNERABILITY` deliberately. The scanner's old fallback
+ * of `'Vulnerability'` for a missing type made an unclassified finding
+ * indistinguishable from one the model actually called a vulnerability, which
+ * is a quiet way to inflate one tile with rows that belong nowhere. `OTHER` is
+ * surfaced in its own tile instead, so the miss is visible and the alias table
+ * can be extended from real data.
+ */
+export function normalizeFindingType(value: unknown): FindingCategory {
+  return parseFindingType(value) ?? 'OTHER';
+}
+
+/** The label stored in `Finding.type` for whatever `value` classifies as. */
+export function normalizeFindingTypeLabel(value: unknown): string {
+  return FINDING_CATEGORY_LABEL[normalizeFindingType(value)];
+}
+
+/**
+ * Every stored spelling that should count toward `category`.
+ *
+ * Built from the alias table rather than maintained by hand at each call site,
+ * which is what let the two dashboard pages drift into carrying *different*
+ * lists for the same tile.
+ *
+ * `OTHER` has no enumerable spellings — it is defined by what nothing else
+ * matches — so it returns an empty array and must be counted by subtraction.
+ * {@link findingCategoryFilter} handles that.
+ */
+export function findingTypeSpellings(category: FindingCategory): string[] {
+  if (category === 'OTHER') return [];
+
+  const spellings = new Set<string>([FINDING_CATEGORY_LABEL[category]]);
+
+  for (const [key, mapped] of Object.entries(TYPE_ALIASES)) {
+    if (mapped === category) spellings.add(key);
+  }
+
+  return [...spellings];
+}
+
+/** A Prisma `StringFilter` matching any known spelling of `category`. */
+export function findingCategoryFilter(category: FindingCategory) {
+  const spellings = findingTypeSpellings(category);
+
+  // Everything that is not one of the three classified categories. Expressed as
+  // a negative so a spelling nobody has seen yet is still counted, which is the
+  // whole point of having an OTHER bucket.
+  if (category === 'OTHER') {
+    return {
+      notIn: [
+        ...findingTypeSpellings('SECRET'),
+        ...findingTypeSpellings('VULNERABILITY'),
+        ...findingTypeSpellings('MISCONFIG'),
+      ],
+      mode: 'insensitive' as const,
+    };
+  }
+
+  return { in: spellings, mode: 'insensitive' as const };
+}
+
+/**
+ * A Prisma `StringFilter` matching any spelling of a severity level.
+ *
+ * `Finding.severity` is an unconstrained `String` column. `iq.ts` and
+ * `leaderboard/aggregate.ts` both go out of their way to compare it
+ * case-insensitively, with comments explaining that an exact match let a
+ * `"critical"` row decide a pull request `PASS`. The dashboard was the last
+ * place still doing `severity: 'CRITICAL'`.
+ *
+ * `mode: 'insensitive'` covers the casing; `severitySpellings` covers the
+ * aliases `parseSeverity` already understands, so what the tiles count matches
+ * what the policy engine enforces.
+ */
+export function severityFilter(level: Severity) {
+  return { in: [...severitySpellings(level)], mode: 'insensitive' as const };
+}

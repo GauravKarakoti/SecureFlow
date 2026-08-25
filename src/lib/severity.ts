@@ -209,6 +209,36 @@ export function isAtLeast(value: unknown, threshold: Severity): boolean {
   return SEVERITY_ORDER.indexOf(severity) <= SEVERITY_ORDER.indexOf(threshold);
 }
 
+/**
+ * Every spelling this module maps onto `level`, canonical name first.
+ *
+ * `Finding.severity` is an unconstrained `String` column, so a database query
+ * cannot call `parseSeverity` — it can only match literal values. Exposing the
+ * alias table's inverse lets a caller build a `severity: { in: [...] }` filter
+ * that agrees with what the policy engine enforces, instead of hand-listing
+ * spellings at the query site and drifting away from this table (#590).
+ *
+ * Derived from `SEVERITY_ALIASES` at module load, so adding an alias above
+ * makes it queryable with no second edit. Match the result case-insensitively:
+ * the keys here are the canonicalised forms, not the casing on disk.
+ */
+export function severitySpellings(level: Severity): readonly string[] {
+  return SPELLINGS_BY_LEVEL[level];
+}
+
+const SPELLINGS_BY_LEVEL: Readonly<Record<Severity, string[]>> = (() => {
+  const table = Object.fromEntries(SEVERITY_ORDER.map((s) => [s, [s]])) as Record<
+    Severity,
+    string[]
+  >;
+
+  for (const [alias, level] of Object.entries(SEVERITY_ALIASES)) {
+    table[level].push(alias);
+  }
+
+  return table;
+})();
+
 /** Risk-score contribution of a single severity. Unparseable input scores 0. */
 export function riskWeight(value: unknown): number {
   const severity = parseSeverity(value);

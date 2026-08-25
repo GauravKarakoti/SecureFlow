@@ -106,7 +106,10 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "merged" }, _count: { _all: true } }),
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, status: PASSED_STATUS }, _count: { _all: true } }),
       prisma.pullRequest.findMany({ where: { ...authored, authorAvatarUrl: { not: null } }, select: { authorLogin: true, authorAvatarUrl: true }, distinct: ["authorLogin"] }),
-      prisma.user.findMany({ where: { githubLogin: { not: null } }, select: { githubLogin: true, codename: true } }),
+      prisma.user.findMany({
+        where: { codename: { not: null } },
+        select: { githubLogin: true, name: true, email: true, codename: true },
+      }),
       // `distinct` keeps the first row per `pullRequestId` after ordering, so the
       // `createdAt desc` secondary sort makes this "the newest scan per PR".
       prisma.scanResult.findMany({
@@ -136,9 +139,39 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
   const avatarByLogin = new Map<string, string>(
     avatars.map((row: any) => [row.authorLogin as string, row.authorAvatarUrl as string])
   );
-  const codenameByLogin = new Map<string, string>(
-    users.filter((u: any) => u.githubLogin && u.codename).map((u: any) => [u.githubLogin.toLowerCase(), u.codename])
-  );
+  const codenameByLogin = new Map<string, string>();
+
+  for (const u of users as any[]) {
+    if (!u.codename) continue;
+
+    const registerAlias = (val: string | null | undefined) => {
+      if (!val) return;
+      const raw = val.trim().toLowerCase();
+      if (!raw) return;
+
+      if (!codenameByLogin.has(raw)) {
+        codenameByLogin.set(raw, u.codename);
+      }
+
+      // Stripped alphanumeric alias (e.g. "Gaurav Karakoti" -> "gauravkarakoti")
+      const alphanumeric = raw.replace(/[^a-z0-9]/g, "");
+      if (alphanumeric && !codenameByLogin.has(alphanumeric)) {
+        codenameByLogin.set(alphanumeric, u.codename);
+      }
+    };
+
+    if (u.githubLogin) {
+      registerAlias(u.githubLogin);
+    }
+    if (u.name) {
+      registerAlias(u.name);
+    }
+    if (u.email) {
+      const emailPrefix = u.email.split("@")[0];
+      registerAlias(emailPrefix);
+    }
+  }
+
 
   // scanResultId -> the author whose pull request that scan belongs to.
   const authorByScanId = new Map<string, string>();

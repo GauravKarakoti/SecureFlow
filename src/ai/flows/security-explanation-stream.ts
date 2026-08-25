@@ -38,8 +38,12 @@ export type StreamExplanationEvent =
  * a static message or a retry via the non-streaming flow.
  */
 export async function* streamDeveloperSecurityExplanations(
-  input: AISecurityExplanationInput
+  input: AISecurityExplanationInput,
+  options: { signal?: AbortSignal } = {}
 ): AsyncGenerator<StreamExplanationEvent, void, unknown> {
+  const { signal } = options;
+  if (signal?.aborted) return;
+
   let validatedInput: AISecurityExplanationInput;
   try {
     validatedInput = AISecurityExplanationInputSchema.parse(input);
@@ -61,6 +65,7 @@ export async function* streamDeveloperSecurityExplanations(
           model: securityExplanationModel,
           system: SYSTEM_PROMPT,
           prompt,
+          ...(signal ? { abortSignal: signal } : {}),
           output: {
             format: 'json',
             schema: AISecurityExplanationApiSchema,
@@ -77,6 +82,8 @@ export async function* streamDeveloperSecurityExplanations(
 
     let lastExplanation = '';
     for await (const chunk of stream) {
+      // Stop pulling from the model as soon as the caller has disconnected.
+      if (signal?.aborted) return;
       const partial = chunk.output as Partial<AISecurityExplanationOutput> | undefined;
       if (partial?.explanation && partial.explanation !== lastExplanation) {
         lastExplanation = partial.explanation;

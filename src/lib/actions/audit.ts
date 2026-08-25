@@ -2,6 +2,7 @@
 
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
+import { logger } from "@/lib/logger";
 
 async function requireUser(): Promise<string> {
   const session = await auth();
@@ -45,7 +46,6 @@ function buildUserAuditLogWhere(
   userId: string,
   query: Pick<UserAuditLogQuery, "action" | "decision" | "search" | "startDate" | "endDate">
 ) {
-  console.log("DEBUG buildUserAuditLogWhere called with:", query);
   const { action, decision, search, startDate, endDate } = query;
 
   const where: any = { userId };
@@ -64,7 +64,17 @@ function buildUserAuditLogWhere(
     if (endDate) where.timestamp.lte = endDate;
   }
 
-  console.log("DEBUG final where clause:", JSON.stringify(where));
+  // Was two console.log("DEBUG ...") statements printing this clause -- and with
+  // it `query.search`, the raw string the user typed into the filter box -- to
+  // stdout on every page load, unbounded and with no LOG_LEVEL to turn it off
+  // (#563). Kept at debug level, where it is off by default in production.
+  logger.debug("Built audit log filter", {
+    userId,
+    hasSearch: Boolean(search),
+    action: action ?? null,
+    decision: decision ?? null,
+  });
+
   return where;
 }
 

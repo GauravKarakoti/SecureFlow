@@ -6,7 +6,9 @@ import {
   dynamicFingerprintEngine,
   PayloadSignature
 } from './fingerprint';
+import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
 import { normalizeSeverity, type Severity } from '@/lib/severity';
+import { parseUnifiedPatch, renderNumberedLines } from './diff';
 
 export type ScanFinding = {
   type: string;
@@ -35,43 +37,20 @@ export class ScannerTimeoutError extends Error {
   }
 }
 
-// Redact high-entropy strings and known secret formats
-export function maskSecrets(text: string): string {
-  if (!text) return text;
-  let sanitized = text;
-
-  // 1. Anthropic API keys (e.g., sk-ant-api03-...)
-  sanitized = sanitized.replace(/sk-ant-api\d*-[a-zA-Z0-9-_]+/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 2. GitHub Personal Access Tokens (classic and fine-grained)
-  sanitized = sanitized.replace(/ghp_[a-zA-Z0-9]{36,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-  sanitized = sanitized.replace(/github_pat_[a-zA-Z0-9_]{82,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-  sanitized = sanitized.replace(/gh[oprs]_[a-zA-Z0-9]{36,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 3. JSON Web Tokens (JWT)
-  sanitized = sanitized.replace(/eyJhbGciOi[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+/g, '[REDACTED_BY_THE_PROFESSOR]');
-  sanitized = sanitized.replace(/eyJhbGciOi[a-zA-Z0-9-_]{20,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 4. OpenAI / Generic sk- API keys (e.g., sk-proj-...)
-  sanitized = sanitized.replace(/sk-[a-zA-Z0-9-_]{32,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-  sanitized = sanitized.replace(/sk-proj-[a-zA-Z0-9-_]{20,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 5. Stripe API keys (e.g., sk_live_...)
-  sanitized = sanitized.replace(/[sr]k_(?:live|test)_[a-zA-Z0-9]{24,}/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 6. Slack API tokens (e.g., xoxb-...)
-  sanitized = sanitized.replace(/xox[baprs]-[a-zA-Z0-9-]+/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 7. AWS credentials
-  sanitized = sanitized.replace(/AKIA[A-Z0-9]{16}/g, '[REDACTED_BY_THE_PROFESSOR]');
-
-  // 8. Database passwords in URI format
-  sanitized = sanitized.replace(/(mongodb(?:\+srv)?|postgres(?:ql)?|mysql):\/\/[^/\s:]+:([^/\s@]+)@/g, (match, protocol, pwd) => {
-    return match.replace(`:${pwd}@`, ':[REDACTED_BY_THE_PROFESSOR]@');
-  });
-
-  return sanitized;
-}
+/**
+ * Redact known secret formats and high-entropy strings.
+ *
+ * The rules moved to `./secret-masking` (#591). They were a wall of sequential
+ * `.replace()` calls whose ordering was accidental — the `sk-proj-` rule sat
+ * below the broader `sk-` rule and could never fire — and they were missing the
+ * shapes that matter most: PEM private keys, `DB_PASSWORD = "…"` assignments,
+ * non-URI connection strings, and the high-entropy check this comment used to
+ * promise without implementing.
+ *
+ * Re-exported here so the ~10 existing importers and their tests are unchanged.
+ */
+export { maskSecrets, maskFindingText } from './secret-masking';
+import { maskFindingText } from './secret-masking';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
@@ -309,75 +288,20 @@ export function sanitizeRecursively(input: string): string {
 /**
  * Turn a unified diff patch into the numbered snippet handed to the model.
  *
+ * The parsing itself now lives in `./diff`, which the webhook worker reads too.
+ * It used to live here, and the worker carried its own second implementation
+ * that had never received any of the fixes this one accumulated — so the line
+ * numbers the model was given and the line numbers a review comment could be
+ * anchored on drifted apart inside the same hunk (#589). One parser, one
+ * numbering, both callers.
+ *
  * Emits added and context lines with their line number in the *new* file.
  * Deleted lines are skipped: they no longer exist in the merged result, and the
  * scan prompt instructs the model to flag anything it sees, so surfacing them
  * would produce findings against code the PR removes.
- *
- * A `---`/`+++` file header only appears before the first `@@` hunk and always
- * carries a space before its path (`+++ b/src/app.ts`). Testing
- * `line.startsWith('+++')` against every line meant an added source line that
- * itself began with `++` (`++i;`, `++count`) was mistaken for a header: it was
- * dropped from the scan entirely, and because the line counter was not advanced
- * with it every following line in that hunk was reported one number too low.
  */
 export function extractAddedLines(patch: string): string {
-  if (!patch) return '';
-
-  const processedLines: string[] = [];
-  let newLine = 0; // Line number in the new file.
-  let inHunk = false;
-
-  // A trailing newline would otherwise yield a spurious empty final entry.
-  const body = patch.endsWith('\n') ? patch.slice(0, -1) : patch;
-
-  for (const line of body.split('\n')) {
-    // Extract the starting line number from the hunk header.
-    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      newLine = parseInt(hunk[1], 10);
-      inHunk = true;
-      continue;
-    }
-
-    // File headers and git metadata. Only recognised before the first hunk,
-    // and only in their real form — marker followed by whitespace — so that
-    // `+++i;` (an added `++i;`) is treated as content, which is the bug this
-    // guards against.
-    if (!inHunk && /^(?:---|\+\+\+)(?:\s|$)/.test(line)) continue;
-    if (!inHunk && /^(?:diff |index |old mode|new mode|similarity |rename |new file|deleted file)/.test(line)) {
-      continue;
-    }
-
-    // "\ No newline at end of file" is a note about the previous line.
-    if (line.startsWith('\\')) continue;
-
-    if (line.startsWith('+')) {
-      processedLines.push(`${newLine}: ${line.slice(1)}`);
-      newLine++;
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      // Removed from the new file, so it consumes no new-file line number.
-      continue;
-    }
-
-    if (line.startsWith(' ')) {
-      processedLines.push(`${newLine}: ${line.slice(1)}`);
-      newLine++;
-      continue;
-    }
-
-    if (line === '') {
-      // Some diff producers strip the marker from an empty context line.
-      // Treating it as "not a line" desynchronised everything after it.
-      processedLines.push(`${newLine}: `);
-      newLine++;
-    }
-  }
-
-  return processedLines.join('\n');
+  return renderNumberedLines(parseUnifiedPatch(patch));
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -418,12 +342,23 @@ export function filterFalsePositives(findings: ScanFinding[], customPlaceholders
     // 2. Filter out mock credentials in seed files
     if (lowerFile.includes('seed.ts')) {
       if (combinedPlaceholders.some(safeWord => lowerSnippet.includes(safeWord))) return false;
-      if (lowerSnippet.includes('console.error') || lowerSnippet.includes('console.log')) return false;
+      // A bare console.log/console.error in a seed file is noise, but
+      // `console.log(process.env...)` is the exact contextual leak the core
+      // rule says we MUST flag — never drop those, even in seed files.
+      if (
+        (lowerSnippet.includes('console.error') || lowerSnippet.includes('console.log')) &&
+        !lowerSnippet.includes('process.env')
+      ) {
+        return false;
+      }
     }
 
-    // 3. Filter out false logic flaws in Prisma schemas
+    // 3. Filter out false logic flaws in Prisma schemas.
+    // Match Prisma field types (`id Int`, `name String`) on word boundaries —
+    // a bare `includes('int'/'string')` also swallowed real findings whose
+    // snippet merely contained print, point, constraint, fingerprint, mint, ...
     if (lowerFile.includes('schema.prisma')) {
-      if (lowerSnippet.includes('int') || lowerSnippet.includes('string')) return false;
+      if (/\bint\b/.test(lowerSnippet) || /\bstring\b/.test(lowerSnippet)) return false;
     }
 
     return true;
@@ -654,10 +589,10 @@ CRITICAL RULES:
             model: process.env.GROQ_MODEL!,
             temperature: 0.1,
             max_tokens: 3000,
-          }, { timeout: SCAN_REQUEST_TIMEOUT_MS });
+          }, { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal });
 
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new ScannerTimeoutError('LLM scan timed out after 60 seconds')), 120000);
+            setTimeout(() => reject(new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`)), SCAN_REQUEST_TIMEOUT_MS);
           });
 
           const chatCompletion = await Promise.race([
@@ -718,7 +653,12 @@ CRITICAL RULES:
             }
 
             const fileLoc = String(f.fileLocation || 'Unknown file path');
-            const findingType = String(f.type || 'Vulnerability');
+            // Normalised on write, the way severity already is. The column was
+            // taking the model's phrasing verbatim, so `"hardcoded_secret"` and
+            // `"Secrets"` were distinct values that no dashboard query matched
+            // (#590). The taxonomy still recognises every legacy spelling on
+            // read, so old rows keep counting.
+            const findingType = normalizeFindingTypeLabel(f.type);
 
             const dynFp = computeDynamicFingerprint('default-repo', fileLoc, findingType, normalizedSnippet);
 
@@ -743,8 +683,11 @@ CRITICAL RULES:
 
           findings = filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
             ...f,
-            description: maskSecrets(f.description),
-            codeSnippet: maskSecrets(f.codeSnippet),
+            // Through the full pass, which adds the `scrubCredentials` rules
+            // the logger and the error handler already apply, so the same
+            // vocabulary covers a credential wherever it surfaces.
+            description: maskFindingText(f.description),
+            codeSnippet: maskFindingText(f.codeSnippet),
           }));
           success = true;
         } catch (error: unknown) {
@@ -759,7 +702,7 @@ CRITICAL RULES:
           }
 
           if (error instanceof ScannerTimeoutError || errObj?.name === 'AbortError') {
-            throw new ScannerTimeoutError('LLM scan timed out after 60 seconds');
+            throw new ScannerTimeoutError(`LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`);
           }
           if (errObj?.status === 429) {
             const headers = errObj.headers;

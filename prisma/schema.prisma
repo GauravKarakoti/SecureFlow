@@ -6,6 +6,45 @@ datasource db {
   provider = "postgresql"
 }
 
+enum FindingSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingType {
+  SECRET
+  VULNERABILITY
+  MISCONFIG
+}
+
+enum FindingTriageStatus {
+  OPEN
+  RESOLVED
+  FALSE_POSITIVE
+  IGNORED
+}
+
+enum PolicyDecision {
+  PASS
+  REVIEW
+  BLOCK
+}
+
+enum PRStatus {
+  PASS
+  REVIEW_REQUIRED
+  BLOCKED
+}
+
+enum PRState {
+  OPEN
+  CLOSED
+  MERGED
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -17,10 +56,10 @@ model User {
   accounts      Account[]
   sessions      Session[]
 
-  // Updated relation field
   repositories  Repository[]
-  policyToggles UserPolicyToggle[] // Replaced 'policies Policy[]'
+  policyToggles UserPolicyToggle[]
   roles         UserRole[]
+  auditLogs     AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -70,31 +109,30 @@ model VerificationToken {
 
 model Repository {
   id       String  @id @default(cuid())
-  githubId BigInt  @unique // Changed from Int
+  githubId BigInt  @unique
   fullName String
   owner    String
   isActive Boolean @default(true)
 
-  // Link to the User
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  pullRequests PullRequest[]
+  pullRequests  PullRequest[]
   webhookEvents WebhookEvent[]
   triages       FindingTriage[]
-  createdAt    DateTime      @default(now())
+  createdAt     DateTime        @default(now())
 
   @@index([userId])
 }
 
 model PolicyTemplate {
-  id          String  @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
   description String
-  severity    String  @default("HIGH")
-  action      String  @default("REVIEW REQUIRED")
-  rules       Json // Stores the conditions/glob patterns
-  isDefault   Boolean @default(false) // Whether it is toggled ON by default for new users
+  severity    FindingSeverity @default(HIGH)
+  action      String          @default("REVIEW REQUIRED")
+  rules       Json
+  isDefault   Boolean         @default(false)
 
   activeToggles UserPolicyToggle[]
   createdAt     DateTime           @default(now())
@@ -111,23 +149,23 @@ model UserPolicyToggle {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  // Ensure a user can only have one toggle record per template
   @@unique([userId, policyTemplateId])
   @@index([userId])
   @@index([policyTemplateId])
 }
 
 model PullRequest {
-  id              String       @id @default(cuid())
-  githubId        BigInt       @unique // Changed from Int
-  prNumber        Int // Int is fine here since PR numbers are sequential per repo
+  id              String   @id @default(cuid())
+  githubId        BigInt   @unique
+  prNumber        Int
   title           String
-  state           String // open, closed, merged
-  status          String // PASS, REVIEW_REQUIRED, BLOCKED
-  authorLogin     String?   // GitHub login of the PR author (from webhook)
-  authorAvatarUrl String?   // GitHub avatar URL (from webhook)
+  state           PRState  @default(OPEN)
+  status          PRStatus @default(REVIEW_REQUIRED)
+  authorLogin     String?
+  authorAvatarUrl String?
   repositoryId    String
-  repository      Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  
   scans           ScanResult[]
   webhookEvents   WebhookEvent[]
   createdAt       DateTime     @default(now())
@@ -137,54 +175,48 @@ model PullRequest {
 }
 
 model ScanResult {
-  id             String      @id @default(cuid())
+  id             String         @id @default(cuid())
   pullRequestId  String
-  pullRequest    PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  pullRequest    PullRequest    @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
   findings       Finding[]
   riskScore      Int
-  policyDecision String // PASS, REVIEW, BLOCK
-  createdAt      DateTime    @default(now())
+  policyDecision PolicyDecision @default(REVIEW)
+  createdAt      DateTime       @default(now())
 
   @@index([pullRequestId])
   @@index([pullRequestId, createdAt(sort: Desc)])
 }
 
 model Finding {
-  id           String     @id @default(cuid())
-  scanResultId String
-  scanResult   ScanResult @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
-  type         String // Secret, Vulnerability, Misconfig
-  severity     String // CRITICAL, HIGH, MEDIUM, LOW
-  fileLocation String
-  lineStart    Int?
-  lineEnd      Int?
-  codeSnippet  String?
-  explanation  String?
-  remediation  String?
-  promptInjectionSuspected Boolean @default(false)
-  // Stable content hash (repositoryId + fileLocation + type + codeSnippet)
-  // computed by the worker at write time. Triage keys off this so a dismissal
-  // survives the latest-wins re-scan that recreates Finding rows.
-  fingerprint  String     @default("")
-  createdAt    DateTime   @default(now())
+  id                       String          @id @default(cuid())
+  scanResultId             String
+  scanResult               ScanResult      @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
+  type                     FindingType
+  severity                 FindingSeverity
+  fileLocation             String
+  lineStart                Int?
+  lineEnd                  Int?
+  codeSnippet              String?
+  explanation              String?
+  remediation              String?
+  promptInjectionSuspected Boolean         @default(false)
+  fingerprint              String          @default("")
+  createdAt                DateTime        @default(now())
 
   @@index([scanResultId])
   @@index([fingerprint])
 }
 
-// Triage / lifecycle state for a finding, keyed by the stable fingerprint
-// rather than Finding.id so a dismiss/resolve/false-positive decision persists
-// across re-scans (which delete and recreate the Finding rows).
 model FindingTriage {
-  id           String     @id @default(cuid())
+  id           String              @id @default(cuid())
   repositoryId String
-  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repository   Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   fingerprint  String
-  status       String     @default("OPEN") // OPEN | RESOLVED | FALSE_POSITIVE | IGNORED
+  status       FindingTriageStatus @default(OPEN)
   note         String?
-  resolvedById String? // User.id of whoever set the current status
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  resolvedById String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
@@ -194,6 +226,7 @@ model FindingTriage {
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   action    String
   resource  String
   decision  String?
@@ -202,6 +235,7 @@ model AuditLog {
 
   @@index([userId])
   @@index([userId, timestamp(sort: Desc)])
+  @@index([timestamp(sort: Desc)])
 }
 
 model WebhookEvent {
@@ -217,10 +251,9 @@ model WebhookEvent {
   @@index([pullRequestId])
 }
 
-// --- RBAC & Access Control Models ---
 model Role {
   id          String           @id @default(cuid())
-  name        String           @unique // e.g., "ADMIN", "USER", "AUDITOR"
+  name        String           @unique
   description String?
   users       UserRole[]
   permissions RolePermission[]
@@ -230,7 +263,7 @@ model Role {
 
 model Permission {
   id          String           @id @default(cuid())
-  action      String           @unique // e.g., "read:audit", "delete:user"
+  action      String           @unique
   description String?
   roles       RolePermission[]
   createdAt   DateTime         @default(now())

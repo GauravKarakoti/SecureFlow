@@ -230,6 +230,30 @@ describe('filterFalsePositives', () => {
     const findings = [makeFinding({ fileLocation: 'src/api/route.ts', codeSnippet: 'console.log(process.env.API_KEY)' })];
     expect(filterFalsePositives(findings)).toHaveLength(1);
   });
+
+  it('retains console.log(process.env...) leaks even inside seed files', () => {
+    // The core rule says these MUST be flagged; the old bare console.log filter
+    // silently discarded this genuine secret leak.
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'console.log(process.env.DATABASE_PASSWORD)' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+
+  it('still drops plain console.log noise in seed files', () => {
+    const findings = [makeFinding({ fileLocation: 'prisma/seed.ts', codeSnippet: 'console.log("seeding users...")' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
+
+  it('retains schema.prisma findings whose snippet merely contains "int"/"string" as a substring', () => {
+    // "userFingerprint" contains the substring "int"; the old includes('int')
+    // check dropped this real finding. No standalone Int/String type token here.
+    const findings = [makeFinding({ fileLocation: 'prisma/schema.prisma', codeSnippet: 'userFingerprint @default("leaked-secret-abc123")', description: 'Hardcoded default value' })];
+    expect(filterFalsePositives(findings)).toHaveLength(1);
+  });
+
+  it('still drops real Prisma type-only findings on word boundaries', () => {
+    const findings = [makeFinding({ type: 'Vulnerability', fileLocation: 'prisma/schema.prisma', codeSnippet: 'id Int @id', description: 'Int type used' })];
+    expect(filterFalsePositives(findings)).toHaveLength(0);
+  });
 });
 
 // ─── Configurable ignores (.secureflowignore) ────────────────────────────────
@@ -268,7 +292,13 @@ another_placeholder
 
     const findings1 = await scannerInstance.scanPullRequest(files, []);
     expect(findings1).toHaveLength(1);
-    expect(findings1[0].codeSnippet).toBe('const secret = "MY_SPECIAL_MOCK_VALUE";');
+    // The finding survives the filter (no placeholder was configured), and the
+    // assigned value is redacted on the way out — a literal assigned to a
+    // variable named `secret` is exactly what must not reach a PR comment
+    // (#591). The variable name is kept: it is not the secret, and a reviewer
+    // needs it. Redaction happens after filterFalsePositives, so the placeholder
+    // matching below still sees the original text.
+    expect(findings1[0].codeSnippet).toBe('const secret = "[REDACTED_BY_THE_PROFESSOR]";');
 
     mockCreate.mockResolvedValueOnce({
       choices: [{ message: { content: JSON.stringify({ findings: [{ type: 'Hardcoded Secret', severity: 'HIGH', description: 'Hardcoded secret value found', fileLocation: 'seed.ts', codeSnippet: 'const secret = "MY_SPECIAL_MOCK_VALUE";' }] }) } }],
@@ -291,5 +321,18 @@ another_placeholder
     const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
     expect(promptContent).toContain('src/index.ts');
     expect(promptContent).not.toContain('src/app.test.ts');
+  });
+
+  it('passes an AbortSignal to the LLM call so the abort timer can cancel it (#582)', async () => {
+    const scannerInstance = new ArmorIQScanner();
+    const files = [{ filename: 'src/index.ts', patch: '+const x = 5;' }];
+
+    await scannerInstance.scanPullRequest(files, []);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const requestOptions = mockCreate.mock.calls[0][1];
+    // Without the signal wired in, controller.abort() was a no-op and the
+    // AbortError handler was unreachable dead code.
+    expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
   });
 });
