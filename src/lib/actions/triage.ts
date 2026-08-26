@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
@@ -73,6 +74,12 @@ export async function setFindingStatus(
       metadata: { repositoryId, fingerprint, status, hasNote: note !== null },
     }),
   });
+
+  // A triage decision can introduce an action or decision value this user's
+  // filter dropdowns have not seen. Dropping their cached list here is cheaper
+  // and more correct than shortening the TTL for everyone (#659) — the same
+  // reasoning as invalidateCachedActions() on the admin side.
+  invalidateCachedUserFilters(userId);
 
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");

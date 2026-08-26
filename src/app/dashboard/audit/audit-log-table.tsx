@@ -82,7 +82,7 @@ export default function AuditLogTable({
   const exportLogs = async () => {
     setIsExporting(true);
     try {
-      const exportRows = await getUserAuditLogsForExport({
+      const result = await getUserAuditLogsForExport({
         action: actionFilter === ALL ? undefined : actionFilter,
         decision: decisionFilter === ALL ? undefined : decisionFilter,
         search: search.trim() ? search.trim() : undefined,
@@ -92,9 +92,15 @@ export default function AuditLogTable({
         endDate: dateTo ? new Date(`${dateTo}T23:59:59.999`) : undefined,
       });
 
-      if (!exportRows.length) return;
+      if (!result.rows.length) {
+        toast({
+          title: "Nothing to export",
+          description: "No entries match the current filters.",
+        });
+        return;
+      }
 
-      const rows = exportRows.map((log) => ({
+      const rows = result.rows.map((log) => ({
         action: log.action,
         user: displayUser(log),
         resource: log.resource,
@@ -103,6 +109,22 @@ export default function AuditLogTable({
       }));
       const dateStamp = new Date().toISOString().slice(0, 10);
       downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
+
+      // The export is capped, and a capped file that looks complete is the
+      // worst outcome for an audit trail — this is the artefact someone hands
+      // to a reviewer. Say so, and say what to do about it (#659).
+      if (result.truncated) {
+        toast({
+          variant: "destructive",
+          title: "Export is incomplete",
+          description: `Exported the newest ${result.rows.length.toLocaleString()} of ${result.total.toLocaleString()} matching entries. Narrow the date range or filters to export the rest.`,
+        });
+      } else {
+        toast({
+          title: "Export complete",
+          description: `Exported ${result.rows.length.toLocaleString()} entries.`,
+        });
+      }
     } finally {
       setIsExporting(false);
     }
