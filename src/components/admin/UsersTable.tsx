@@ -35,9 +35,16 @@ type OptimisticUserAction =
 export default function UsersTable({
   users,
   currentUserId,
+  totalUsers,
 }: {
   users: AdminUserRow[];
   currentUserId?: string;
+  /**
+   * Total users in the database. When it exceeds `users.length` the server
+   * stopped at its fetch-all ceiling, and the table says so rather than
+   * presenting a prefix as the whole set (#645).
+   */
+  totalUsers?: number;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -76,6 +83,8 @@ export default function UsersTable({
       return matchesSearch && matchesRole;
     });
   }, [optimisticUsers, search, roleFilter]);
+
+  const truncated = typeof totalUsers === "number" && totalUsers > users.length;
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const safePage = Math.min(page, totalPages);
@@ -134,6 +143,15 @@ export default function UsersTable({
 
   return (
     <div className="w-full bg-card border border-border rounded-xl overflow-hidden">
+      {truncated && (
+        <div className="px-4 py-3 border-b border-border bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>
+            Showing {users.length} of {totalUsers} users. Narrow the search to reach the rest.
+          </span>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="p-4 border-b border-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">

@@ -1,8 +1,9 @@
 import NextAuth from 'next-auth';
 import authConfig from './auth.config';
 import { NextRequest, NextResponse } from 'next/server';
-import { ratelimit } from '@/lib/rate-limit';
+import { getApiRateLimiter } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { classifyApiPath, rateLimitHeaders } from '@/lib/api-rate-limit-policy';
 import { applySecurityHeaders, securityHeaderOptionsFromEnv } from '@/lib/security-headers';
 
 const { auth } = NextAuth(authConfig);
@@ -33,26 +34,42 @@ export default auth(async function middleware(
   }
 ) {
   const token = request.auth;
-  
-  // 1. Blanket DoS Protection: Rate limit ALL /api routes
-  if (request.nextUrl.pathname.startsWith('/api') && ratelimit) {
-    // Derived from the trusted portion of X-Forwarded-For — see getClientIp and
-    // the TRUSTED_PROXY_HOP_COUNT setting. Reading a client-supplied header here
-    // would let a caller mint a fresh bucket on every request.
-    const ip = getClientIp(request.headers);
-    const { success } = await ratelimit.limit(ip);
-    
-    if (!success) {
-      return secured(new NextResponse(
-        JSON.stringify({ error: 'Too Many Requests', message: 'Rate limit exceeded' }), 
-        { 
-          status: 429,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      ));
+
+  // 1. DoS protection on /api, by class rather than one global bucket (#644).
+  //
+  // `classifyApiPath` decides which budget applies. `/api/webhooks/github` and
+  // the health probes are exempt: they carry their own authentication and their
+  // own controls, and putting GitHub's delivery IPs in a shared 20/min bucket
+  // meant a busy minute silently lost scans to a 429 GitHub never retries.
+  const rateLimitClass = classifyApiPath(request.nextUrl.pathname);
+
+  if (rateLimitClass !== 'exempt') {
+    const limiter = getApiRateLimiter(rateLimitClass);
+
+    if (limiter) {
+      // Derived from the trusted portion of X-Forwarded-For — see getClientIp
+      // and the TRUSTED_PROXY_HOP_COUNT setting. Reading a client-supplied
+      // header here would let a caller mint a fresh bucket on every request.
+      const ip = getClientIp(request.headers);
+      const decision = await limiter.limit(ip);
+
+      if (!decision.success) {
+        return secured(
+          NextResponse.json(
+            { error: 'Too Many Requests', message: 'Rate limit exceeded' },
+            {
+              status: 429,
+              // The route-level `withRateLimit` has always emitted these; the
+              // middleware emitted none of them, so the two paths disagreed
+              // about whether a caller could learn when to retry.
+              headers: rateLimitHeaders(decision),
+            }
+          )
+        );
+      }
     }
   }
-  
+
   // 2. RBAC Admin Route Guarding (/admin/* and /api/admin/*)
   const isAdminWebRoute = request.nextUrl.pathname.startsWith('/admin');
   const isAdminApiRoute = request.nextUrl.pathname.startsWith('/api/admin');

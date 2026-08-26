@@ -5,33 +5,12 @@ import Image from 'next/image';
 import { LoginButton } from '@/components/ui/login-button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import InteractiveDemo from '@/components/landing/InteractiveDemo';
-import prisma from '@/lib/prisma';
+import { getLandingStats } from '@/lib/metrics/landing-stats';
 
 export const dynamic = 'force-dynamic';
 export default async function LandingPage() {
-  let prsCount = 45208;
-  let secretsCount = 1842;
-  let reposCount = 948;
-
-  try {
-    const [dbPrs, dbSecrets, dbRepos] = await Promise.all([
-      prisma.pullRequest.count(),
-      prisma.finding.count({
-        where: {
-          type: {
-            in: ['Secret', 'Hardcoded Secret', 'Data Leak', 'Contextual Leak']
-          }
-        }
-      }),
-      prisma.repository.count()
-    ]);
-
-    prsCount = dbPrs;
-    secretsCount = dbSecrets;
-    reposCount = dbRepos;
-  } catch (error) {
-    console.error("Failed to fetch landing page stats from database:", error);
-  }
+  const stats = await getLandingStats();
+  const { prsCount, secretsCount, reposCount, scanAverage } = stats;
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -113,6 +92,7 @@ export default async function LandingPage() {
             prsCount={prsCount}
             secretsCount={secretsCount}
             reposCount={reposCount}
+            scanAverage={scanAverage}
           />
         </div>
 
