@@ -1,12 +1,33 @@
 import prisma from "@/lib/prisma";
 import { App } from "octokit";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import {
+  REPO_SYNC_CONCURRENCY,
+  auditRepositorySample,
+  chunk,
+  normalizeRepos,
+  partitionByOwnership,
+  syncAuditResource,
+  type NormalizedRepo,
+} from "./repo-ownership";
 
 export interface SyncUserReposResult {
   synced: number;
   hasInstallation: boolean;
   installationId?: number;
   error?: string;
+  /**
+   * Repositories the installation exposes that already belong to another
+   * SecureFlow user, and were therefore left alone (#657).
+   *
+   * Optional so existing callers that only read `synced` / `hasInstallation`
+   * are unaffected.
+   */
+  skipped?: number;
+  /** Their full names, bounded, so the UI can name a few of them. */
+  skippedRepositories?: string[];
+  /** Repositories whose write failed. The sync no longer aborts on the first one. */
+  failed?: number;
 }
 
 /**
@@ -14,6 +35,10 @@ export interface SyncUserReposResult {
  * 1. Post-install webhook/setup flow
  * 2. New login without GitHub App installation (detects status)
  * 3. Pre-existing GitHub App installation discovered on manual login (#634)
+ *
+ * Ownership is claim-once (#657): a `Repository` row that already belongs to a
+ * different user is reported and skipped rather than reassigned. See
+ * `./repo-ownership` for why.
  */
 export async function syncUserRepositories(
   userId: string,
@@ -48,15 +73,9 @@ export async function syncUserRepositories(
   if (!login) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { githubLogin: true, accounts: true },
+      select: { githubLogin: true },
     });
     login = user?.githubLogin || null;
-    if (!login && user?.accounts) {
-      const githubAccount = user.accounts.find((a) => a.provider === "github");
-      if (githubAccount?.providerAccountId) {
-        // Provider account ID available
-      }
-    }
   }
 
   const appId = process.env.GITHUB_APP_ID?.trim();
@@ -139,37 +158,96 @@ export async function syncUserRepositories(
       };
     }
 
-    const repoPromises = repositories.map((repo: any) =>
-      prisma.repository.upsert({
-        where: { githubId: BigInt(repo.id) },
-        update: {
-          isActive: true,
-          userId: userId,
-          fullName: repo.full_name,
-          owner: repo.owner?.login || repo.full_name.split("/")[0],
-        },
-        create: {
-          githubId: BigInt(repo.id),
-          fullName: repo.full_name,
-          owner: repo.owner?.login || repo.full_name.split("/")[0],
-          userId: userId,
-          isActive: true,
-        },
-      })
-    );
+    const { usable, malformed } = normalizeRepos(repositories as any[]);
 
-    await Promise.all(repoPromises);
+    if (malformed > 0) {
+      // Previously `BigInt(repo.id)` on a malformed entry threw inside a
+      // Promise.all and took the whole batch with it.
+      console.warn(`[RepoSync] Skipped ${malformed} repositories with an unusable id or name`);
+    }
+
+    if (usable.length === 0) {
+      return { synced: 0, hasInstallation: true, installationId };
+    }
+
+    // Which of these already exist, and whose they are. This is the read that
+    // makes the claim decision; the upsert below is written so that losing a
+    // race against a concurrent sync still cannot move a row.
+    const existing = await prisma.repository.findMany({
+      where: { githubId: { in: usable.map((r) => r.githubId) } },
+      select: { githubId: true, userId: true },
+    });
+
+    const { claimable, foreign } = partitionByOwnership(usable, existing, userId);
+
+    if (foreign.length > 0) {
+      console.warn(
+        `[RepoSync] ${foreign.length} repositories are already tracked by another user and were not claimed`
+      );
+    }
+
+    const written: NormalizedRepo[] = [];
+    const failures: NormalizedRepo[] = [];
+
+    // Bounded concurrency instead of one Promise.all over every repository, and
+    // each write settled independently so one failure no longer aborts the rest
+    // and leaves no record of how far it got.
+    for (const batch of chunk(claimable, REPO_SYNC_CONCURRENCY)) {
+      const settled = await Promise.allSettled(
+        batch.map((repo) =>
+          prisma.repository.upsert({
+            where: { githubId: repo.githubId },
+            update: {
+              // `userId` is deliberately absent. Refreshing the name and the
+              // active flag is legitimate — those track GitHub — but writing
+              // the owner here is what handed an existing row to whoever
+              // synced last (#657). Omitting it means even a row that changed
+              // hands between the findMany above and this statement stays with
+              // its current owner.
+              isActive: true,
+              fullName: repo.fullName,
+              owner: repo.owner,
+            },
+            create: {
+              githubId: repo.githubId,
+              fullName: repo.fullName,
+              owner: repo.owner,
+              userId: userId,
+              isActive: true,
+            },
+          })
+        )
+      );
+
+      settled.forEach((outcome, index) => {
+        if (outcome.status === "fulfilled") {
+          written.push(batch[index]);
+        } else {
+          failures.push(batch[index]);
+          console.error(
+            `[RepoSync] Failed to sync ${batch[index].fullName}:`,
+            (outcome.reason as Error)?.message
+          );
+        }
+      });
+    }
 
     try {
       await prisma.auditLog.create({
         data: sanitizeAuditLogInput({
           userId: userId,
           action: "REPOSITORY_SYNC",
-          resource: repositories.map((r: any) => r.full_name).join(", "),
+          // Bounded. This used to be every repository's full name joined with
+          // commas into a single String column.
+          resource: syncAuditResource(written.length, installationId),
           metadata: {
-            count: repositories.length,
+            count: written.length,
+            skipped: foreign.length,
+            failed: failures.length,
+            malformed,
             installationId,
             source: "github_app_sync",
+            repositories: auditRepositorySample(written),
           },
         }),
       });
@@ -178,9 +256,12 @@ export async function syncUserRepositories(
     }
 
     return {
-      synced: repositories.length,
+      synced: written.length,
       hasInstallation: true,
       installationId,
+      skipped: foreign.length,
+      skippedRepositories: auditRepositorySample(foreign),
+      failed: failures.length,
     };
   } catch (err: any) {
     console.error("[RepoSync] Error populating repositories from installation:", err);

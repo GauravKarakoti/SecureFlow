@@ -37,10 +37,31 @@ export default function DashboardClient({
     setSyncStatus(null);
     try {
       const res = await triggerRepositorySync();
+      // Repositories the installation exposes but another SecureFlow user
+      // already owns are now skipped rather than taken from them (#657), so
+      // the count needs saying out loud — otherwise a repository the user can
+      // see on GitHub is simply missing here with no explanation.
+      const skippedNote =
+        res.skipped && res.skipped > 0
+          ? ` ${res.skipped} already tracked by another user${
+              res.skippedRepositories?.length
+                ? ` (${res.skippedRepositories.slice(0, 3).join(", ")}${
+                    res.skippedRepositories.length > 3 ? ", …" : ""
+                  })`
+                : ""
+            }.`
+          : "";
+      const failedNote =
+        res.failed && res.failed > 0 ? ` ${res.failed} could not be saved.` : "";
+
       if (res.synced > 0) {
-        setSyncStatus(`Successfully synchronized ${res.synced} repositories.`);
+        setSyncStatus(
+          `Successfully synchronized ${res.synced} repositories.${skippedNote}${failedNote}`
+        );
       } else if (!res.hasInstallation) {
         setSyncStatus("No GitHub App installation found. Please install the GitHub App first.");
+      } else if (skippedNote || failedNote) {
+        setSyncStatus(`No new repositories.${skippedNote}${failedNote}`);
       } else {
         setSyncStatus("Repositories are up to date.");
       }
