@@ -20,6 +20,18 @@ import {
   readCachedActions,
   writeCachedActions,
 } from "@/lib/admin/audit-filter-cache";
+import {
+  ADMIN_ROLE,
+  DELETE_LAST_ADMIN_MESSAGE,
+  DEMOTE_LAST_ADMIN_MESSAGE,
+  assertAdminsRemain,
+  hasAdminRole,
+  isNoOpRoleChange,
+  isSelfDemotion,
+  isUniqueConstraintError,
+  removesAdminRole,
+  type RoleName as AdminRoleName,
+} from "@/lib/admin/role-guard";
 
 const log = createLogger({ context: { component: "admin-actions" } });
 
@@ -199,18 +211,54 @@ export async function getUserManagementMetrics(): Promise<UserManagementMetrics>
   return { total, admins, standard, last24h };
 }
 
-export type RoleName = "ADMIN" | "USER";
+export type RoleName = AdminRoleName;
+
+/** The `where` clause that counts administrators. Written once, used four times. */
+const ADMIN_COUNT_WHERE = {
+  roles: { some: { role: { name: ADMIN_ROLE } } },
+} as const;
+
+/**
+ * Find or create a role by name, inside a transaction.
+ *
+ * `upsert` on `Role.name` is not atomic against a concurrent insert, so two
+ * simultaneous promotions to a role that does not exist yet could surface a raw
+ * P2002 unique-constraint error to the operator. On that specific error the row
+ * the other transaction created is read instead.
+ */
+async function resolveRole(tx: any, name: RoleName) {
+  try {
+    return await tx.role.upsert({
+      where: { name },
+      update: {},
+      create: { name, description: `${name} access` },
+    });
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+
+    const existing = await tx.role.findUnique({ where: { name } });
+    if (!existing) throw err;
+    return existing;
+  }
+}
 
 /**
  * Replaces a user's role set with a single new role.
  * Safety: cannot remove own ADMIN role; cannot demote the last ADMIN.
  * Every change is recorded in the AuditLog.
+ *
+ * The last-admin guard used to be a `count()` outside the transaction that then
+ * performed the write, so two concurrent demotions could both pass it and leave
+ * zero administrators (#658). The count is now taken inside the transaction and
+ * *after* the write, so a violation rolls the write back. The pre-write check
+ * below is kept only so the common case fails fast with the same message,
+ * without doing the work first.
  */
 export async function updateUserRole(userId: string, newRole: RoleName) {
   const session = await requireAdmin();
   const actorId = session.user.id;
 
-  if (userId === actorId && newRole !== "ADMIN") {
+  if (isSelfDemotion(actorId, userId, newRole)) {
     throw new Error("You cannot remove your own admin role.");
   }
 
@@ -223,45 +271,48 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
     throw new Error("User not found.");
   }
 
-  const oldRoles = target.roles.map((r: any) => r.role.name);
+  const oldRoles: string[] = target.roles.map((r: any) => r.role.name);
 
-  if (oldRoles.length === 1 && oldRoles[0] === newRole) {
+  if (isNoOpRoleChange(oldRoles, newRole)) {
     return { success: true, unchanged: true };
   }
 
-  if (newRole !== "ADMIN" && oldRoles.includes("ADMIN")) {
-    const adminCount = await prisma.user.count({
-      where: { roles: { some: { role: { name: "ADMIN" } } } },
-    });
-    if (adminCount <= 1) {
-      throw new Error("Cannot demote the last remaining administrator.");
-    }
+  // Fast path only. The authoritative check is inside the transaction below.
+  if (removesAdminRole(oldRoles, newRole)) {
+    const adminCount = await prisma.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(adminCount - 1, DEMOTE_LAST_ADMIN_MESSAGE);
   }
 
-  const role = await prisma.role.upsert({
-    where: { name: newRole },
-    update: {},
-    create: { name: newRole, description: `${newRole} access` },
-  });
+  await prisma.$transaction(async (tx: any) => {
+    const role = await resolveRole(tx, newRole);
 
-  await prisma.$transaction([
-    prisma.userRole.deleteMany({ where: { userId } }),
-    prisma.userRole.create({ data: { userId, roleId: role.id } }),
-  ]);
+    await tx.userRole.deleteMany({ where: { userId } });
+    await tx.userRole.create({ data: { userId, roleId: role.id } });
 
-  await prisma.auditLog.create({
-    data: sanitizeAuditLogInput({
-      userId: actorId,
-      action: "ADMIN_ROLE_UPDATE",
-      resource: `user:${userId}`,
-      decision: newRole,
-      metadata: {
-        targetEmail: target.email,
-        targetCodename: target.codename,
-        oldRoles,
-        newRole,
-      },
-    }),
+    // The invariant, asserted against the state this transaction has actually
+    // produced. A concurrent demotion that also passed its own pre-check is
+    // caught here, and throwing rolls this one back.
+    const remainingAdmins = await tx.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(remainingAdmins, DEMOTE_LAST_ADMIN_MESSAGE);
+
+    // Folded into the same transaction so a role change is either fully
+    // recorded or fully absent — previously the audit write was a separate
+    // statement afterwards and could fail on its own, leaving a change nobody
+    // could attribute.
+    await tx.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action: "ADMIN_ROLE_UPDATE",
+        resource: `user:${userId}`,
+        decision: newRole,
+        metadata: {
+          targetEmail: target.email,
+          targetCodename: target.codename,
+          oldRoles,
+          newRole,
+        },
+      }),
+    });
   });
 
   // Both admin write paths append to AuditLog, and either can introduce an
@@ -279,6 +330,13 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
 /**
  * Permanently deletes a user (cascades to repositories, PRs, scans, etc.).
  * Safety: cannot delete self; cannot delete the last ADMIN.
+ *
+ * Same treatment as `updateUserRole`: the last-admin count is taken inside the
+ * transaction after the delete, and the audit entry is written in the same
+ * transaction. Previously the delete was a bare statement followed by a
+ * separate `auditLog.create`, so an audit failure left the user gone with no
+ * record of who removed them — and `target` held the only remaining copy of
+ * their email and codename, since `AuditLog.userId` is `onDelete: SetNull`.
  */
 export async function deleteUser(userId: string) {
   const session = await requireAdmin();
@@ -297,28 +355,33 @@ export async function deleteUser(userId: string) {
     throw new Error("User not found.");
   }
 
-  if (target.roles.some((r: any) => r.role.name === "ADMIN")) {
-    const adminCount = await prisma.user.count({
-      where: { roles: { some: { role: { name: "ADMIN" } } } },
-    });
-    if (adminCount <= 1) {
-      throw new Error("Cannot delete the last remaining administrator.");
-    }
+  const targetRoles: string[] = target.roles.map((r: any) => r.role.name);
+
+  // Fast path only; the authoritative check is inside the transaction.
+  if (hasAdminRole(targetRoles)) {
+    const adminCount = await prisma.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(adminCount - 1, DELETE_LAST_ADMIN_MESSAGE);
   }
 
-  await prisma.user.delete({ where: { id: userId } });
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.delete({ where: { id: userId } });
 
-  await prisma.auditLog.create({
-    data: sanitizeAuditLogInput({
-      userId: actorId,
-      action: "ADMIN_USER_DELETE",
-      resource: `user:${userId}`,
-      decision: "DELETED",
-      metadata: {
-        targetEmail: target.email,
-        targetCodename: target.codename,
-      },
-    }),
+    const remainingAdmins = await tx.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(remainingAdmins, DELETE_LAST_ADMIN_MESSAGE);
+
+    await tx.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action: "ADMIN_USER_DELETE",
+        resource: `user:${userId}`,
+        decision: "DELETED",
+        metadata: {
+          targetEmail: target.email,
+          targetCodename: target.codename,
+          targetRoles,
+        },
+      }),
+    });
   });
 
   invalidateCachedActions();
