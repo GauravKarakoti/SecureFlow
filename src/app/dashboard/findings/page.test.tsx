@@ -4,37 +4,28 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import React from "react";
-import FindingsPage from "./page";
-import prisma from "@/lib/prisma";
+  import FindingsPage from "./page";
 import * as authModule from "@/auth";
-import * as triageQueries from "@/lib/triage/queries";
+import * as findingsActions from "@/lib/actions/findings";
 
 vi.mock("@/auth", () => ({
   auth: vi.fn(),
 }));
 
-vi.mock("@/lib/triage/queries", () => ({
-  getUserTriage: vi.fn(),
-  triageKey: (repoId: string, fp: string) => `${repoId}:${fp}`,
-}));
-
-vi.mock("@/lib/prisma", () => ({
-  default: {
-    finding: {
-      count: vi.fn(),
-      findMany: vi.fn(),
-    },
-  },
+// Mock the new server actions instead of Prisma
+vi.mock("@/lib/actions/findings", () => ({
+  getUserFindings: vi.fn(),
+  getUserFindingFilters: vi.fn(),
 }));
 
 vi.mock("./findings-client", () => ({
-  default: ({ findings, stats }: { findings: any[]; stats: any }) => (
+  default: ({ findings, stats, total }: { findings: any[]; stats: any; total: number }) => (
     <div data-testid="findings-client">
       <div data-testid="critical-count">{stats.criticalSecrets}</div>
       <div data-testid="vuln-count">{stats.vulnerabilities}</div>
       <div data-testid="misconfig-count">{stats.misconfigs}</div>
       <div data-testid="other-count">{stats.other}</div>
+      <div data-testid="total-count">{total}</div>
       <div data-testid="findings-list">
         {findings.map((f) => (
           <div key={f.id} data-testid="finding-item">
@@ -56,50 +47,31 @@ describe("Findings Page Server Component (#633)", () => {
       user: { id: "user-123" },
     } as any);
 
-    vi.mocked(triageQueries.getUserTriage).mockResolvedValue({
-      suppressedFingerprints: [],
-      byKey: new Map(),
-    });
-
-    vi.mocked(prisma.finding.count)
-      .mockResolvedValueOnce(3) // critical secrets
-      .mockResolvedValueOnce(7) // vulnerabilities
-      .mockResolvedValueOnce(2); // misconfigs
-
-    vi.mocked(prisma.finding.findMany).mockResolvedValue([
-      {
-        id: "finding-1",
-        type: "SECRET",
-        severity: "CRITICAL",
-        fileLocation: "src/auth.ts",
-        fingerprint: "fp-1",
-        scanResult: {
-          id: "scan-1",
-          pullRequest: {
-            id: "pr-1",
-            repositoryId: "repo-1",
-            githubId: BigInt(556677),
-          },
+    vi.mocked(findingsActions.getUserFindingFilters).mockResolvedValue({} as any);
+    vi.mocked(findingsActions.getUserFindings).mockResolvedValue({
+      findings: [
+        {
+          id: "finding-1",
+          type: "SECRET",
+          severity: "CRITICAL",
+          fileLocation: "src/auth.ts",
         },
-      },
-      {
-        id: "finding-2",
-        type: "VULNERABILITY",
-        severity: "HIGH",
-        fileLocation: "src/api/users.ts",
-        fingerprint: "fp-2",
-        scanResult: {
-          id: "scan-1",
-          pullRequest: {
-            id: "pr-1",
-            repositoryId: "repo-1",
-            githubId: BigInt(556677),
-          },
+        {
+          id: "finding-2",
+          type: "VULNERABILITY",
+          severity: "HIGH",
+          fileLocation: "src/api/users.ts",
         },
-      },
-    ] as any);
+      ],
+      stats: { criticalSecrets: 3, vulnerabilities: 7, misconfigs: 2, other: 0 },
+      total: 2,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    } as any);
 
-    const pageElement = await FindingsPage();
+    // Pass the required searchParams Promise to the server component
+    const pageElement = await FindingsPage({ searchParams: Promise.resolve({}) });
     render(pageElement);
 
     expect(screen.getByTestId("critical-count").textContent).toBe("3");

@@ -62,7 +62,7 @@ describe("Repository Synchronization Engine (#634)", () => {
         },
       };
 
-      vi.mocked(App).mockImplementation(() => mockAppInstance as any);
+      vi.mocked(App).mockImplementation(function () { return mockAppInstance as any; } as any);
       vi.mocked(prisma.user.findUnique).mockResolvedValue({
         githubLogin: "alice_developer",
       } as any);
@@ -106,7 +106,7 @@ describe("Repository Synchronization Engine (#634)", () => {
         getInstallationOctokit: vi.fn().mockResolvedValue(mockInstallationOctokit),
       };
 
-      vi.mocked(App).mockImplementation(() => mockAppInstance as any);
+      vi.mocked(App).mockImplementation(function () { return mockAppInstance as any; } as any);
       vi.mocked(prisma.repository.upsert).mockResolvedValue({} as any);
       vi.mocked(prisma.auditLog.create).mockResolvedValue({} as any);
 
@@ -143,7 +143,7 @@ describe("Repository Synchronization Engine (#634)", () => {
         getInstallationOctokit: vi.fn().mockRejectedValue(new Error("GitHub API secondary rate limit")),
       };
 
-      vi.mocked(App).mockImplementation(() => mockAppInstance as any);
+      vi.mocked(App).mockImplementation(function () { return mockAppInstance as any; } as any);
 
       const result = await syncUserRepositories("user-alice", "alice_developer");
 
