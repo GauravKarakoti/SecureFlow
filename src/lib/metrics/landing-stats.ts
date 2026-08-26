@@ -31,7 +31,7 @@ export const BASELINE_FALLBACK_METRICS: LandingStats = {
 export async function getLandingStats(): Promise<LandingStats> {
   try {
     const [dbPrs, dbSecrets, dbRepos, dbScans] = await Promise.all([
-      prisma.pullRequest.count().catch((err) => {
+      prisma.pullRequest.count().catch((err: any) => {
         console.error("[LandingStats] Failed to count PRs:", err);
         return null;
       }),
@@ -41,7 +41,7 @@ export async function getLandingStats(): Promise<LandingStats> {
             type: "SECRET",
           },
         })
-        .catch((err) => {
+        .catch((err: any) => {
           console.error("[LandingStats] Failed to count Secrets:", err);
           return null;
         }),
@@ -51,11 +51,11 @@ export async function getLandingStats(): Promise<LandingStats> {
             isActive: true,
           },
         })
-        .catch((err) => {
+        .catch((err: any) => {
           console.error("[LandingStats] Failed to count Repositories:", err);
           return null;
         }),
-      prisma.scanResult.count().catch((err) => {
+      prisma.scanResult.count().catch((err: any) => {
         console.error("[LandingStats] Failed to count ScanResults:", err);
         return null;
       }),
