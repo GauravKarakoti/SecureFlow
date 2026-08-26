@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { getUsers, getUserManagementMetrics } from "@/lib/actions/admin";
+import { getAllUsers, getUserManagementMetrics } from "@/lib/actions/admin";
 import UsersTable from "@/components/admin/UsersTable";
 import MetricsCard from "@/components/admin/MetricsCard";
 import { Users } from "lucide-react";
@@ -14,8 +14,8 @@ export default async function AdminUsersPage() {
   const session = await auth();
   const currentUserId = session?.user?.id;
 
-  const [users, metrics] = await Promise.all([
-    getUsers(),
+  const [{ users, total }, metrics] = await Promise.all([
+    getAllUsers(),
     getUserManagementMetrics(),
   ]);
 
@@ -41,7 +41,7 @@ export default async function AdminUsersPage() {
         <MetricsCard title="New (24h)" value={metrics.last24h} />
       </div>
 
-      <UsersTable users={users} currentUserId={currentUserId} />
+      <UsersTable users={users} currentUserId={currentUserId} totalUsers={total} />
     </div>
   );
 }
