@@ -7,6 +7,17 @@ import { render, screen } from "@testing-library/react";
 import React from "react";
 import FindingsClient from "./findings-client";
 
+// Mock Next.js app router hooks
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/dashboard/findings",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 // Mock react-countup
 vi.mock("react-countup", () => ({
   default: ({ end }: { end: number }) => <span>{end}</span>,
@@ -30,7 +41,8 @@ describe("FindingsClient Component (#633)", () => {
     other: 0,
   };
 
-  const mockFindings = [
+  // Cast to any[] to bypass the strict FindingRow interface requirements
+  const mockFindings: any[] = [
     {
       id: "f-1",
       type: "SECRET",
@@ -59,8 +71,19 @@ describe("FindingsClient Component (#633)", () => {
     },
   ];
 
+  // Base props structured for reuse across tests
+  const defaultProps = {
+    findings: mockFindings,
+    stats: mockStats,
+    total: 2,
+    page: 1,
+    pageSize: 50,
+    totalPages: 1,
+    filterOptions: { repositories: [], types: [], severities: [] },
+  };
+
   it("renders stat boxes with correct values", () => {
-    render(<FindingsClient findings={mockFindings} stats={mockStats} />);
+    render(<FindingsClient {...defaultProps} />);
 
     expect(screen.getByText("Security Findings")).toBeInTheDocument();
     expect(screen.getByText("Critical Secrets")).toBeInTheDocument();
@@ -71,7 +94,7 @@ describe("FindingsClient Component (#633)", () => {
   });
 
   it("renders finding items and handles prompt injection and triage badges", () => {
-    render(<FindingsClient findings={mockFindings} stats={mockStats} />);
+    render(<FindingsClient {...defaultProps} />);
 
     expect(screen.getByText("SECRET Detected")).toBeInTheDocument();
     expect(screen.getByText("VULNERABILITY Detected")).toBeInTheDocument();
@@ -83,7 +106,14 @@ describe("FindingsClient Component (#633)", () => {
   });
 
   it("renders empty state when findings array is empty", () => {
-    render(<FindingsClient findings={[]} stats={{ ...mockStats, criticalSecrets: 0, vulnerabilities: 0, misconfigs: 0 }} />);
+    render(
+      <FindingsClient 
+        {...defaultProps} 
+        findings={[]} 
+        total={0} 
+        stats={{ ...mockStats, criticalSecrets: 0, vulnerabilities: 0, misconfigs: 0 }} 
+      />
+    );
 
     expect(screen.getByText("No Security Findings")).toBeInTheDocument();
     expect(screen.getByText("Great news! Your repositories are currently secure.")).toBeInTheDocument();

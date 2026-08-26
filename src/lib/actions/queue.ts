@@ -1,8 +1,169 @@
 "use server";
 
+import prisma from '@/lib/prisma';
 import { webhookQueue, webhookDLQ, addWebhookJob } from '@/lib/queue/webhookQueue';
 import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
+import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
+import {
+  AUDIT_SAMPLE_SIZE,
+  DLQ_READ_LIMIT,
+  auditSample,
+  describeBulkOutcome,
+  describeDlqJob,
+  extractWebhookPayload,
+  requeueOptionsFor,
+  summarizeDlqResults,
+  type BulkDlqResult,
+  type DlqJobLike,
+  type DlqJobResult,
+} from '@/lib/queue/dlq';
+
+/**
+ * Admin gate for every action in this file.
+ *
+ * The role check used to be copy-pasted at the top of all eleven exports, which
+ * is eleven chances for the twelfth to be added without one. `requireAdmin()`
+ * mirrors the helper `src/lib/actions/admin.ts` already uses and returns the
+ * session, since the audit writes below need the actor id.
+ *
+ * Not exported: this module is `"use server"`, so anything exported from it
+ * becomes a callable server action.
+ */
+async function requireAdmin() {
+  const session = await auth();
+  const roles = (session?.user as any)?.roles || [];
+
+  if (!roles.includes("ADMIN")) {
+    throw new Error("Unauthorized");
+  }
+
+  return session as any;
+}
+
+/** Whether the app is running against the mock database rather than Redis. */
+function isMockMode(): boolean {
+  return process.env.NEXT_PUBLIC_MOCK_DB === 'true';
+}
+
+/**
+ * Record a DLQ operation in the audit log.
+ *
+ * Clearing the dead-letter queue discards the record of every webhook delivery
+ * that failed to scan, and requeueing replays them. Both are more consequential
+ * than the role changes and triage decisions that already write an `AuditLog`
+ * row, and neither wrote anything at all.
+ *
+ * Deliberately non-fatal: an audit write that fails must not turn a completed
+ * queue operation into an error the operator will retry, which would be the
+ * more damaging outcome. It is logged instead.
+ */
+async function recordDlqAudit(
+  actorId: string | null,
+  action: string,
+  result: BulkDlqResult,
+  extra: Record<string, unknown> = {}
+): Promise<void> {
+  if (isMockMode()) return;
+
+  try {
+    await prisma.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action,
+        resource: `dlq:${result.count}`,
+        decision: result.failed > 0 ? 'PARTIAL' : 'OK',
+        metadata: {
+          ...extra,
+          processed: result.count,
+          skipped: result.skipped,
+          failed: result.failed,
+          missing: result.missing,
+          truncated: result.truncated,
+          // Bounded on purpose — see AUDIT_SAMPLE_SIZE.
+          sampleLimit: AUDIT_SAMPLE_SIZE,
+          deliveryIds: auditSample(result.results),
+        },
+      }),
+    });
+  } catch (err) {
+    console.error('[DLQ] Failed to write audit entry:', (err as Error)?.message);
+  }
+}
+
+/**
+ * Read waiting DLQ entries, bounded.
+ *
+ * `getJobs(['waiting'])` with no range read the entire dead-letter queue into
+ * the server action's memory. One extra entry is requested so the caller can
+ * tell a full page from a truncated one and say so, rather than implying it
+ * covered everything.
+ */
+async function readDlqJobs(): Promise<{ jobs: DlqJobLike[]; truncated: boolean }> {
+  const fetched = ((await webhookDLQ.getJobs(['waiting'], 0, DLQ_READ_LIMIT)) ??
+    []) as DlqJobLike[];
+  const truncated = fetched.length > DLQ_READ_LIMIT;
+
+  return { jobs: truncated ? fetched.slice(0, DLQ_READ_LIMIT) : fetched, truncated };
+}
+
+/**
+ * Requeue one DLQ entry.
+ *
+ * Two things changed from the original `addWebhookJob(job.data.data)`:
+ *
+ * 1. The payload is validated first, so a malformed entry is skipped rather
+ *    than enqueued as `undefined` — which the worker cannot process, so it
+ *    failed three more times and was routed straight back to the DLQ.
+ * 2. The entry is removed from the DLQ *before* it is added to the main queue,
+ *    and the add carries the delivery-derived `jobId`. The old order was
+ *    add-then-remove with no id: a failure between the two left the job in both
+ *    queues, and nothing downstream deduped it because the dedupe key was
+ *    missing.
+ *
+ * Removing first means the worst case is a lost requeue the operator can
+ * observe and retry, instead of a silent duplicate scan.
+ */
+async function requeueOne(job: DlqJobLike): Promise<DlqJobResult> {
+  const descriptor = describeDlqJob(job);
+  const payload = extractWebhookPayload(job.data);
+
+  if (!payload) {
+    return {
+      descriptor,
+      outcome: 'skipped',
+      reason: 'DLQ entry carries no usable webhook payload',
+    };
+  }
+
+  try {
+    await job.remove();
+    await addWebhookJob(payload, requeueOptionsFor(payload));
+    return { descriptor, outcome: 'processed' };
+  } catch (err) {
+    return {
+      descriptor,
+      outcome: 'failed',
+      reason: (err as Error)?.message ?? 'Unknown error',
+    };
+  }
+}
+
+/** Delete one DLQ entry, containing its own failure. */
+async function deleteOne(job: DlqJobLike): Promise<DlqJobResult> {
+  const descriptor = describeDlqJob(job);
+
+  try {
+    await job.remove();
+    return { descriptor, outcome: 'processed' };
+  } catch (err) {
+    return {
+      descriptor,
+      outcome: 'failed',
+      reason: (err as Error)?.message ?? 'Unknown error',
+    };
+  }
+}
 
 export async function getQueueMetrics(): Promise<{
   waiting: number;
@@ -11,14 +172,9 @@ export async function getQueueMetrics(): Promise<{
   failed: number;
   delayed: number;
 }> {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+  await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
-
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+  if (isMockMode()) {
     return {
       waiting: 2,
       active: 1,
@@ -30,7 +186,7 @@ export async function getQueueMetrics(): Promise<{
 
   const counts = await webhookQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
   const dlqCounts = await webhookDLQ.getJobCounts('waiting');
-  
+
   return {
     waiting: counts.waiting || 0,
     active: counts.active || 0,
@@ -43,14 +199,17 @@ export async function getQueueMetrics(): Promise<{
 export type QueueJobState = "waiting" | "active" | "completed" | "delayed";
 
 export async function getQueueJobs(state: QueueJobState, limit = 200) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+  await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
+  // `getQueueMetrics` and `getDLQJobs` both had a mock-mode branch and this did
+  // not, so with NEXT_PUBLIC_MOCK_DB set the page rendered its metrics and then
+  // threw the moment the jobs table opened, reaching for a Redis connection
+  // that was never configured.
+  if (isMockMode()) return [];
 
-  const jobs = await webhookQueue.getJobs([state], 0, Math.max(limit - 1, 0));
+  const bounded = Math.min(Math.max(limit, 1), DLQ_READ_LIMIT);
+  const jobs = await webhookQueue.getJobs([state], 0, bounded - 1);
+
   return jobs.map((job) => ({
     id: job.id!,
     name: job.name,
@@ -65,15 +224,15 @@ export async function getQueueJobs(state: QueueJobState, limit = 200) {
 }
 
 export async function removeQueueJob(jobId: string, state: QueueJobState) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
-
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   if (state === "active") {
     throw new Error("Cannot remove a job that is currently being processed");
+  }
+
+  if (isMockMode()) {
+    revalidatePath("/admin/queue");
+    return { success: true };
   }
 
   const job = await webhookQueue.getJob(jobId);
@@ -88,14 +247,9 @@ export async function removeQueueJob(jobId: string, state: QueueJobState) {
 }
 
 export async function getDLQJobs() {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+  await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
-
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+  if (isMockMode()) {
     return [
       {
         id: "mock-dlq-1",
@@ -157,8 +311,8 @@ export async function getDLQJobs() {
     ];
   }
 
-  const jobs = await webhookDLQ.getJobs(['waiting']);
-  return jobs.map((job) => ({
+  const { jobs } = await readDlqJobs();
+  return jobs.map((job: any) => ({
     id: job.id!,
     name: job.name,
     data: job.data,
@@ -167,145 +321,192 @@ export async function getDLQJobs() {
 }
 
 export async function requeueDLQJob(jobId: string) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+  const session = await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
-
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+  if (isMockMode()) {
     return { success: true };
   }
 
-  const job = await webhookDLQ.getJob(jobId);
+  const job = (await webhookDLQ.getJob(jobId)) as DlqJobLike | null;
   if (!job) {
     throw new Error("Job not found in DLQ");
   }
 
-  // Re-add to main queue
-  await addWebhookJob(job.data.data);
-  
-  // Remove from DLQ
-  await job.remove();
+  const outcome = await requeueOne(job);
+
+  if (outcome.outcome !== 'processed') {
+    throw new Error(outcome.reason ?? 'Failed to requeue job');
+  }
+
+  const result = summarizeDlqResults([outcome]);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_REQUEUE', result, { scope: 'single' });
 
   revalidatePath('/admin/queue');
   return { success: true };
 }
 
 export async function deleteDLQJob(jobId: string) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+  const session = await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
-
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+  if (isMockMode()) {
     return { success: true };
   }
 
-  const job = await webhookDLQ.getJob(jobId);
+  const job = (await webhookDLQ.getJob(jobId)) as DlqJobLike | null;
   if (!job) {
     throw new Error("Job not found in DLQ");
   }
 
-  await job.remove();
+  const outcome = await deleteOne(job);
+
+  if (outcome.outcome !== 'processed') {
+    throw new Error(outcome.reason ?? 'Failed to delete job');
+  }
+
+  const result = summarizeDlqResults([outcome]);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_DELETE', result, { scope: 'single' });
 
   revalidatePath('/admin/queue');
   return { success: true };
 }
 
-export async function clearAllDLQ() {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+export async function clearAllDLQ(): Promise<BulkDlqResult & { summary: string }> {
+  const session = await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
+  if (isMockMode()) {
+    const empty = summarizeDlqResults([]);
+    return { ...empty, summary: describeBulkOutcome(empty, 'Deleted') };
   }
 
-  const jobs = await webhookDLQ.getJobs(['waiting']);
+  const { jobs, truncated } = await readDlqJobs();
+
+  // Sequential rather than Promise.all: this is an operator action against a
+  // shared Redis connection, and finishing slightly slower is a better trade
+  // than a burst of a thousand concurrent removals. Each result is contained,
+  // so one bad entry no longer aborts the rest — the old loop threw and left
+  // the operator with no idea how far it had got.
+  const results: DlqJobResult[] = [];
   for (const job of jobs) {
-    await job.remove();
+    results.push(await deleteOne(job));
   }
+
+  const result = summarizeDlqResults(results, truncated);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_CLEAR_ALL', result, { scope: 'all' });
 
   revalidatePath('/admin/queue');
-  return { success: true };
+  return { ...result, summary: describeBulkOutcome(result, 'Deleted') };
 }
 
-export async function requeueAllDLQ() {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
+export async function requeueAllDLQ(): Promise<BulkDlqResult & { summary: string }> {
+  const session = await requireAdmin();
 
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
+  if (isMockMode()) {
+    const empty = summarizeDlqResults([]);
+    return { ...empty, summary: describeBulkOutcome(empty, 'Requeued') };
   }
 
-  const jobs = await webhookDLQ.getJobs(['waiting']);
+  const { jobs, truncated } = await readDlqJobs();
+
+  const results: DlqJobResult[] = [];
   for (const job of jobs) {
-    await addWebhookJob(job.data.data);
-    await job.remove();
+    results.push(await requeueOne(job));
   }
+
+  const result = summarizeDlqResults(results, truncated);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_REQUEUE_ALL', result, { scope: 'all' });
 
   revalidatePath('/admin/queue');
-  return { success: true };
+  return { ...result, summary: describeBulkOutcome(result, 'Requeued') };
 }
 
-export async function requeueBulkDLQJobs(jobIds: string[]) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
-
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
+export async function requeueBulkDLQJobs(
+  jobIds: string[]
+): Promise<BulkDlqResult & { summary: string }> {
+  const session = await requireAdmin();
 
   if (!jobIds || jobIds.length === 0) {
-    return { success: true, count: 0 };
+    const empty = summarizeDlqResults([]);
+    return { ...empty, summary: describeBulkOutcome(empty, 'Requeued') };
   }
 
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
-    return { success: true, count: jobIds.length };
+  if (isMockMode()) {
+    const mocked = summarizeDlqResults(
+      jobIds.map((id) => ({
+        descriptor: { jobId: id, originalJobId: null, deliveryId: null, event: null },
+        outcome: 'processed' as const,
+      }))
+    );
+    return { ...mocked, summary: describeBulkOutcome(mocked, 'Requeued') };
   }
 
-  let requeuedCount = 0;
+  const results: DlqJobResult[] = [];
   for (const id of jobIds) {
-    const job = await webhookDLQ.getJob(id);
-    if (job) {
-      await addWebhookJob(job.data.data);
-      await job.remove();
-      requeuedCount++;
+    const job = (await webhookDLQ.getJob(id)) as DlqJobLike | null;
+
+    if (!job) {
+      results.push({
+        descriptor: { jobId: id, originalJobId: null, deliveryId: null, event: null },
+        outcome: 'missing',
+        reason: 'No longer in the DLQ',
+      });
+      continue;
     }
+
+    results.push(await requeueOne(job));
   }
+
+  const result = summarizeDlqResults(results);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_REQUEUE_BULK', result, {
+    scope: 'bulk',
+    requested: jobIds.length,
+  });
 
   revalidatePath('/admin/queue');
-  return { success: true, count: requeuedCount };
+  return { ...result, summary: describeBulkOutcome(result, 'Requeued') };
 }
 
-export async function deleteBulkDLQJobs(jobIds: string[]) {
-  const session = await auth();
-  const roles = (session?.user as any)?.roles || [];
-
-  if (!roles.includes("ADMIN")) {
-    throw new Error("Unauthorized");
-  }
+export async function deleteBulkDLQJobs(
+  jobIds: string[]
+): Promise<BulkDlqResult & { summary: string }> {
+  const session = await requireAdmin();
 
   if (!jobIds || jobIds.length === 0) {
-    return { success: true, count: 0 };
+    const empty = summarizeDlqResults([]);
+    return { ...empty, summary: describeBulkOutcome(empty, 'Deleted') };
   }
 
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
-    return { success: true, count: jobIds.length };
+  if (isMockMode()) {
+    const mocked = summarizeDlqResults(
+      jobIds.map((id) => ({
+        descriptor: { jobId: id, originalJobId: null, deliveryId: null, event: null },
+        outcome: 'processed' as const,
+      }))
+    );
+    return { ...mocked, summary: describeBulkOutcome(mocked, 'Deleted') };
   }
 
-  let deletedCount = 0;
+  const results: DlqJobResult[] = [];
   for (const id of jobIds) {
-    const job = await webhookDLQ.getJob(id);
-    if (job) {
-      await job.remove();
-      deletedCount++;
+    const job = (await webhookDLQ.getJob(id)) as DlqJobLike | null;
+
+    if (!job) {
+      results.push({
+        descriptor: { jobId: id, originalJobId: null, deliveryId: null, event: null },
+        outcome: 'missing',
+        reason: 'No longer in the DLQ',
+      });
+      continue;
     }
+
+    results.push(await deleteOne(job));
   }
+
+  const result = summarizeDlqResults(results);
+  await recordDlqAudit(session?.user?.id ?? null, 'DLQ_DELETE_BULK', result, {
+    scope: 'bulk',
+    requested: jobIds.length,
+  });
 
   revalidatePath('/admin/queue');
-  return { success: true, count: deletedCount };
+  return { ...result, summary: describeBulkOutcome(result, 'Deleted') };
 }
