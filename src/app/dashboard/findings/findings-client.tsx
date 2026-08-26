@@ -8,7 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls from "./finding-triage-controls";
+import FindingsPagination from "./findings-pagination";
+import FindingsToolbar from "./findings-toolbar";
 import { TriageStatus } from "@/lib/actions/triage";
+import type {
+  FindingFilterOptions,
+  FindingRow,
+  FindingsStats,
+} from "@/lib/actions/findings";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -17,12 +24,30 @@ const TRIAGE_LABELS: Record<string, string> = {
   IGNORED: "Ignored",
 };
 
+/**
+ * `findings` was typed `any[]`, so the page's data contract lived only in the
+ * shape of the object the server component happened to build. `FindingRow` is
+ * that contract, exported from the action module that produces it.
+ */
 interface FindingsClientProps {
-  findings: any[];
-  stats: { criticalSecrets: number; vulnerabilities: number; misconfigs: number; other: number; };
+  findings: FindingRow[];
+  stats: FindingsStats;
+  filterOptions: FindingFilterOptions;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
-export default function FindingsClient({ findings, stats }: FindingsClientProps) {
+export default function FindingsClient({
+  findings,
+  stats,
+  filterOptions,
+  page,
+  pageSize,
+  total,
+  totalPages,
+}: FindingsClientProps) {
   return (
   <div className="space-y-8 w-full animate-in fade-in duration-700">
       <div>
@@ -51,6 +76,8 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
         <StatBox icon={<Terminal />} value={stats.other} label="Other" color="slate" />
       </div>
 
+      <FindingsToolbar options={filterOptions} total={total} />
+
       <Card className="glass-card">
         <CardHeader className="flex flex-row items-center justify-between">
   <CardTitle className="text-lg">Recent Findings</CardTitle>
@@ -59,7 +86,9 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
     variant="outline"
     className="border-primary/20 bg-primary/5 text-primary"
   >
-    {findings.length} {findings.length === 1 ? "Finding" : "Findings"}
+    {/* The filtered total, not findings.length -- which was the page size and
+        read "50 Findings" on every account with more than fifty. */}
+    {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
   </Badge>
 </CardHeader>
         
@@ -69,15 +98,19 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
      <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
 <h3 className="text-2xl font-bold">
-  No Security Findings
+  {total === 0 ? "No Security Findings" : "No findings match these filters"}
 </h3>
 
 <p className="mt-3 max-w-md text-sm text-muted-foreground">
-  Great news! Your repositories are currently secure.
+  {total === 0
+    ? "Great news! Your repositories are currently secure."
+    : "Every finding is filtered out by the current selection."}
 </p>
 
 <p className="mt-2 text-xs text-muted-foreground">
-  Continue scanning your repositories to detect future vulnerabilities.
+  {total === 0
+    ? "Continue scanning your repositories to detect future vulnerabilities."
+    : "Clear the filters above to see the full list again."}
 </p>
     </div>
   ) : (
@@ -158,6 +191,13 @@ export default function FindingsClient({ findings, stats }: FindingsClientProps)
           </Accordion>
   )}
         </CardContent>
+
+        <FindingsPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          totalPages={totalPages}
+        />
       </Card>
     </div>
   );
