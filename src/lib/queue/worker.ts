@@ -13,6 +13,12 @@ import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-r
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
 import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
+import {
+  normalizeFindingTypeEnum,
+  normalizePolicyDecisionEnum,
+  normalizePrStatusEnum,
+  normalizePrStateEnum,
+} from '@/lib/finding-taxonomy';
 import { sanitizeLogValue } from '@/lib/logger';
 
 // Sanitize user-controlled strings before logging to prevent log injection
@@ -777,16 +783,16 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         const dbPr = await prisma.pullRequest.upsert({
           where: { githubId: BigInt(pull_request.id) },
           update: {
-            title: pull_request.title,
-            state: pull_request.state, 
-            status: decision,
+            title: pull_request.title || `PR #${pull_request.number}`,
+            state: normalizePrStateEnum(pull_request.state), 
+            status: normalizePrStatusEnum(decision),
           },
           create: {
             githubId: BigInt(pull_request.id),
             prNumber: pull_request.number,
-            title: pull_request.title,
-            state: pull_request.state,
-            status: decision,
+            title: pull_request.title || `PR #${pull_request.number}`,
+            state: normalizePrStateEnum(pull_request.state),
+            status: normalizePrStatusEnum(decision),
             repositoryId: dbRepo.id
           }
         });
@@ -795,27 +801,16 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
 
         // Risk score ignores dismissed findings so triaged-away issues stop
         // counting toward the stored score (and the risk-trend average).
-        //
-        // The weights live in `@/lib/severity` now. The previous inline reducer
-        // called `f.severity.toUpperCase()` directly, which threw a TypeError on
-        // a null severity — after the pending "⏳ Evaluating..." comment had
-        // already been posted, so the job retried three times, landed in the DLQ,
-        // and left the comment stranded on the pull request forever.
         const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
         await prisma.scanResult.create({
           data: {
             pullRequestId: dbPr.id,
             riskScore,
-            policyDecision: decision,
+            policyDecision: normalizePolicyDecisionEnum(decision),
             findings: {
               create: findingsToPersist.map((f: any) => ({
-                type: f.type,
-                // Persist the canonical spelling. `Finding.severity` is an
-                // unconstrained `String` column, so without this a non-canonical
-                // value written once stays wrong for every later read — the
-                // dashboard, the policy engine and the risk trend all re-derive
-                // from this column.
+                type: normalizeFindingTypeEnum(f.type),
                 severity: normalizeSeverity(f.severity),
                 fileLocation: f.fileLocation,
                 lineStart: typeof f.lineStart === 'number' ? f.lineStart : null,
@@ -823,7 +818,8 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
                 codeSnippet: f.codeSnippet || null,
                 explanation: f.explanation || null,
                 remediation: f.remediation || null,
-                fingerprint: f.fingerprint
+                promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                fingerprint: f.fingerprint || ""
               }))
             }
           }

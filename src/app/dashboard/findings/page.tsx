@@ -37,6 +37,8 @@ export default async function FindingsPage({
     getUserFindings(query),
     getUserFindingFilters(),
   ]);
+  
+  const other = 0;
 
   return (
     <FindingsClient
