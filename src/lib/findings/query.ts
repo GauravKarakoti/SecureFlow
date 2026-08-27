@@ -33,19 +33,30 @@ import {
   type Severity,
   type StoredSeverity,
 } from '@/lib/severity';
-
-/** Triage states a finding can be filtered by. Mirrors `TRIAGE_STATUSES`. */
-export const FINDING_STATUSES = ['OPEN', 'RESOLVED', 'FALSE_POSITIVE', 'IGNORED'] as const;
-export type FindingStatus = (typeof FINDING_STATUSES)[number];
+import {
+  SUPPRESSED_STATUSES,
+  TRIAGE_STATUSES,
+  type TriageStatus,
+} from '@/lib/triage/statuses';
 
 /**
- * Statuses that hide a finding from the stat tiles.
+ * Triage states a finding can be filtered by, and the ones that hide it from
+ * the stat tiles.
  *
- * Kept identical to `SUPPRESSED_STATUSES` in `src/lib/triage/queries.ts`; the
- * test suite asserts the two agree, since they must or the tiles and the list
- * drift apart again.
+ * Both were written out by hand here and kept "identical to
+ * `SUPPRESSED_STATUSES` in `src/lib/triage/queries.ts`" by a test asserting
+ * they agree — which is a workaround for their not being one thing. They come
+ * from `@/lib/triage/statuses` now, which holds the vocabulary and nothing
+ * else, so this module can import it without pulling a database client in
+ * behind it (#689).
+ *
+ * Re-exported under the existing names, so callers and their tests are
+ * unchanged.
  */
-export const DISMISSED_STATUSES: readonly FindingStatus[] = ['FALSE_POSITIVE', 'IGNORED'];
+export const FINDING_STATUSES = TRIAGE_STATUSES;
+export type FindingStatus = TriageStatus;
+
+export const DISMISSED_STATUSES: readonly FindingStatus[] = SUPPRESSED_STATUSES;
 
 /** Sort keys the UI exposes. */
 export const FINDING_SORTS = ['newest', 'oldest', 'severity', 'file'] as const;
