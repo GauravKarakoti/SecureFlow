@@ -1,6 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { createLogger } from '@/lib/logger';
+import {
+  MISSING_CONNECTION_STRING_MESSAGE,
+  resolveConnectionString,
+  resolveMockDb,
+  resolvePoolConfig,
+  resolvePoolMax,
+  type PgPoolConfig,
+} from '@/lib/db/pool-config';
+
+const log = createLogger({ context: { component: 'prisma' } });
 
 // BigInt serialization fix: standard JSON.stringify() does not support BigInt values.
 // Patching BigInt.prototype.toJSON allows objects with BigInt fields (such as Repository/PullRequest githubId)
@@ -216,47 +227,114 @@ function createMockPrismaClient() {
 }
 
 /**
- * Resolves the database connection string based on environment settings.
- * In production serverless environments, prioritizes DATABASE_POOL_URL (e.g. PgBouncer or Neon connection pooler)
- * to manage connections effectively across multiple serverless function instances.
- * Falls back to DATABASE_URL if DATABASE_POOL_URL is not set.
+ * The database connection string, preferring a pooler when one is configured.
+ *
+ * The old implementation had a production-only branch returning
+ * `DATABASE_POOL_URL` above a line that already preferred `DATABASE_POOL_URL`
+ * unconditionally, so the branch could never change the answer. Resolution now
+ * lives in `@/lib/db/pool-config` where it is pure and tested; this signature is
+ * kept for the existing callers.
  */
 export function getDatabaseConnectionString(): string | undefined {
-  if (process.env.NODE_ENV === 'production' && process.env.DATABASE_POOL_URL) {
-    return process.env.DATABASE_POOL_URL;
-  }
-  return process.env.DATABASE_POOL_URL || process.env.DATABASE_URL;
+  return resolveConnectionString() ?? undefined;
 }
 
 /**
- * Returns PostgreSQL pool options optimized for serverless deployments.
- * Caps the maximum pool size (defaulting to 10 or DB_POOL_MAX env var)
- * and configures idle/connection timeouts to prevent connection exhaustion.
+ * PostgreSQL pool options for a serverless deployment.
+ *
+ * `DB_POOL_MAX` used to be read with a bare `parseInt`, so `DB_POOL_MAX=abc`
+ * reached `new Pool({ max: NaN })` and `DB_POOL_MAX=0` disabled the pool
+ * outright. It is clamped now, and an unusable value is reported rather than
+ * propagated (#688).
  */
-export function getPgPoolConfig(overrideConnectionString?: string) {
-  const connectionString = overrideConnectionString || getDatabaseConnectionString();
-  const max = process.env.DB_POOL_MAX
-    ? parseInt(process.env.DB_POOL_MAX, 10)
-    : 10;
+export function getPgPoolConfig(overrideConnectionString?: string): PgPoolConfig {
+  const { config } = resolvePoolConfig();
+  const { warning } = resolvePoolMax();
 
-  return {
-    connectionString,
-    max,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+  if (warning) log.warn(warning);
+
+  return overrideConnectionString
+    ? { ...config, connectionString: overrideConnectionString }
+    : config;
+}
+
+/**
+ * Make an unconfigured pool fail with the reason it is unconfigured.
+ *
+ * `new Pool({ connectionString: undefined })` does not fail. libpq semantics
+ * take over, it tries the local Unix socket as `$USER`, and the deployment
+ * eventually reports `role "nextjs" does not exist` — an error about the wrong
+ * thing entirely.
+ *
+ * Overriding the two entry points rather than throwing at construction is
+ * deliberate. This module is imported during `next build`, which runs no
+ * queries and has no database; failing the build over a connection that is
+ * never opened would trade one misleading error for another. The first real
+ * query is where the fault actually matters, and that is where it now says so.
+ */
+function guardUnconfiguredPool(pool: Pool): Pool {
+  const refuse = async (): Promise<never> => {
+    throw new Error(MISSING_CONNECTION_STRING_MESSAGE);
   };
+
+  pool.connect = refuse as unknown as Pool['connect'];
+  pool.query = refuse as unknown as Pool['query'];
+
+  return pool;
+}
+
+/**
+ * Create the pool and attach the error listener it was missing.
+ *
+ * `pg.Pool` emits `'error'` when a client sitting **idle in the pool** hits a
+ * network-level failure: a Postgres restart, a PgBouncer recycle, an
+ * idle-timeout RST from a managed provider. That event is not tied to any
+ * in-flight query, so no `try/catch` in the application can see it — and `Pool`
+ * is an `EventEmitter`, so an `'error'` with no listener is re-thrown as an
+ * uncaught exception and takes the process down.
+ *
+ * This is the first paragraph of the node-postgres pooling documentation and it
+ * was the one thing missing here. The pool discards the failed client and
+ * carries on; all this listener has to do is exist, and say what happened.
+ */
+function createPool(): Pool {
+  const { config, unconfigured, warnings } = resolvePoolConfig();
+
+  for (const warning of warnings) log.warn(warning);
+
+  const pool = new Pool(config);
+
+  pool.on('error', (error: Error) => {
+    log.error('Idle Postgres client errored; the pool will discard it', { error });
+  });
+
+  return unconfigured ? guardUnconfiguredPool(pool) : pool;
 }
 
 const prismaClientSingleton = () => {
-  if (process.env.NEXT_PUBLIC_MOCK_DB === 'true') {
+  const mockDb = resolveMockDb();
+
+  if (mockDb.requested && !mockDb.allowed) {
+    // Refused rather than warned: the mock answers `user.findUnique` with a
+    // hardcoded ADMIN, so a deployment running on it is not degraded, it is
+    // lying about who is signed in.
+    log.error(mockDb.refusal ?? 'NEXT_PUBLIC_MOCK_DB refused.');
+    throw new Error(mockDb.refusal);
+  }
+
+  if (mockDb.allowed) {
+    log.warn('Using the in-memory mock database. Every response below is fabricated.');
     return createMockPrismaClient() as any;
   }
-  // 1. Initialize a connection pool using the standard pg driver with serverless pooling config
-  const pool = new Pool(getPgPoolConfig());
-  
+
+  // 1. Initialize a connection pool using the standard pg driver, with the
+  //    serverless pooling config and — new — an 'error' listener, without which
+  //    an idle-client failure is an uncaught exception (#688).
+  const pool = createPool();
+
   // 2. Wrap the pool in the Prisma pg adapter
   const adapter = new PrismaPg(pool);
-  
+
   // 3. Pass the adapter to the Prisma Client constructor
   return new PrismaClient({ adapter });
 }
