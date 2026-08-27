@@ -87,7 +87,7 @@ function severityBucket(severity: string | null | undefined): keyof SeverityCoun
  * `[pullRequestId, createdAt desc]` and `fingerprint` indexes:
  *
  *  - one `groupBy` for total PRs per author
- *  - one `groupBy` (state = "merged") for the extraction count
+ *  - one `groupBy` (state = "MERGED") for the extraction count
  *  - one `groupBy` (status = "PASS") for the pass rate
  *  - one `distinct` lookup for avatars (`groupBy` can't select non-key columns)
  *  - one lookup for user codenames
@@ -106,7 +106,7 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
   const [totals, merged, passed, avatars, users, latestScans, suppressed, recentPrs] =
     await Promise.all([
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: authored, _count: { _all: true } }),
-      prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "merged" }, _count: { _all: true } }),
+      prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "MERGED" }, _count: { _all: true } }),
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, status: PASSED_STATUS }, _count: { _all: true } }),
       prisma.pullRequest.findMany({ where: { ...authored, authorAvatarUrl: { not: null } }, select: { authorLogin: true, authorAvatarUrl: true }, distinct: ["authorLogin"] }),
       prisma.user.findMany({
