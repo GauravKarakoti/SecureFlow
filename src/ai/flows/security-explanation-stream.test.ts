@@ -34,9 +34,24 @@ vi.mock('@/ai/genkit', () => ({
   securityExplanationModel: 'mock-security-model',
 }));
 
-vi.mock('dotenv/config', () => ({}));
+vi.mock('openai', () => {
+  return {
+    OpenAI: class {
+      chat = {
+        completions: {
+          create: vi.fn(async () => {
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'Chunk 1 ' } }] };
+              yield { choices: [{ delta: { content: 'Chunk 2' } }] };
+            })();
+          }),
+        },
+      };
+    },
+  };
+});
 
-import { streamDeveloperSecurityExplanations } from './security-explanation-stream';
+import { streamDeveloperSecurityExplanations, streamSecurityExplanation } from './security-explanation-stream';
 import type { StreamExplanationEvent } from './security-explanation-stream';
 
 async function collectEvents(
@@ -264,5 +279,18 @@ describe('streamDeveloperSecurityExplanations — abort signal (#576)', () => {
     }
     expect(events.length).toBeLessThan(3);
     expect(events.some((e) => e.type === 'done')).toBe(false);
+  });
+});
+
+describe('streamSecurityExplanation', () => {
+  it('streams chunks to onChunk callback using low-latency pipeline', async () => {
+    const chunks: string[] = [];
+    await streamSecurityExplanation({
+      vulnerabilityId: 'CVE-2023-1234',
+      sourceCode: 'const x = eval(input);',
+      onChunk: (chunk) => chunks.push(chunk),
+    });
+
+    expect(chunks).toEqual(['Chunk 1 ', 'Chunk 2']);
   });
 });
