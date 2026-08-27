@@ -25,7 +25,14 @@
  * already solved this problem for the audit log.
  */
 
-import { SEVERITY_ORDER, isSeverity, type Severity } from '@/lib/severity';
+import {
+  STORED_SEVERITIES,
+  isSeverity,
+  isStoredSeverity,
+  parseStoredSeverity,
+  type Severity,
+  type StoredSeverity,
+} from '@/lib/severity';
 
 /** Triage states a finding can be filtered by. Mirrors `TRIAGE_STATUSES`. */
 export const FINDING_STATUSES = ['OPEN', 'RESOLVED', 'FALSE_POSITIVE', 'IGNORED'] as const;
@@ -79,7 +86,7 @@ export interface FindingsQuery {
 export interface NormalizedFindingsQuery {
   page: number;
   pageSize: number;
-  severity: Severity[];
+  severity: StoredSeverity[];
   type: string[];
   status: FindingStatus[];
   repositoryId: string | null;
@@ -143,10 +150,37 @@ export function parseListParam(value: string | string[] | undefined | null): str
   return out;
 }
 
-/** Keep only recognised severities, in the canonical CRITICAL→NONE order. */
-export function parseSeverityFilter(values: readonly string[]): Severity[] {
-  const wanted = new Set(values.map((value) => value.trim().toUpperCase()));
-  return SEVERITY_ORDER.filter((severity) => wanted.has(severity));
+/**
+ * Resolve requested severities onto the levels the column can hold.
+ *
+ * This used to filter `SEVERITY_ORDER`, the *ranking* vocabulary, and hand the
+ * survivors straight to Prisma. `Finding.severity` is a `FindingSeverity` enum
+ * (`CRITICAL HIGH MEDIUM LOW INFO`), and the two lists are not the same list:
+ *
+ *  - `?severity=NONE` produced `{ in: ['NONE'] }`. Prisma validates enum filter
+ *    values against the schema, so the page returned a 500 for a value this
+ *    module's own parser had just handed out.
+ *  - `?severity=INFO` produced `[]`. `INFO` is not in `SEVERITY_ORDER`, so the
+ *    filter was dropped: the unfiltered list rendered, `hasActiveFilters`
+ *    reported nothing was filtered, and `toSearchParams` rewrote the parameter
+ *    out of the URL. The severity dropdown offers `INFO` as soon as one such
+ *    finding exists, so this was reachable by clicking.
+ *
+ * Every value now goes through `parseStoredSeverity`, so a request can only ever
+ * name a bucket that exists. `NONE` resolves onto `INFO` rather than being
+ * discarded — it is the enum's "nothing to see" level, which is what the caller
+ * asked for. The result is ordered by `STORED_SEVERITIES` and de-duplicated, so
+ * `?severity=NONE&severity=INFO` is one bucket rather than two.
+ */
+export function parseSeverityFilter(values: readonly string[]): StoredSeverity[] {
+  const wanted = new Set<StoredSeverity>();
+
+  for (const value of values) {
+    const stored = parseStoredSeverity(value);
+    if (stored) wanted.add(stored);
+  }
+
+  return STORED_SEVERITIES.filter((severity) => wanted.has(severity));
 }
 
 /** Keep only recognised triage statuses, de-duplicated and in declared order. */
@@ -222,7 +256,7 @@ export function requiresSeverityPlan(sort: FindingSort): boolean {
 
 /** One contiguous read from a single severity bucket. */
 export interface SeveritySlice {
-  severity: Severity;
+  severity: StoredSeverity;
   skip: number;
   take: number;
 }
@@ -240,15 +274,21 @@ export interface SeveritySlice {
  * the twenty next-most-severe findings. That is wrong in a way that looks right,
  * which is worse than being obviously wrong.
  *
- * Severity has exactly five values, so the correct page is expressible as a
+ * The column has exactly five values, so the correct page is expressible as a
  * bounded walk: take the counts per bucket in CRITICAL→NONE order, skip forward
  * to the requested offset, and read at most `pageSize` rows spanning at most
  * five buckets. Each read is an ordinary indexed `skip`/`take` on one severity.
  *
+ * The walk goes over `STORED_SEVERITIES`, not `SEVERITY_ORDER`. Walking the
+ * ranking vocabulary meant no slice was ever emitted for `INFO`, while `total`
+ * — a plain `count()` over the same `where` — did include those rows. Ten
+ * CRITICAL and twenty INFO findings at `pageSize: 20` therefore advertised two
+ * pages, rendered ten rows on the first and nothing at all on the second (#686).
+ *
  * Pure, so the arithmetic is testable without a database.
  */
 export function planSeverityPage(
-  counts: Readonly<Partial<Record<Severity, number>>>,
+  counts: Readonly<Partial<Record<StoredSeverity, number>>>,
   page: number,
   pageSize: number
 ): SeveritySlice[] {
@@ -259,7 +299,7 @@ export function planSeverityPage(
   let remaining = safeSize;
   const slices: SeveritySlice[] = [];
 
-  for (const severity of SEVERITY_ORDER) {
+  for (const severity of STORED_SEVERITIES) {
     if (remaining <= 0) break;
 
     const available = Math.max(0, Math.floor(counts[severity] ?? 0));
@@ -467,6 +507,11 @@ export function fromSearchParams(
   });
 }
 
-/** Re-exported so callers can type-guard a severity without a second import. */
-export { isSeverity };
-export type { Severity };
+/**
+ * Re-exported so callers can type-guard a severity without a second import.
+ *
+ * `isStoredSeverity` is the one a query builder wants: it answers "will the
+ * database accept this", which `isSeverity` does not.
+ */
+export { isSeverity, isStoredSeverity };
+export type { Severity, StoredSeverity };
