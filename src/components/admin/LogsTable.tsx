@@ -33,6 +33,10 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
   const [actionFilter, setActionFilter] = useState("ALL");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Duration filter, kept in the same "YYYY-MM-DD" input shape and boundary
+  // handling as the dashboard's audit-log table (audit-log-table.tsx).
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const [serverResult, setServerResult] = useState<{
     logs: AuditLogRow[];
@@ -59,6 +63,11 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
         const res = await getAuditLogs({
           action: actionFilter === "ALL" ? undefined : actionFilter,
           search: search.trim() ? search.trim() : undefined,
+          // Date inputs are "YYYY-MM-DD"; expand "to" to the end of that day
+          // so the selected end date is fully included, not cut off at
+          // midnight — same convention as the dashboard audit-log table.
+          startDate: dateFrom ? new Date(`${dateFrom}T00:00:00`) : undefined,
+          endDate: dateTo ? new Date(`${dateTo}T23:59:59.999`) : undefined,
           page,
           pageSize: ITEMS_PER_PAGE,
         });
@@ -76,21 +85,35 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
     return () => {
       cancelled = true;
     };
-  }, [actionFilter, page, search]);
+  }, [actionFilter, page, search, dateFrom, dateTo]);
 
   const safePage = Math.min(page, serverResult.totalPages);
   const start = (safePage - 1) * ITEMS_PER_PAGE;
   const current = serverResult.logs;
   const totalPages = serverResult.totalPages;
 
-  const hasFilters = search.trim() !== "" || actionFilter !== "ALL";
+  const hasFilters =
+    search.trim() !== "" || actionFilter !== "ALL" || dateFrom !== "" || dateTo !== "";
   const clearFilters = () => {
     setSearch("");
     setActionFilter("ALL");
+    setDateFrom("");
+    setDateTo("");
     setPage(1);
   };
 
   const totalResults = serverResult.total;
+
+  // Export respects the same duration filter as the table. `from`/`to` are
+  // sent in the same "local start of day" / "local end of day" shape the
+  // export route (`/api/admin/export`) already parses via `parseDateParam`.
+  const exportHref = (() => {
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("from", `${dateFrom}T00:00:00.000`);
+    if (dateTo) params.set("to", `${dateTo}T23:59:59.999`);
+    const qs = params.toString();
+    return qs ? `/api/admin/export?${qs}` : "/api/admin/export";
+  })();
 
   return (
     <div className="w-full bg-card border border-border rounded-xl overflow-hidden">
@@ -125,6 +148,35 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
               </option>
             ))}
           </select>
+
+          {/* Duration filter, kept as one non-wrapping unit so "to" stays
+              beside "from" instead of breaking onto its own line. */}
+          <div className="flex flex-nowrap items-center gap-1.5 shrink-0">
+            <input
+              type="date"
+              aria-label="Filter from date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(1);
+              }}
+              max={dateTo || undefined}
+              className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-2 w-[140px] focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input
+              type="date"
+              aria-label="Filter to date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(1);
+              }}
+              min={dateFrom || undefined}
+              className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-2 w-[140px] focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -134,7 +186,7 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
             </button>
           )}
           <a
-            href="/api/admin/export"
+            href={exportHref}
             download
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors shadow-sm"
           >
