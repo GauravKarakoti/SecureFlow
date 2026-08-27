@@ -17,10 +17,17 @@ import {
   isFindingCategory,
   normalizeFindingType,
   normalizeFindingTypeLabel,
+  normalizeFindingTypeEnum,
   parseFindingType,
   severityFilter,
+  STORED_FINDING_TYPES,
 } from './finding-taxonomy';
-import { parseSeverity, severitySpellings, SEVERITY_ORDER } from './severity';
+import {
+  parseSeverity,
+  severitySpellings,
+  SEVERITY_ORDER,
+  STORED_SEVERITIES,
+} from './severity';
 
 describe('parseFindingType — canonical names', () => {
   it.each(FINDING_CATEGORIES)('recognises %s', (category) => {
@@ -170,51 +177,70 @@ describe('findingTypeSpellings', () => {
 });
 
 describe('findingCategoryFilter', () => {
-  it('builds a case-insensitive `in` filter for a classified category', () => {
+  // Both filters target Prisma enum columns (#633), so the only values they may
+  // emit are the enum's own members in the enum's own casing. The previous
+  // behaviour — every observed spelling plus `mode: 'insensitive'` — was correct
+  // against the old String columns and is rejected outright by Prisma now (#686).
+  it('names the enum member for a classified category', () => {
     const filter = findingCategoryFilter('VULNERABILITY');
 
-    expect(filter).toMatchObject({ mode: 'insensitive' });
-    expect('in' in filter && filter.in).toContain('Vulnerability');
+    expect(filter).toEqual({ in: ['VULNERABILITY'] });
   });
 
-  it('builds OTHER as the negation of the other three', () => {
-    const filter = findingCategoryFilter('OTHER');
-
-    expect(filter).toMatchObject({ mode: 'insensitive' });
-    expect('notIn' in filter && filter.notIn).toEqual(
-      expect.arrayContaining([
-        ...findingTypeSpellings('SECRET'),
-        ...findingTypeSpellings('VULNERABILITY'),
-        ...findingTypeSpellings('MISCONFIG'),
-      ]),
-    );
+  it('does not carry a mode, which enum filters do not accept', () => {
+    for (const category of ['SECRET', 'VULNERABILITY', 'MISCONFIG', 'OTHER'] as const) {
+      expect(findingCategoryFilter(category)).not.toHaveProperty('mode');
+    }
   });
 
-  it('partitions: OTHER excludes exactly what the three categories include', () => {
+  it('builds OTHER as the negation of the three members', () => {
     const filter = findingCategoryFilter('OTHER');
-    const excluded = new Set('notIn' in filter ? filter.notIn : []);
-    const classified = new Set(
-      (['SECRET', 'VULNERABILITY', 'MISCONFIG'] as const).flatMap(findingTypeSpellings),
-    );
 
-    expect([...excluded].sort()).toEqual([...classified].sort());
+    expect(filter).toEqual({ notIn: [...STORED_FINDING_TYPES] });
+  });
+
+  it('only ever emits values the FindingType enum declares', () => {
+    for (const category of ['SECRET', 'VULNERABILITY', 'MISCONFIG', 'OTHER'] as const) {
+      const filter: Record<string, string[] | undefined> = findingCategoryFilter(category);
+
+      for (const value of filter.in ?? filter.notIn ?? []) {
+        expect(STORED_FINDING_TYPES, `${category} -> ${value}`).toContain(value);
+      }
+    }
+  });
+
+  it('still classifies the wild spellings on the write path', () => {
+    // The alias table has not gone anywhere; classification simply happens
+    // before the row is stored rather than at query time.
+    expect(findingTypeSpellings('SECRET')).toContain('HARDCODEDSECRET');
+    expect(normalizeFindingTypeEnum('hardcoded_secret')).toBe('SECRET');
+    expect(findingCategoryFilter(normalizeFindingTypeEnum('hardcoded_secret'))).toEqual({
+      in: ['SECRET'],
+    });
   });
 });
 
 describe('severityFilter', () => {
-  it('matches case-insensitively rather than by exact string', () => {
-    const filter = severityFilter('CRITICAL');
-
-    expect(filter.mode).toBe('insensitive');
-    expect(filter.in).toContain('CRITICAL');
+  it('names the enum member rather than every spelling of it', () => {
+    expect(severityFilter('CRITICAL')).toEqual({ in: ['CRITICAL'] });
   });
 
-  it('covers the aliases parseSeverity already understands', () => {
-    // The point of deriving from severity.ts rather than hand-listing: what the
-    // tiles count has to agree with what the policy engine enforces.
-    const filter = severityFilter('CRITICAL');
+  it('does not carry a mode, which enum filters do not accept', () => {
+    expect(severityFilter('CRITICAL')).not.toHaveProperty('mode');
+  });
 
-    expect(filter.in).toEqual(expect.arrayContaining(['CRITICAL', 'SEV1', 'BLOCKER', 'FATAL']));
+  it('maps the ranking level NONE onto the INFO member', () => {
+    // 'NONE' is a SEVERITY_ORDER level and not a FindingSeverity member, so
+    // emitting it produced a PrismaClientValidationError.
+    expect(severityFilter('NONE')).toEqual({ in: ['INFO'] });
+  });
+
+  it('only ever emits values the FindingSeverity enum declares', () => {
+    for (const level of SEVERITY_ORDER) {
+      for (const value of severityFilter(level).in) {
+        expect(STORED_SEVERITIES, `${level} -> ${value}`).toContain(value);
+      }
+    }
   });
 
   it.each(SEVERITY_ORDER)('every spelling for %s parses back to it', (level) => {

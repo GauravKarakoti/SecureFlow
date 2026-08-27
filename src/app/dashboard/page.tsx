@@ -3,20 +3,9 @@ import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserTriage } from "@/lib/triage/queries";
-import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
 import { syncUserRepositories } from "@/lib/github/sync-user-repos";
 
 export const dynamic = "force-dynamic";
-
-// Utility to safely strip the unsupported `mode: 'insensitive'` property 
-// without breaking the rest of the Prisma filter object.
-function safeFilter(filterObj: any) {
-  if (filterObj && typeof filterObj === "object" && !Array.isArray(filterObj)) {
-    const { mode, ...safe } = filterObj;
-    return safe;
-  }
-  return filterObj;
-}
 
 export default async function OverviewPage() {
   const session = await auth();
@@ -69,9 +58,13 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } }
   });
 
+  // `Finding.type` and `Finding.severity` are Prisma enums (#633), so the
+  // literals below are the column's own members and an exact match is the only
+  // thing that is valid here — `findingCategoryFilter` / `severityFilter` build
+  // the same filters and were imported here without ever being called (#686).
   const secretsDetected = await prisma.finding.count({
     where: {
-      type: "SECRET", // Exact enum match
+      type: "SECRET",
       scanResult: { pullRequest: { repository: { userId } } },
       ...notDismissed
     }
