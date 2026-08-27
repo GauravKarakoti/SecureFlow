@@ -261,6 +261,31 @@ describe('GitHub webhook route', () => {
       expect(addWebhookJob).toHaveBeenCalledOnce();
     });
 
+    it('returns 202 and queues pull_request synchronize events', async () => {
+      const body = JSON.stringify({
+        action: 'synchronize',
+        number: 42,
+        pull_request: { head: { sha: 'abcdef123456' } },
+        repository: { full_name: 'org/repo' },
+      });
+      const req = makeRequest(body, {}, 'pull_request');
+      const res = await POST(req);
+      expect(res.status).toBe(202);
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+    });
+
+    it('returns 202 and queues branch_protection_rule events', async () => {
+      const body = JSON.stringify({
+        action: 'created',
+        rule: { name: 'main' },
+        repository: { full_name: 'org/repo' },
+      });
+      const req = makeRequest(body, {}, 'branch_protection_rule');
+      const res = await POST(req);
+      expect(res.status).toBe(202);
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+    });
+
     it('passes the delivery ID and event type to the queue', async () => {
       const deliveryId = 'unique-delivery-xyz';
       const req = makeRequest(minimalPRPayload, { 'x-github-delivery': deliveryId });
