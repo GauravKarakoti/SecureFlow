@@ -10,6 +10,7 @@ import {
   resetFontCache,
   type FontLoaderDeps,
 } from './fonts';
+import { join } from 'node:path';
 
 afterEach(() => {
   resetFontCache();
@@ -29,7 +30,8 @@ function diskDeps(overrides: Partial<FontLoaderDeps> = {}): FontLoaderDeps {
 describe('defaultFontPaths', () => {
   it('looks under public/fonts relative to the working directory first', () => {
     const [first] = defaultFontPaths('Orbitron-Bold.ttf');
-    expect(first).toBe(`${process.cwd()}/public/fonts/Orbitron-Bold.ttf`);
+    // Use join() instead of template literals with forward slashes
+    expect(first).toBe(join(process.cwd(), 'public', 'fonts', 'Orbitron-Bold.ttf'));
   });
 
   it('offers at least one candidate for any name', () => {
