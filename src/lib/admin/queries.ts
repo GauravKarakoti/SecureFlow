@@ -76,6 +76,8 @@ export interface AuditLogFilters {
   action?: string;
   userId?: string;
   search?: string;
+  startDate?: Date;
+  endDate?: Date;
 }
 
 /**
@@ -84,6 +86,10 @@ export interface AuditLogFilters {
  * A blank or whitespace-only `search` produces no `OR` clause at all. Leaving an
  * empty `contains` in place makes Postgres scan for a substring that matches
  * every row, which is a full-table scan dressed up as a filter.
+ *
+ * `startDate`/`endDate` mirror the dashboard's own audit-log filter
+ * (`buildUserAuditLogWhere` in `lib/actions/audit.ts`): both are inclusive
+ * bounds on `timestamp`, and either may be supplied on its own.
  */
 export function buildAuditLogWhere(filters: AuditLogFilters = {}): Record<string, unknown> {
   const where: Record<string, unknown> = {};
@@ -98,6 +104,13 @@ export function buildAuditLogWhere(filters: AuditLogFilters = {}): Record<string
       { resource: { contains: search, mode: 'insensitive' } },
       { decision: { contains: search, mode: 'insensitive' } },
     ];
+  }
+
+  if (filters.startDate || filters.endDate) {
+    const timestamp: Record<string, Date> = {};
+    if (filters.startDate) timestamp.gte = filters.startDate;
+    if (filters.endDate) timestamp.lte = filters.endDate;
+    where.timestamp = timestamp;
   }
 
   return where;
