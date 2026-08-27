@@ -2,7 +2,7 @@ import prisma from "@/lib/prisma";
 import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { getUserTriage } from "@/lib/triage/queries";
+import { getSuppressedFingerprints } from "@/lib/triage/queries";
 import { syncUserRepositories } from "@/lib/github/sync-user-repos";
 
 export const dynamic = "force-dynamic";
@@ -42,8 +42,15 @@ export default async function OverviewPage() {
 
   // Dismissed (FALSE_POSITIVE / IGNORED) findings must not count toward the
   // finding tiles or the severity distribution. Exclude them by fingerprint.
-  const { suppressedFingerprints } = await getUserTriage(userId);
-  const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
+  //
+  // `getSuppressedFingerprints`, not `getUserTriage`: this page only ever read
+  // the dismissed set, and the full lookup loaded every triage row the user
+  // owns — including the free-text notes nothing here renders (#689).
+  const { fingerprints: suppressedFingerprints } = await getSuppressedFingerprints(userId);
+  const notDismissed =
+    suppressedFingerprints.length > 0
+      ? { fingerprint: { notIn: suppressedFingerprints } }
+      : {};
 
   // 1. Fetch High-level Stats (Filtered by user's repositories)
   const totalScans = await prisma.scanResult.count({

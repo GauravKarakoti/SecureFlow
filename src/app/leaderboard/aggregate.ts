@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
+import { SUPPRESSED_STATUSES } from "@/lib/triage/statuses";
 import {
   assignRanks,
   computeContributorBadges,
@@ -22,12 +23,14 @@ const LEADERBOARD_REVALIDATE_SECONDS = 60;
 const PASSED_STATUS = "PASS";
 
 /**
- * Triage statuses that take a finding out of enforcement. Mirrors
- * `SUPPRESSED_STATUSES` in `@/lib/triage/queries`; kept local so this module
- * does not pull the triage query helpers (and their own Prisma calls) into the
- * leaderboard's cached path.
+ * Triage statuses that take a finding out of enforcement.
+ *
+ * This was a local copy of `SUPPRESSED_STATUSES`, kept so the leaderboard's
+ * cached path would not pull the triage query helpers — and their Prisma calls
+ * — in behind it. The reason was good; the duplication was the wrong answer to
+ * it. `@/lib/triage/statuses` holds the list and nothing else (#689).
  */
-const SUPPRESSED_TRIAGE_STATUSES = ["FALSE_POSITIVE", "IGNORED"] as const;
+const SUPPRESSED_TRIAGE_STATUSES = SUPPRESSED_STATUSES;
 
 /**
  * How many recent pull requests to read when computing per-author form.
