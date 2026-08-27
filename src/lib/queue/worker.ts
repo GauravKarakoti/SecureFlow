@@ -270,7 +270,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
   const { payload: rawPayload, event, deliveryId } = job.data;
 
   // Event Filtering
-  if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
+  if (!['pull_request', 'installation', 'installation_repositories', 'branch_protection_rule'].includes(event || '')) {
     console.log(`Event not tracked: ${sanitize(event)}`);
     return;
   }
