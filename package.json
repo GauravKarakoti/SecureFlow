@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "workspaces": [
+    "cli"
+  ],
   "scripts": {
     "dev": "concurrently \"next dev --turbopack -p 9002\" \"tsx scripts/prewarm.ts\"",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
@@ -16,6 +19,9 @@
     "test:coverage": "vitest run --coverage",
     "test:redteam": "vitest run src/ai/flows",
     "test:e2e": "playwright test",
+    "cli:build": "npm run build --workspace=cli",
+    "cli:test": "npm run test --workspace=cli",
+    "cli:typecheck": "tsc --noEmit --project cli/tsconfig.json",
     "db:gen": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",
