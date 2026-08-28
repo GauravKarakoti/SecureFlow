@@ -34,9 +34,9 @@ vi.mock('@/ai/genkit', () => ({
   securityExplanationModel: 'mock-security-model',
 }));
 
-vi.mock('openai', () => {
+vi.mock('groq-sdk', () => {
   return {
-    OpenAI: class {
+    default: class {
       chat = {
         completions: {
           create: vi.fn(async () => {

@@ -4,12 +4,19 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import {
+  isTriageStatus,
+  type TriageStatus as SharedTriageStatus,
+} from "@/lib/triage/statuses";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
 // and FALSE_POSITIVE / IGNORED additionally stop it BLOCKing the PR on re-scan.
-const TRIAGE_STATUSES = ["OPEN", "RESOLVED", "FALSE_POSITIVE", "IGNORED"] as const;
-export type TriageStatus = (typeof TRIAGE_STATUSES)[number];
+//
+// The list itself lives in @/lib/triage/statuses — this was the fourth
+// hand-written copy of the same strings (#689). Re-exported here because the
+// triage UI imports the type from this module.
+export type TriageStatus = SharedTriageStatus;
 
 export interface SetFindingStatusInput {
   repositoryId: string;
@@ -45,7 +52,7 @@ export async function setFindingStatus(
   if (!repositoryId || !fingerprint) {
     return { ok: false, error: "Missing finding reference" };
   }
-  if (!TRIAGE_STATUSES.includes(status)) {
+  if (!isTriageStatus(status)) {
     return { ok: false, error: "Invalid status" };
   }
 

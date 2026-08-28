@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { OpenAI } from 'openai';
+import Groq from 'groq-sdk';
 import { getVulnerabilityMetadata } from '../../database/vulnerabilityDb';
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
 import { ai, securityExplanationModel } from '@/ai/genkit';
@@ -12,7 +12,7 @@ import {
   type AISecurityExplanationOutput,
 } from './security-explanation-schemas';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build' });
 
 interface StreamOptions {
   vulnerabilityId: string;
@@ -41,10 +41,9 @@ Provide a concise explanation, architectural impact, and immediate remediation s
 
     // Optimization 2: Fine-tune hyper-parameters to minimize Time-to-First-Token (TTFT)
     // - Set 'stream: true' for instantaneous chunk emissions
-    // - Drop heavy reasoning models (like o1) for quick, stream-optimized models (like gpt-4o-mini)
-    // - Disable structural 'json_object' response formats to eliminate backend token-buffering lags
-    const responseStream = await openai.chat.completions.create({
-      model: process.env.STREAM_AI_MODEL || 'gpt-4o-mini',
+    // - Use Groq's low-latency streaming inference
+    const responseStream = await groq.chat.completions.create({
+      model: process.env.STREAM_AI_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: contextualPrompt }
@@ -202,4 +201,4 @@ export async function* streamDeveloperSecurityExplanations(
       message,
     };
   }
-}
+}

@@ -2,21 +2,10 @@ import prisma from "@/lib/prisma";
 import DashboardClient from "./dashboard-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { getUserTriage } from "@/lib/triage/queries";
-import { findingCategoryFilter, severityFilter } from "@/lib/finding-taxonomy";
+import { getSuppressedFingerprints } from "@/lib/triage/queries";
 import { syncUserRepositories } from "@/lib/github/sync-user-repos";
 
 export const dynamic = "force-dynamic";
-
-// Utility to safely strip the unsupported `mode: 'insensitive'` property 
-// without breaking the rest of the Prisma filter object.
-function safeFilter(filterObj: any) {
-  if (filterObj && typeof filterObj === "object" && !Array.isArray(filterObj)) {
-    const { mode, ...safe } = filterObj;
-    return safe;
-  }
-  return filterObj;
-}
 
 export default async function OverviewPage() {
   const session = await auth();
@@ -53,8 +42,15 @@ export default async function OverviewPage() {
 
   // Dismissed (FALSE_POSITIVE / IGNORED) findings must not count toward the
   // finding tiles or the severity distribution. Exclude them by fingerprint.
-  const { suppressedFingerprints } = await getUserTriage(userId);
-  const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
+  //
+  // `getSuppressedFingerprints`, not `getUserTriage`: this page only ever read
+  // the dismissed set, and the full lookup loaded every triage row the user
+  // owns — including the free-text notes nothing here renders (#689).
+  const { fingerprints: suppressedFingerprints } = await getSuppressedFingerprints(userId);
+  const notDismissed =
+    suppressedFingerprints.length > 0
+      ? { fingerprint: { notIn: suppressedFingerprints } }
+      : {};
 
   // 1. Fetch High-level Stats (Filtered by user's repositories)
   const totalScans = await prisma.scanResult.count({
@@ -69,9 +65,13 @@ export default async function OverviewPage() {
     where: { status: 'PASS', repository: { userId } }
   });
 
+  // `Finding.type` and `Finding.severity` are Prisma enums (#633), so the
+  // literals below are the column's own members and an exact match is the only
+  // thing that is valid here — `findingCategoryFilter` / `severityFilter` build
+  // the same filters and were imported here without ever being called (#686).
   const secretsDetected = await prisma.finding.count({
     where: {
-      type: "SECRET", // Exact enum match
+      type: "SECRET",
       scanResult: { pullRequest: { repository: { userId } } },
       ...notDismissed
     }

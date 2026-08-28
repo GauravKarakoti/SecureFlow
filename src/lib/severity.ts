@@ -125,6 +125,142 @@ export const SEVERITY_BADGE: Readonly<Record<Severity, string>> = {
   NONE: '⚪ NONE',
 };
 
+/**
+ * The severity levels the database can actually hold.
+ *
+ * `SEVERITY_ORDER` above is the *ranking* vocabulary — it exists so a threshold
+ * comparison has a total order, and it carries `NONE` as the "nothing found"
+ * bottom. The `FindingSeverity` enum in `prisma/schema.prisma` is a different
+ * list:
+ *
+ *     enum FindingSeverity { CRITICAL HIGH MEDIUM LOW INFO }
+ *
+ * It has no `NONE`, and it has an `INFO` that the ranking vocabulary folds into
+ * `LOW` as an alias. The two lists were treated as interchangeable, which broke
+ * in three directions at once (#686): `parseSeverityFilter` handed `'NONE'`
+ * straight into a Prisma enum filter and the findings page returned a 500;
+ * selecting the `INFO` option the severity dropdown offers normalised to an
+ * empty filter and silently did nothing; and `planSeverityPage`, walking
+ * `SEVERITY_ORDER`, emitted no slice for `INFO`, so those rows were counted in
+ * the pager and never rendered.
+ *
+ * So the storage vocabulary is declared here, next to the ranking one, and
+ * everything that builds a query or writes a row goes through it. Ordered most
+ * to least severe, like `SEVERITY_ORDER`; unlike `SEVERITY_ORDER` the order is
+ * not load-bearing for thresholds, only for the bucket walk in
+ * `planSeverityPage`.
+ */
+export const STORED_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const;
+
+export type StoredSeverity = (typeof STORED_SEVERITIES)[number];
+
+const STORED_CANONICAL = new Set<string>(STORED_SEVERITIES);
+
+/**
+ * Ranking level -> storage level.
+ *
+ * Only `NONE` needs a decision. It maps to `INFO` rather than being dropped:
+ * `INFO` is the enum's least-severe member, so a finding the scanner called
+ * "clean" still lands in a real bucket that the tiles, the filters and the
+ * pager can all see. Dropping it instead would mean a row the worker tried to
+ * write simply failing, which is what happens today.
+ */
+const RANK_TO_STORED: Readonly<Record<Severity, StoredSeverity>> = {
+  CRITICAL: 'CRITICAL',
+  HIGH: 'HIGH',
+  MEDIUM: 'MEDIUM',
+  LOW: 'LOW',
+  NONE: 'INFO',
+};
+
+/**
+ * Spellings that mean `INFO` in the storage vocabulary specifically.
+ *
+ * `SEVERITY_ALIASES` maps all of these onto `LOW` or `NONE`, which is the right
+ * answer when ranking — an informational note is not a finding you block a
+ * merge on. It is the wrong answer when deciding which enum member to store,
+ * because the enum has a dedicated member for exactly this and collapsing into
+ * `LOW` loses the distinction the column was migrated to preserve.
+ */
+const STORED_ALIASES: Readonly<Record<string, StoredSeverity>> = {
+  INFO: 'INFO',
+  INFORMATIONAL: 'INFO',
+  INFORMATION: 'INFO',
+  NOTICE: 'INFO',
+  NOTE: 'INFO',
+  NONE: 'INFO',
+  CLEAN: 'INFO',
+  PASS: 'INFO',
+  OK: 'INFO',
+  UNKNOWN: 'INFO',
+};
+
+/** Narrowing predicate for a value the `FindingSeverity` column accepts as-is. */
+export function isStoredSeverity(value: unknown): value is StoredSeverity {
+  return typeof value === 'string' && STORED_CANONICAL.has(value);
+}
+
+/**
+ * Resolve `value` to an enum member, or `null` when it means nothing at all.
+ *
+ * Total and never throws, like {@link parseSeverity}. Use this when "I could not
+ * tell" is a meaningful answer — a query filter, for instance, should drop an
+ * uninterpretable value rather than invent a bucket for it. Use
+ * {@link toStoredSeverity} when a value has to be produced regardless.
+ */
+export function parseStoredSeverity(value: unknown): StoredSeverity | null {
+  if (typeof value !== 'string') return null;
+
+  const key = value.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (!key) return null;
+
+  if (STORED_CANONICAL.has(key)) return key as StoredSeverity;
+
+  const stored = STORED_ALIASES[key];
+  if (stored) return stored;
+
+  const ranked = parseSeverity(value);
+  return ranked === null ? null : RANK_TO_STORED[ranked];
+}
+
+/**
+ * Resolve `value` to an enum member, falling back when it means nothing.
+ *
+ * The fallback is `MEDIUM` for the same reason `normalizeSeverity` defaults
+ * there: an unrecognised severity means the scanner found *something* and did
+ * not say how bad, and treating that as informational would quietly drop it out
+ * of enforcement.
+ *
+ * This is what the write path must use. `normalizeSeverity` can return `'NONE'`
+ * — for a scanner response saying `clean`, `pass`, `ok` or `unknown` — and
+ * `'NONE'` is not a `FindingSeverity` member, so persisting it fails the insert.
+ */
+export function toStoredSeverity(
+  value: unknown,
+  fallback: StoredSeverity = 'MEDIUM'
+): StoredSeverity {
+  return parseStoredSeverity(value) ?? fallback;
+}
+
+/**
+ * Position in `STORED_SEVERITIES`. Lower is more severe.
+ *
+ * Uninterpretable input ranks last, so a value nobody recognises can never sort
+ * itself to the top of a findings list.
+ */
+export function storedSeverityRank(value: unknown): number {
+  const stored = parseStoredSeverity(value);
+  return stored === null ? STORED_SEVERITIES.length : STORED_SEVERITIES.indexOf(stored);
+}
+
+/** Counts keyed by storage severity. Every key is always present. */
+export type StoredSeverityCountMap = Record<StoredSeverity, number>;
+
+/** A zeroed storage-severity count map. Fresh object each call. */
+export function emptyStoredSeverityCounts(): StoredSeverityCountMap {
+  return { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
+}
+
 /** Counts keyed by canonical severity. Every key is always present. */
 export type SeverityCountMap = Record<Severity, number>;
 
