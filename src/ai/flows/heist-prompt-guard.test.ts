@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, test, expect } from 'vitest';
 import {
   DEFAULT_PROJECT_NAME,
   MAX_PROJECT_NAME_LENGTH,
