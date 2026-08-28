@@ -65,4 +65,35 @@ describe("POST /api/repositories/sync route (#634)", () => {
     const data = await response.json();
     expect(data.error).toBe("Failed to synchronize repositories");
   });
+
+  it("handles monorepo sync optimization with shallow batch chunking (#674)", async () => {
+    const mockReq = {
+      json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1", branch: "main" }),
+      signal: { aborted: false },
+    } as any;
+
+    const response = await POST(mockReq);
+    expect(response.status).toBe(200);
+
+    const data = await response.json();
+    expect(data).toEqual({
+      success: true,
+      status: "COMPLETED",
+      synchronizedFilesCount: 4500,
+      batchesProcessed: 45,
+    });
+  });
+
+  it("returns 408 when monorepo sync is aborted by client signal (#674)", async () => {
+    const mockReq = {
+      json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1" }),
+      signal: { aborted: true },
+    } as any;
+
+    const response = await POST(mockReq);
+    expect(response.status).toBe(408);
+
+    const data = await response.json();
+    expect(data.error).toBe("Sync pipeline timed out or aborted by client");
+  });
 });
