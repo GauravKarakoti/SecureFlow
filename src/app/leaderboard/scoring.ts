@@ -26,16 +26,80 @@ export function computeSecurityScore(m: RepoMetrics): number {
 
 export type FormResult = "W" | "D" | "L";
 
+/**
+ * The `PRStatus` members, as they are spelled in `prisma/schema.prisma`.
+ *
+ * There are two vocabularies for a pull request's outcome in this codebase and
+ * they are not the same strings:
+ *
+ *  - `ArmorIQPolicyEngine.evaluateFindings` returns `PolicyResult`, whose
+ *    middle member is the human label `"REVIEW REQUIRED"` — with a space.
+ *  - `PullRequest.status` stores the Prisma enum, whose middle member is
+ *    `REVIEW_REQUIRED` — with an underscore. `normalizePrStatusEnum` is the
+ *    function that converts one into the other on the way to the database.
+ *
+ * `computeForm` reads rows that have already been through that conversion, and
+ * compared them against the pre-conversion label. `PASS` and `BLOCKED` happen
+ * to be spelled identically in both vocabularies, so only the middle case was
+ * wrong — and it was wrong silently, scoring every reviewed pull request as a
+ * loss (#703).
+ */
+export const PR_STATUS = {
+  PASS: "PASS",
+  REVIEW_REQUIRED: "REVIEW_REQUIRED",
+  BLOCKED: "BLOCKED",
+} as const;
+
+export type StoredPrStatus = (typeof PR_STATUS)[keyof typeof PR_STATUS];
+
+/**
+ * Interpret a stored status, tolerating the policy engine's spacing.
+ *
+ * `REVIEW REQUIRED`, `REVIEW_REQUIRED`, `review-required` and `Review Required`
+ * all mean the same thing. Normalising separators away means a row written by
+ * an older build, or by a code path that stored the label rather than the enum,
+ * is still read correctly instead of being quietly demoted to a loss — which is
+ * exactly the failure mode this replaces.
+ *
+ * Returns null for a value that means nothing to us, so the caller decides what
+ * an unknown status is worth rather than having "not a pass" assumed for it.
+ */
+export function parsePrStatus(status: unknown): StoredPrStatus | null {
+  if (typeof status !== "string") return null;
+
+  const clean = status.trim().toUpperCase().replace(/[\s_-]+/g, "");
+
+  if (clean === "PASS") return PR_STATUS.PASS;
+  if (clean === "REVIEWREQUIRED") return PR_STATUS.REVIEW_REQUIRED;
+  if (clean === "BLOCKED" || clean === "BLOCK") return PR_STATUS.BLOCKED;
+
+  return null;
+}
+
+/**
+ * The single-letter form entry for one pull request status.
+ *
+ * An unrecognised status is an `L`, matching the previous fall-through. That is
+ * the conservative direction for a public scoreboard: an outcome we cannot
+ * interpret should not be presented as a win.
+ */
+export function formResultFor(status: unknown): FormResult {
+  switch (parsePrStatus(status)) {
+    case PR_STATUS.PASS:
+      return "W";
+    case PR_STATUS.REVIEW_REQUIRED:
+      return "D";
+    default:
+      return "L";
+  }
+}
+
 export function computeForm(prs: { status: string; createdAt: Date }[]): FormResult[] {
   return prs
     .slice()
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, 5)
-    .map((pr) => {
-      if (pr.status === "PASS") return "W";
-      if (pr.status === "REVIEW REQUIRED") return "D";
-      return "L";
-    });
+    .map((pr) => formResultFor(pr.status));
 }
 
 export function computeBadges(m: RepoMetrics): Badge[] {
