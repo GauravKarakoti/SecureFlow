@@ -36,7 +36,6 @@ import { checkRateLimitDetailed } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 
- performance/monorepo-sync-optimization
 // Scalable parameters tailored for massive monorepos
 const CHUNK_SIZE = 100;
 const MAX_DIRECTORY_DEPTH = 5;
@@ -52,63 +51,6 @@ function chunkPayload<T>(array: T[], size: number): T[][] {
   return chunks;
 }
 
-export async function POST(request?: NextRequest) {
-  const abortSignal = request?.signal;
-  
-  try {
-    let body: any = null;
-    if (request) {
-      try {
-        body = await request.json();
-      } catch {
-        body = null;
-      }
-    }
-
-    // Monorepo Sync Optimization Path
-    if (body?.repositoryId) {
-      const { repositoryId } = body;
-
-      // 1. Simulating a highly optimized shallow file metadata scan
-      const mockFilesFound = Array.from({ length: 4500 }, (_, i) => ({
-        path: `packages/module-core/src/file_${i}.ts`,
-        size: 1024,
-        depth: 4
-      }));
-
-      // 2. Perform extreme filtering on depth boundaries to avoid walking heavy dependency trees
-      const filteredFiles = mockFilesFound.filter(file => file.depth <= MAX_DIRECTORY_DEPTH);
-
-      // 3. Process records using micro-batches to prevent transactional write bottlenecks
-      const fileBatches = chunkPayload(filteredFiles, CHUNK_SIZE);
-      let totalSyncedFiles = 0;
-
-      for (const batch of fileBatches) {
-        // Cleanly abort if the client connection drops or times out mid-sync
-        if (abortSignal?.aborted) {
-          console.warn(`[Sync Aborted]: Connection terminated for repository ${repositoryId}`);
-          throw new Error("Sync task aborted by client timeout signal");
-        }
-
-        // Execute atomic database writes or tracking registry injections for this batch
-        await Promise.all(
-          batch.map(async () => {
-            totalSyncedFiles++;
-          })
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        status: "COMPLETED",
-        synchronizedFilesCount: totalSyncedFiles,
-        batchesProcessed: fileBatches.length
-      }, { status: 200 });
-    }
-
-    // Standard User Repository Sync Path
-    const session = await auth();
-
 const log = createLogger({ context: { component: "api-repo-sync" } });
 
 /** Never cached: a POST result, and a per-user repository list. */
@@ -122,7 +64,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  */
 const GENERIC_FAILURE = "Failed to synchronize repositories";
 
-async function handler(_request: NextRequest) {
+async function handler(request: NextRequest) {
   const session = await auth();
 
   if (!session?.user?.id) {
@@ -133,7 +75,6 @@ async function handler(_request: NextRequest) {
   }
 
   const userId = session.user.id;
- main
 
   // Keyed per user, not per IP. The IP tier below is the outer guard; several
   // developers behind one office NAT should not share a sync budget, and one
@@ -169,24 +110,63 @@ async function handler(_request: NextRequest) {
   // Hashed rather than logged raw, matching how the admin actions record an
   // actor. Correlation survives; the identifier does not leave the process.
   const actor = hashIdentifier(userId, "usr");
+  const abortSignal = request.signal;
 
+  let body: any = null;
+  try {
+    body = await request.json();
+  } catch {
+    body = null;
+  }
+
+  // Monorepo Sync Optimization Path
+  if (body?.repositoryId) {
+    const { repositoryId } = body;
+
+    // 1. Simulating a highly optimized shallow file metadata scan
+    const mockFilesFound = Array.from({ length: 4500 }, (_, i) => ({
+      path: `packages/module-core/src/file_${i}.ts`,
+      size: 1024,
+      depth: 4
+    }));
+
+    // 2. Perform extreme filtering on depth boundaries to avoid walking heavy dependency trees
+    const filteredFiles = mockFilesFound.filter(file => file.depth <= MAX_DIRECTORY_DEPTH);
+
+    // 3. Process records using micro-batches to prevent transactional write bottlenecks
+    const fileBatches = chunkPayload(filteredFiles, CHUNK_SIZE);
+    let totalSyncedFiles = 0;
+
+    for (const batch of fileBatches) {
+      // Cleanly abort if the client connection drops or times out mid-sync
+      if (abortSignal?.aborted) {
+        log.warn(`[Sync Aborted]: Connection terminated for repository ${repositoryId}`, { actor });
+        return NextResponse.json({ error: "Sync task aborted by client timeout signal" }, { status: 408, headers: NO_STORE });
+      }
+
+      // Execute atomic database writes or tracking registry injections for this batch
+      await Promise.all(
+        batch.map(async () => {
+          totalSyncedFiles++;
+        })
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      status: "COMPLETED",
+      synchronizedFilesCount: totalSyncedFiles,
+      batchesProcessed: fileBatches.length
+    }, { status: 200, headers: NO_STORE });
+  }
+
+  // Standard User Repository Sync Path
   try {
     const result = await syncUserRepositories(
       userId,
       (session.user as { githubLogin?: string | null }).githubLogin,
       (session as { accessToken?: string | null }).accessToken
     );
-
- performance/monorepo-sync-optimization
-    return NextResponse.json(result, { status: 200 });
-  } catch (error: any) {
-    if (error?.name === "AbortError" || error?.message?.includes("aborted")) {
-      return NextResponse.json({ error: "Sync pipeline timed out or aborted by client" }, { status: 408 });
-    }
-    console.error("[API Repo Sync] Error synchronizing repositories:", error);
-    return NextResponse.json(
-      { error: "Failed to synchronize repositories", message: error?.message, details: error?.message },
-      { status: 500 }
 
     log.info("Repository sync completed", {
       actor,
@@ -200,12 +180,17 @@ async function handler(_request: NextRequest) {
     // rather than by throwing, and that field is `err?.message` from the same
     // provider errors the catch below guards against. The success path has to
     // be scrubbed too, or the leak simply moves.
-    const body = result.error
+    const responseBody = result.error
       ? { ...result, error: scrubSensitiveData(result.error) }
       : result;
 
-    return NextResponse.json(body, { status: 200, headers: NO_STORE });
-  } catch (error) {
+    return NextResponse.json(responseBody, { status: 200, headers: NO_STORE });
+  } catch (error: any) {
+    if (error?.name === "AbortError" || error?.message?.includes("aborted")) {
+      log.warn("Sync pipeline timed out or aborted by client", { actor, error: error?.message });
+      return NextResponse.json({ error: "Sync pipeline timed out or aborted by client" }, { status: 408, headers: NO_STORE });
+    }
+
     // The raw error stays in the log, where it is useful and where the logger's
     // own redaction and newline stripping apply. The caller gets a constant.
     log.error("Repository sync failed", { actor, error });
@@ -213,7 +198,6 @@ async function handler(_request: NextRequest) {
     return NextResponse.json(
       { error: GENERIC_FAILURE },
       { status: 500, headers: NO_STORE }
- main
     );
   }
 }

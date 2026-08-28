@@ -129,6 +129,7 @@ describe("POST /api/repositories/sync route (#634)", () => {
     const mockReq = {
       json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1", branch: "main" }),
       signal: { aborted: false },
+      headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
     } as any;
 
     const response = await POST(mockReq);
@@ -147,13 +148,14 @@ describe("POST /api/repositories/sync route (#634)", () => {
     const mockReq = {
       json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1" }),
       signal: { aborted: true },
+      headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
     } as any;
 
     const response = await POST(mockReq);
     expect(response.status).toBe(408);
 
     const data = await response.json();
-    expect(data.error).toBe("Sync pipeline timed out or aborted by client");
+    expect(data.error).toBe("Sync task aborted by client timeout signal");
   });
 });
 
