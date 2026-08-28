@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SUPPRESSED_STATUSES } from '@/lib/triage/queries';
-import { SEVERITY_ORDER } from '@/lib/severity';
+import { SEVERITY_ORDER, STORED_SEVERITIES } from '@/lib/severity';
 import {
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
@@ -399,9 +399,9 @@ describe('planSeverityPage', () => {
     expect(planSeverityPage(counts, 99, 5)).toEqual([]);
   });
 
-  it('never spans more buckets than there are severities', () => {
-    const plan = planSeverityPage({ CRITICAL: 1, HIGH: 1, MEDIUM: 1, LOW: 1, NONE: 1 }, 1, 100);
-    expect(plan.length).toBeLessThanOrEqual(SEVERITY_ORDER.length);
+  it('never spans more buckets than the column has members', () => {
+    const plan = planSeverityPage({ CRITICAL: 1, HIGH: 1, MEDIUM: 1, LOW: 1, INFO: 1 }, 1, 100);
+    expect(plan.length).toBeLessThanOrEqual(STORED_SEVERITIES.length);
   });
 
   it('requests exactly pageSize rows when enough exist', () => {
@@ -411,7 +411,7 @@ describe('planSeverityPage', () => {
 
   it('emits slices in canonical severity order', () => {
     const plan = planSeverityPage(counts, 1, 20);
-    const order = plan.map((slice) => SEVERITY_ORDER.indexOf(slice.severity));
+    const order = plan.map((slice) => STORED_SEVERITIES.indexOf(slice.severity));
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 

@@ -429,6 +429,10 @@ export interface AuditLogQuery {
   search?: string;
   page?: number;
   pageSize?: number;
+  // Inclusive bounds on `timestamp`, matching the dashboard's own audit-log
+  // duration filter (`UserAuditLogQuery` in `lib/actions/audit.ts`).
+  startDate?: Date;
+  endDate?: Date;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   type FindingStatus,
   type FindingsQuery,
 } from "@/lib/findings/query";
+import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 
 /**
  * Server actions for the Security Findings dashboard (#561).
@@ -166,20 +167,26 @@ export async function getUserFindings(
   let rows: any[];
 
   if (requiresSeverityPlan(normalized.sort)) {
-    // `Finding.severity` is a String column, so `orderBy: { severity: 'asc' }`
-    // sorts alphabetically and puts LOW above MEDIUM. Severity has five values,
-    // so the page is planned as a bounded walk over the buckets instead — see
-    // planSeverityPage. Each slice is an ordinary indexed skip/take, and at most
-    // five of them can span one page.
+    // `orderBy: { severity: 'asc' }` sorts by the enum's declaration order,
+    // which is not the severity order the UI means, and reversing it does not
+    // help either. The column has five values, so the page is planned as a
+    // bounded walk over the buckets instead — see planSeverityPage. Each slice
+    // is an ordinary indexed skip/take, and at most five of them span one page.
     const grouped = await prisma.finding.groupBy({
       by: ["severity"],
       where: listWhere,
       _count: { _all: true },
     });
 
-    const counts: Record<string, number> = {};
+    // Keyed through `parseStoredSeverity` rather than by upper-casing the raw
+    // column value, so the keys are guaranteed to be the same five buckets
+    // `planSeverityPage` walks. A row the parser cannot place is left out of the
+    // plan rather than creating a bucket nothing will ever read (#686).
+    const counts: Partial<Record<StoredSeverity, number>> = {};
     for (const row of grouped as Array<{ severity: string; _count: { _all: number } }>) {
-      counts[row.severity.toUpperCase()] = row._count._all;
+      const bucket = parseStoredSeverity(row.severity);
+      if (!bucket) continue;
+      counts[bucket] = (counts[bucket] ?? 0) + row._count._all;
     }
 
     const slices = planSeverityPage(counts, page, normalized.pageSize);

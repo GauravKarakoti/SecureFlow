@@ -121,6 +121,27 @@ describe('getAuditLogs — actor lookup', () => {
 
     expect((auditFindMany.mock.calls[0][0] as any).take).toBe(200);
   });
+
+  it('passes a duration filter through to the timestamp range, like the dashboard audit log', async () => {
+    const startDate = new Date('2026-01-01T00:00:00.000Z');
+    const endDate = new Date('2026-01-31T23:59:59.999Z');
+
+    await getAuditLogs({ startDate, endDate });
+
+    const args = auditFindMany.mock.calls[0][0] as any;
+    expect(args.where).toEqual({ timestamp: { gte: startDate, lte: endDate } });
+  });
+
+  it('combines the duration filter with action and search', async () => {
+    const startDate = new Date('2026-01-01T00:00:00.000Z');
+
+    await getAuditLogs({ action: 'SCAN_TRIGGERED', search: 'repo', startDate });
+
+    const args = auditFindMany.mock.calls[0][0] as any;
+    expect(args.where.action).toBe('SCAN_TRIGGERED');
+    expect(args.where.timestamp).toEqual({ gte: startDate });
+    expect(args.where.OR).toHaveLength(3);
+  });
 });
 
 describe('getAuditLogFilters', () => {

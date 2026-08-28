@@ -25,6 +25,16 @@
  * a Postgres/Redis URL with an inline password, any other `scheme://user:pass@`
  * authority, and a `SOMETHING_SECRET=value` pair from an environment dump.
  */
+/**
+ * Credential shapes that identify themselves by their issuer prefix.
+ *
+ * Kept in step with the same shapes `@/lib/armor/secret-masking` recognises in
+ * scanned source; the difference is that this module runs over error messages
+ * and log lines rather than over a diff.
+ */
+const TOKEN_PREFIXES =
+  /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9\-_]{16,}|sk-(?:proj-)?[A-Za-z0-9\-_]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/g;
+
 export function scrubCredentials(text: string): string {
   if (!text) return text;
   let sanitized = text;
@@ -43,6 +53,23 @@ export function scrubCredentials(text: string): string {
   sanitized = sanitized.replace(
     /[\w.-]*(?:key|secret|token|password|auth|db_url|database_url)[\w.-]*\s*=\s*[^\s]+/gi,
     '[REDACTED_SECRET]'
+  );
+
+  // A credential quoted in prose rather than assigned to anything. The rules
+  // above are all shaped around `name=value` or a URL authority, so a provider
+  // message such as `Bad credentials for token ghp_…` went through untouched —
+  // and that is precisely the message GitHub returns (#690).
+  //
+  // Matched on the issuer prefixes rather than on entropy: these are
+  // unambiguous, so there is no false positive to trade against. Ordinary hex
+  // digests and base64 blobs are deliberately left alone, since a fingerprint
+  // in a log line is evidence rather than a leak.
+  sanitized = sanitized.replace(TOKEN_PREFIXES, '[REDACTED_TOKEN]');
+
+  // `Authorization: Bearer <token>` as it appears in an HTTP client's error.
+  sanitized = sanitized.replace(
+    /\b(Bearer|Basic|Token)\s+[A-Za-z0-9\-._~+/]{8,}=*/gi,
+    '$1 [REDACTED_TOKEN]'
   );
 
   return sanitized;

@@ -12,7 +12,7 @@ import { App } from 'octokit';
 import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
-import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
+import { severityBadge, toStoredSeverity, totalRiskScore } from '@/lib/severity';
 import {
   normalizeFindingTypeEnum,
   normalizePolicyDecisionEnum,
@@ -270,7 +270,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
   const { payload: rawPayload, event, deliveryId } = job.data;
 
   // Event Filtering
-  if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
+  if (!['pull_request', 'installation', 'installation_repositories', 'branch_protection_rule'].includes(event || '')) {
     console.log(`Event not tracked: ${sanitize(event)}`);
     return;
   }
@@ -811,7 +811,10 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
             findings: {
               create: findingsToPersist.map((f: any) => ({
                 type: normalizeFindingTypeEnum(f.type),
-                severity: normalizeSeverity(f.severity),
+                // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                // not a `FindingSeverity` member, so the insert fails outright (#686).
+                severity: toStoredSeverity(f.severity),
                 fileLocation: f.fileLocation,
                 lineStart: typeof f.lineStart === 'number' ? f.lineStart : null,
                 lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : null,
