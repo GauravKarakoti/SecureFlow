@@ -22,9 +22,34 @@ import {
   Search 
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import type { BulkDlqResult } from "@/lib/queue/dlq";
 
 interface DLQTableProps {
   initialJobs: any[];
+}
+
+/**
+ * Ids the server is finished with, so the row can leave the table.
+ *
+ * "Processed" means requeued or deleted; "missing" means it was already gone.
+ * A skipped or failed entry is still in the DLQ, so its row stays — previously
+ * every bulk action cleared the rows it was asked about regardless of what
+ * actually happened to them (#656).
+ */
+function settledIds(result: BulkDlqResult): Set<string> {
+  const ids = new Set<string>();
+
+  for (const entry of result.results) {
+    if (entry.outcome !== "processed" && entry.outcome !== "missing") continue;
+    if (entry.descriptor.jobId) ids.add(entry.descriptor.jobId);
+  }
+
+  return ids;
+}
+
+/** Whether a bulk operation completed with nothing left behind. */
+function isClean(result: BulkDlqResult): boolean {
+  return result.skipped === 0 && result.failed === 0 && !result.truncated;
 }
 
 type OptimisticDLQAction =
@@ -172,11 +197,17 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
       try {
         const res = await requeueBulkDLQJobs(targetIds);
         if (res.success) {
-          setJobs((prev) => prev.filter((j) => !targetIds.includes(j.id)));
-          setSelectedJobIds([]);
+          // Only drop the rows the action actually moved. A bulk operation is
+          // no longer all-or-nothing: an entry with no usable payload is
+          // skipped and an entry that errored is reported, and both stay in
+          // the DLQ where the operator can still see them (#656).
+          const settled = settledIds(res);
+          setJobs((prev) => prev.filter((j) => !settled.has(j.id)));
+          setSelectedJobIds((prev) => prev.filter((id) => !settled.has(id)));
           toast({
-            title: "Jobs Requeued",
-            description: `Successfully requeued ${res.count ?? count} job(s) back to the main queue.`,
+            variant: res.count === count ? "default" : "destructive",
+            title: res.count === count ? "Jobs Requeued" : "Requeued With Exceptions",
+            description: res.summary,
           });
         } else {
           throw new Error((res as any).error || "Failed to requeue jobs.");
@@ -200,11 +231,13 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
       try {
         const res = await deleteBulkDLQJobs(targetIds);
         if (res.success) {
-          setJobs((prev) => prev.filter((j) => !targetIds.includes(j.id)));
-          setSelectedJobIds([]);
+          const settled = settledIds(res);
+          setJobs((prev) => prev.filter((j) => !settled.has(j.id)));
+          setSelectedJobIds((prev) => prev.filter((id) => !settled.has(id)));
           toast({
-            title: "Jobs Deleted",
-            description: `Successfully deleted ${res.count ?? count} job(s) from the DLQ.`,
+            variant: res.count === count ? "default" : "destructive",
+            title: res.count === count ? "Jobs Deleted" : "Deleted With Exceptions",
+            description: res.summary,
           });
         } else {
           throw new Error((res as any).error || "Failed to delete jobs.");
@@ -226,11 +259,13 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
       try {
         const res = await requeueAllDLQ();
         if (res.success) {
-          setJobs([]);
-          setSelectedJobIds([]);
+          const settled = settledIds(res);
+          setJobs((prev) => prev.filter((j) => !settled.has(j.id)));
+          setSelectedJobIds((prev) => prev.filter((id) => !settled.has(id)));
           toast({
-            title: "All Jobs Requeued",
-            description: "All DLQ jobs have been returned to the processing queue.",
+            variant: isClean(res) ? "default" : "destructive",
+            title: isClean(res) ? "All Jobs Requeued" : "Requeued With Exceptions",
+            description: res.summary,
           });
         } else {
           throw new Error((res as any).error || "Failed to requeue all jobs.");
@@ -252,11 +287,13 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
       try {
         const res = await clearAllDLQ();
         if (res.success) {
-          setJobs([]);
-          setSelectedJobIds([]);
+          const settled = settledIds(res);
+          setJobs((prev) => prev.filter((j) => !settled.has(j.id)));
+          setSelectedJobIds((prev) => prev.filter((id) => !settled.has(id)));
           toast({
-            title: "DLQ Cleared",
-            description: "All DLQ jobs have been permanently deleted.",
+            variant: isClean(res) ? "default" : "destructive",
+            title: isClean(res) ? "DLQ Cleared" : "Cleared With Exceptions",
+            description: res.summary,
           });
         } else {
           throw new Error((res as any).error || "Failed to clear DLQ.");

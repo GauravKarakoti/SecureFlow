@@ -1,86 +1,42 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest, NextResponse } from 'next/server';
 import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
+import { loadOrbitron } from '@/lib/og/fonts';
+import {
+  CARD_HEIGHT,
+  CARD_WIDTH,
+  cacheControlFor,
+  parseHeistCardParams,
+} from '@/lib/og/heist-card';
 
 // Node.js runtime (not edge): the IP rate limiter is backed by the redis
-// (ioredis) client, which is not available in the edge runtime.
+// (ioredis) client, which is not available in the edge runtime, and the font
+// loader reads `public/fonts` off local disk.
 export const runtime = 'nodejs';
-
-async function loadFontBuffer(req: NextRequest, fontFileName: string, relativePath: string): Promise<ArrayBuffer> {
-  try {
-    const originUrl = new URL(`/fonts/${fontFileName}`, req.url);
-    const res = await fetch(originUrl.href);
-    if (res && res.ok !== false) {
-      return await res.arrayBuffer();
-    }
-  } catch {
-    // continue to next fallback
-  }
-
-  try {
-    const localUrl = new URL(relativePath, import.meta.url);
-    const res = await fetch(localUrl);
-    if (res && res.ok !== false) {
-      return await res.arrayBuffer();
-    }
-  } catch {
-    // continue to next fallback
-  }
-
-  const cdnUrl = fontFileName.includes('Bold')
-    ? 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65bvq8.ttf'
-    : 'https://fonts.gstatic.com/s/orbitron/v31/yDirect4mAydbld1e65dqv248s.ttf';
-  const cdnRes = await fetch(cdnUrl);
-  if (!cdnRes || cdnRes.ok === false) {
-    throw new Error(`Failed to load font ${fontFileName}`);
-  }
-  return await cdnRes.arrayBuffer();
-}
 
 async function handleGet(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const [regular, bold] = await Promise.all([
-      loadFontBuffer(req, 'Orbitron-Regular.ttf', '../../../../../public/fonts/Orbitron-Regular.ttf'),
-      loadFontBuffer(req, 'Orbitron-Bold.ttf', '../../../../../public/fonts/Orbitron-Bold.ttf'),
-    ]);
+    // Loaded from disk and cached for the life of the process. This used to be
+    // two HTTP round trips per request, to an origin derived from the incoming
+    // request's own Host header (#687).
+    const { regular, bold } = await loadOrbitron();
 
-    const project = (
-      searchParams.get('project') || 'Classified Target'
-    )
-      .trim()
-      .slice(0, 60);
+    const {
+      project,
+      alias,
+      score: scoreNumber,
+      rank,
+      findingsCount,
+      stolen,
+      theme,
+      timestamp,
+      timestampPinned,
+    } = parseHeistCardParams(searchParams);
 
-    const alias = (
-      searchParams.get('alias') || 'The Professor'
-    )
-      .trim()
-      .slice(0, 30);
-
-    const rawScore = Number(searchParams.get('score') ?? 100);
-
-    const scoreNum = Math.max(
-      0,
-      Math.min(100, Number.isNaN(rawScore) ? 100 : rawScore)
-    );
-    const score = scoreNum.toString();
-
-    const rawRank = searchParams.get('rank')?.trim().toUpperCase();
-    const validRanks = new Set(['S', 'A', 'B', 'C', 'D']);
-    const rank = rawRank && validRanks.has(rawRank) ? rawRank : undefined;
-
-    const rawFindings = searchParams.get('findingsCount') ?? searchParams.get('findings');
-    const findingsCount =
-      rawFindings !== null && rawFindings !== undefined && !Number.isNaN(Number(rawFindings))
-        ? Math.max(0, Number(rawFindings)).toString()
-        : undefined;
-
-    const rawStolen = searchParams.get('stolen') ?? searchParams.get('amount');
-    const stolen = rawStolen ? rawStolen.trim().slice(0, 30) : undefined;
-
-    const themeParam = searchParams.get('theme')?.toLowerCase() || 'heist';
-    const isGlitchTheme = themeParam === 'glitch' || themeParam === 'matrix';
+    const score = String(scoreNumber);
+    const isGlitchTheme = theme === 'glitch';
 
     const borderColor = isGlitchTheme ? '#22c55e' : '#dc2626';
     const accentColor = isGlitchTheme ? '#22c55e' : '#ef4444';
@@ -90,13 +46,6 @@ async function handleGet(req: NextRequest) {
     const bannerText = isGlitchTheme
       ? 'SYSTEM GLITCH // TRANSMISSION ACTIVE'
       : 'INCOMING TRANSMISSION...';
-
-    const timestamp =
-      searchParams.get('timestamp') ||
-      new Date().toLocaleString('en-US', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
 
     return new ImageResponse(
       (
@@ -355,8 +304,8 @@ async function handleGet(req: NextRequest) {
         </div>
       ) as React.ReactElement,
       {
-        width: 1200,
-        height: 630,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
          fonts: [
            {
              name: 'Orbitron',
@@ -372,8 +321,10 @@ async function handleGet(req: NextRequest) {
            },
          ],
         headers: {
-          'Cache-Control':
-            'public, max-age=31536000, immutable',
+          // `immutable` only when the URL pins every input. Without an explicit
+          // `timestamp` the card embeds its own render time, so freezing it for
+          // a year meant the first view's clock was served to every later one.
+          'Cache-Control': cacheControlFor({ timestampPinned }),
         },
       }
     );
@@ -392,9 +343,10 @@ async function handleGet(req: NextRequest) {
   }
 }
 
-// Public, unauthenticated route that fetches remote fonts and renders an image:
-// rate-limit by IP so it can't be hammered to exhaust CPU (client-ip.ts even
-// names /api/og/heist as the canonical example of a route that must be limited).
+// Public, unauthenticated route that renders an image: rate-limit by IP so it
+// can't be hammered to exhaust CPU (client-ip.ts even names /api/og/heist as the
+// canonical example of a route that must be limited). The limit bounds how many
+// requests a caller makes; parseHeistCardParams bounds what each one costs.
 export const GET = withRateLimit(
   handleGet as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
   { ...TIERS.STANDARD, keyPrefix: 'og:heist:ip' }

@@ -102,6 +102,32 @@ describe('buildAuditLogWhere', () => {
     const where = buildAuditLogWhere({ search: '  repo  ' }) as { OR: Array<Record<string, any>> };
     expect(where.OR[0].action.contains).toBe('repo');
   });
+
+  it('applies an inclusive timestamp range when both bounds are given', () => {
+    const startDate = new Date('2026-01-01T00:00:00.000Z');
+    const endDate = new Date('2026-01-31T23:59:59.999Z');
+
+    expect(buildAuditLogWhere({ startDate, endDate })).toEqual({
+      timestamp: { gte: startDate, lte: endDate },
+    });
+  });
+
+  it('supports an open-ended range with only a start or only an end date', () => {
+    const startDate = new Date('2026-01-01T00:00:00.000Z');
+    const endDate = new Date('2026-01-31T23:59:59.999Z');
+
+    expect(buildAuditLogWhere({ startDate })).toEqual({ timestamp: { gte: startDate } });
+    expect(buildAuditLogWhere({ endDate })).toEqual({ timestamp: { lte: endDate } });
+  });
+
+  it('combines the date range with the other filters', () => {
+    const startDate = new Date('2026-01-01T00:00:00.000Z');
+
+    expect(buildAuditLogWhere({ action: 'SCAN_TRIGGERED', startDate })).toEqual({
+      action: 'SCAN_TRIGGERED',
+      timestamp: { gte: startDate },
+    });
+  });
 });
 
 describe('buildUserWhere', () => {

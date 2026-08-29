@@ -9,6 +9,7 @@ import {
 import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
 import { normalizeSeverity, type Severity } from '@/lib/severity';
 import { parseUnifiedPatch, renderNumberedLines } from './diff';
+import { ignoreReasonFor, shouldIgnorePath } from './ignore-rules';
 
 export type ScanFinding = {
   type: string;
@@ -74,16 +75,20 @@ const MAX_RETRY_WAIT_MS = 15_000; // cap on any single rate-limit backoff wait
 const MAX_SANITIZE_ITERATIONS = 5;
 const MAX_SANITIZED_LENGTH = 100_000;
 
-// Non-executable text, assets, metadata or dependency configurations that shouldn't be audited
-const IGNORED_EXTENSIONS = [
-  'lock.json', '.lock', 'lock.yaml', '.csv',
-  '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip', '.gz',
-  '.md', 'tsconfig.json'
-];
-
-const IGNORED_PATHS = [
-  'dist/', 'build/', '.next/', 'node_modules/', 'prisma/migrations/'
-];
+// The ignore rules themselves moved to `./ignore-rules` (#704). They were three
+// `.includes()` checks against the whole path, which is substring matching with
+// no directory or filename boundary: `'build/'` also matched `prebuild/`,
+// `'dist/'` also matched `redist/`, and `'package.json'` also matched
+// `tools/package.json.generator.ts`. Every one of those files was dropped from
+// the scan with no warning, and the pull request still got a clean report.
+//
+// Re-exported so the existing importers of the constants are unchanged.
+export {
+  IGNORED_EXTENSIONS,
+  IGNORED_DIRECTORIES,
+  IGNORED_BASENAMES,
+  ignoreReasonFor,
+} from './ignore-rules';
 
 export interface SecureFlowIgnoreConfig {
   ignoredPaths: string[];
@@ -161,32 +166,17 @@ export function compileIgnorePatterns(patterns: string[]): RegExp[] {
     });
 }
 
+/**
+ * Whether the scanner should skip `filename`.
+ *
+ * Kept here with its original name and signature — roughly ten call sites and
+ * their tests import it from this module — but the matching now lives in
+ * `./ignore-rules`, where directory rules are matched on path segments and
+ * configuration files on the basename. See that module for why the previous
+ * substring matching was a security problem rather than a tidiness one.
+ */
 export function shouldIgnore(filename: string, customIgnores: RegExp[] = []): boolean {
-  const lower = filename.toLowerCase();
-  
-  // 1. Path-level exclusions
-  if (IGNORED_PATHS.some(path => lower.includes(path))) {
-    return true;
-  }
-  
-  // 2. Extension-level exclusions
-  if (IGNORED_EXTENSIONS.some(ext => lower.endsWith(ext))) {
-    return true;
-  }
-
-  // 3. Ignore configuration wrappers (Note: .env.example is intentionally NOT ignored here)
-  const ignorePatterns = ['package.json', 'components.json', 'prisma.config.ts', '.gitignore'];
-  if (ignorePatterns.some(pattern => lower.includes(pattern))) {
-    return true;
-  }
-
-  // 4. Custom ignores matching
-  const normalizedPath = filename.replace(/\\/g, '/');
-  if (customIgnores.some(regex => regex.test(normalizedPath))) {
-    return true;
-  }
-
-  return false;
+  return shouldIgnorePath(filename, customIgnores);
 }
 
 /**
@@ -448,8 +438,13 @@ export class ArmorIQScanner {
         break;
       }
 
-      if (shouldIgnore(file.filename, compiledCustomIgnores)) {
-        console.log(`🛡️ Skipping ignored file: ${file.filename}`);
+      // The reason is logged alongside the filename. A file that is skipped is
+      // a file the scan never read, and the pull request still gets a clean
+      // report — so when a skip is wrong, the log line naming the rule that
+      // fired is the only thing that makes it findable.
+      const ignoreReason = ignoreReasonFor(file.filename, compiledCustomIgnores);
+      if (ignoreReason) {
+        console.log(`🛡️ Skipping ignored file (${ignoreReason}): ${file.filename}`);
         continue;
       }
 

@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// 1. Mock fetch globally BEFORE importing the route
-vi.hoisted(() => {
-  const mockArrayBuffer = new ArrayBuffer(8);
-  global.fetch = vi.fn().mockResolvedValue({
-    arrayBuffer: vi.fn().mockResolvedValue(mockArrayBuffer),
-  });
+// 1. Stub the font loader. It used to be `fetch(new URL('/fonts/…', req.url))`
+// on every request — an HTTP round trip to an origin derived from the incoming
+// Host header — so the tests stubbed global.fetch. Fonts now come off local
+// disk through @/lib/og/fonts, cached for the life of the process (#687), and
+// this stub is what lets a test drive the failure path deliberately.
+let mockFontsFail = false;
+const mockLoadOrbitron = vi.fn(async () => {
+  if (mockFontsFail) throw new Error('Failed to load font files');
+  return { regular: new ArrayBuffer(8), bold: new ArrayBuffer(8) };
 });
+vi.mock('@/lib/og/fonts', () => ({
+  loadOrbitron: (...args: unknown[]) => mockLoadOrbitron(...(args as [])),
+}));
 
 // 2. Mock next/og to return a simple mock ImageResponse
 const mockImageResponseConstructor = vi.fn();
@@ -66,9 +72,10 @@ vi.mock('@/lib/middleware/rate-limit', () => ({
 describe('GET /api/og/heist', () => {
   beforeEach(() => {
     mockImageResponseConstructor.mockClear();
-    vi.mocked(global.fetch).mockClear();
+    mockLoadOrbitron.mockClear();
     vi.resetModules();
     mockIpAllowed = true;
+    mockFontsFail = false;
   });
 
   it('rate-limits the route by IP: returns 429 when the IP budget is exceeded (#579)', async () => {
@@ -234,8 +241,7 @@ describe('GET /api/og/heist', () => {
   });
 
   it('returns status 500 when font loading or parsing fails', async () => {
-    // Override fetch mock to reject, simulating a network / file read failure
-    vi.mocked(global.fetch).mockRejectedValue(new Error('Failed to load font files'));
+    mockFontsFail = true;
 
     const { GET } = await import('./route');
     const { NextRequest } = await import('next/server');
@@ -252,5 +258,77 @@ describe('GET /api/og/heist', () => {
     // A transient failure must never be cached: the error path sends no-store,
     // so a one-off font-CDN blip can't freeze a broken image for a year (#581).
     expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+
+  it('does not promise immutability for a card that embeds its own render time', async () => {
+    // Every success used to carry `public, max-age=31536000, immutable`. With no
+    // `timestamp` parameter the body embeds `new Date()`, so the first view's
+    // clock was served to every later view for a year (#687).
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const res = await GET(new NextRequest('http://localhost/api/og/heist') as any);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).not.toContain('immutable');
+    expect(res.headers.get('Cache-Control')).toContain('s-maxage=');
+  });
+
+  it('does promise immutability once the URL pins the timestamp', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/og/heist?timestamp=Aug%2027%2C%202026') as any
+    );
+
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('bounds the timestamp parameter, which previously had no cap', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    const res = await GET(
+      new NextRequest(`http://localhost/api/og/heist?timestamp=${'T'.repeat(60_000)}`) as any
+    );
+
+    expect(res.status).toBe(200);
+    const elementString = JSON.stringify(mockImageResponseConstructor.mock.calls[0][0]);
+    expect(elementString).not.toContain('T'.repeat(41));
+  });
+
+  it('omits the findings counter for an empty parameter', async () => {
+    // `Number('')` is 0 and is not NaN, so `?findings=` used to render
+    // "Findings Logged: 0" for a caller who supplied no count at all.
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    await GET(new NextRequest('http://localhost/api/og/heist?findings=') as any);
+
+    const elementString = JSON.stringify(mockImageResponseConstructor.mock.calls[0][0]);
+    expect(elementString).not.toContain('Findings Logged');
+  });
+
+  it('does not render exponent notation for an absurd findings count', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    await GET(new NextRequest('http://localhost/api/og/heist?findings=1e21') as any);
+
+    const elementString = JSON.stringify(mockImageResponseConstructor.mock.calls[0][0]);
+    expect(elementString).toContain('Findings Logged');
+    expect(elementString).not.toContain('1e+21');
+  });
+
+  it('loads fonts through the cached loader rather than per-request HTTP', async () => {
+    const { GET } = await import('./route');
+    const { NextRequest } = await import('next/server');
+
+    await GET(new NextRequest('http://localhost/api/og/heist') as any);
+
+    // One call for both weights, and it takes no request-derived argument.
+    expect(mockLoadOrbitron).toHaveBeenCalledTimes(1);
+    expect(mockLoadOrbitron).toHaveBeenCalledWith();
   });
 });

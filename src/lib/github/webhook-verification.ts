@@ -18,6 +18,7 @@ export const TRACKED_EVENTS = [
   'pull_request',
   'installation',
   'installation_repositories',
+  'branch_protection_rule',
 ] as const;
 
 export type TrackedEvent = (typeof TRACKED_EVENTS)[number];

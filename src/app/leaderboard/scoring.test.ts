@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
+  PR_STATUS,
   assignRanks,
   computeBadges,
   computeContributorBadges,
   computeContributorScore,
   computeForm,
   computeSecurityScore,
+  formResultFor,
   formatBounty,
+  parsePrStatus,
   type ContributorMetrics,
   type RepoMetrics,
   type SeverityCounts,
@@ -170,7 +173,7 @@ describe("computeForm", () => {
   it("maps statuses to W / D / L", () => {
     const form = computeForm([
       { status: "PASS", createdAt: at(3) },
-      { status: "REVIEW REQUIRED", createdAt: at(2) },
+      { status: "REVIEW_REQUIRED", createdAt: at(2) },
       { status: "BLOCKED", createdAt: at(1) },
     ]);
     expect(form).toEqual(["W", "D", "L"]);
@@ -180,7 +183,7 @@ describe("computeForm", () => {
     const form = computeForm([
       { status: "BLOCKED", createdAt: at(1) },
       { status: "PASS", createdAt: at(5) },
-      { status: "REVIEW REQUIRED", createdAt: at(3) },
+      { status: "REVIEW_REQUIRED", createdAt: at(3) },
     ]);
     expect(form).toEqual(["W", "D", "L"]);
   });
@@ -206,6 +209,67 @@ describe("computeForm", () => {
 
   it("returns an empty array for a contributor with no PRs", () => {
     expect(computeForm([])).toEqual([]);
+  });
+
+  it("scores the value the database actually stores as a draw, not a loss", () => {
+    // The regression. `PullRequest.status` is the Prisma `PRStatus` enum, whose
+    // middle member is `REVIEW_REQUIRED`. `computeForm` used to compare against
+    // the policy engine's pre-normalisation label `"REVIEW REQUIRED"`, which no
+    // row has ever held, so every reviewed pull request scored as an L —
+    // indistinguishable from one blocked for a critical finding.
+    expect(computeForm([{ status: "REVIEW_REQUIRED", createdAt: at(1) }])).toEqual(["D"]);
+  });
+
+  it("keeps reading the legacy spaced label, for rows written by an older build", () => {
+    expect(computeForm([{ status: "REVIEW REQUIRED", createdAt: at(1) }])).toEqual(["D"]);
+  });
+});
+
+describe("parsePrStatus", () => {
+  it("pins the spelling of the enum this module compares against", () => {
+    // If `prisma/schema.prisma` ever renames a `PRStatus` member, this is the
+    // assertion that should fail — rather than the leaderboard quietly showing
+    // the wrong letter, which is how the original bug survived review.
+    expect(PR_STATUS).toEqual({
+      PASS: "PASS",
+      REVIEW_REQUIRED: "REVIEW_REQUIRED",
+      BLOCKED: "BLOCKED",
+    });
+  });
+
+  it("reads the stored enum members", () => {
+    expect(parsePrStatus("PASS")).toBe("PASS");
+    expect(parsePrStatus("REVIEW_REQUIRED")).toBe("REVIEW_REQUIRED");
+    expect(parsePrStatus("BLOCKED")).toBe("BLOCKED");
+  });
+
+  it("reads the policy engine's labels too, so the two vocabularies agree", () => {
+    expect(parsePrStatus("REVIEW REQUIRED")).toBe("REVIEW_REQUIRED");
+    expect(parsePrStatus("review-required")).toBe("REVIEW_REQUIRED");
+    expect(parsePrStatus("  Review  Required  ")).toBe("REVIEW_REQUIRED");
+    expect(parsePrStatus("BLOCK")).toBe("BLOCKED");
+  });
+
+  it("returns null rather than guessing at something it does not recognise", () => {
+    expect(parsePrStatus("MERGED")).toBeNull();
+    expect(parsePrStatus("")).toBeNull();
+    expect(parsePrStatus(undefined)).toBeNull();
+    expect(parsePrStatus(null)).toBeNull();
+    expect(parsePrStatus(3)).toBeNull();
+  });
+});
+
+describe("formResultFor", () => {
+  it("maps each stored status to its letter", () => {
+    expect(formResultFor("PASS")).toBe("W");
+    expect(formResultFor("REVIEW_REQUIRED")).toBe("D");
+    expect(formResultFor("BLOCKED")).toBe("L");
+  });
+
+  it("treats an uninterpretable status as a loss, never as a win", () => {
+    // A public scoreboard should not award a W for an outcome it cannot read.
+    expect(formResultFor("SOMETHING_ELSE")).toBe("L");
+    expect(formResultFor(undefined)).toBe("L");
   });
 });
 

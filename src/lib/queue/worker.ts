@@ -10,14 +10,18 @@ import { commentableLineNumbers, parseUnifiedPatch } from '@/lib/armor/diff';
 import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
 import { App } from 'octokit';
 import { fetchPullRequestFiles, formatCoverageNotice } from '@/lib/github/pull-request-files';
+import {
+  buildPullRequestFacts,
+  classifyPullRequestAction,
+  pullRequestUpdateData,
+} from '@/lib/github/pull-request-facts';
 import prisma from '@/lib/prisma';
 import { sanitizeAuditLogInput } from '@/lib/audit/minimization';
-import { normalizeSeverity, severityBadge, totalRiskScore } from '@/lib/severity';
+import { severityBadge, toStoredSeverity, totalRiskScore } from '@/lib/severity';
 import {
   normalizeFindingTypeEnum,
   normalizePolicyDecisionEnum,
   normalizePrStatusEnum,
-  normalizePrStateEnum,
 } from '@/lib/finding-taxonomy';
 import { sanitizeLogValue } from '@/lib/logger';
 
@@ -270,7 +274,7 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
   const { payload: rawPayload, event, deliveryId } = job.data;
 
   // Event Filtering
-  if (!['pull_request', 'installation', 'installation_repositories'].includes(event || '')) {
+  if (!['pull_request', 'installation', 'installation_repositories', 'branch_protection_rule'].includes(event || '')) {
     console.log(`Event not tracked: ${sanitize(event)}`);
     return;
   }
@@ -422,8 +426,40 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
     }
 
   } else if (event === 'pull_request') {
-    if (!['opened', 'synchronize', 'reopened'].includes(action)) {
-      console.log('Action not tracked');
+    const actionKind = classifyPullRequestAction(action);
+
+    // The facts about the pull request itself, as opposed to the findings. Both
+    // branches below write them, because both branches learn something worth
+    // storing — the metadata branch exists precisely so a merge is not thrown
+    // away just because there is no new code to scan (#702).
+    const prFacts = buildPullRequestFacts(pull_request);
+
+    if (actionKind === 'ignore') {
+      console.log(`Action not tracked: ${sanitize(action)}`);
+    } else if (actionKind === 'metadata') {
+      // No new head commit, so no scan: re-running the pipeline here would cost
+      // a Groq call and post a second review on a pull request that is already
+      // closed. But `closed` is the only delivery that can tell us a pull
+      // request was *merged*, and the old filter dropped it — which is why
+      // every stored row was `state: OPEN` forever and the leaderboard's
+      // extraction count was structurally zero.
+      //
+      // `updateMany` rather than `upsert`: if we never scanned this pull
+      // request there is no row, and inventing one would give it the default
+      // `status: REVIEW_REQUIRED` and drag down its author's pass rate on the
+      // strength of a policy evaluation that never ran.
+      if (pull_request?.id) {
+        const { count } = await prisma.pullRequest.updateMany({
+          where: { githubId: BigInt(pull_request.id) },
+          data: pullRequestUpdateData(prFacts),
+        });
+
+        console.log(
+          count > 0
+            ? `[Worker] Recorded '${sanitize(action)}' for PR #${sanitize(pull_request.number)} as ${sanitize(prFacts.state)}.`
+            : `[Worker] '${sanitize(action)}' for PR #${sanitize(pull_request.number)} refers to a pull request we never scanned; nothing to update.`
+        );
+      }
     } else {
       // Fail fast on an incomplete payload. Every field used below is
       // `.optional()` in the schema, so a partial delivery used to validate
@@ -780,19 +816,32 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
       }
 
       if (dbRepo) {
+        // Authorship is written on both halves. `create` is the obvious one;
+        // `update` is what matters more right now, because every row this
+        // worker has already written has `authorLogin = NULL`, and
+        // `aggregateContributors` scopes all eight of its queries with
+        // `{ authorLogin: { not: null } }`. Without the update those rows stay
+        // invisible to the leaderboard forever rather than being backfilled by
+        // the next push (#702, and the reported symptom in #696).
+        //
+        // `state` comes from `buildPullRequestFacts`, not from
+        // `normalizePrStateEnum(pull_request.state)`: GitHub only ever sets
+        // that field to "open" or "closed", so the old call could not produce
+        // MERGED for any payload at all.
         const dbPr = await prisma.pullRequest.upsert({
           where: { githubId: BigInt(pull_request.id) },
           update: {
-            title: pull_request.title || `PR #${pull_request.number}`,
-            state: normalizePrStateEnum(pull_request.state), 
+            ...pullRequestUpdateData(prFacts),
             status: normalizePrStatusEnum(decision),
           },
           create: {
             githubId: BigInt(pull_request.id),
             prNumber: pull_request.number,
-            title: pull_request.title || `PR #${pull_request.number}`,
-            state: normalizePrStateEnum(pull_request.state),
+            title: prFacts.title,
+            state: prFacts.state,
             status: normalizePrStatusEnum(decision),
+            authorLogin: prFacts.authorLogin,
+            authorAvatarUrl: prFacts.authorAvatarUrl,
             repositoryId: dbRepo.id
           }
         });
@@ -811,7 +860,10 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
             findings: {
               create: findingsToPersist.map((f: any) => ({
                 type: normalizeFindingTypeEnum(f.type),
-                severity: normalizeSeverity(f.severity),
+                // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                // not a `FindingSeverity` member, so the insert fails outright (#686).
+                severity: toStoredSeverity(f.severity),
                 fileLocation: f.fileLocation,
                 lineStart: typeof f.lineStart === 'number' ? f.lineStart : null,
                 lineEnd: typeof f.lineEnd === 'number' ? f.lineEnd : null,

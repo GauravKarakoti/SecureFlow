@@ -208,7 +208,7 @@ describe("aggregateContributors", () => {
     seed({
       prs: [
         { authorLogin: "bob", status: "PASS", createdAt: day(3) },
-        { authorLogin: "bob", status: "REVIEW REQUIRED", createdAt: day(2) },
+        { authorLogin: "bob", status: "REVIEW_REQUIRED", createdAt: day(2) },
         { authorLogin: "bob", status: "BLOCKED", createdAt: day(1) },
       ],
     });

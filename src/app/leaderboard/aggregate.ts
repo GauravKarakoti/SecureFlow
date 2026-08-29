@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
+import { SUPPRESSED_STATUSES } from "@/lib/triage/statuses";
 import {
   assignRanks,
   computeContributorBadges,
@@ -22,12 +23,14 @@ const LEADERBOARD_REVALIDATE_SECONDS = 60;
 const PASSED_STATUS = "PASS";
 
 /**
- * Triage statuses that take a finding out of enforcement. Mirrors
- * `SUPPRESSED_STATUSES` in `@/lib/triage/queries`; kept local so this module
- * does not pull the triage query helpers (and their own Prisma calls) into the
- * leaderboard's cached path.
+ * Triage statuses that take a finding out of enforcement.
+ *
+ * This was a local copy of `SUPPRESSED_STATUSES`, kept so the leaderboard's
+ * cached path would not pull the triage query helpers — and their Prisma calls
+ * — in behind it. The reason was good; the duplication was the wrong answer to
+ * it. `@/lib/triage/statuses` holds the list and nothing else (#689).
  */
-const SUPPRESSED_TRIAGE_STATUSES = ["FALSE_POSITIVE", "IGNORED"] as const;
+const SUPPRESSED_TRIAGE_STATUSES = SUPPRESSED_STATUSES;
 
 /**
  * How many recent pull requests to read when computing per-author form.
@@ -84,7 +87,7 @@ function severityBucket(severity: string | null | undefined): keyof SeverityCoun
  * `[pullRequestId, createdAt desc]` and `fingerprint` indexes:
  *
  *  - one `groupBy` for total PRs per author
- *  - one `groupBy` (state = "merged") for the extraction count
+ *  - one `groupBy` (state = "MERGED") for the extraction count
  *  - one `groupBy` (status = "PASS") for the pass rate
  *  - one `distinct` lookup for avatars (`groupBy` can't select non-key columns)
  *  - one lookup for user codenames
@@ -103,7 +106,7 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
   const [totals, merged, passed, avatars, users, latestScans, suppressed, recentPrs] =
     await Promise.all([
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: authored, _count: { _all: true } }),
-      prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "merged" }, _count: { _all: true } }),
+      prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, state: "MERGED" }, _count: { _all: true } }),
       prisma.pullRequest.groupBy({ by: ["authorLogin"], where: { ...authored, status: PASSED_STATUS }, _count: { _all: true } }),
       prisma.pullRequest.findMany({ where: { ...authored, authorAvatarUrl: { not: null } }, select: { authorLogin: true, authorAvatarUrl: true }, distinct: ["authorLogin"] }),
       prisma.user.findMany({
