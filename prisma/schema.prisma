@@ -295,3 +295,35 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
 }
+
+enum ScanJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model ScanJob {
+  id                String       @id @default(cuid())
+  repositoryId      String?
+  repository        Repository?  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  pullRequestId     String?
+  pullRequest       PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  status            ScanJobStatus @default(PENDING)
+  totalFiles        Int          @default(0)
+  scannedFiles      Int          @default(0)
+  vulnerabilitiesFound Int       @default(0)
+  riskScore         Int?
+  policyDecision    PolicyDecision?
+  error             String?
+  queuedAt          DateTime     @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([status])
+  @@index([repositoryId])
+  @@index([pullRequestId])
+  @@index([createdAt(sort: Desc)])
+}
