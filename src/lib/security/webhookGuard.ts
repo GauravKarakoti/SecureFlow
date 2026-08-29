@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   admitWebhookRequest,
+  signPayload,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
   DEFAULT_REPLAY_WINDOW_SECONDS,
@@ -59,13 +60,17 @@ export function withWebhookGuard(
   } = options;
 
   return async function guardedHandler(req: NextRequest): Promise<NextResponse> {
+    // Read the secret at request time so getters (e.g. process.env.WEBHOOK_SECRET)
+    // resolve against the live environment, not the captured value at module-load time.
+    const resolvedSecret = options.secret;
+
     // Read the body first — signature is over the raw bytes
     const payload = await req.text();
 
     // Run admission checks
     const result = admitWebhookRequest(
       payload,
-      secret,
+      resolvedSecret,
       req.headers.get(signatureHeader),
       req.headers.get(timestampHeader),
       replayWindowSeconds
