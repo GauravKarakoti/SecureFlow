@@ -59,8 +59,8 @@ describe('verifySignature', () => {
   it('returns false for a malformed header', () => {
     expect(verifySignature('payload', 'secret', 'not-a-signature')).toBe(false);
     expect(verifySignature('payload', 'secret', '')).toBe(false);
-    expect(verifySignature('payload', 'secret', null as any)).toBe(false);
-    expect(verifySignature('payload', 'secret', undefined as any)).toBe(false);
+    expect(verifySignature('payload', 'secret', null)).toBe(false);
+    expect(verifySignature('payload', 'secret', undefined)).toBe(false);
   });
 
   it('returns false for wrong-length hex', () => {
