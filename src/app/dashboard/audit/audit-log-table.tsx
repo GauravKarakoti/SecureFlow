@@ -24,8 +24,8 @@ import {
   getUserAuditLogs,
   getUserAuditLogsForExport,
   type UserAuditLogResult,
-  type UserAuditLogRow,
 } from "@/lib/actions/audit";
+import type { UserAuditLogRow } from "@/lib/audit/export-limits";
 import { useToast } from "@/hooks/use-toast";
 import { downloadCSV } from "@/lib/utils/exportCsv";
 
