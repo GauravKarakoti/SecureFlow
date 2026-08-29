@@ -238,6 +238,10 @@ model AuditLog {
   @@index([userId])
   @@index([userId, timestamp(sort: Desc)])
   @@index([timestamp(sort: Desc)])
+  // Support the per-user filter aggregates on /dashboard/audit (#659), which
+  // otherwise scan the user's rows and sort to produce a dozen strings.
+  @@index([userId, action])
+  @@index([userId, decision])
 }
 
 model WebhookEvent {
