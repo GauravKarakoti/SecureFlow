@@ -121,6 +121,7 @@ model Repository {
   webhookEvents WebhookEvent[]
   triages       FindingTriage[]
   createdAt     DateTime        @default(now())
+  scanJobs      ScanJob[]
 
   @@index([userId])
 }
@@ -155,20 +156,21 @@ model UserPolicyToggle {
 }
 
 model PullRequest {
-  id              String   @id @default(cuid())
-  githubId        BigInt   @unique
+  id              String     @id @default(cuid())
+  githubId        BigInt     @unique
   prNumber        Int
   title           String
-  state           PRState  @default(OPEN)
-  status          PRStatus @default(REVIEW_REQUIRED)
+  state           PRState    @default(OPEN)
+  status          PRStatus   @default(REVIEW_REQUIRED)
   authorLogin     String?
   authorAvatarUrl String?
   repositoryId    String
   repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  
-  scans           ScanResult[]
-  webhookEvents   WebhookEvent[]
-  createdAt       DateTime     @default(now())
+
+  scans         ScanResult[]
+  webhookEvents WebhookEvent[]
+  createdAt     DateTime       @default(now())
+  scanJobs      ScanJob[]
 
   @@index([repositoryId])
   @@index([authorLogin])
@@ -304,23 +306,23 @@ enum ScanJobStatus {
 }
 
 model ScanJob {
-  id                String       @id @default(cuid())
-  repositoryId      String?
-  repository        Repository?  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  pullRequestId     String?
-  pullRequest       PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
-  status            ScanJobStatus @default(PENDING)
-  totalFiles        Int          @default(0)
-  scannedFiles      Int          @default(0)
-  vulnerabilitiesFound Int       @default(0)
-  riskScore         Int?
-  policyDecision    PolicyDecision?
-  error             String?
-  queuedAt          DateTime     @default(now())
-  startedAt         DateTime?
-  completedAt       DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                   String          @id @default(cuid())
+  repositoryId         String?
+  repository           Repository?     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  pullRequestId        String?
+  pullRequest          PullRequest?    @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  status               ScanJobStatus   @default(PENDING)
+  totalFiles           Int             @default(0)
+  scannedFiles         Int             @default(0)
+  vulnerabilitiesFound Int             @default(0)
+  riskScore            Int?
+  policyDecision       PolicyDecision?
+  error                String?
+  queuedAt             DateTime        @default(now())
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   @@index([status])
   @@index([repositoryId])
