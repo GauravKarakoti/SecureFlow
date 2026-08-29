@@ -11,6 +11,7 @@ import {
   transmissionKey,
   type TransmissionCache,
 } from "@/lib/heist/transmission-cache";
+import { streamManager } from "@/lib/sse/streamManager";
 
 const MIN_SCORE = 0;
 const MAX_SCORE = 100;
@@ -84,21 +85,16 @@ export function createHeistStream(
   options: HeistStreamOptions = {},
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
-  const controllerAbort = new AbortController();
+  const { id: connectionId, signal: abortSignal } = streamManager.register(upstreamSignal, "heist-transmission");
   const cache = options.cache ?? getTransmissionCache();
   const cacheKey = transmissionKey(input);
-
-  if (upstreamSignal) {
-    if (upstreamSignal.aborted) controllerAbort.abort();
-    else upstreamSignal.addEventListener("abort", () => controllerAbort.abort(), { once: true });
-  }
 
   let closed = false;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: Record<string, unknown>): void => {
-        if (closed || controllerAbort.signal.aborted) return;
+        if (closed || abortSignal.aborted) return;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -112,9 +108,10 @@ export function createHeistStream(
         try {
           controller.close();
         } catch {}
+        streamManager.unregister(connectionId);
       };
 
-      if (controllerAbort.signal.aborted) {
+      if (abortSignal.aborted) {
         finish();
         return;
       }
@@ -131,9 +128,9 @@ export function createHeistStream(
 
       try {
         for await (const event of streamHeistMessage(input, {
-          signal: controllerAbort.signal,
+          signal: abortSignal,
         })) {
-          if (closed || controllerAbort.signal.aborted) {
+          if (closed || abortSignal.aborted) {
             finish();
             return;
           }
@@ -155,12 +152,12 @@ export function createHeistStream(
           }
         }
 
-        if (!controllerAbort.signal.aborted) {
+        if (!abortSignal.aborted) {
           send({ type: "done", message: FALLBACK_HEIST_MESSAGE });
         }
         finish();
       } catch (err) {
-        if (controllerAbort.signal.aborted) {
+        if (abortSignal.aborted) {
           finish();
           return;
         }
@@ -173,7 +170,7 @@ export function createHeistStream(
 
     cancel() {
       closed = true;
-      controllerAbort.abort();
+      streamManager.unregister(connectionId);
     },
   });
 }
