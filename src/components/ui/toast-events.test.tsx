@@ -43,6 +43,7 @@ vi.mock('@/hooks/use-toast', () => ({
 
 vi.mock('@/lib/actions/triage', () => ({
   setFindingStatus: vi.fn().mockResolvedValue({ ok: true }),
+  setFindingStatuses: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock('next/navigation', () => ({

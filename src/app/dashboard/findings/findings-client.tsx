@@ -114,6 +114,16 @@ export default function FindingsClient({
 </p>
     </div>
   ) : (
+    <>
+    <div className="mb-4">
+      <FindingTriageControls
+        variant="bulk"
+        targets={findings.map((finding) => ({
+          repositoryId: finding.repositoryId,
+          fingerprint: finding.fingerprint,
+        }))}
+      />
+    </div>
     <Accordion type="single" collapsible className="space-y-4">
       
       {findings.map((finding) => {
@@ -189,6 +199,7 @@ export default function FindingsClient({
               );
             })}
           </Accordion>
+    </>
   )}
         </CardContent>
 
