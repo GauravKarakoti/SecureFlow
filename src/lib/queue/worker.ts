@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
+import { processScanJob, type ScanJobResult } from '@/lib/scanner/scanEngine';
+import type { ScanJobData } from '@/lib/queue/scanQueue';
 import { maskFindingText } from '@/lib/armor/secret-masking';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
@@ -551,13 +553,22 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         // Ignored if file does not exist
       }
 
-      console.log(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanner.`);
-      const findings = await scanner.scanPullRequest(
+      console.log(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`);
+      const scanJobData: ScanJobData = {
+        scanJobId: `webhook-${deliveryId || Date.now()}`,
+        repositoryId: dbRepo?.id ?? '',
+        installationId: installation.id,
+        repositoryFullName: repository.full_name,
+        prNumber: pull_request.number,
+        headSha: pull_request.head.sha,
         fileChanges,
         activePolicies,
         customIgnores,
-        customPlaceholders
-      );
+        customPlaceholders,
+        userId,
+      };
+      const scanResult = await processScanJob(scanJobData);
+      const findings = scanResult.findings;
 
       // Attach a stable content fingerprint to every finding so triage decisions
       // can be keyed off it and survive the latest-wins re-scan. When the repo
