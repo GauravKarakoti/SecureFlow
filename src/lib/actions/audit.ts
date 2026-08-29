@@ -9,6 +9,12 @@ import {
   writeCachedUserFilters,
   type UserAuditFilters,
 } from "@/lib/audit/user-filter-cache";
+import {
+  MAX_EXPORT_ROWS,
+  summarizeExport,
+  type UserAuditLogExport,
+  type UserAuditLogRow,
+} from "@/lib/audit/export-limits";
 
 async function requireUser(): Promise<string> {
   const session = await auth();
@@ -18,16 +24,6 @@ async function requireUser(): Promise<string> {
   }
 
   return session.user.id;
-}
-
-export interface UserAuditLogRow {
-  id: string;
-  userId: string | null;
-  action: string;
-  resource: string;
-  decision: string | null;
-  metadata: any;
-  timestamp: Date;
 }
 
 export interface UserAuditLogResult {
@@ -112,18 +108,6 @@ export async function getUserAuditLogs(
   };
 }
 
-export const MAX_EXPORT_ROWS = 5000;
-
-export interface UserAuditLogExport {
-  rows: UserAuditLogRow[];
-  /** Rows matching the filters, which may exceed `rows.length`. */
-  total: number;
-  /** True when `MAX_EXPORT_ROWS` stopped the read before the match was drained. */
-  truncated: boolean;
-  /** The cap that was applied, so the caller does not have to hardcode it. */
-  limit: number;
-}
-
 /**
  * Rows for the CSV export, plus whether the cap truncated them.
  *
@@ -135,7 +119,10 @@ export interface UserAuditLogExport {
  * was not — the worst failure mode for a screen whose entire purpose is
  * producing an audit trail (#659).
  *
- * The shape mirrors `getUserAuditLogs`, which already returns its total.
+ * The shape mirrors `getUserAuditLogs`, which already returns its total. The
+ * cap and the arithmetic that builds that shape live in
+ * `@/lib/audit/export-limits`, because this module is `"use server"` and may
+ * only export async functions.
  */
 export async function getUserAuditLogsForExport(
   query: Pick<UserAuditLogQuery, "action" | "decision" | "search" | "startDate" | "endDate"> = {}
@@ -152,12 +139,7 @@ export async function getUserAuditLogsForExport(
     prisma.auditLog.count({ where }),
   ]);
 
-  return {
-    rows,
-    total,
-    truncated: total > rows.length,
-    limit: MAX_EXPORT_ROWS,
-  };
+  return summarizeExport(rows as UserAuditLogRow[], total, MAX_EXPORT_ROWS);
 }
 
 /**

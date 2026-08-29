@@ -28,12 +28,13 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+import * as auditActions from './audit';
 import {
-  MAX_EXPORT_ROWS,
   getUserAuditLogFilters,
   getUserAuditLogs,
   getUserAuditLogsForExport,
 } from './audit';
+import { MAX_EXPORT_ROWS } from '@/lib/audit/export-limits';
 import { __setUserFilterClockForTests } from '@/lib/audit/user-filter-cache';
 
 function logRow(i: number) {
@@ -215,5 +216,35 @@ describe('getUserAuditLogs (#659 regression guard)', () => {
     await getUserAuditLogs({ pageSize: 100_000 });
 
     expect(mockFindMany.mock.calls[0][0].take).toBe(100);
+  });
+});
+
+describe('"use server" module contract', () => {
+  // The bug this guards against does not reproduce under Vitest or `tsc`.
+  // Both read `audit.ts` as ordinary TypeScript, so `export const
+  // MAX_EXPORT_ROWS = 5000` resolves to the number and everything passes. Only
+  // the RSC bundler rewrites the exports of a `"use server"` module into
+  // server-reference stubs, at which point an importer that expected a number
+  // gets a callable and every arithmetic use of it produces `undefined` --
+  // including the `take:` that bounds the export query.
+  //
+  // Asserting the shape of the module's own exports is the part of that rule
+  // that is checkable here, and it fails loudly the next time a plain value is
+  // added to this file.
+  it('exports only async functions', () => {
+    const offenders = Object.entries(auditActions).filter(
+      ([, value]) =>
+        typeof value !== 'function' || value.constructor.name !== 'AsyncFunction'
+    );
+
+    expect(offenders.map(([name]) => name)).toEqual([]);
+  });
+
+  it('exports at least the three server actions the dashboard calls', () => {
+    expect(Object.keys(auditActions).sort()).toEqual([
+      'getUserAuditLogFilters',
+      'getUserAuditLogs',
+      'getUserAuditLogsForExport',
+    ]);
   });
 });
