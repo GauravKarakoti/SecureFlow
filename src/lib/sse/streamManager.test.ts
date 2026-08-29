@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { StreamManager, streamManager } from './streamManager';
 
 describe('StreamManager', () => {
@@ -203,5 +203,242 @@ describe('StreamManager', () => {
 describe('streamManager singleton', () => {
   it('is a StreamManager instance', () => {
     expect(streamManager).toBeInstanceOf(StreamManager);
+  });
+});
+
+describe('release (#722)', () => {
+  it('is returned alongside the id and signal', () => {
+    const m = new StreamManager();
+    const reg = m.register();
+
+    expect(typeof reg.release).toBe('function');
+    expect(typeof reg.id).toBe('string');
+    expect(reg.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('unregisters and aborts', () => {
+    const m = new StreamManager();
+    const { signal, release } = m.register();
+
+    release();
+
+    expect(signal.aborted).toBe(true);
+    expect(m.getStats().activeConnections).toBe(0);
+  });
+
+  it('is idempotent, so a finally block can call it unconditionally', () => {
+    const m = new StreamManager();
+    const { release } = m.register();
+
+    release();
+    release();
+    release();
+
+    expect(m.getStats().totalCleanedUp).toBe(1);
+  });
+
+  it('still releases after the caller has stopped writing to its stream', () => {
+    // The route bug: `send` sets `closed = true` on a failed enqueue, and
+    // `finish()` opened with `if (closed) return` -- so every later finish()
+    // returned at the guard and unregister was never reached. Cleanup must
+    // not be reachable only through that flag.
+    const m = new StreamManager();
+    const { release } = m.register(undefined, 'explain-stream');
+
+    let closed = false;
+    const send = () => {
+      closed = true; // enqueue threw
+    };
+    const finish = () => {
+      release();
+      if (closed) return;
+      closed = true;
+    };
+
+    send();
+    finish();
+
+    expect(m.getStats().activeConnections).toBe(0);
+  });
+});
+
+describe('upstream listener detachment (#722)', () => {
+  it('detaches the abort listener when a connection is released', () => {
+    // Before: `cleanup` deleted the entry but left the listener attached, so
+    // the closure stayed on the signal's listener list for the life of the
+    // signal. Five registrations released, then an abort, used to re-enter
+    // cleanup five times into no-ops.
+    const m = new StreamManager();
+    const controller = new AbortController();
+
+    const releases = Array.from({ length: 5 }, () => m.register(controller.signal).release);
+    releases.forEach((release) => release());
+
+    const cleanedBefore = m.getStats().totalCleanedUp;
+    controller.abort();
+
+    expect(m.getStats().totalCleanedUp).toBe(cleanedBefore);
+    expect(m.getStats().activeConnections).toBe(0);
+  });
+
+  it('still cleans up on abort when the connection was not released first', () => {
+    const m = new StreamManager();
+    const controller = new AbortController();
+    const { signal } = m.register(controller.signal);
+
+    controller.abort();
+
+    expect(signal.aborted).toBe(true);
+    expect(m.getStats().activeConnections).toBe(0);
+    expect(m.getStats().totalCleanedUp).toBe(1);
+  });
+
+  it('counts one cleanup per connection, not one per abort path', () => {
+    const m = new StreamManager();
+    const controller = new AbortController();
+    const { release } = m.register(controller.signal);
+
+    controller.abort();
+    release();
+
+    expect(m.getStats().totalCleanedUp).toBe(1);
+  });
+
+  it('does not disturb other listeners on the same signal', () => {
+    const m = new StreamManager();
+    const controller = new AbortController();
+    const unrelated = vi.fn();
+    controller.signal.addEventListener('abort', unrelated);
+
+    m.register(controller.signal).release();
+    controller.abort();
+
+    expect(unrelated).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('capacity bound (#722)', () => {
+  it('holds the registry at maxConnections', () => {
+    // Was unbounded: 10,000 signal-less registrations sat in the map with
+    // nothing able to clean them up.
+    const m = new StreamManager({ maxConnections: 10 });
+
+    for (let i = 0; i < 500; i++) m.register(undefined, 'no-signal');
+
+    expect(m.getStats().activeConnections).toBe(10);
+    expect(m.getStats().totalRegistered).toBe(500);
+  });
+
+  it('evicts the oldest first', () => {
+    const m = new StreamManager({ maxConnections: 3 });
+    const first = m.register();
+    m.register();
+    m.register();
+
+    const newest = m.register();
+
+    expect(m.isActive(first.id)).toBe(false);
+    expect(m.isActive(newest.id)).toBe(true);
+  });
+
+  it('aborts what it evicts, so the work behind it stops', () => {
+    const m = new StreamManager({ maxConnections: 1 });
+    const evicted = m.register();
+
+    m.register();
+
+    expect(evicted.signal.aborted).toBe(true);
+  });
+
+  it('counts evictions separately from ordinary cleanups', () => {
+    // Cap 2: the first two register freely, and each of the next three evicts
+    // one to make room.
+    const m = new StreamManager({ maxConnections: 2 });
+    for (let i = 0; i < 5; i++) m.register();
+
+    expect(m.getStats().totalEvicted).toBe(3);
+    expect(m.getStats().activeConnections).toBe(2);
+  });
+
+  it('treats a cap below one as one', () => {
+    const m = new StreamManager({ maxConnections: 0 });
+    m.register();
+
+    expect(m.getStats().activeConnections).toBe(1);
+  });
+});
+
+/** Age a tracked connection by `ms`, so a sweep can be tested without waiting. */
+function backdate(manager: StreamManager, id: string, ms: number): void {
+  const connections = (
+    manager as unknown as { connections: Map<string, { registeredAt: number }> }
+  ).connections;
+  const conn = connections.get(id);
+  if (conn) conn.registeredAt -= ms;
+}
+
+describe('idle sweep (#722)', () => {
+  it('drops connections older than maxAgeMs', () => {
+    const m = new StreamManager({ maxAgeMs: 1000 });
+    const stale = m.register();
+
+    expect(m.reapExpired(Date.now() + 5000)).toBe(1);
+    expect(m.isActive(stale.id)).toBe(false);
+    expect(m.getStats().totalReaped).toBe(1);
+  });
+
+  it('keeps connections inside the window', () => {
+    const m = new StreamManager({ maxAgeMs: 60_000 });
+    const fresh = m.register();
+
+    expect(m.reapExpired(Date.now() + 1000)).toBe(0);
+    expect(m.isActive(fresh.id)).toBe(true);
+  });
+
+  it('aborts what it reaps', () => {
+    const m = new StreamManager({ maxAgeMs: 1 });
+    const { signal } = m.register();
+
+    m.reapExpired(Date.now() + 5000);
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('stops at the first connection young enough to keep', () => {
+    // Insertion order is registration order, so the sweep is O(expired), not
+    // O(registry) -- it must not walk every entry on every registration.
+    const m = new StreamManager({ maxAgeMs: 1000 });
+    const old = m.register();
+    const recent = m.register();
+    backdate(m, old.id, 10_000);
+
+    expect(m.reapExpired()).toBe(1);
+    expect(m.isActive(recent.id)).toBe(true);
+  });
+
+  it('runs on registration, so nothing has to schedule it', () => {
+    // Deliberately not a setInterval: a timer in a module-level singleton
+    // keeps the Node process alive, which is a leak of the same kind.
+    const m = new StreamManager({ maxAgeMs: 1000 });
+    const stale = m.register();
+    backdate(m, stale.id, 10_000);
+
+    m.register();
+
+    expect(m.isActive(stale.id)).toBe(false);
+    expect(m.getStats().totalReaped).toBe(1);
+  });
+});
+
+describe('stats', () => {
+  it('starts every counter at zero', () => {
+    expect(new StreamManager().getStats()).toEqual({
+      activeConnections: 0,
+      totalRegistered: 0,
+      totalCleanedUp: 0,
+      totalEvicted: 0,
+      totalReaped: 0,
+      oldestConnectionMs: null,
+    });
   });
 });
