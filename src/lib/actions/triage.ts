@@ -5,7 +5,11 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
-import { isTriageStatus, type TriageStatus as SharedTriageStatus } from "@/lib/triage/statuses";
+import {
+  MAX_BULK_TRIAGE,
+  isTriageStatus,
+  type TriageStatus as SharedTriageStatus,
+} from "@/lib/triage/statuses";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
@@ -51,9 +55,6 @@ export interface SetFindingStatusesInput {
   status: TriageStatus;
   note?: string | null;
 }
-
-/** Cap matches the findings list page-size ceiling so one page cannot overflow this. */
-export const MAX_BULK_TRIAGE = 100;
 
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
