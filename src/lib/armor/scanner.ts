@@ -21,6 +21,10 @@ export type ScanFinding = {
   lineStart?: number;
   lineEnd?: number;
   dynamicFingerprint?: string;
+  fingerprint?: string;
+  explanation?: string;
+  remediation?: string;
+  promptInjectionSuspected?: boolean;
   signatureVersion?: string;
   matchedSignatures?: string[];
   isZeroDay?: boolean;

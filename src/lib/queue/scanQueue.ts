@@ -13,7 +13,7 @@
 import { Queue, Job } from 'bullmq';
 import { redis } from './redis';
 import prisma from '@/lib/prisma';
-import type { ScanJobStatus } from '@prisma/client';
+export type ScanJobStatus = 'PENDING' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 // --- Job data types ---
 

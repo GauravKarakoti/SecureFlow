@@ -40,7 +40,7 @@ export interface SetFindingStatusesInput {
 }
 
 /** Cap matches the findings list page-size ceiling so one page cannot overflow this. */
-export const MAX_BULK_TRIAGE = 100;
+const MAX_BULK_TRIAGE = 100;
 
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
@@ -159,9 +159,9 @@ export async function setFindingStatuses(
     return { ok: false, error: "Repository not found" };
   }
 
-  const repoName = new Map(repos.map((repo) => [repo.id, repo.fullName]));
+  const repoName = new Map(repos.map((repo: any) => [repo.id, repo.fullName]));
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     for (const item of items) {
       await tx.findingTriage.upsert({
         where: {
