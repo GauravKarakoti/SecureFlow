@@ -4,6 +4,7 @@ import path from 'path';
 import {
   computeDynamicFingerprint,
   dynamicFingerprintEngine,
+  ensureExpandedSignaturesLoaded,
   PayloadSignature
 } from './fingerprint';
 import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
@@ -362,7 +363,35 @@ export interface ScannerPolicy {
 
 export class ArmorIQScanner {
   /**
+   * Merges the expanded multi-language registry into the shared engine (#751).
+   *
+   * At construction rather than lazily before each scan, because the merge sets
+   * the engine's active version: a lazy warm could fire *after* a caller had
+   * rotated the database and would quietly put the version back. Warming once,
+   * up front, means any later `rotateSignatureDatabase` or
+   * `updateSignatureDatabase` is the last word, which is what a caller reaching
+   * for those expects.
+   *
+   * `ensureExpandedSignaturesLoaded` catches its own validation failures and
+   * leaves the engine on `DEFAULT_PAYLOAD_SIGNATURES`, so a malformed addition
+   * cannot take down the scan path from a constructor.
+   */
+  constructor() {
+    const report = ensureExpandedSignaturesLoaded();
+
+    if (report.error) {
+      console.error(`[Scanner] Expanded signature registry was not loaded: ${report.error}`);
+    } else if (report.loaded) {
+      console.log(`[Scanner] Loaded ${report.count} expanded signatures`);
+    }
+  }
+
+  /**
    * Rotate signature database dynamically to adapt to zero-day payload structures.
+   *
+   * Note that this *replaces* the database rather than adding to it, so it drops
+   * both `DEFAULT_PAYLOAD_SIGNATURES` and the expanded registry. Use
+   * `updateSignatureDatabase` to add without discarding.
    */
   rotateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
     dynamicFingerprintEngine.rotateSignatures(signatures, version);
