@@ -74,9 +74,14 @@ const handler = withErrorHandler(async function GET(
 
 // Polling was previously unbounded at the route layer — the sibling POST is
 // wrapped and this one was not.
-export const GET = withRateLimit(handler as never, {
+//
+// `withRateLimit` takes `(req, ...args: any[])`, which a two-parameter route
+// handler satisfies, so no cast is needed here — and none is wanted: casting
+// the export to `never` makes it uncallable from a test, which is precisely
+// where this route needed covering.
+export const GET = withRateLimit(handler, {
   ...TIERS.STANDARD,
   keyPrefix: 'findings:status',
-}) as never;
+});
 
 export const dynamic = 'force-dynamic';
