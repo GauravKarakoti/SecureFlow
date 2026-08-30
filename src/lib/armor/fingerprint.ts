@@ -396,3 +396,17 @@ export function computeDynamicFingerprint(
 ): DynamicFingerprintResult {
   return dynamicFingerprintEngine.analyzePayload(repositoryId, fileLocation, type, codeSnippet);
 }
+
+export {
+  EXPANDED_SIGNATURE_REGISTRY,
+  getSignaturesByLanguage,
+  getSignaturesByFramework,
+  getSignaturesByCategory,
+  getSignaturesBySeverity,
+  searchSignatures,
+  loadRegistryIntoEngine,
+  exportSignatureCatalogSummary,
+  type ExtendedPayloadSignature,
+  type LoadRegistryOptions,
+  type SignatureCatalogSummary
+} from './signature-registry';
