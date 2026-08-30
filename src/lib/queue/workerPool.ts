@@ -66,7 +66,7 @@ class ScanWorkerPool {
         settings: {
           stalledInterval: 60_000, // Check for stalled jobs every 60s
           maxStalledCount: 1,
-        },
+        } as any,
       }
     );
 

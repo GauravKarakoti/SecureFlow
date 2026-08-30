@@ -83,7 +83,7 @@ export async function processScanJob(
 
   const { appId, privateKey } = getGitHubAppCredentials();
   const appClient = new App({ appId, privateKey });
-  const octokit = await appClient.getInstallationOctokit(installationId);
+  const octokit = await appClient.getInstallationOctokit(Number(installationId));
 
   // If no file changes provided, fetch from GitHub
   let fileChanges = initialFileChanges;
@@ -98,6 +98,9 @@ export async function processScanJob(
       .filter((f: any) => f.patch && f.status !== 'removed')
       .map((f: any) => ({ filename: f.filename, patch: f.patch }));
   }
+
+  // --- Phase 2: Run scanner on file changes ---
+  onProgress({ phase: 'scanning', scannedFiles: 0, totalFiles: fileChanges.length, vulnerabilitiesFound: 0, progress: 10 });
 
   const totalFiles = fileChanges.length;
   console.log(`[ScanEngine] Scanning ${totalFiles} files`);
@@ -166,10 +169,10 @@ export async function processScanJob(
       },
       select: { fingerprint: true },
     });
-    dismissed.forEach(t => suppressedFingerprints.add(t.fingerprint));
+    dismissed.forEach((t: { fingerprint: string }) => { if (t.fingerprint) suppressedFingerprints.add(t.fingerprint); });
   }
 
-  const activeFindings = allFindings.filter(f => !suppressedFingerprints.has(f.fingerprint));
+  const activeFindings = allFindings.filter(f => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint));
 
   // Enrich active findings with AI explanations
   const enrichedFindings = await Promise.all(
@@ -272,7 +275,7 @@ export async function processScanJob(
       }
 
       // Create ScanResult with findings
-      const suppressedFindings = allFindings.filter(f => suppressedFingerprints.has(f.fingerprint));
+      const suppressedFindings = allFindings.filter(f => Boolean(f.fingerprint && suppressedFingerprints.has(f.fingerprint)));
       const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
 
       await prisma.scanResult.create({

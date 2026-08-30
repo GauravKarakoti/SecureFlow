@@ -181,7 +181,7 @@ export async function updateScanJobProgress(
  * Get the BullMQ job by its ID.
  */
 export async function getBullMQJob(jobId: string): Promise<Job<ScanJobData> | null> {
-  return await scanQueue.getJob(jobId);
+  return (await scanQueue.getJob(jobId)) ?? null;
 }
 
 /**
