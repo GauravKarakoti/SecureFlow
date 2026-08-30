@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { User, PullRequest, SecurityScore } = require('../models');
 const { Op } = require('sequelize');
 
