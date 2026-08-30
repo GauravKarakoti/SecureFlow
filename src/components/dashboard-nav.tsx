@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  FolderGit2,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -22,6 +23,7 @@ import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
 // Themed Navigation Items
 const NAV_ITEMS = [
   { name: "Mission Control", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Repositories", href: "/dashboard/repos", icon: FolderGit2 },
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
