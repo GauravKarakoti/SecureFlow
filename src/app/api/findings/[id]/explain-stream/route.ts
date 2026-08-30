@@ -81,7 +81,7 @@ async function handler(
     }
 
   const encoder = new TextEncoder();
-  const { id: connectionId, signal: abortSignal } = streamManager.register(request.signal, 'explain-stream');
+  const { signal: abortSignal, release } = streamManager.register(request.signal, 'explain-stream');
 
   let closed = false;
 
@@ -99,12 +99,19 @@ async function handler(
       };
 
       const finish = (): void => {
+        // Unconditional, and before the `closed` guard. `closed` tracks
+        // whether the controller may still be written to -- `send` sets it on
+        // a failed enqueue -- which is a different question from whether the
+        // registry still holds this connection. Gating both on the one flag
+        // meant a failed enqueue made every later finish() a no-op and the
+        // entry was never released (#722).
+        release();
+
         if (closed) return;
         closed = true;
         try {
           controller.close();
         } catch {}
-        streamManager.unregister(connectionId);
       };
 
       if (abortSignal.aborted) {
@@ -167,7 +174,7 @@ async function handler(
     cancel() {
       // Reader (client) went away — abort the generator so it stops pulling tokens.
       closed = true;
-      streamManager.unregister(connectionId);
+      release();
     },
   });
 
