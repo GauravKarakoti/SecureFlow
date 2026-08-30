@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  ListChecks,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { name: "Mission Control", href: "/dashboard", icon: LayoutDashboard },
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
+  { name: "Scan Queue", href: "/dashboard/queue", icon: ListChecks },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
 ];
 
