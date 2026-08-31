@@ -89,18 +89,16 @@ model Account {
 }
 
 model CustomRule {
-  id           String       @id @default(cuid())
-  userId       String?
-  orgId        String?
-  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  userId       String   // Required - rules belong to a specific user
   name         String
   description  String
   regexPattern String
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
+  @@index([userId])
   @@map("custom_rules")
 }
 

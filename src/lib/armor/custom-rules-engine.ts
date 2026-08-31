@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import prisma from '@/lib/prisma';
 
 export interface CustomRule {
   id: string;
@@ -25,10 +25,10 @@ export function validateRegexPattern(pattern: string): boolean {
  */
 export function executeCustomRules(code: string, rules: CustomRule[]): { ruleName: string; match: string }[] {
   const findings = [];
-
+  
   for (const rule of rules) {
     if (!rule.isActive) continue;
-
+    
     try {
       const regex = new RegExp(rule.regexPattern, 'g');
       let match;
@@ -42,21 +42,18 @@ export function executeCustomRules(code: string, rules: CustomRule[]): { ruleNam
       console.error(`[CustomRules] Failed to execute rule ${rule.name}:`, error);
     }
   }
-
+  
   return findings;
 }
 
 /**
- * Fetches all active custom rules for a specific user or organization.
+ * Fetches all active custom rules for a specific user.
  */
-export async function getActiveCustomRules(userId: string, orgId?: string): Promise<CustomRule[]> {
+export async function getActiveCustomRules(userId: string): Promise<CustomRule[]> {
   return prisma.customRule.findMany({
-    where: {
-      OR: [
-        { userId },
-        orgId ? { orgId } : { orgId: null }
-      ],
-      isActive: true
+    where: { 
+      userId,
+      isActive: true 
     },
     select: { id: true, name: true, regexPattern: true, isActive: true }
   });
