@@ -54,6 +54,16 @@ const RULES: readonly MaskRule[] = [
     replace: (_m, prefix, _pwd, at) => `${prefix}${REDACTION_PLACEHOLDER}${at}`,
   },
   {
+    id: 'internal-ip-address',
+    pattern: /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g,
+    replace: () => '[REDACTED_BY_THE_PROFESSOR:IP_ADDR]',
+  },
+  {
+    id: 'internal-domain-url',
+    pattern: /(https?:\/\/)(?:[a-zA-Z0-9-]+\.)*(?:internal|local|corp|private|lan|cluster\.local)(?::\d+)?(\/[^\s"']*)?/gi,
+    replace: (_m, scheme, _domain, path) => `${scheme}[REDACTED_BY_THE_PROFESSOR:INTERNAL_URL]${path || ''}`,
+  },
+  {
     id: 'url-userinfo',
     pattern: /(:\/\/[^@\s/]*:)([^@\s/]+)(@)/g,
     replace: (_m, prefix, _pwd, at) => `${prefix}${REDACTION_PLACEHOLDER}${at}`,
@@ -317,3 +327,50 @@ export function auditSecretMasking(text: string): SecretMaskingAuditResult {
     entropyRedactedTokenCount: entropyTokens,
   };
 }
+
+/**
+ * Pre-computation masking layer for incoming file diffs and snippets.
+ * Ensures hardcoded secrets, proprietary variables, and credentials are obfuscated
+ * before transmitting content to third-party LLMs or enterprise endpoints.
+ */
+export function maskIngressFileContent(fileContent: string, options?: {
+  enableEntropyScrubbing?: boolean;
+  enableRegexRedaction?: boolean;
+  enableTargetedContextIsolation?: boolean;
+}): string {
+  if (!fileContent) return fileContent;
+
+  const opts = {
+    enableEntropyScrubbing: true,
+    enableRegexRedaction: true,
+    enableTargetedContextIsolation: false,
+    ...options,
+  };
+
+  let processed = fileContent;
+
+  if (opts.enableRegexRedaction) {
+    processed = maskKnownSecretFormats(processed);
+  }
+
+  if (opts.enableEntropyScrubbing) {
+    processed = maskHighEntropyTokens(processed);
+  }
+
+  if (opts.enableTargetedContextIsolation) {
+    // Isolate function definitions, class definitions, exported entities, or changed hunks
+    const lines = processed.split('\n');
+    const targetedLines = lines.filter(line => 
+      line.startsWith('+') || 
+      line.startsWith('-') || 
+      line.startsWith('@@') || 
+      /^\s*(?:export|function|const|let|var|class|interface|type|public|private|async)\b/.test(line)
+    );
+    if (targetedLines.length > 0) {
+      processed = targetedLines.join('\n');
+    }
+  }
+
+  return processed;
+}
+

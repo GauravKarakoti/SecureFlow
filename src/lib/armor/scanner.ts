@@ -11,6 +11,7 @@ import { normalizeFindingTypeLabel } from '@/lib/finding-taxonomy';
 import { normalizeSeverity, type Severity } from '@/lib/severity';
 import { parseUnifiedPatch, renderNumberedLines } from './diff';
 import { ignoreReasonFor, shouldIgnorePath } from './ignore-rules';
+import { maskIngressFileContent, maskSecrets } from './secret-masking';
 
 export type ScanFinding = {
   type: string;
@@ -507,10 +508,11 @@ export class ArmorIQScanner {
         fileContext = "THIS IS A SMART CONTRACT OR PRIVACY-PRESERVING ZERO-KNOWLEDGE CIRCUIT. Analyze it with decentralized architecture patterns in mind and reduce false positives for decentralized logic.";
       }
       const sanitizedLines = sanitizeRecursively(addedLines);
+      const maskedLines = maskIngressFileContent(sanitizedLines);
       const wrapperOverhead = `<file name="${file.filename}" context_warning="${fileContext}">\n\n</file>\n\n`.length;
       const maxContentSize = MAX_COMBINED_LENGTH - wrapperOverhead;
 
-      let fileContent = sanitizedLines;
+      let fileContent = maskedLines;
       if (fileContent.length > maxContentSize) {
         const truncationMsg = "\n\n...[TRUNCATED FOR SIZE]...";
         const targetLimit = maxContentSize - truncationMsg.length;
