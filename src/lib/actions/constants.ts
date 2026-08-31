@@ -1,0 +1,1 @@
+export const MAX_BULK_TRIAGE = 100;
