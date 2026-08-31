@@ -24,5 +24,5 @@ export interface SbomScanResult {
   timestamp: Date;
   totalDependencies: number;
   vulnerabilities: VulnerabilityMatch[];
-  status: 'CLEAN' | 'VULNERABLE' | 'ERROR';
+  status: 'CLEAN' | 'WARNING' | 'VULNERABLE' | 'ERROR';
 }

@@ -37,8 +37,30 @@ export default async function FindingsPage({
     getUserFindings(query),
     getUserFindingFilters(),
   ]);
-  
-  const other = 0;
+
+  // [NEW] Calculate SBOM-specific stats for the report card
+  const sbomFindings = result.findings.filter(
+    (finding) => finding.type === 'DEPENDENCY_VULNERABILITY'
+  );
+
+  const sbomReport = sbomFindings.length > 0 ? {
+    scanId: 'aggregated-scan',
+    timestamp: new Date(),
+    totalDependencies: sbomFindings.length,
+    vulnerabilities: sbomFindings.map((v: any) => ({
+      dependency: {
+        name: v.file.split('/').pop() || v.file,
+        version: 'latest',
+        manifestFile: v.file,
+        ecosystem: v.file.endsWith('package.json') ? 'npm' : 'pip'
+      },
+      cveId: v.description.match(/CVE-\d{4}-\d+/)?.[0] || 'CVE-Aggregated',
+      severity: v.severity,
+      description: v.description,
+      patchedVersion: v.remediation.match(/version\s+(\S+)/i)?.[1] || 'N/A'
+    })),
+    status: sbomFindings.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH') ? 'VULNERABLE' : 'WARNING'
+  } : null;
 
   return (
     <FindingsClient
@@ -49,6 +71,7 @@ export default async function FindingsPage({
       pageSize={result.pageSize}
       total={result.total}
       totalPages={result.totalPages}
+      sbomReport={sbomReport}
     />
   );
 }
