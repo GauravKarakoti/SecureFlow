@@ -29,6 +29,26 @@
  */
 export const TRIAGE_STATUSES = ['OPEN', 'RESOLVED', 'FALSE_POSITIVE', 'IGNORED'] as const;
 
+/**
+ * The most findings one bulk-triage call may carry.
+ *
+ * Here rather than in `src/lib/actions/triage.ts`, which is a `"use server"`
+ * module. The React Server Components compiler rejects a non-async export from
+ * one outright — `Only async functions are allowed to be exported in a
+ * "use server" file` — so `export const MAX_BULK_TRIAGE = 100` there failed
+ * `next build`, which is why the build was red on `main` independently of the
+ * type errors (#747).
+ *
+ * `tsc` and Vitest both read that file as ordinary TypeScript and see nothing
+ * wrong, which is what let it merge. The same reasoning already put
+ * `MAX_EXPORT_ROWS` in `src/lib/audit/export-limits.ts` rather than in
+ * `src/lib/actions/audit.ts`.
+ *
+ * The value matches the findings list page-size ceiling, so one page of
+ * selections cannot overflow it.
+ */
+export const MAX_BULK_TRIAGE = 100;
+
 export type TriageStatus = (typeof TRIAGE_STATUSES)[number];
 
 /**

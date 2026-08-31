@@ -166,7 +166,10 @@ export async function updateScanJobProgress(
     status?: ScanJobStatus;
     error?: string;
     riskScore?: number;
-    policyDecision?: string;
+    // The Prisma `PolicyDecision` members, not the scanner's phrasing. Typed as
+    // `string` this accepted `'REVIEW REQUIRED'`, which Postgres then rejected
+    // and the caller's `catch` turned into a FAILED job (#747).
+    policyDecision?: 'PASS' | 'REVIEW' | 'BLOCK';
     startedAt?: Date;
     completedAt?: Date;
   }
@@ -181,7 +184,10 @@ export async function updateScanJobProgress(
  * Get the BullMQ job by its ID.
  */
 export async function getBullMQJob(jobId: string): Promise<Job<ScanJobData> | null> {
-  return await scanQueue.getJob(jobId);
+  // BullMQ answers `undefined` for an unknown id; the declared return type says
+  // `null`. Normalised here rather than widened in the signature, so callers
+  // have one absent value to test for instead of two.
+  return (await scanQueue.getJob(jobId)) ?? null;
 }
 
 /**

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
+// Not from '@/lib/actions/triage': that is a `"use server"` module, and a
+// non-async export from one fails `next build` (#747).
+import { MAX_BULK_TRIAGE } from '@/lib/triage/statuses';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
-import { MAX_BULK_TRIAGE } from './constants';
 
 vi.mock('@/auth', () => ({
   auth: vi.fn(),

@@ -603,7 +603,14 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         customPlaceholders,
         userId,
       };
-      const scanResult = await processScanJob(scanJobData);
+      // Scanning only. This function posts its own check run and pull request
+      // comment below, writes its own AuditLog row and creates its own
+      // ScanResult, so letting the engine do the same would duplicate all four
+      // (#747).
+      const scanResult = await processScanJob(scanJobData, undefined, {
+        report: false,
+        persist: false,
+      });
       const findings = scanResult.findings;
 
       // Attach a stable content fingerprint to every finding so triage decisions
