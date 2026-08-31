@@ -1,15 +1,29 @@
 #!/usr/bin/env node
-/**
- * SecureFlow pre-commit hook.
- *
- * The shell only: read the staged set, scan each blob, report, exit. The
- * detection logic lives in `./scanner` and the git access in `./git`, so both
- * can be tested without a process exit or a repository (#593).
- */
+import fs from 'fs';
 import { GitError, getStagedFiles, readStagedContent } from './git.js';
-import { scanFile, type FileScanResult } from './scanner.js';
+import { scanFile, formatScanResults, type FileScanResult, type OutputFormat } from './scanner.js';
+import { formatSarifJson } from './sarif.js';
 
 const VERBOSE = process.argv.includes('--verbose');
+
+function parseFormatArg(): OutputFormat {
+  const formatIndex = process.argv.findIndex((arg) => arg === '--format');
+  if (formatIndex !== -1 && process.argv[formatIndex + 1]) {
+    const val = process.argv[formatIndex + 1].toLowerCase();
+    if (val === 'sarif' || val === 'json' || val === 'text') {
+      return val as OutputFormat;
+    }
+  }
+  return 'text';
+}
+
+function parseOutputArg(): string | null {
+  const outIndex = process.argv.findIndex((arg) => arg === '-o' || arg === '--output');
+  if (outIndex !== -1 && process.argv[outIndex + 1]) {
+    return process.argv[outIndex + 1];
+  }
+  return null;
+}
 
 function reportSkipped(result: FileScanResult): void {
   if (VERBOSE && result.skipped) {
@@ -26,46 +40,55 @@ function reportViolations(result: FileScanResult): void {
 }
 
 function main(): number {
+  const format = parseFormatArg();
+  const outputPath = parseOutputArg();
   let staged: string[];
 
   try {
     staged = getStagedFiles();
   } catch (error) {
-    // Distinguished rather than collapsed into "Are you in a git repository?",
-    // which was previously printed for a buffer overflow, a missing git binary
-    // and a genuine non-repository alike.
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
     return 1;
   }
 
-  if (staged.length === 0) {
-    console.log('✅ SecureFlow scan passed (nothing staged).');
-    return 0;
-  }
-
+  const fileResults: FileScanResult[] = [];
   const unreadable: string[] = [];
   let violationCount = 0;
 
-  for (const path of staged) {
-    // The staged blob, not the working-tree file. This is the whole fix: the
-    // hook now checks the content that is about to be committed rather than
-    // whatever happens to be on disk when it runs.
-    const content = readStagedContent(path);
+  if (staged.length > 0) {
+    for (const path of staged) {
+      const content = readStagedContent(path);
 
-    if (content === null) {
-      unreadable.push(path);
-      continue;
+      if (content === null) {
+        unreadable.push(path);
+        continue;
+      }
+
+      const result = scanFile(path, content);
+      fileResults.push(result);
+      if (format === 'text') {
+        reportSkipped(result);
+        reportViolations(result);
+      }
+      violationCount += result.violations.length;
     }
-
-    const result = scanFile(path, content);
-    reportSkipped(result);
-    reportViolations(result);
-    violationCount += result.violations.length;
   }
 
-  if (unreadable.length > 0) {
-    // Named rather than silently passed. A file we could not read is a file we
-    // did not check, and saying so is the difference between a gap and a lie.
+  if (format === 'sarif' || format === 'json') {
+    const outputString = formatScanResults(fileResults, format);
+    if (outputPath) {
+      fs.writeFileSync(outputPath, outputString, 'utf-8');
+      console.log(`📄 [SecureFlow] Scan report exported in ${format.toUpperCase()} format to ${outputPath}`);
+    } else {
+      console.log(outputString);
+    }
+  } else if (outputPath) {
+    const textOutput = formatScanResults(fileResults, 'text');
+    fs.writeFileSync(outputPath, textOutput, 'utf-8');
+    console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
+  }
+
+  if (unreadable.length > 0 && format === 'text') {
     console.warn(
       `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
         unreadable.length === 1 ? 'y' : 'ies'
@@ -74,16 +97,21 @@ function main(): number {
   }
 
   if (violationCount > 0) {
-    console.error(
-      `\n❌ SecureFlow blocked this commit: ${violationCount} secret-logging violation${
-        violationCount === 1 ? '' : 's'
-      }. Remove the exposed secrets/env variables, then re-stage.`,
-    );
+    if (format === 'text') {
+      console.error(
+        `\n❌ SecureFlow blocked this commit: ${violationCount} secret-logging violation${
+          violationCount === 1 ? '' : 's'
+        }. Remove the exposed secrets/env variables, then re-stage.`,
+      );
+    }
     return 1;
   }
 
-  console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+  if (format === 'text') {
+    console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+  }
   return 0;
 }
 
 process.exit(main());
+
