@@ -99,6 +99,18 @@ model Session {
   @@index([userId])
 }
 
+model OnboardingProgress {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  currentStep    Int      @default(0)
+  isCompleted    Boolean  @default(false)
+  lastViewedStep String   @default("welcome")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("onboarding_progress")
+}
+
 model VerificationToken {
   identifier String
   token      String
