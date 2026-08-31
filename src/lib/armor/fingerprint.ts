@@ -399,6 +399,9 @@ export function computeDynamicFingerprint(
 
 export {
   EXPANDED_SIGNATURE_REGISTRY,
+  ensureExpandedSignaturesLoaded,
+  isExpandedRegistryLoaded,
+  __resetExpandedRegistryForTests,
   getSignaturesByLanguage,
   getSignaturesByFramework,
   getSignaturesByCategory,
@@ -408,5 +411,6 @@ export {
   exportSignatureCatalogSummary,
   type ExtendedPayloadSignature,
   type LoadRegistryOptions,
-  type SignatureCatalogSummary
+  type SignatureCatalogSummary,
+  type SignatureLoadReport
 } from './signature-registry';

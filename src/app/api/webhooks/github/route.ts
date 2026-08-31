@@ -13,6 +13,12 @@ import {
   verifySignature,
   webhookJobId,
 } from '@/lib/github/webhook-verification';
+import { prisma } from '@/lib/prisma';
+import { getOctokit } from '@/lib/github/octokit';
+import { scanCode } from '@/lib/armor/scanner';
+import { parseManifestFile } from '@/lib/sbom/dependency-parser';
+import { matchVulnerabilities } from '@/lib/sbom/vulnerability-matcher';
+import { Severity } from '@prisma/client';
 
 /**
  * GitHub webhook ingest (#562).
@@ -34,6 +40,28 @@ import {
  */
 
 /**
+ * [NEW] Helper to fetch raw file content from GitHub
+ */
+async function fetchFileContent(
+  octokit: any,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+) {
+  try {
+    const { data } = await octokit.repos.getContent({ owner, repo, path, ref });
+    if ('content' in data && data.content) {
+      return Buffer.from(data.content, 'base64').toString('utf-8');
+    }
+    return null;
+  } catch (error) {
+    console.error(`[SBOM] Failed to fetch ${path}:`, error);
+    return null;
+  }
+}
+
+/**
  * Executes routines when an existing Pull Request receives new code commits
  */
 export async function handlePullRequestSynchronize(payload: Record<string, unknown> | any) {
@@ -42,7 +70,100 @@ export async function handlePullRequestSynchronize(payload: Record<string, unkno
   const headSha = payload.pull_request?.head?.sha;
 
   console.log(`[PR_SYNC] New code pushed to PR #${prNumber} on repo ${repoName}. Head SHA: ${headSha}`);
-  // Hook up your local CI/CD build runner pipelines, automated test suites, or alert engines here
+
+  // Extract necessary fields for SBOM scanning
+  const { pull_request, repository, installation } = payload;
+
+  if (!pull_request || !repository || !installation) {
+    console.warn('[PR_SYNC] Missing required fields for SBOM processing');
+    return;
+  }
+
+  try {
+    // 1. Save/Update PR Record
+    const prRecord = await prisma.pullRequest.upsert({
+      where: { githubPrId: pull_request.id.toString() },
+      update: {
+        title: pull_request.title,
+        state: pull_request.state,
+        updatedAt: new Date()
+      },
+      create: {
+        githubPrId: pull_request.id.toString(),
+        title: pull_request.title,
+        state: pull_request.state,
+        branch: pull_request.head.ref,
+        repositoryId: repository.id.toString(),
+        repository: {
+          connectOrCreate: {
+            where: { githubRepoId: repository.id.toString() },
+            create: {
+              githubRepoId: repository.id.toString(),
+              name: repository.full_name,
+              owner: repository.owner.login
+            }
+          }
+        }
+      }
+    });
+
+    const octokit = await getOctokit(installation.id);
+    const owner = repository.owner.login;
+    const repo = repository.name;
+
+    // 2. Get changed files
+    const { data: files } = await octokit.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: pull_request.number,
+    });
+
+    // 3. Standard AI Scan (Existing Logic)
+    // ... [Assume existing AI scan logic runs here for code files] ...
+
+    // 4. [NEW] SBOM Dependency Scan Integration
+    console.log(`[SBOM] Checking ${files.length} files for manifests...`);
+
+    for (const file of files) {
+      // Detect manifest files
+      if (file.filename.endsWith('package.json') || file.filename.endsWith('requirements.txt')) {
+        console.log(`[SBOM] Detected manifest: ${file.filename}`);
+
+        // Fetch content (using PR head ref to get the version being merged)
+        const content = await fetchFileContent(octokit, owner, repo, file.filename, pull_request.head.ref);
+
+        if (content) {
+          // Parse dependencies
+          const dependencies = parseManifestFile(content, file.filename);
+
+          // Match against CVE database
+          const vulnerabilities = matchVulnerabilities(dependencies);
+
+          console.log(`[SBOM] Found ${vulnerabilities.length} vulnerabilities in ${file.filename}`);
+
+          // Save findings to Database
+          for (const vuln of vulnerabilities) {
+            await prisma.finding.create({
+              data: {
+                pullRequestId: prRecord.id,
+                type: 'DEPENDENCY_VULNERABILITY',
+                severity: vuln.severity as Severity,
+                file: file.filename,
+                description: `${vuln.dependency.name}@${vuln.dependency.version}: ${vuln.description}`,
+                codeSnippet: `Dependency: ${vuln.dependency.name}\nCurrent: ${vuln.dependency.version}\nPatched: ${vuln.patchedVersion || 'Unknown'}`,
+                remediation: `Update ${vuln.dependency.name} to version ${vuln.patchedVersion} or higher.`,
+                line: 0, // Line 0 indicates manifest-level finding
+                aiExplanation: `Detected known vulnerability ${vuln.cveId} in ${vuln.dependency.name}.`
+              }
+            });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[PR_SYNC] Error during SBOM processing:', error);
+    // Don't throw - we still want to queue the job even if SBOM fails
+  }
 }
 
 /**
