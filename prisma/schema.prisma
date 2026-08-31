@@ -63,6 +63,9 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Codename alias lookup index for leaderboard queries (#403)
+  @@index([codename, githubLogin])
 }
 
 model Account {
@@ -174,6 +177,11 @@ model PullRequest {
 
   @@index([repositoryId])
   @@index([authorLogin])
+  // Compound indexes for leaderboard aggregation and scoring queries (#403)
+  @@index([authorLogin, state])
+  @@index([authorLogin, status])
+  @@index([authorLogin, authorAvatarUrl])
+  @@index([authorLogin, createdAt(sort: Desc)])
 }
 
 model ScanResult {
@@ -212,6 +220,8 @@ model Finding {
   // walks one severity at a time within a scan's findings, so the list and its
   // per-bucket counts filter on (scanResultId, severity) together.
   @@index([scanResultId, severity])
+  // Leaderboard finding query by scanResultId and fingerprint filtering (#403)
+  @@index([scanResultId, fingerprint])
 }
 
 model RemediationPatch {
@@ -244,6 +254,8 @@ model FindingTriage {
   // filters a repository's rows by status; the plain (repositoryId) index still
   // scans and filters status, so pair them.
   @@index([repositoryId, status])
+  // Leaderboard suppressed triage status lookups by status and fingerprint (#403)
+  @@index([status, fingerprint])
 }
 
 model AuditLog {
