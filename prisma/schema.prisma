@@ -208,6 +208,10 @@ model Finding {
 
   @@index([scanResultId])
   @@index([fingerprint])
+  // Severity-bucketed reads on /dashboard/findings (#731). planSeverityPage
+  // walks one severity at a time within a scan's findings, so the list and its
+  // per-bucket counts filter on (scanResultId, severity) together.
+  @@index([scanResultId, severity])
 }
 
 model RemediationPatch {
@@ -236,6 +240,10 @@ model FindingTriage {
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
   @@index([fingerprint])
+  // Suppressed/triage lookups on the dashboard (#731). getSuppressedFingerprints
+  // filters a repository's rows by status; the plain (repositoryId) index still
+  // scans and filters status, so pair them.
+  @@index([repositoryId, status])
 }
 
 model AuditLog {
