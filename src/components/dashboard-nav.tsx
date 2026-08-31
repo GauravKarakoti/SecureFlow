@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   ListChecks,
+  Activity,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "Scan Queue", href: "/dashboard/queue", icon: ListChecks },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
+  { name: "System Status", href: "/dashboard/status", icon: Activity },
 ];
 
 // ─── SidebarContent ───────────────────────────────────────────────────────────
