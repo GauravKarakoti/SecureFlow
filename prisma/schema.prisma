@@ -59,6 +59,7 @@ model User {
   repositories  Repository[]
   policyToggles UserPolicyToggle[]
   roles         UserRole[]
+  customRules   CustomRule[]
   auditLogs     AuditLog[]
 
   createdAt DateTime @default(now())
@@ -85,6 +86,22 @@ model Account {
 
   @@id([provider, providerAccountId])
   @@index([userId])
+}
+
+model CustomRule {
+  id           String       @id @default(cuid())
+  userId       String?
+  orgId        String?
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name         String
+  description  String
+  regexPattern String
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("custom_rules")
 }
 
 model Session {
