@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
 import { isTriageStatus, type TriageStatus as SharedTriageStatus } from "@/lib/triage/statuses";
+import { MAX_BULK_TRIAGE } from "./constants";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
@@ -38,9 +39,6 @@ export interface SetFindingStatusesInput {
   status: TriageStatus;
   note?: string | null;
 }
-
-/** Cap matches the findings list page-size ceiling so one page cannot overflow this. */
-export const MAX_BULK_TRIAGE = 100;
 
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
@@ -159,9 +157,9 @@ export async function setFindingStatuses(
     return { ok: false, error: "Repository not found" };
   }
 
-  const repoName = new Map(repos.map((repo) => [repo.id, repo.fullName]));
+  const repoName = new Map(repos.map((repo: any) => [repo.id, repo.fullName]));
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     for (const item of items) {
       await tx.findingTriage.upsert({
         where: {

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MAX_BULK_TRIAGE, setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
+import { setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
+import { MAX_BULK_TRIAGE } from './constants';
 
 vi.mock('@/auth', () => ({
   auth: vi.fn(),
