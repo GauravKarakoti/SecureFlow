@@ -396,7 +396,8 @@ export class ArmorIQScanner {
     files: FileChange[],
     activePolicies: ScannerPolicy[] = [],
     customIgnores: string[] = [],
-    customPlaceholders: string[] = []
+    customPlaceholders: string[] = [],
+    customPolicyFindings: ScanFinding[] = []
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
     const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
@@ -758,6 +759,11 @@ CRITICAL RULES:
       console.warn(
         `⚠️ scanPullRequest() returned partial results: ${allFindings.length} finding(s) from a scan that hit its ${MAX_TOTAL_SCAN_MS / 1000}s deadline.`
       );
+    }
+
+    if (customPolicyFindings.length > 0) {
+      console.log(`[Scanner] Merging ${customPolicyFindings.length} finding(s) from custom policy engine.`);
+      allFindings.push(...customPolicyFindings);
     }
 
     return allFindings;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { redis } from './redis';
 import { webhookDLQ, WebhookJobData } from './webhookQueue';
 import { scanner, parseSecureFlowIgnore } from '@/lib/armor/scanner';
+import { parseSecureFlowConfig, runCustomPolicies } from '@/lib/armor/config-loader';
 import { maskFindingText } from '@/lib/armor/secret-masking';
 import { iq } from '@/lib/armor/iq';
 import { computeFingerprint } from '@/lib/armor/fingerprint';
@@ -545,12 +546,38 @@ export const worker = new Worker<WebhookJobData>('github-webhooks', async (job: 
         // Ignored if file does not exist
       }
 
+      // Load user-defined config and run custom policy engine
+      let customPolicyFindings: import('@/lib/armor/scanner').ScanFinding[] = [];
+      try {
+        const { data: configData } = await octokit.rest.repos.getContent({
+          owner: repository.owner.login,
+          repo: repository.name,
+          path: 'secureflow.config.json',
+          ref: pull_request.head.sha,
+        });
+        if (configData && 'content' in configData && typeof configData.content === 'string') {
+          const raw = Buffer.from(configData.content, 'base64').toString('utf8');
+          const config = parseSecureFlowConfig(raw);
+          if (config.ignoredPaths?.length) customIgnores.push(...config.ignoredPaths);
+          if (config.placeholders?.length) customPlaceholders.push(...config.placeholders);
+          if (config.policies?.length) {
+            console.log(`[Worker] Running ${config.policies.length} custom policy rule(s) from secureflow.config.json`);
+            customPolicyFindings = runCustomPolicies(fileChanges, config.policies);
+          }
+        }
+      } catch (e: any) {
+        if (e?.status !== 404) {
+          console.warn(`[Worker] Failed to load secureflow.config.json: ${sanitize(e?.message ?? String(e))}`);
+        }
+      }
+
       console.log(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanner.`);
       const findings = await scanner.scanPullRequest(
         fileChanges,
         activePolicies,
         customIgnores,
-        customPlaceholders
+        customPlaceholders,
+        customPolicyFindings
       );
 
       // Attach a stable content fingerprint to every finding so triage decisions

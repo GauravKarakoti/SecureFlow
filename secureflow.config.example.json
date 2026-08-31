@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/GauravKarakoti/SecureFlow/main/secureflow.config.schema.json",
+  "policies": [
+    {
+      "id": "no-todo-in-auth",
+      "description": "TODO comments in authentication code indicate incomplete security logic.",
+      "severity": "HIGH",
+      "pattern": "TODO|FIXME|HACK",
+      "filePatterns": ["auth", "login", "session", "token", "middleware"]
+    },
+    {
+      "id": "no-eval",
+      "description": "Use of eval() is a critical code injection risk.",
+      "severity": "CRITICAL",
+      "pattern": "\\beval\\s*\\("
+    },
+    {
+      "id": "no-dangerouslySetInnerHTML",
+      "description": "dangerouslySetInnerHTML bypasses React's XSS protections.",
+      "severity": "HIGH",
+      "pattern": "dangerouslySetInnerHTML",
+      "filePatterns": ["\\.tsx$", "\\.jsx$"]
+    }
+  ],
+  "ignoredPaths": [
+    "e2e/",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "placeholders": [
+    "your_token_here",
+    "replace_with_real_key"
+  ]
+}
