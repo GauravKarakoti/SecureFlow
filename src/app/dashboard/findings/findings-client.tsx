@@ -1,13 +1,15 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
-import FindingTriageControls from "./finding-triage-controls";
+import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
 import { TriageStatus } from "@/lib/actions/triage";
@@ -48,6 +50,50 @@ export default function FindingsClient({
   total,
   totalPages,
 }: FindingsClientProps) {
+  // Bulk triage (#732). Selection is keyed by finding id, but each selected
+  // finding resolves to a (repositoryId, fingerprint) target for the action.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Only findings that carry both a repositoryId and a fingerprint can be
+  // triaged, so those are the only ones selectable.
+  const selectableIds = useMemo(
+    () =>
+      findings.filter((f) => f.repositoryId && f.fingerprint).map((f) => f.id),
+    [findings]
+  );
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const enterBulkMode = () => setBulkMode(true);
+  const exitBulkMode = () => {
+    setBulkMode(false);
+    clearSelection();
+  };
+
+  const bulkTargets = useMemo(
+    () =>
+      findings
+        .filter((f) => selected.has(f.id) && f.repositoryId && f.fingerprint)
+        .map((f) => ({ repositoryId: f.repositoryId, fingerprint: f.fingerprint })),
+    [findings, selected]
+  );
+
   return (
   <div className="space-y-8 w-full animate-in fade-in duration-700">
       <div>
@@ -76,7 +122,13 @@ export default function FindingsClient({
         <StatBox icon={<Terminal />} value={stats.other} label="Other" color="slate" />
       </div>
 
-      <FindingsToolbar options={filterOptions} total={total} />
+      <FindingsToolbar
+        options={filterOptions}
+        total={total}
+        bulkMode={bulkMode}
+        onToggleBulkMode={bulkMode ? exitBulkMode : enterBulkMode}
+        canBulkSelect={selectableIds.length > 0}
+      />
 
       <Card className="glass-card">
         <CardHeader className="flex flex-row items-center justify-between">
@@ -114,15 +166,41 @@ export default function FindingsClient({
 </p>
     </div>
   ) : (
+    <div className="space-y-4">
+    {bulkMode && (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={toggleAll}
+            aria-label="Select all findings on this page"
+          />
+          <span>{allSelected ? "Deselect all" : "Select all on this page"}</span>
+        </div>
+        {bulkTargets.length > 0 && (
+          <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+        )}
+      </div>
+    )}
     <Accordion type="single" collapsible className="space-y-4">
       
       {findings.map((finding) => {
         const theme = getSeverityTheme(finding.severity);
+        const selectable = Boolean(finding.repositoryId && finding.fingerprint);
            
         return (
               <AccordionItem key={finding.id} value={finding.id} 
             className="border border-white/10 rounded-xl overflow-hidden px-4 transition-all duration-300 hover:border-primary/40 hover:shadow-lg">
-                <AccordionTrigger className="hover:no-underline py-4">
+                <div className="flex items-center gap-3">
+                  {bulkMode && selectable && (
+                    <Checkbox
+                      checked={selected.has(finding.id)}
+                      onCheckedChange={() => toggleOne(finding.id)}
+                      aria-label={`Select finding in ${finding.fileLocation}`}
+                      className="shrink-0"
+                    />
+                  )}
+                  <AccordionTrigger className="flex-1 hover:no-underline py-4">
                   <div className="flex items-center gap-4 w-full text-left">
                     <div className="flex-1">
                       <div className="font-bold text-sm mb-0.5">{finding.type} Detected</div>
@@ -143,6 +221,7 @@ export default function FindingsClient({
                     </Badge>
                   </div>
                 </AccordionTrigger>
+                </div>
                 <AccordionContent className="pb-6 pt-2">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
                     <div className="space-y-6">
@@ -189,6 +268,7 @@ export default function FindingsClient({
               );
             })}
           </Accordion>
+    </div>
   )}
         </CardContent>
 

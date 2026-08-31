@@ -93,3 +93,104 @@ export async function setFindingStatus(
 
   return { ok: true };
 }
+
+export interface BulkTriageTarget {
+  repositoryId: string;
+  fingerprint: string;
+}
+
+export interface SetFindingStatusBulkInput {
+  targets: BulkTriageTarget[];
+  status: TriageStatus;
+  note?: string | null;
+}
+
+export interface SetFindingStatusBulkResult {
+  ok: boolean;
+  /** How many findings were triaged. */
+  updated: number;
+  error?: string;
+}
+
+/** Ceiling on findings triaged in a single bulk call, matching the page-size cap. */
+export const MAX_BULK_TRIAGE = 100;
+
+/**
+ * Apply a triage status (+ optional note) to many findings at once (#732).
+ *
+ * A thin fan-out over the same upsert `setFindingStatus` performs: bulk triage
+ * is a convenience for the reviewer, not a second code path, so it reuses the
+ * ownership check, the audit log entry and the revalidation rather than
+ * reimplementing them. The only additions are a per-call cap and a
+ * per-repository ownership lookup that is done once rather than per finding.
+ */
+export async function setFindingStatusBulk(
+  input: SetFindingStatusBulkInput
+): Promise<SetFindingStatusBulkResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, updated: 0, error: "Not authenticated" };
+  }
+  const userId = session.user.id;
+
+  const { status } = input;
+  const note = input.note?.trim() ? input.note.trim() : null;
+
+  if (!isTriageStatus(status)) {
+    return { ok: false, updated: 0, error: "Invalid status" };
+  }
+
+  const targets = (input.targets ?? []).filter(
+    (t) => t && t.repositoryId && t.fingerprint
+  );
+  if (targets.length === 0) {
+    return { ok: false, updated: 0, error: "No findings selected" };
+  }
+  if (targets.length > MAX_BULK_TRIAGE) {
+    return {
+      ok: false,
+      updated: 0,
+      error: `Cannot triage more than ${MAX_BULK_TRIAGE} findings at once`,
+    };
+  }
+
+  // Resolve — and authorise — every distinct repository once, so a request that
+  // names a repository the user does not own is rejected before any write.
+  const repoIds = [...new Set(targets.map((t) => t.repositoryId))];
+  const repos = await prisma.repository.findMany({
+    where: { id: { in: repoIds }, userId },
+    select: { id: true, fullName: true },
+  });
+  const ownedRepos = new Map(
+    repos.map((r: { id: string; fullName: string }) => [r.id, r.fullName])
+  );
+  if (ownedRepos.size !== repoIds.length) {
+    return { ok: false, updated: 0, error: "Repository not found" };
+  }
+
+  await prisma.$transaction(
+    targets.flatMap(({ repositoryId, fingerprint }) => [
+      prisma.findingTriage.upsert({
+        where: { repositoryId_fingerprint: { repositoryId, fingerprint } },
+        update: { status, note, resolvedById: userId },
+        create: { repositoryId, fingerprint, status, note, resolvedById: userId },
+      }),
+      prisma.auditLog.create({
+        data: sanitizeAuditLogInput({
+          userId,
+          action: "Finding Triage",
+          resource: `${ownedRepos.get(repositoryId)}:${fingerprint.slice(0, 12)}`,
+          decision: status,
+          metadata: { repositoryId, fingerprint, status, hasNote: note !== null, bulk: true },
+        }),
+      }),
+    ])
+  );
+
+  invalidateCachedUserFilters(userId);
+
+  revalidatePath("/dashboard/findings");
+  revalidatePath("/dashboard");
+
+  return { ok: true, updated: targets.length };
+}

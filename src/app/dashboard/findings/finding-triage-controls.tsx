@@ -13,7 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { setFindingStatus, TriageStatus } from "@/lib/actions/triage";
+import {
+  setFindingStatus,
+  setFindingStatusBulk,
+  type BulkTriageTarget,
+  TriageStatus,
+} from "@/lib/actions/triage";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
@@ -113,6 +118,105 @@ export default function FindingTriageControls({
 
       <Button size="sm" onClick={save} disabled={!dirty || isPending} className="w-full">
         {isPending ? "Saving…" : "Save triage"}
+      </Button>
+    </div>
+  );
+}
+
+/** Statuses offered for a bulk action — OPEN is excluded (it is the "un-triage" default). */
+const BULK_STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
+  { value: "RESOLVED", label: "Resolved" },
+  { value: "FALSE_POSITIVE", label: "False positive" },
+  { value: "IGNORED", label: "Ignored" },
+];
+
+interface BulkTriageBarProps {
+  /** The findings currently selected, resolved to their triage targets. */
+  targets: BulkTriageTarget[];
+  /** Clear the selection after a successful bulk action. */
+  onDone: () => void;
+}
+
+/**
+ * Action bar for triaging many findings at once (#732).
+ *
+ * Rendered by the findings list only while at least one finding is selected. It
+ * wraps {@link setFindingStatusBulk}, which reuses the same ownership check and
+ * audit trail as the single-finding control above.
+ */
+export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
+  const { toast } = useToast();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [status, setStatus] = useState<TriageStatus>("RESOLVED");
+  const [note, setNote] = useState("");
+
+  const count = targets.length;
+
+  const apply = () => {
+    startTransition(async () => {
+      try {
+        const result = await setFindingStatusBulk({ targets, status, note });
+        if (result.ok) {
+          toast({
+            variant: "success",
+            title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
+            description: `${result.updated} ${result.updated === 1 ? "finding" : "findings"} updated to ${BULK_STATUS_OPTIONS.find((o) => o.value === status)?.label}.`,
+          });
+          setNote("");
+          onDone();
+          router.refresh();
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Couldn't update findings",
+            description: result.error ?? "An unexpected error occurred.",
+          });
+        }
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Couldn't update findings",
+          description: "An unexpected error occurred. Please try again.",
+        });
+      }
+    });
+  };
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4"
+      data-testid="bulk-triage-bar"
+    >
+      <span className="text-sm font-semibold">
+        {count} {count === 1 ? "finding" : "findings"} selected
+      </span>
+
+      <Select value={status} onValueChange={(v) => setStatus(v as TriageStatus)} disabled={isPending}>
+        <SelectTrigger className="h-9 w-[170px] text-sm" aria-label="Bulk triage status">
+          <SelectValue placeholder="Set status" />
+        </SelectTrigger>
+        <SelectContent>
+          {BULK_STATUS_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Optional note applied to all selected findings"
+        rows={1}
+        disabled={isPending}
+        className="min-w-[220px] flex-1 text-sm"
+        aria-label="Bulk triage note"
+      />
+
+      <Button size="sm" onClick={apply} disabled={count === 0 || isPending}>
+        {isPending ? "Applying…" : `Apply to ${count}`}
       </Button>
     </div>
   );
