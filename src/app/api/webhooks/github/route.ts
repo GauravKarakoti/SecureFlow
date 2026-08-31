@@ -13,12 +13,10 @@ import {
   verifySignature,
   webhookJobId,
 } from '@/lib/github/webhook-verification';
-import { prisma } from '@/lib/prisma';
-import { getOctokit } from '@/lib/github/octokit';
-import { scanCode } from '@/lib/armor/scanner';
+import prisma from '@/lib/prisma';
+import { Octokit } from 'octokit';
 import { parseManifestFile } from '@/lib/sbom/dependency-parser';
 import { matchVulnerabilities } from '@/lib/sbom/vulnerability-matcher';
-import { Severity } from '@prisma/client';
 
 /**
  * GitHub webhook ingest (#562).
@@ -39,18 +37,16 @@ import { Severity } from '@prisma/client';
  * so each branch is unit-testable without constructing a request.
  */
 
-/**
- * [NEW] Helper to fetch raw file content from GitHub
- */
 async function fetchFileContent(
-  octokit: any,
+  octokit: InstanceType<typeof Octokit>,
   owner: string,
   repo: string,
   path: string,
   ref: string
 ) {
   try {
-    const { data } = await octokit.repos.getContent({ owner, repo, path, ref });
+    // Added .rest namespace
+    const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref });
     if ('content' in data && data.content) {
       return Buffer.from(data.content, 'base64').toString('utf-8');
     }
@@ -107,12 +103,13 @@ export async function handlePullRequestSynchronize(payload: Record<string, unkno
       }
     });
 
-    const octokit = await getOctokit(installation.id);
+    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     const owner = repository.owner.login;
     const repo = repository.name;
 
     // 2. Get changed files
-    const { data: files } = await octokit.pulls.listFiles({
+    // Added .rest namespace
+    const { data: files } = await octokit.rest.pulls.listFiles({
       owner,
       repo,
       pull_number: pull_request.number,
@@ -147,7 +144,7 @@ export async function handlePullRequestSynchronize(payload: Record<string, unkno
               data: {
                 pullRequestId: prRecord.id,
                 type: 'DEPENDENCY_VULNERABILITY',
-                severity: vuln.severity as Severity,
+                severity: vuln.severity,
                 file: file.filename,
                 description: `${vuln.dependency.name}@${vuln.dependency.version}: ${vuln.description}`,
                 codeSnippet: `Dependency: ${vuln.dependency.name}\nCurrent: ${vuln.dependency.version}\nPatched: ${vuln.patchedVersion || 'Unknown'}`,
