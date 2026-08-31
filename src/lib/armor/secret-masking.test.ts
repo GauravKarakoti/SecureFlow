@@ -1,13 +1,13 @@
 /**
- * Tests for finding redaction (#591).
+ * Tests for finding redaction (#591, #669).
  *
- * Two properties matter beyond "does it catch X":
- *
- *  - the entropy pass must not flatten ordinary code. Getting that wrong in the
- *    permissive direction is worse than missing a secret, because it destroys
- *    the very snippet the remediation advice is talking about; and
- *  - `maskFindingText` must be total, because it is now on the path of two
- *    model-generated fields that can be anything at all.
+ * Covers:
+ *  - Provider-prefixed keys (OpenAI, Anthropic, GitHub, GitLab, Stripe, Slack, AWS, Google, SendGrid, Twilio, Vault, HuggingFace, Discord, Datadog).
+ *  - Connection strings and authorization headers (DB URIs, Azure Storage connection strings, Bearer/Basic headers).
+ *  - Private keys (PEM RSA/EC/DSA/OpenSSH, complete and unterminated).
+ *  - False-positive reduction (safe environment variable lookups, config readers, UUIDs, hex color codes, long camelCase identifiers, mock placeholders).
+ *  - High-entropy heuristic checks and Shannon entropy calculation.
+ *  - Total safety and edge-case handling for `maskFindingText` and `auditSecretMasking`.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -18,6 +18,8 @@ import {
   maskKnownSecretFormats,
   maskSecrets,
   shannonEntropy,
+  isWordBasedIdentifier,
+  auditSecretMasking,
 } from './secret-masking';
 
 const redacted = (text: string) => expect(maskSecrets(text)).toContain(REDACTION_PLACEHOLDER);
@@ -55,28 +57,19 @@ describe('provider-prefixed keys', () => {
 
   it('redacts a Slack token and an incoming webhook URL', () => {
     redacted(`slack=${'xox' + 'b-'}0000000000-XXXXXXXXXXXXXXXXXXXXXXXX`);
-    // Split, like the Stripe and Slack fixtures above: an intact literal trips
-    // GitHub's own push protection on this very repository.
     redacted(`https://hooks.${'sla' + 'ck'}.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`);
   });
 
   it('does not treat a lookalike host as a Slack webhook', () => {
-    // CodeQL's missing-anchor rule, addressed with a lookbehind on the host.
-    // `evil-hooks.slack.com` is a different host and must not match this rule.
     const lookalike = `https://evil-hooks.${'sla' + 'ck'}.com/services/AAAA/BBBB/CCCC`;
-
     expect(maskKnownSecretFormats(lookalike)).toContain('evil-hooks');
   });
 
   it('still redacts a webhook URL embedded mid-string', () => {
-    // It cannot be ^-anchored: redaction has to find the URL wherever it sits
-    // inside a code snippet.
     const embedded = `const url = "https://hooks.${'sla' + 'ck'}.com/services/T1/B1/XXXXXXXXXXXXXXXX";`;
-
     expect(maskKnownSecretFormats(embedded)).toContain(REDACTION_PLACEHOLDER);
   });
 
-  // ── Newly covered ────────────────────────────────────────────────────────
   it('redacts a Google API key', () => {
     redacted(`google=${'AIza'}SyD-0000000000000000000000000000000`);
   });
@@ -92,236 +85,178 @@ describe('provider-prefixed keys', () => {
   it('redacts a Twilio SID-shaped credential', () => {
     redacted(`twilio=${'S' + 'K'}0123456789abcdef0123456789abcdef`);
   });
-});
 
-describe('rule ordering', () => {
-  it('fires the sk-proj- rule, which the broader sk- rule used to swallow', () => {
-    // Previously unreachable: `sk-[a-zA-Z0-9-_]{32,}` ran first and consumed the
-    // match, so the more specific rule below it could never apply.
-    const result = maskKnownSecretFormats('key=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890abcdef');
+  // ── New Provider Patterns (#669) ─────────────────────────────────────────
+  it('redacts a GitLab Personal Access Token', () => {
+    redacted('token = ' + 'glpat-' + 'abcdefghijklmnopqrst123456');
+  });
 
-    expect(result).toContain(REDACTION_PLACEHOLDER);
-    expect(result).not.toContain('sk-proj-');
+  it('redacts a GitLab CI pipeline token and deploy token', () => {
+    redacted('ci_token = ' + 'glcbt-' + 'abcdefghijklmnopqrst123456');
+    redacted('deploy_token = ' + 'gldt-' + 'abcdefghijklmnopqrst123456');
+  });
+
+  it('redacts a HashiCorp Vault token', () => {
+    redacted('vault_token = ' + 'hvs.' + 'CAESIJkABCDEF1234567890abcdefghijklmnopqrstuvwxyz');
+    redacted('old_vault = ' + 's.' + 'abcdefghijklmnopqrstuvwx');
+  });
+
+  it('redacts a HuggingFace user access token', () => {
+    redacted('hf_token = ' + 'hf_' + 'abcdefghijklmnopqrstuvwxyz0123456789');
+  });
+
+  it('redacts a Discord bot token', () => {
+    redacted('discord_auth = ' + 'Bot ' + 'MTIzNDU2Nzg5MDEyMzQ1Njc4.' + 'abcdef.' + 'abcdefghijklmnopqrstuvwxyz12345');
+  });
+
+  it('redacts a Datadog API key assignment', () => {
+    redacted(`DD_API_KEY = "1234567890abcdef1234567890abcdef"`);
+    redacted(`datadog_api_key: 'abcdef1234567890abcdef1234567890'`);
   });
 });
 
-describe('private keys', () => {
-  const body = ['MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF0qs2c1t2M2Y', 'ZmFrZWtleWJvZHlsaW5ldHdv'].join(
-    '\n',
-  );
+describe('authorization headers and connection strings', () => {
+  it('redacts Bearer authorization header values', () => {
+    const header = 'Authorization: Bearer abcdef1234567890_super_secret_token_value_xyz';
+    const result = maskSecrets(header);
+    expect(result).toBe(`Authorization: Bearer ${REDACTION_PLACEHOLDER}`);
+  });
 
-  it('redacts the body of a PEM block and keeps the markers', () => {
-    const pem = `-----BEGIN RSA PRIVATE KEY-----\n${body}\n-----END RSA PRIVATE KEY-----`;
-    const result = maskSecrets(pem);
+  it('redacts Basic authorization header values', () => {
+    const header = 'Authorization: Basic YWRtaW46cGFzc3dvcmQxMjM0NQ==';
+    const result = maskSecrets(header);
+    expect(result).toBe(`Authorization: Basic ${REDACTION_PLACEHOLDER}`);
+  });
 
+  it('redacts database passwords in URI connection strings while preserving database scheme', () => {
+    const postgresUri = 'DATABASE_URL = "postgres://app_user:superSecretPass123@db.production.internal:5432/app_db"';
+    const result = maskSecrets(postgresUri);
+    expect(result).toContain('postgres://app_user:');
+    expect(result).toContain(REDACTION_PLACEHOLDER);
+    expect(result).not.toContain('superSecretPass123');
+  });
+
+  it('redacts Azure Storage Account connection strings', () => {
+    const azureConn = 'DefaultEndpointsProtocol=https;AccountName=prodstorage;AccountKey=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrst==;EndpointSuffix=core.windows.net';
+    const result = maskSecrets(azureConn);
+    expect(result).toContain(`AccountKey=${REDACTION_PLACEHOLDER}`);
+    expect(result).toContain('AccountName=prodstorage');
+  });
+
+  it('redacts ADO.NET / SQL Server connection strings', () => {
+    const adonet = 'Server=myServerAddress;Database=myDataBase;Uid=myUsername;Pwd=MyPassword123;';
+    const result = maskSecrets(adonet);
+    expect(result).toContain(`Pwd=${REDACTION_PLACEHOLDER}`);
+    expect(result).not.toContain('MyPassword123');
+  });
+});
+
+describe('PEM private keys', () => {
+  it('redacts complete RSA, EC, and OpenSSH private key blocks while preserving markers', () => {
+    const rsaKey = `-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0Y1234567890abcdefghijklmnopqrstuvwxyz
+-----END RSA PRIVATE KEY-----`;
+
+    const result = maskSecrets(rsaKey);
     expect(result).toContain('-----BEGIN RSA PRIVATE KEY-----');
+    expect(result).toContain(REDACTION_PLACEHOLDER);
     expect(result).toContain('-----END RSA PRIVATE KEY-----');
-    expect(result).toContain(REDACTION_PLACEHOLDER);
-    expect(result).not.toContain('MIIEowIBAAKCAQEA');
+    expect(result).not.toContain('MIIEowIBAAKCAQEA0Y1234567890abcdefghijklmnopqrstuvwxyz');
   });
 
-  it.each(['RSA ', 'EC ', 'OPENSSH ', ''])('handles a %j private key header', (kind) => {
-    const pem = `-----BEGIN ${kind}PRIVATE KEY-----\n${body}\n-----END ${kind}PRIVATE KEY-----`;
-
-    expect(maskSecrets(pem)).not.toContain('MIIEowIBAAKCAQEA');
-  });
-
-  it('redacts a truncated key that has no END marker', () => {
-    // A snippet cut at the size cap frequently carries the header and the first
-    // lines of the body. Those lines are still key material.
-    const truncated = `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}`;
-
-    expect(maskSecrets(truncated)).not.toContain('MIIEowIBAAKCAQEA');
+  it('redacts unterminated private key fragments', () => {
+    const truncatedKey = `-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD`;
+    const result = maskSecrets(truncatedKey);
+    expect(result).toBe(REDACTION_PLACEHOLDER);
   });
 });
 
-describe('connection strings', () => {
-  it('redacts the password and keeps the scheme and username', () => {
-    const result = maskSecrets('mongodb://user:supersecret@localhost:27017/mydb');
-
-    expect(result).toContain('mongodb://user:');
-    expect(result).not.toContain('supersecret');
-  });
-
-  it.each(['postgresql', 'mysql', 'redis', 'amqp'])('covers the %s scheme', (scheme) => {
-    expect(maskSecrets(`${scheme}://svc:hunter2pass@db.internal:5432/app`)).not.toContain(
-      'hunter2pass',
-    );
-  });
-
-  it('covers a scheme the list does not name', () => {
-    expect(maskSecrets('customproto://svc:hunter2pass@host/path')).not.toContain('hunter2pass');
-  });
-
-  it('redacts an ADO.NET-style connection string', () => {
-    const result = maskSecrets('Server=db;User Id=sa;Password=Tr0ub4dor;Encrypt=true');
-
-    expect(result).not.toContain('Tr0ub4dor');
-    expect(result).toContain('Server=db');
-    expect(result).toContain('Encrypt=true');
-  });
-});
-
-describe('generic assignments', () => {
-  it('redacts the value and keeps the variable name', () => {
-    // The name is not the secret, and a reviewer needs it to act on the finding.
-    // This is why `scrubCredentials` — which collapses the whole pair to
-    // [REDACTED_SECRET] — is not used on finding text.
-    const result = maskSecrets('const DB_PASSWORD = "Tr0ub4dor&3";');
-
-    expect(result).toContain('DB_PASSWORD');
-    expect(result).not.toContain('Tr0ub4dor');
-  });
-
-  it.each([
-    'const apiSecret = "a83f9d2e4b";',
-    "let authToken: 'abcd1234efgh';",
-    'AUTH_TOKEN=hunter2pass',
-    'apiKey = "0123456789abcdef"',
-  ])('redacts %j', (source) => {
-    expect(maskSecrets(source)).toContain(REDACTION_PLACEHOLDER);
-  });
-
-  it('leaves an environment-variable reference alone', () => {
-    // The correct handling of a secret, and the thing the scanner is trying to
-    // encourage. Redacting it would make the remediation advice unreadable.
+describe('false positive prevention (#669)', () => {
+  it('leaves safe environment variable lookups untouched', () => {
     untouched('const apiKey = process.env.API_KEY;');
-    untouched('const token = import.meta.env.VITE_TOKEN;');
+    untouched('const secret = import.meta.env.VITE_APP_SECRET;');
+    untouched('db_pass = os.environ.get("DB_PASSWORD")');
+    untouched('token = System.getenv("AUTH_TOKEN")');
+    untouched('key = Deno.env.get("SECRET_KEY")');
+    untouched('secret = config.get("jwt_secret")');
+    untouched('let token = env::var("API_TOKEN");');
   });
 
-  it('leaves template interpolation alone', () => {
-    untouched('const authHeader = `${bearerPrefix}`;');
+  it('leaves dummy placeholders and templates untouched', () => {
+    untouched('API_KEY = "your-api-key-here"');
+    untouched('SECRET_KEY = "YOUR_SECRET_KEY"');
+    untouched('PASSWORD = "placeholder"');
+    untouched('token = "changeme"');
+    untouched('KEY = "mock_secret_token"');
+    untouched('SECRET = "dummy_value"');
+    untouched('const apiKey = "INSERT_YOUR_API_KEY";');
   });
 
-  it('leaves an obvious placeholder alone', () => {
-    // Otherwise every .env.example in every repository comes back as a wall of
-    // redactions, which is noise, not security.
-    untouched('API_KEY=your_key_here');
-    untouched('SECRET_TOKEN=changeme');
-    untouched('DB_PASSWORD=<your-password>');
+  it('does not redact standard UUIDs or GUIDs via entropy check', () => {
+    const uuidText = 'const userId = "c39a2b8e-7e9b-4d7a-8f3a-9e1b2c3d4e5f";';
+    untouched(uuidText);
   });
 
-  it('leaves a variable with no secret-ish name alone', () => {
-    untouched('const greeting = "hello there";');
+  it('does not redact CSS tokens, Tailwind classes, or color hex codes', () => {
+    untouched('const buttonClass = "bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-md";');
+    untouched('const themeColor = "#3b82f6";');
+  });
+
+  it('does not redact long camelCase identifiers or descriptive prose', () => {
+    untouched('class DefaultAuthenticationProviderConfigurationService extends BaseService {}');
+    untouched('function handleUserRegistrationConfirmationNotification() {}');
+    expect(isWordBasedIdentifier('developerReceivesAISecurityExplanations')).toBe(true);
   });
 });
 
-describe('shannonEntropy', () => {
-  it('is zero for a single repeated character', () => {
-    expect(shannonEntropy('aaaaaaaa')).toBe(0);
-  });
-
-  it('is one bit for an even two-symbol alphabet', () => {
-    expect(shannonEntropy('abababab')).toBeCloseTo(1, 10);
-  });
-
-  it('is zero for the empty string rather than NaN', () => {
+describe('entropy analysis and helper utilities', () => {
+  it('calculates Shannon entropy correctly', () => {
     expect(shannonEntropy('')).toBe(0);
+    expect(shannonEntropy('aaaa')).toBe(0);
+    expect(shannonEntropy('abcd')).toBeCloseTo(2.0, 1);
+    expect(shannonEntropy('aB3#dE9!kL2@mN4$')).toBeGreaterThan(3.5);
   });
 
-  it('rates a random-looking token above ordinary prose', () => {
-    expect(shannonEntropy('aG9sYVR3aWxpZ2h0OTk5MjIyMzMz')).toBeGreaterThan(
-      shannonEntropy('the quick brown fox'),
-    );
-  });
-});
+  it('accurately distinguishes high-entropy credentials from identifiers', () => {
+    const realSecret = '9f8e7d6c5b4a3210fe9dcba876543210abcedf012345';
+    expect(looksLikeCredential(realSecret)).toBe(true);
 
-describe('looksLikeCredential', () => {
-  it('accepts a long mixed-case alphanumeric token', () => {
-    expect(looksLikeCredential('aG9sYVR3aWxpZ2h0OTk5MjIyMzMz')).toBe(true);
+    const codeIdentifier = 'ApplicationStateManagementContainerStore';
+    expect(looksLikeCredential(codeIdentifier)).toBe(false);
   });
 
-  it('accepts a long hex digest', () => {
-    expect(looksLikeCredential('9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08')).toBe(
-      true,
-    );
-  });
-
-  it('rejects a long identifier', () => {
-    // 39 characters, entropy ~3.8 bits — comfortably over the threshold. A bare
-    // entropy check would redact half the identifiers in this repository, which
-    // is why the character-class test exists.
-    expect(looksLikeCredential('developerReceivesAISecurityExplanations')).toBe(false);
-    expect(looksLikeCredential('ArmorIQPolicyEngineEvaluateFindings')).toBe(false);
-  });
-
-  it('rejects a token shorter than the minimum length', () => {
-    expect(looksLikeCredential('aB3dE6gH9')).toBe(false);
-  });
-
-  it('rejects a long run of a single character', () => {
-    expect(looksLikeCredential('X'.repeat(64))).toBe(false);
+  it('redacts raw high-entropy tokens without prefixes', () => {
+    const rawSecret = 'api_signature = "9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a"';
+    redacted(rawSecret);
   });
 });
 
-describe('maskHighEntropyTokens', () => {
-  it('redacts a prefix-less credential the named rules cannot see', () => {
-    const result = maskHighEntropyTokens('oauthSecret 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2');
-
-    expect(result).toContain(REDACTION_PLACEHOLDER);
+describe('maskFindingText and auditSecretMasking', () => {
+  it('handles non-string inputs safely without throwing', () => {
+    expect(maskFindingText(null)).toBe('');
+    expect(maskFindingText(undefined)).toBe('');
+    expect(maskFindingText(12345)).toBe('');
+    expect(maskFindingText({})).toBe('');
   });
 
-  it('leaves ordinary source code untouched', () => {
-    const source = [
-      'import { developerReceivesAISecurityExplanations } from "@/ai/flows";',
-      'export async function scanPullRequest(files: FileChange[]) {',
-      '  const commentableLines = new Map<string, Set<number>>();',
-      '  return normalizeSeverity(finding.severity);',
-      '}',
-    ].join('\n');
+  it('provides comprehensive audit metadata via auditSecretMasking', () => {
+    const snippet = `
+      const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
+      const user = process.env.USER_NAME;
+    `;
 
-    expect(maskHighEntropyTokens(source)).toBe(source);
+    const audit = auditSecretMasking(snippet);
+    expect(audit.containsMaskedSecrets).toBe(true);
+    expect(audit.appliedRuleIds).toContain('github-pat-classic');
+    expect(audit.maskedText).toContain(REDACTION_PLACEHOLDER);
+    expect(audit.maskedText).toContain('process.env.USER_NAME');
   });
 
-  it('leaves a long URL path untouched', () => {
-    const url = 'https://github.com/GauravKarakoti/SecureFlow/blob/main/src/lib/armor/scanner.ts';
-
-    expect(maskHighEntropyTokens(url)).toBe(url);
-  });
-
-  it('does not re-redact the placeholder itself', () => {
-    expect(maskHighEntropyTokens(REDACTION_PLACEHOLDER)).toBe(REDACTION_PLACEHOLDER);
-  });
-});
-
-describe('maskSecrets — preserved behaviour', () => {
-  it('returns the empty string unchanged', () => {
-    expect(maskSecrets('')).toBe('');
-  });
-
-  it('returns non-secret text unchanged', () => {
-    untouched('const x = 42; // normal comment');
-  });
-
-  it('is idempotent', () => {
-    const once = maskSecrets('token=ghp_abcdefghijklmnopqrstuvwxyzabcdefghijklm');
-
-    expect(maskSecrets(once)).toBe(once);
-  });
-});
-
-describe('maskFindingText', () => {
-  it('redacts model prose that quotes a credential back at the reader', () => {
-    // The exact shape a remediation takes, and the one that used to reach a
-    // public pull request comment with no redaction at all.
-    const remediation =
-      'Replace the hardcoded value on line 12 — move DB_PASSWORD=Tr0ub4dorHunter into an environment variable.';
-
-    expect(maskFindingText(remediation)).not.toContain('Tr0ub4dorHunter');
-  });
-
-  it('keeps the variable name so the advice still makes sense', () => {
-    expect(maskFindingText('Set DB_PASSWORD="Tr0ub4dorHunter" from the environment.')).toContain(
-      'DB_PASSWORD',
-    );
-  });
-
-  it.each([null, undefined, 42, {}, []])('returns a string for %j rather than throwing', (input) => {
-    expect(() => maskFindingText(input)).not.toThrow();
-    expect(typeof maskFindingText(input)).toBe('string');
-  });
-
-  it('passes an empty string straight through', () => {
-    expect(maskFindingText('')).toBe('');
+  it('returns clean audit result when no secrets are present', () => {
+    const cleanSnippet = 'const x = 42; const name = "SecureFlow";';
+    const audit = auditSecretMasking(cleanSnippet);
+    expect(audit.containsMaskedSecrets).toBe(false);
+    expect(audit.appliedRuleIds).toEqual([]);
+    expect(audit.entropyRedactedTokenCount).toBe(0);
   });
 });

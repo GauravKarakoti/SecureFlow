@@ -40,7 +40,7 @@
  * components can use it too.
  */
 
-import { severitySpellings, type Severity } from './severity';
+import { toStoredSeverity, type Severity, type StoredSeverity } from './severity';
 
 /**
  * The categories the dashboard reports on.
@@ -273,40 +273,104 @@ export function findingTypeSpellings(category: FindingCategory): string[] {
   return [...spellings];
 }
 
-/** A Prisma `StringFilter` matching any known spelling of `category`. */
-export function findingCategoryFilter(category: FindingCategory) {
-  const spellings = findingTypeSpellings(category);
+/**
+ * The `FindingType` enum members, as declared in `prisma/schema.prisma`.
+ *
+ * `Finding.type` was a free-form `String` when this module was written, which is
+ * why everything above exists. #633 migrated it to an enum with exactly three
+ * members, so a query against the column can only name one of these three — and
+ * only in this exact casing.
+ */
+export const STORED_FINDING_TYPES = ['SECRET', 'VULNERABILITY', 'MISCONFIG'] as const;
 
-  // Everything that is not one of the three classified categories. Expressed as
-  // a negative so a spelling nobody has seen yet is still counted, which is the
-  // whole point of having an OTHER bucket.
+export type StoredFindingType = (typeof STORED_FINDING_TYPES)[number];
+
+/**
+ * A Prisma filter selecting the rows belonging to `category`.
+ *
+ * This used to return every *spelling* of the category — `Hardcoded Secret`,
+ * `hardcoded_secret`, `Credential Leak` — together with `mode: 'insensitive'`.
+ * That was correct against the old `String` column and is invalid against the
+ * enum: Prisma rejects an unknown member, and `mode` is not a valid property on
+ * an enum filter at all. The helper was unusable in either direction, and
+ * `src/app/dashboard/page.tsx` imported it without ever calling it (#686).
+ *
+ * The alias table above still earns its keep — {@link normalizeFindingTypeEnum}
+ * uses it on the write path to decide which member a model response becomes.
+ * What changed is that classification happens before the row is stored, so the
+ * query side only ever names the three canonical members.
+ *
+ * `OTHER` is not an enum member and cannot be one, so it selects nothing. It is
+ * expressed as `notIn` over all three rather than as an impossible literal, so
+ * the filter stays correct if the enum ever grows a fourth member.
+ */
+export function findingCategoryFilter(category: FindingCategory) {
   if (category === 'OTHER') {
-    return {
-      notIn: [
-        ...findingTypeSpellings('SECRET'),
-        ...findingTypeSpellings('VULNERABILITY'),
-        ...findingTypeSpellings('MISCONFIG'),
-      ],
-      mode: 'insensitive' as const,
-    };
+    return { notIn: [...STORED_FINDING_TYPES] };
   }
 
-  return { in: spellings, mode: 'insensitive' as const };
+  return { in: [category satisfies StoredFindingType] };
 }
 
 /**
- * A Prisma `StringFilter` matching any spelling of a severity level.
+ * A Prisma filter selecting the rows at a severity level.
  *
- * `Finding.severity` is an unconstrained `String` column. `iq.ts` and
- * `leaderboard/aggregate.ts` both go out of their way to compare it
- * case-insensitively, with comments explaining that an exact match let a
- * `"critical"` row decide a pull request `PASS`. The dashboard was the last
- * place still doing `severity: 'CRITICAL'`.
+ * Same story as {@link findingCategoryFilter}: `Finding.severity` is now a
+ * `FindingSeverity` enum, so listing every spelling `parseSeverity` understands
+ * (`CRIT`, `SEV0`, `P0`, `BLOCKER`, …) alongside `mode: 'insensitive'` produced
+ * a filter Prisma refuses outright.
  *
- * `mode: 'insensitive'` covers the casing; `severitySpellings` covers the
- * aliases `parseSeverity` already understands, so what the tiles count matches
- * what the policy engine enforces.
+ * The level is mapped through the storage vocabulary, so `NONE` — which is a
+ * ranking level and not an enum member — selects `INFO` rather than throwing.
  */
-export function severityFilter(level: Severity) {
-  return { in: [...severitySpellings(level)], mode: 'insensitive' as const };
+export function severityFilter(level: Severity | StoredSeverity) {
+  return { in: [toStoredSeverity(level)] };
 }
+
+/**
+ * Maps arbitrary finding type strings to the valid Prisma FindingType enum values:
+ * 'SECRET' | 'VULNERABILITY' | 'MISCONFIG' (#633).
+ */
+export function normalizeFindingTypeEnum(value: unknown): 'SECRET' | 'VULNERABILITY' | 'MISCONFIG' {
+  const category = normalizeFindingType(value);
+  if (category === 'SECRET') return 'SECRET';
+  if (category === 'MISCONFIG') return 'MISCONFIG';
+  return 'VULNERABILITY';
+}
+
+/**
+ * Normalizes decision strings to the Prisma PolicyDecision enum values:
+ * 'PASS' | 'REVIEW' | 'BLOCK' (#633).
+ */
+export function normalizePolicyDecisionEnum(decision: unknown): 'PASS' | 'REVIEW' | 'BLOCK' {
+  if (typeof decision !== 'string') return 'REVIEW';
+  const clean = decision.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (clean === 'PASS' || clean === 'SUCCESS' || clean === 'APPROVED') return 'PASS';
+  if (clean === 'BLOCK' || clean === 'BLOCKED' || clean === 'FAIL' || clean === 'FAILURE') return 'BLOCK';
+  return 'REVIEW';
+}
+
+/**
+ * Normalizes status strings to the Prisma PRStatus enum values:
+ * 'PASS' | 'REVIEW_REQUIRED' | 'BLOCKED' (#633).
+ */
+export function normalizePrStatusEnum(status: unknown): 'PASS' | 'REVIEW_REQUIRED' | 'BLOCKED' {
+  if (typeof status !== 'string') return 'REVIEW_REQUIRED';
+  const clean = status.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (clean === 'PASS' || clean === 'SUCCESS' || clean === 'APPROVED') return 'PASS';
+  if (clean === 'BLOCK' || clean === 'BLOCKED' || clean === 'FAIL' || clean === 'FAILURE') return 'BLOCKED';
+  return 'REVIEW_REQUIRED';
+}
+
+/**
+ * Normalizes state strings to the Prisma PRState enum values:
+ * 'OPEN' | 'CLOSED' | 'MERGED' (#633).
+ */
+export function normalizePrStateEnum(state: unknown): 'OPEN' | 'CLOSED' | 'MERGED' {
+  if (typeof state !== 'string') return 'OPEN';
+  const clean = state.trim().toUpperCase();
+  if (clean === 'CLOSED') return 'CLOSED';
+  if (clean === 'MERGED') return 'MERGED';
+  return 'OPEN';
+}
+

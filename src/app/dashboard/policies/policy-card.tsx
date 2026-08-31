@@ -1,11 +1,12 @@
 "use client";
 
-import { useOptimistic } from "react";
+import { useOptimistic, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Lock, AlertCircle, ShieldCheck, FileKey2, ScanLine } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
 
 export function PolicyCard({ 
   id, 
@@ -22,6 +23,38 @@ export function PolicyCard({
     isActive,
     (currentState: boolean, optimisticValue: boolean) => optimisticValue
   );
+  const [isPending, startTransition] = useTransition();
+  const { toast } = useToast();
+
+  /**
+   * Send the state the user asked for.
+   *
+   * `checked` is what the switch is being moved to. It used to be used for the
+   * optimistic update and then discarded: the request carried `currentState`
+   * — the `isActive` prop, which does not change until the server component
+   * re-renders — and the action wrote `!currentState`. Two clicks before that
+   * re-render sent the same previous state and wrote the same value twice, so
+   * the switch showed off, the database said on, and the revalidation snapped
+   * it back with no explanation (#660).
+   *
+   * The optimistic update is inside the transition so React reverts it on its
+   * own when the action settles; the toast is what tells the user why.
+   */
+  const handleToggle = (checked: boolean) => {
+    startTransition(async () => {
+      addOptimisticActive(checked);
+
+      const result = await toggleAction({ templateId: id, isActive: checked });
+
+      if (!result?.ok) {
+        toast({
+          variant: "destructive",
+          title: "Rule not updated",
+          description: result?.error ?? "The rule could not be updated. Please try again.",
+        });
+      }
+    });
+  };
 
   return (
     <Card className={`glass-card group relative overflow-hidden flex flex-col rounded-sm transition-all duration-300 ${optimisticActive ? 'border-primary/40 shadow-[0_0_24px_hsl(var(--primary)/0.12)]' : 'opacity-60 border-foreground/10'}`}>
@@ -29,20 +62,13 @@ export function PolicyCard({
       <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(hsl(var(--foreground)/0.45)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--foreground)/0.45)_1px,transparent_1px)] [background-size:18px_18px] pointer-events-none" aria-hidden="true" />
       <div className="absolute -right-12 -top-12 h-28 w-28 rotate-45 border border-primary/20 bg-primary/5" aria-hidden="true" />
       <div className="absolute top-5 right-5 z-10">
-        <form action={async (formData) => {
-          // 1. Instantly flip the UI state locally
-          addOptimisticActive(!optimisticActive);
-          
-          // 2. Perform the server update in the background
-          await toggleAction(formData);
-        }}>
-          <input type="hidden" name="templateId" value={id} />
-          {/* Note: We pass the real DB isActive state to the server, not the optimistic one */}
-          <input type="hidden" name="currentState" value={String(isActive)} />
-          <button type="submit" className="rounded-sm hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={`${optimisticActive ? 'Disable' : 'Enable'} rule: ${title}`}>
-             <Switch checked={optimisticActive} className="pointer-events-none" aria-readonly />
-          </button>
-        </form>
+        <Switch
+          checked={optimisticActive}
+          disabled={isPending}
+          onCheckedChange={handleToggle}
+          aria-label={`${optimisticActive ? 'Disable' : 'Enable'} rule: ${title}`}
+          className="focus-visible:ring-2 focus-visible:ring-primary"
+        />
       </div>
       
       <CardHeader className="relative z-[1] pt-7 pb-4">
@@ -60,17 +86,19 @@ export function PolicyCard({
           </Badge>
         </div>
         
-        <TooltipProvider delayDuration={200}>
+        <TooltipProvider delayDuration={150}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <CardTitle className="text-lg leading-tight pr-12">{title}</CardTitle>
+              <CardTitle className="text-lg leading-tight pr-12 cursor-help select-none">{title}</CardTitle>
             </TooltipTrigger>
             <TooltipContent 
               side="bottom" 
-              align="start" 
-              className="max-w-xs md:max-w-sm glass-card bg-black/90 border-white/10 text-slate-200 z-50 p-3"
+              align="center"
+              sideOffset={6}
+              collisionPadding={12}
+              className="w-[calc(100vw-2rem)] max-w-[var(--radix-tooltip-trigger-width)] bg-neutral-950 dark:bg-zinc-950 text-neutral-100 dark:text-zinc-100 border border-neutral-800 dark:border-zinc-800 shadow-2xl z-50 p-3 rounded-md opacity-100 backdrop-blur-none"
             >
-              <p className="text-xs leading-relaxed">{description}</p>
+              <p className="text-xs leading-relaxed font-normal">{description}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>        

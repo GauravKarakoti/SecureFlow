@@ -28,6 +28,7 @@
 - [✅ Pull Request Process](#-pull-request-process)
 - [💻 Coding Standards](#-coding-standards)
 - [📚 Documentation Standards](#-documentation-standards)
+- [📦 Changelog (Changesets)](#-changelog-changesets)
 - [🧪 Testing Guidelines](#-testing-guidelines)
 - [📁 Folder Structure Explained](#-folder-structure-explained)
 - [💡 Tips for First-Time Contributors](#-tips-for-first-time-contributors)
@@ -235,6 +236,7 @@ Open [http://localhost:9002](http://localhost:9002) with your browser to see the
 - [ ] Run `npm run build` and confirm it builds
 - [ ] Test your changes thoroughly
 - [ ] Update documentation if needed
+- [ ] Add a changeset (`npx changeset`) if the PR changes runtime behavior
 
 ### PR Checklist
 
@@ -342,6 +344,20 @@ npx prettier --check .
 - Update **API documentation** when making changes
 - Add **JSDoc comments** for functions and components
 - Keep the **README.md** up-to-date
+
+---
+
+## 📦 Changelog (Changesets)
+
+This repository uses [Changesets](https://github.com/changesets/changesets) to maintain [CHANGELOG.md](./CHANGELOG.md) so new features, database migrations, and AI flow updates can be tracked across Docker image versions published by `.github/workflows/docker-publish.yml`.
+
+If your PR changes runtime behavior, add a changeset:
+
+```bash
+npx changeset
+```
+
+In the summary, mention new features, Prisma migration folder names, and AI flow updates (`src/ai/flows/`) as applicable. See [`.changeset/README.md`](./.changeset/README.md) for details.
 
 ---
 

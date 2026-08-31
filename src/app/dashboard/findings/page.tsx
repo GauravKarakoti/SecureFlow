@@ -1,88 +1,54 @@
-import prisma from "@/lib/prisma";
 import FindingsClient from "./findings-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { getUserTriage, triageKey } from "@/lib/triage/queries";
+import { getUserFindingFilters, getUserFindings } from "@/lib/actions/findings";
+import { fromSearchParams } from "@/lib/findings/query";
 
 export const dynamic = "force-dynamic";
 
-export default async function FindingsPage() {
+/**
+ * Security Findings (#561).
+ *
+ * Filters, sort and page number are read from `searchParams` rather than held in
+ * client state, so a narrowed view is bookmarkable and shareable and survives a
+ * reload. Every query — the list, the total and the three stat tiles — is built
+ * from one `buildFindingsWhere` call inside `getUserFindings`, which is what
+ * stops the tiles and the list disagreeing the way they used to.
+ *
+ * This page previously inlined four Prisma queries with a hard-coded `take: 50`,
+ * no `skip` and no filters. They now live in `src/lib/actions/findings.ts`, with
+ * every decidable part pure and unit-tested in `src/lib/findings/query.ts`.
+ */
+export default async function FindingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
 
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
 
-  const userId = session.user.id;
+  const params = await searchParams;
+  const query = fromSearchParams(params);
 
-  // Dismissed (FALSE_POSITIVE / IGNORED) findings are excluded from the tiles
-  // by fingerprint; `byKey` carries each finding's current status into the UI.
-  const { suppressedFingerprints, byKey } = await getUserTriage(userId);
-  const notDismissed = { fingerprint: { notIn: suppressedFingerprints } };
-
-  // Scope shared by every tile, so no tile can disagree with its siblings about
-  // which repositories it is counting.
-  const ownedByUser = { scanResult: { pullRequest: { repository: { userId } } } };
-
-  // The database schema now enforces `FindingType` and `Severity` as Enums.
-  // For the "other" bucket, we simply exclude the known Enum values.
-  const [criticalSecrets, vulnerabilities, misconfigs, other] = await Promise.all([
-    prisma.finding.count({
-      where: {
-        type: "SECRET",
-        severity: "CRITICAL",
-        ...ownedByUser,
-        ...notDismissed,
-      },
-    }),
-    prisma.finding.count({
-      where: { type: "VULNERABILITY", ...ownedByUser, ...notDismissed },
-    }),
-    prisma.finding.count({
-      where: { type: "MISCONFIG", ...ownedByUser, ...notDismissed },
-    }),
-    prisma.finding.count({
-      where: { 
-        type: { notIn: ["SECRET", "VULNERABILITY", "MISCONFIG"] }, 
-        ...ownedByUser, 
-        ...notDismissed 
-      },
-    }),
+  const [result, filterOptions] = await Promise.all([
+    getUserFindings(query),
+    getUserFindingFilters(),
   ]);
-
-  // Fetch the actual findings for this user's repos
-  const findingsRaw = await prisma.finding.findMany({
-    where: {
-      scanResult: { pullRequest: { repository: { userId } } }
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-    include: {
-      scanResult: {
-        include: { pullRequest: true }
-      }
-    }
-  });
   
-  const findings = findingsRaw.map((f: any) => {
-    const repositoryId = f.scanResult.pullRequest.repositoryId;
-    const triage = byKey.get(triageKey(repositoryId, f.fingerprint));
-    return {
-      ...f,
-      repositoryId,
-      triageStatus: triage?.status ?? 'OPEN',
-      triageNote: triage?.note ?? null,
-      scanResult: {
-        ...f.scanResult,
-        pullRequest: {
-          ...f.scanResult.pullRequest,
-          githubId: f.scanResult.pullRequest.githubId.toString()
-        }
-      }
-    };
-  });
+  const other = 0;
 
-  const stats = { criticalSecrets, vulnerabilities, misconfigs, other };
-
-  return <FindingsClient findings={findings} stats={stats} />;
+  return (
+    <FindingsClient
+      findings={result.findings}
+      stats={result.stats}
+      filterOptions={filterOptions}
+      page={result.page}
+      pageSize={result.pageSize}
+      total={result.total}
+      totalPages={result.totalPages}
+    />
+  );
 }

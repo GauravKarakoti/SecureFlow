@@ -33,6 +33,30 @@ import {
  * so each branch is unit-testable without constructing a request.
  */
 
+/**
+ * Executes routines when an existing Pull Request receives new code commits
+ */
+export async function handlePullRequestSynchronize(payload: Record<string, unknown> | any) {
+  const prNumber = payload.number;
+  const repoName = payload.repository?.full_name;
+  const headSha = payload.pull_request?.head?.sha;
+
+  console.log(`[PR_SYNC] New code pushed to PR #${prNumber} on repo ${repoName}. Head SHA: ${headSha}`);
+  // Hook up your local CI/CD build runner pipelines, automated test suites, or alert engines here
+}
+
+/**
+ * Triggers security tracking or alert logging loops when repository protection controls change
+ */
+export async function handleBranchProtectionMutation(payload: Record<string, unknown> | any) {
+  const action = payload.action; // 'created', 'edited', or 'deleted'
+  const ruleName = payload.rule?.name;
+  const repoName = payload.repository?.full_name;
+
+  console.warn(`[SECURITY_GOVERNANCE] Branch protection rule '${ruleName}' was ${action} on repo ${repoName}.`);
+  // Hook up secondary administrative logging mechanisms or compliance monitoring flags here
+}
+
 const handler = withErrorHandler(async function POST(req: NextRequest) {
   const maxBytes = parseMaxWebhookBytes(process.env.GITHUB_WEBHOOK_MAX_BYTES);
 
@@ -110,6 +134,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   if (!isTrackedEvent(event)) {
     return NextResponse.json({ message: 'Event not tracked', deliveryId }, { status: 200 });
+  }
+
+  // Route event actions
+  if (event === 'pull_request' && parsed.payload.action === 'synchronize') {
+    await handlePullRequestSynchronize(parsed.payload);
+  } else if (event === 'branch_protection_rule') {
+    await handleBranchProtectionMutation(parsed.payload);
   }
 
   // 6. Delegate to the queue.

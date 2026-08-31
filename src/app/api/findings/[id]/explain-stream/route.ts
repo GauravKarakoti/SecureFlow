@@ -5,6 +5,7 @@ import { streamDeveloperSecurityExplanations } from '@/ai/flows/security-explana
 import { withRateLimit, TIERS } from '@/lib/middleware/rate-limit';
 import { checkRateLimit } from '@/lib/redis';
 import { ratelimit } from '@/lib/rate-limit';
+import { streamManager } from '@/lib/sse/streamManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,24 +81,14 @@ async function handler(
     }
 
   const encoder = new TextEncoder();
-  const controllerAbort = new AbortController();
-
-  // Tie the stream's lifetime to the client connection. When the browser closes
-  // the EventSource, request.signal aborts, we stop pulling tokens from Groq for
-  // a reader that has gone away, and no further enqueue is attempted. Mirrors the
-  // sibling heist-transmission stream (#530/#535).
-  const upstreamSignal = request.signal;
-  if (upstreamSignal) {
-    if (upstreamSignal.aborted) controllerAbort.abort();
-    else upstreamSignal.addEventListener('abort', () => controllerAbort.abort(), { once: true });
-  }
+  const { signal: abortSignal, release } = streamManager.register(request.signal, 'explain-stream');
 
   let closed = false;
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (payload: unknown): void => {
-        if (closed || controllerAbort.signal.aborted) return;
+        if (closed || abortSignal.aborted) return;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
         } catch {
@@ -108,6 +99,14 @@ async function handler(
       };
 
       const finish = (): void => {
+        // Unconditional, and before the `closed` guard. `closed` tracks
+        // whether the controller may still be written to -- `send` sets it on
+        // a failed enqueue -- which is a different question from whether the
+        // registry still holds this connection. Gating both on the one flag
+        // meant a failed enqueue made every later finish() a no-op and the
+        // entry was never released (#722).
+        release();
+
         if (closed) return;
         closed = true;
         try {
@@ -115,7 +114,7 @@ async function handler(
         } catch {}
       };
 
-      if (controllerAbort.signal.aborted) {
+      if (abortSignal.aborted) {
         finish();
         return;
       }
@@ -132,9 +131,9 @@ async function handler(
             fileLocation: finding.fileLocation,
             codeSnippet: finding.codeSnippet || '',
           },
-          { signal: controllerAbort.signal },
+          { signal: abortSignal },
         )) {
-          if (closed || controllerAbort.signal.aborted) {
+          if (closed || abortSignal.aborted) {
             finish();
             return;
           }
@@ -161,7 +160,7 @@ async function handler(
         }
       } catch (err) {
         // A disconnect surfaces here as an abort — that's expected teardown, not an error.
-        if (!controllerAbort.signal.aborted) {
+        if (!abortSignal.aborted) {
           send({
             type: 'error',
             message: err instanceof Error ? err.message : 'AI generation failed.',
@@ -175,7 +174,7 @@ async function handler(
     cancel() {
       // Reader (client) went away — abort the generator so it stops pulling tokens.
       closed = true;
-      controllerAbort.abort();
+      release();
     },
   });
 

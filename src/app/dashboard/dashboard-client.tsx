@@ -1,50 +1,159 @@
 "use client";
 
+import React, { useState } from "react";
 import CountUp from "react-countup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldAlert, GitPullRequest, CheckCircle, AlertTriangle, Zap } from "lucide-react";
+import { ShieldAlert, GitPullRequest, CheckCircle, AlertTriangle, Zap, RefreshCw, GitBranch, ArrowRight, ShieldCheck } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { triggerRepositorySync } from "@/lib/actions/sync-repositories";
 
-// Optional: define types based on your Prisma schema
 interface DashboardClientProps {
   stats: { totalScans: number; blockedPRs: number; approvedPRs: number; secretsDetected: number };
-  prs: any[]; // Replace with proper Prisma type if available
+  prs: any[];
   chartData: any[];
   distribution: { critical: number; high: number; medium: number; low: number };
+  repoCount?: number;
+  needsGitHubAppInstall?: boolean;
+  githubAppUrl?: string;
 }
 
-export default function DashboardClient({ stats, prs, chartData, distribution }: DashboardClientProps) {
- const totalFindings =
-  distribution.critical +
-  distribution.high +
-  distribution.medium +
-  distribution.low;
+export default function DashboardClient({
+  stats,
+  prs,
+  chartData,
+  distribution,
+  repoCount = 0,
+  needsGitHubAppInstall = false,
+  githubAppUrl = "/setup",
+}: DashboardClientProps) {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    setSyncStatus(null);
+    try {
+      const res = await triggerRepositorySync();
+      // Repositories the installation exposes but another SecureFlow user
+      // already owns are now skipped rather than taken from them (#657), so
+      // the count needs saying out loud — otherwise a repository the user can
+      // see on GitHub is simply missing here with no explanation.
+      const skippedNote =
+        res.skipped && res.skipped > 0
+          ? ` ${res.skipped} already tracked by another user${
+              res.skippedRepositories?.length
+                ? ` (${res.skippedRepositories.slice(0, 3).join(", ")}${
+                    res.skippedRepositories.length > 3 ? ", …" : ""
+                  })`
+                : ""
+            }.`
+          : "";
+      const failedNote =
+        res.failed && res.failed > 0 ? ` ${res.failed} could not be saved.` : "";
+
+      if (res.synced > 0) {
+        setSyncStatus(
+          `Successfully synchronized ${res.synced} repositories.${skippedNote}${failedNote}`
+        );
+      } else if (!res.hasInstallation) {
+        setSyncStatus("No GitHub App installation found. Please install the GitHub App first.");
+      } else if (skippedNote || failedNote) {
+        setSyncStatus(`No new repositories.${skippedNote}${failedNote}`);
+      } else {
+        setSyncStatus("Repositories are up to date.");
+      }
+    } catch (e: any) {
+      setSyncStatus("Sync failed. Please check GitHub App permissions.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const totalFindings =
+    distribution.critical +
+    distribution.high +
+    distribution.medium +
+    distribution.low;
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      {/* GitHub App Onboarding Prompt for Scenario 2 */}
+      {needsGitHubAppInstall && (
+        <div className="p-6 rounded-2xl bg-gradient-to-r from-primary/20 via-primary/10 to-transparent border border-primary/30 glass-card relative overflow-hidden">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 text-primary text-xs font-bold font-mono tracking-wider uppercase">
+                <GitBranch className="w-3.5 h-3.5" /> Action Required // Connect Repositories
+              </div>
+              <h2 className="text-xl font-headline font-bold">Install SecureFlow GitHub Application</h2>
+              <p className="text-sm text-muted-foreground max-w-2xl">
+                To begin automated vulnerability defense and real-time pull request auditing, install the SecureFlow GitHub App on your organization or repositories.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link href={githubAppUrl}>
+                <Button className="bg-primary text-background hover:bg-primary/90 glow-primary font-bold uppercase rounded-sm cursor-pointer h-11 px-6">
+                  Install GitHub App
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-       <div>
-  <span className="text-sm font-medium uppercase tracking-widest text-primary">
-    Dashboard
-  </span>
+        <div>
+          <span className="text-sm font-medium uppercase tracking-widest text-primary">
+            Dashboard
+          </span>
 
-  <h1 className="mt-1 font-headline text-4xl font-extrabold tracking-tight">
-    Risk Overview
-  </h1>
+          <h1 className="mt-1 font-headline text-4xl font-extrabold tracking-tight">
+            Risk Overview
+          </h1>
 
-  <p className="mt-2 max-w-xl text-muted-foreground">
-    Monitor repository security, scan activity, and pull request health from one place.
-  </p>
+          <p className="mt-2 max-w-xl text-muted-foreground">
+            Monitor repository security, scan activity, and pull request health from one place.
+          </p>
 
-  <div className="mt-4 flex items-center gap-2">
-    <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-    <span className="text-xs font-medium text-muted-foreground">
-      SecureFlow monitoring active
-    </span>
-  </div>
-</div>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-xs font-medium text-muted-foreground">
+                SecureFlow monitoring active
+              </span>
+            </div>
+            {repoCount > 0 && (
+              <span className="text-xs font-mono text-primary font-semibold">
+                • {repoCount} Protected Repositories
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="border-white/10 hover:border-primary/40 bg-white/5 cursor-pointer font-mono text-xs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isSyncing ? "animate-spin text-primary" : ""}`} />
+            {isSyncing ? "Syncing Repositories..." : "Sync Repositories"}
+          </Button>
+        </div>
       </div>
+
+      {syncStatus && (
+        <div className="p-3 rounded-lg bg-primary/10 border border-primary/30 text-xs font-mono text-primary flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+          {syncStatus}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -9,7 +9,9 @@
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
-    "publish": "npm publish --access public"
+    "publish": "npm publish --access public",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "security",
@@ -26,7 +28,8 @@
     "dist"
   ],
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "typescript": "^7.0.2"
+    "@types/node": "^26.3.0",
+    "typescript": "^6",
+    "vitest": "^4.1.11"
   }
 }

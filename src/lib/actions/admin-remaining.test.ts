@@ -20,12 +20,16 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock('@/lib/prisma', () => ({
-  default: {
-    $transaction: vi.fn(async (queries: any[]) => {
-      // Execute each query in the transaction and return results
+vi.mock('@/lib/prisma', () => {
+  const db: any = {
+    // updateUserRole and deleteUser now pass a callback so the last-admin
+    // count can be re-asserted inside the transaction (#658). The array form
+    // is still supported for anything else that uses it.
+    $transaction: vi.fn(async (arg: any) => {
+      if (typeof arg === 'function') return await arg(db);
+
       const results = [];
-      for (const q of queries) {
+      for (const q of arg) {
         results.push(typeof q === 'function' ? await q() : await q);
       }
       return results;
@@ -56,13 +60,16 @@ vi.mock('@/lib/prisma', () => ({
     },
     role: {
       upsert: vi.fn(async ({ create }: any) => ({ id: 'role-new', ...create })),
+      findUnique: vi.fn(async ({ where: { name } }: any) => ({ id: 'role-new', name })),
     },
     userRole: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
       create: vi.fn(async (data: any) => data),
     },
-  },
-}));
+  };
+
+  return { default: db };
+});
 
 import {
   getUsers,

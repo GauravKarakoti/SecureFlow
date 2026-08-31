@@ -77,6 +77,33 @@ jobs:
       - name: Build Application
         run: npm run build
 
+  cli:
+    name: CLI Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        run: npm install
+        working-directory: cli
+
+      - name: Build CLI
+        run: npm run build
+        working-directory: cli
+
+      - name: Test CLI
+        run: npm test
+        working-directory: cli
+
   test:
     name: Unit Tests
     runs-on: ubuntu-latest

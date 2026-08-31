@@ -4,6 +4,36 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { createLogger } from "@/lib/logger";
+import {
+  MAX_PAGE_SIZE,
+  USERS_FETCH_ALL_LIMIT,
+  actionsFromGroups,
+  buildAuditLogWhere,
+  buildUserWhere,
+  collectActorIds,
+  resolvePagination,
+  totalPagesFor,
+} from "@/lib/admin/queries";
+import {
+  invalidateCachedActions,
+  readCachedActions,
+  writeCachedActions,
+} from "@/lib/admin/audit-filter-cache";
+import {
+  ADMIN_ROLE,
+  DELETE_LAST_ADMIN_MESSAGE,
+  DEMOTE_LAST_ADMIN_MESSAGE,
+  assertAdminsRemain,
+  hasAdminRole,
+  isNoOpRoleChange,
+  isSelfDemotion,
+  isUniqueConstraintError,
+  removesAdminRole,
+  type RoleName as AdminRoleName,
+} from "@/lib/admin/role-guard";
+
+const log = createLogger({ context: { component: "admin-actions" } });
 
 /**
  * Shared admin guard. Returns the authenticated admin session.
@@ -57,9 +87,53 @@ export interface AdminUserRow {
   createdAt: Date;
 }
 
+/**
+ * Every user, for the client-side user-management table.
+ *
+ * Previously this asked for `pageSize: 10_000` against a clamp of 200 and
+ * silently received 200 rows — no error, no truncation flag, no way for the
+ * caller to know it had been given a fraction of the table. It now pages
+ * through in full-size batches up to `USERS_FETCH_ALL_LIMIT` and says so when
+ * it stops early, so the page can show "N of M" rather than quietly presenting
+ * a prefix as the whole set.
+ */
 export async function getUsers(): Promise<AdminUserRow[]> {
-  const result = await getUsersPage({ page: 1, pageSize: 10_000 });
-  return result.users;
+  const { users } = await getAllUsers();
+  return users;
+}
+
+export interface AllUsersResult {
+  users: AdminUserRow[];
+  /** Total matching rows in the database, which may exceed `users.length`. */
+  total: number;
+  /** True when the hard limit stopped the walk before the table was drained. */
+  truncated: boolean;
+}
+
+export async function getAllUsers(): Promise<AllUsersResult> {
+  const collected: AdminUserRow[] = [];
+  let total = 0;
+  let page = 1;
+
+  while (collected.length < USERS_FETCH_ALL_LIMIT) {
+    const result = await getUsersPage({ page, pageSize: MAX_PAGE_SIZE });
+    total = result.total;
+    collected.push(...result.users);
+
+    if (result.users.length < MAX_PAGE_SIZE || page >= result.totalPages) break;
+    page += 1;
+  }
+
+  const truncated = collected.length < total;
+  if (truncated) {
+    log.warn("User list truncated by the fetch-all ceiling", {
+      returned: collected.length,
+      total,
+      limit: USERS_FETCH_ALL_LIMIT,
+    });
+  }
+
+  return { users: collected.slice(0, USERS_FETCH_ALL_LIMIT), total, truncated };
 }
 
 export interface UsersResult {
@@ -80,31 +154,8 @@ export interface UsersQuery {
 export async function getUsersPage(query: UsersQuery = {}): Promise<UsersResult> {
   await requireAdmin();
 
-  const page = Math.max(1, query.page ?? 1);
-  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 25));
-
-  const { search, role } = query;
-
-  const where: any = {};
-
-  if (search) {
-    const q = search.trim();
-    if (q) {
-      where.OR = [
-        { name: { contains: q, mode: "insensitive" } },
-        { email: { contains: q, mode: "insensitive" } },
-        { codename: { contains: q, mode: "insensitive" } },
-      ];
-    }
-  }
-
-  if (role && role !== "ALL") {
-    where.roles = {
-      some: {
-        role: { name: role },
-      },
-    };
-  }
+  const { page, pageSize, skip, take } = resolvePagination(query);
+  const where = buildUserWhere(query);
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
@@ -114,8 +165,8 @@ export async function getUsersPage(query: UsersQuery = {}): Promise<UsersResult>
         _count: { select: { repositories: true } },
       },
       orderBy: { createdAt: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip,
+      take,
     }),
     prisma.user.count({ where }),
   ]);
@@ -134,7 +185,7 @@ export async function getUsersPage(query: UsersQuery = {}): Promise<UsersResult>
     total,
     page,
     pageSize,
-    totalPages: Math.ceil(total / pageSize) || 1,
+    totalPages: totalPagesFor(total, pageSize),
   };
 }
 
@@ -160,18 +211,54 @@ export async function getUserManagementMetrics(): Promise<UserManagementMetrics>
   return { total, admins, standard, last24h };
 }
 
-export type RoleName = "ADMIN" | "USER";
+export type RoleName = AdminRoleName;
+
+/** The `where` clause that counts administrators. Written once, used four times. */
+const ADMIN_COUNT_WHERE = {
+  roles: { some: { role: { name: ADMIN_ROLE } } },
+} as const;
+
+/**
+ * Find or create a role by name, inside a transaction.
+ *
+ * `upsert` on `Role.name` is not atomic against a concurrent insert, so two
+ * simultaneous promotions to a role that does not exist yet could surface a raw
+ * P2002 unique-constraint error to the operator. On that specific error the row
+ * the other transaction created is read instead.
+ */
+async function resolveRole(tx: any, name: RoleName) {
+  try {
+    return await tx.role.upsert({
+      where: { name },
+      update: {},
+      create: { name, description: `${name} access` },
+    });
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+
+    const existing = await tx.role.findUnique({ where: { name } });
+    if (!existing) throw err;
+    return existing;
+  }
+}
 
 /**
  * Replaces a user's role set with a single new role.
  * Safety: cannot remove own ADMIN role; cannot demote the last ADMIN.
  * Every change is recorded in the AuditLog.
+ *
+ * The last-admin guard used to be a `count()` outside the transaction that then
+ * performed the write, so two concurrent demotions could both pass it and leave
+ * zero administrators (#658). The count is now taken inside the transaction and
+ * *after* the write, so a violation rolls the write back. The pre-write check
+ * below is kept only so the common case fails fast with the same message,
+ * without doing the work first.
  */
 export async function updateUserRole(userId: string, newRole: RoleName) {
   const session = await requireAdmin();
   const actorId = session.user.id;
 
-  if (userId === actorId && newRole !== "ADMIN") {
+  if (isSelfDemotion(actorId, userId, newRole)) {
     throw new Error("You cannot remove your own admin role.");
   }
 
@@ -184,46 +271,54 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
     throw new Error("User not found.");
   }
 
-  const oldRoles = target.roles.map((r: any) => r.role.name);
+  const oldRoles: string[] = target.roles.map((r: any) => r.role.name);
 
-  if (oldRoles.length === 1 && oldRoles[0] === newRole) {
+  if (isNoOpRoleChange(oldRoles, newRole)) {
     return { success: true, unchanged: true };
   }
 
-  if (newRole !== "ADMIN" && oldRoles.includes("ADMIN")) {
-    const adminCount = await prisma.user.count({
-      where: { roles: { some: { role: { name: "ADMIN" } } } },
-    });
-    if (adminCount <= 1) {
-      throw new Error("Cannot demote the last remaining administrator.");
-    }
+  // Fast path only. The authoritative check is inside the transaction below.
+  if (removesAdminRole(oldRoles, newRole)) {
+    const adminCount = await prisma.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(adminCount - 1, DEMOTE_LAST_ADMIN_MESSAGE);
   }
 
-  const role = await prisma.role.upsert({
-    where: { name: newRole },
-    update: {},
-    create: { name: newRole, description: `${newRole} access` },
+  await prisma.$transaction(async (tx: any) => {
+    const role = await resolveRole(tx, newRole);
+
+    await tx.userRole.deleteMany({ where: { userId } });
+    await tx.userRole.create({ data: { userId, roleId: role.id } });
+
+    // The invariant, asserted against the state this transaction has actually
+    // produced. A concurrent demotion that also passed its own pre-check is
+    // caught here, and throwing rolls this one back.
+    const remainingAdmins = await tx.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(remainingAdmins, DEMOTE_LAST_ADMIN_MESSAGE);
+
+    // Folded into the same transaction so a role change is either fully
+    // recorded or fully absent — previously the audit write was a separate
+    // statement afterwards and could fail on its own, leaving a change nobody
+    // could attribute.
+    await tx.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action: "ADMIN_ROLE_UPDATE",
+        resource: `user:${userId}`,
+        decision: newRole,
+        metadata: {
+          targetEmail: target.email,
+          targetCodename: target.codename,
+          oldRoles,
+          newRole,
+        },
+      }),
+    });
   });
 
-  await prisma.$transaction([
-    prisma.userRole.deleteMany({ where: { userId } }),
-    prisma.userRole.create({ data: { userId, roleId: role.id } }),
-  ]);
-
-  await prisma.auditLog.create({
-    data: sanitizeAuditLogInput({
-      userId: actorId,
-      action: "ADMIN_ROLE_UPDATE",
-      resource: `user:${userId}`,
-      decision: newRole,
-      metadata: {
-        targetEmail: target.email,
-        targetCodename: target.codename,
-        oldRoles,
-        newRole,
-      },
-    }),
-  });
+  // Both admin write paths append to AuditLog, and either can introduce an
+  // action name the dropdown has not seen. Dropping the cache here is cheaper
+  // and more correct than shortening the TTL for everyone.
+  invalidateCachedActions();
 
   revalidatePath("/admin/users");
   revalidatePath("/admin");
@@ -235,6 +330,13 @@ export async function updateUserRole(userId: string, newRole: RoleName) {
 /**
  * Permanently deletes a user (cascades to repositories, PRs, scans, etc.).
  * Safety: cannot delete self; cannot delete the last ADMIN.
+ *
+ * Same treatment as `updateUserRole`: the last-admin count is taken inside the
+ * transaction after the delete, and the audit entry is written in the same
+ * transaction. Previously the delete was a bare statement followed by a
+ * separate `auditLog.create`, so an audit failure left the user gone with no
+ * record of who removed them — and `target` held the only remaining copy of
+ * their email and codename, since `AuditLog.userId` is `onDelete: SetNull`.
  */
 export async function deleteUser(userId: string) {
   const session = await requireAdmin();
@@ -253,29 +355,36 @@ export async function deleteUser(userId: string) {
     throw new Error("User not found.");
   }
 
-  if (target.roles.some((r: any) => r.role.name === "ADMIN")) {
-    const adminCount = await prisma.user.count({
-      where: { roles: { some: { role: { name: "ADMIN" } } } },
-    });
-    if (adminCount <= 1) {
-      throw new Error("Cannot delete the last remaining administrator.");
-    }
+  const targetRoles: string[] = target.roles.map((r: any) => r.role.name);
+
+  // Fast path only; the authoritative check is inside the transaction.
+  if (hasAdminRole(targetRoles)) {
+    const adminCount = await prisma.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(adminCount - 1, DELETE_LAST_ADMIN_MESSAGE);
   }
 
-  await prisma.user.delete({ where: { id: userId } });
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.delete({ where: { id: userId } });
 
-  await prisma.auditLog.create({
-    data: sanitizeAuditLogInput({
-      userId: actorId,
-      action: "ADMIN_USER_DELETE",
-      resource: `user:${userId}`,
-      decision: "DELETED",
-      metadata: {
-        targetEmail: target.email,
-        targetCodename: target.codename,
-      },
-    }),
+    const remainingAdmins = await tx.user.count({ where: ADMIN_COUNT_WHERE });
+    assertAdminsRemain(remainingAdmins, DELETE_LAST_ADMIN_MESSAGE);
+
+    await tx.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action: "ADMIN_USER_DELETE",
+        resource: `user:${userId}`,
+        decision: "DELETED",
+        metadata: {
+          targetEmail: target.email,
+          targetCodename: target.codename,
+          targetRoles,
+        },
+      }),
+    });
   });
+
+  invalidateCachedActions();
 
   revalidatePath("/admin/users");
   revalidatePath("/admin");
@@ -320,40 +429,59 @@ export interface AuditLogQuery {
   search?: string;
   page?: number;
   pageSize?: number;
+  // Inclusive bounds on `timestamp`, matching the dashboard's own audit-log
+  // duration filter (`UserAuditLogQuery` in `lib/actions/audit.ts`).
+  startDate?: Date;
+  endDate?: Date;
 }
 
+/**
+ * One page of audit logs, with each row's actor attached.
+ *
+ * The actor lookup is the part that mattered here (#645). It used to be:
+ *
+ *     prisma.user.findMany({ select: { id, name, email, codename } })
+ *
+ * with no `where` and no `take` — every row in the `User` table, four columns
+ * of PII each, fetched on every render of `/admin/logs` so that at most 25 of
+ * them could be matched to a log row. At ten thousand users that is ten
+ * thousand rows crossing the wire to look up a couple of dozen.
+ *
+ * It is now scoped to the ids actually present on the page, and skipped
+ * entirely when the page has no attributable rows. The cost is a function of
+ * what is on screen rather than of how many users have ever signed up.
+ *
+ * The two log queries still run in parallel; the actor query cannot, because it
+ * needs the ids the first one returns. That is one extra round trip in exchange
+ * for a bounded one, which is the right trade at any table size worth caring
+ * about.
+ */
 export async function getAuditLogs(query: AuditLogQuery = {}): Promise<AuditLogResult> {
   await requireAdmin();
 
-  const { action, userId, search } = query;
-  const page = Math.max(1, query.page ?? 1);
-  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 25));
+  const { page, pageSize, skip, take } = resolvePagination(query);
+  const where = buildAuditLogWhere(query);
 
-  const where: any = {};
-  if (action) where.action = action;
-  if (userId) where.userId = userId;
-  if (search) {
-    where.OR = [
-      { action: { contains: search, mode: "insensitive" } },
-      { resource: { contains: search, mode: "insensitive" } },
-      { decision: { contains: search, mode: "insensitive" } },
-    ];
-  }
-
-  const [logs, total, users] = await Promise.all([
+  const [logs, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
       orderBy: { timestamp: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip,
+      take,
     }),
     prisma.auditLog.count({ where }),
-    prisma.user.findMany({
-      select: { id: true, name: true, email: true, codename: true },
-    }),
   ]);
 
-  const userMap = new Map(users.map((u: any) => [u.id, u]));
+  const actorIds = collectActorIds(logs as Array<{ userId?: string | null }>);
+
+  const actors = actorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, name: true, email: true, codename: true },
+      })
+    : [];
+
+  const userMap = new Map(actors.map((u: any) => [u.id, u]));
 
   return {
     logs: logs.map((l: any) => ({
@@ -363,7 +491,7 @@ export async function getAuditLogs(query: AuditLogQuery = {}): Promise<AuditLogR
     total,
     page,
     pageSize,
-    totalPages: Math.ceil(total / pageSize) || 1,
+    totalPages: totalPagesFor(total, pageSize),
   };
 }
 
@@ -396,14 +524,34 @@ export async function getAuditLogMetrics(): Promise<AuditLogMetrics> {
   };
 }
 
+/**
+ * The distinct action names, for the filter dropdown.
+ *
+ * `findMany({ distinct: ['action'] })` reads like `SELECT DISTINCT`. It is not:
+ * Prisma applies `distinct` in the query engine *after* the rows come back, and
+ * there was no `take`, so this read every `AuditLog` row's `action` column into
+ * memory and deduped it in JavaScript — on the fastest-growing table in the
+ * schema, on every render of the page an operator opens when something is
+ * already wrong.
+ *
+ * `groupBy` is the same answer as one aggregate in Postgres. The result is then
+ * held for a minute, because the set of distinct actions changes a handful of
+ * times over the life of the application and the write paths that can add one
+ * invalidate it explicitly.
+ */
 export async function getAuditLogFilters(): Promise<{ actions: string[] }> {
   await requireAdmin();
 
-  const rows = await prisma.auditLog.findMany({
-    distinct: ["action"],
-    select: { action: true },
+  const cachedActions = readCachedActions();
+  if (cachedActions) return { actions: cachedActions };
+
+  const groups = await prisma.auditLog.groupBy({
+    by: ["action"],
     orderBy: { action: "asc" },
   });
 
-  return { actions: rows.map((r: any) => r.action) };
+  const actions = actionsFromGroups(groups as Array<{ action?: string | null }>);
+  writeCachedActions(actions);
+
+  return { actions };
 }
