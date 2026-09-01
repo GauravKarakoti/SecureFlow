@@ -169,6 +169,7 @@ export async function setFindingStatuses(
     where: { id: { in: repoIds }, userId },
     select: { id: true, fullName: true },
   });
+
   if (repos.length !== repoIds.length) {
     return { ok: false, error: "Repository not found" };
   }

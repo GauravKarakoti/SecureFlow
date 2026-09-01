@@ -160,39 +160,65 @@ function SingleTriageControls({
   );
 }
 
-function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+/** Statuses offered for a bulk action — OPEN is excluded (it is the "un-triage" default). */
+const BULK_STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
+  { value: "RESOLVED", label: "Resolved" },
+  { value: "FALSE_POSITIVE", label: "False positive" },
+  { value: "IGNORED", label: "Ignored" },
+];
+
+export interface BulkTriageBarProps {
+  /** The findings currently selected, resolved to their triage targets. */
+  targets: FindingTriageTarget[];
+  /** Clear the selection after a successful bulk action. */
+  onDone?: () => void;
+}
+
+/**
+ * Action bar for triaging many findings at once (#732).
+ *
+ * Rendered by the findings list only while at least one finding is selected. It
+ * wraps {@link setFindingStatuses}, which reuses the same ownership check and
+ * audit trail as the single-finding control above.
+ */
+export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [status, setStatus] = useState<TriageStatus>("RESOLVED");
   const [note, setNote] = useState("");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
 
-  if (targets.length === 0) {
+  const count = targets.length;
+
+  if (count === 0) {
     return null;
   }
 
-  const apply = (status: TriageStatus) => {
+  const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        const result = await setFindingStatuses({ items: targets, status, note });
+        const result = await setFindingStatuses({ items: targets, status: applyStatus, note });
         if (result.ok) {
           toast({
             variant: "success",
             title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
-            description: `${targets.length} findings updated to ${statusLabel(status)}. Vault security updated.`,
+            description: `${count} ${count === 1 ? "finding" : "findings"} updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
+          setNote("");
+          onDone?.();
           router.refresh();
         } else {
           toast({
             variant: "destructive",
-            title: "Couldn't update triage",
+            title: "Couldn't update findings",
             description: result.error ?? "An unexpected error occurred.",
           });
         }
       } catch {
         toast({
           variant: "destructive",
-          title: "Couldn't update triage",
+          title: "Couldn't update findings",
           description: "An unexpected error occurred. Please try again.",
         });
       } finally {
@@ -204,43 +230,40 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
   const pendingLabel = pendingStatus ? statusLabel(pendingStatus) : "";
 
   return (
-    <div className="space-y-3 rounded-xl border border-white/5 bg-white/5 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-          Bulk triage
-        </h4>
-        <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground">
-          {targets.length} on this page
-        </Badge>
-      </div>
+    <div
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4"
+      data-testid="bulk-triage-bar"
+    >
+      <span className="text-sm font-semibold">
+        {count} {count === 1 ? "finding" : "findings"} selected
+      </span>
+
+      <Select value={status} onValueChange={(v) => setStatus(v as TriageStatus)} disabled={isPending}>
+        <SelectTrigger className="h-9 w-[170px] text-sm" aria-label="Bulk triage status">
+          <SelectValue placeholder="Set status" />
+        </SelectTrigger>
+        <SelectContent>
+          {BULK_STATUS_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder="Optional note for this bulk action"
-        rows={2}
+        placeholder="Optional note applied to all selected findings"
+        rows={1}
         disabled={isPending}
-        className="text-sm"
+        className="min-w-[220px] flex-1 text-sm"
+        aria-label="Bulk triage note"
       />
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={isPending}
-          onClick={() => setPendingStatus("IGNORED")}
-        >
-          {isPending && pendingStatus === "IGNORED" ? "Saving…" : "Dismiss all"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={isPending}
-          onClick={() => setPendingStatus("FALSE_POSITIVE")}
-        >
-          {isPending && pendingStatus === "FALSE_POSITIVE" ? "Saving…" : "Mark as false positive"}
-        </Button>
-      </div>
+      <Button size="sm" onClick={() => setPendingStatus(status)} disabled={count === 0 || isPending}>
+        {isPending && pendingStatus !== null ? "Applying…" : `Apply to ${count}`}
+      </Button>
 
       <AlertDialog
         open={pendingStatus !== null && !isPending}
@@ -252,7 +275,7 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply bulk triage?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark {targets.length} {targets.length === 1 ? "finding" : "findings"} on
+              This will mark {count} {count === 1 ? "finding" : "findings"} on
               this page as {pendingLabel}.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -270,4 +293,8 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
       </AlertDialog>
     </div>
   );
+}
+
+function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+  return <BulkTriageBar targets={targets} />;
 }
