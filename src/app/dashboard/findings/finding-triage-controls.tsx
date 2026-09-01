@@ -160,13 +160,6 @@ function SingleTriageControls({
   );
 }
 
-/** Statuses offered for a bulk action — OPEN is excluded (it is the "un-triage" default). */
-const BULK_STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
-  { value: "RESOLVED", label: "Resolved" },
-  { value: "FALSE_POSITIVE", label: "False positive" },
-  { value: "IGNORED", label: "Ignored" },
-];
-
 export interface BulkTriageBarProps {
   /** The findings currently selected, resolved to their triage targets. */
   targets: FindingTriageTarget[];
@@ -185,7 +178,6 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [status, setStatus] = useState<TriageStatus>("RESOLVED");
   const [note, setNote] = useState("");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
 
@@ -203,7 +195,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           toast({
             variant: "success",
             title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
-            description: `${count} ${count === 1 ? "finding" : "findings"} updated to ${statusLabel(applyStatus)}. Vault security updated.`,
+            description: `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
           setNote("");
           onDone?.();
@@ -230,40 +222,43 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const pendingLabel = pendingStatus ? statusLabel(pendingStatus) : "";
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4"
-      data-testid="bulk-triage-bar"
-    >
-      <span className="text-sm font-semibold">
-        {count} {count === 1 ? "finding" : "findings"} selected
-      </span>
-
-      <Select value={status} onValueChange={(v) => setStatus(v as TriageStatus)} disabled={isPending}>
-        <SelectTrigger className="h-9 w-[170px] text-sm" aria-label="Bulk triage status">
-          <SelectValue placeholder="Set status" />
-        </SelectTrigger>
-        <SelectContent>
-          {BULK_STATUS_OPTIONS.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="space-y-3 rounded-xl border border-white/5 bg-white/5 p-4" data-testid="bulk-triage-bar">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+          Bulk triage
+        </h4>
+        <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground">
+          {count} on this page
+        </Badge>
+      </div>
 
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder="Optional note applied to all selected findings"
-        rows={1}
+        placeholder="Optional note for this bulk action"
+        rows={2}
         disabled={isPending}
-        className="min-w-[220px] flex-1 text-sm"
-        aria-label="Bulk triage note"
+        className="text-sm"
       />
 
-      <Button size="sm" onClick={() => setPendingStatus(status)} disabled={count === 0 || isPending}>
-        {isPending && pendingStatus !== null ? "Applying…" : `Apply to ${count}`}
-      </Button>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isPending}
+          onClick={() => setPendingStatus("IGNORED")}
+        >
+          {isPending && pendingStatus === "IGNORED" ? "Saving…" : "Dismiss all"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isPending}
+          onClick={() => setPendingStatus("FALSE_POSITIVE")}
+        >
+          {isPending && pendingStatus === "FALSE_POSITIVE" ? "Saving…" : "Mark as false positive"}
+        </Button>
+      </div>
 
       <AlertDialog
         open={pendingStatus !== null && !isPending}

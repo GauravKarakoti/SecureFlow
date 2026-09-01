@@ -2,16 +2,18 @@
 import fs from 'fs';
 import { GitError, getStagedFiles, readStagedContent } from './git.js';
 import { scanFile, formatScanResults, type FileScanResult, type OutputFormat } from './scanner.js';
-import { formatSarifJson } from './sarif.js';
 
 const VERBOSE = process.argv.includes('--verbose');
 
 function parseFormatArg(): OutputFormat {
   const formatIndex = process.argv.findIndex((arg) => arg === '--format');
-  if (formatIndex !== -1 && process.argv[formatIndex + 1]) {
-    const val = process.argv[formatIndex + 1].toLowerCase();
-    if (val === 'sarif' || val === 'json' || val === 'text') {
-      return val as OutputFormat;
+  if (formatIndex !== -1) {
+    const valStr = process.argv[formatIndex + 1];
+    if (valStr) {
+      const val = valStr.toLowerCase();
+      if (val === 'sarif' || val === 'json' || val === 'text') {
+        return val as OutputFormat;
+      }
     }
   }
   return 'text';
@@ -19,23 +21,26 @@ function parseFormatArg(): OutputFormat {
 
 function parseOutputArg(): string | null {
   const outIndex = process.argv.findIndex((arg) => arg === '-o' || arg === '--output');
-  if (outIndex !== -1 && process.argv[outIndex + 1]) {
-    return process.argv[outIndex + 1];
+  if (outIndex !== -1) {
+    const valStr = process.argv[outIndex + 1];
+    if (valStr) {
+      return valStr;
+    }
   }
   return null;
 }
 
 function reportSkipped(result: FileScanResult): void {
   if (VERBOSE && result.skipped) {
-    console.log(`   ↷ skipped ${result.path} (${result.skipped})`);
+    console.log(`  ↷ skipped ${result.path} (${result.skipped})`);
   }
 }
 
 function reportViolations(result: FileScanResult): void {
   for (const violation of result.violations) {
     console.error(`🚨 [SecureFlow] Secret logging detected in ${result.path}:${violation.line}`);
-    console.error(`   -> ${violation.text}`);
-    console.error(`   why: ${violation.reason} passed to a console call`);
+    console.error(`  -> ${violation.text}`);
+    console.error(`  why: ${violation.reason} passed to a console call`);
   }
 }
 
@@ -114,4 +119,3 @@ function main(): number {
 }
 
 process.exit(main());
-
