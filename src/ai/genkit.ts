@@ -124,7 +124,7 @@ export const securityExplanationFallbackModels = [
  * Get ordered list of models for resilient failover execution.
  */
 export function getSecurityExplanationModelChain(): Array<typeof gptOssx20b | string> {
-  const customFallback = process.env.GROQ_FALLBACK_MODEL;
+  const customFallback = process.env.GROQ_MODEL;
   if (customFallback) {
     return [securityExplanationModel, customFallback, ...securityExplanationFallbackModels];
   }

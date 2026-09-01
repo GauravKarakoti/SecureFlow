@@ -5,7 +5,8 @@
  * for direct ingestion by GitHub Advanced Security, GitLab Security Dashboards, and enterprise CI/CD systems.
  */
 
-import { FileScanResult, Violation } from './scanner.js';
+// Added `type` prefix for verbatimModuleSyntax compliance
+import type { FileScanResult } from './scanner.js';
 
 export interface SarifArtifactLocation {
   uri: string;
@@ -191,7 +192,8 @@ export function generateSarifReport(
 
   const rulesArray = Array.from(rulesMap.values()).map((r) => r.descriptor);
   if (rulesArray.length === 0) {
-    rulesArray.push(DEFAULT_RULE_DEFINITIONS['generic-secret-logging']);
+    // Appended `!` to override 'undefined' error resulting from Record<string, ...> signature
+    rulesArray.push(DEFAULT_RULE_DEFINITIONS['generic-secret-logging']!);
   }
 
   return {
