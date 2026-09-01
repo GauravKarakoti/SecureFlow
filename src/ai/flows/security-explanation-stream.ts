@@ -2,7 +2,8 @@ import "dotenv/config";
 import Groq from 'groq-sdk';
 import { getVulnerabilityMetadata } from '../../database/vulnerabilityDb';
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from './security-helpers';
-import { ai, securityExplanationModel } from '@/ai/genkit';
+import { ai, securityExplanationModel, getSecurityExplanationModelChain } from '@/ai/genkit';
+import { executeWithFallbackAndRetry } from '../resilience';
 import {
   AISecurityExplanationApiSchema,
   AISecurityExplanationInputSchema,
@@ -114,27 +115,44 @@ export async function* streamDeveloperSecurityExplanations(
   const prompt = buildPrompt(validatedInput);
 
   try {
-    // Explicitly route to the fastest Groq model with retries for rate limits and timeouts on stream setup.
-    const { stream, response } = await withRetry(
-      async () =>
-        ai.generateStream({
-          model: securityExplanationModel,
-          system: SYSTEM_PROMPT,
-          prompt,
-          ...(signal ? { abortSignal: signal } : {}),
-          output: {
-            format: 'json',
-            schema: AISecurityExplanationApiSchema,
-          },
-          config: {
-            maxOutputTokens: 3000,
-            temperature: 0.1,
-          },
-        }),
-      {
-        initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
+    const modelChain = getSecurityExplanationModelChain();
+    let streamResult: any = null;
+    let activeModel = modelChain[0];
+
+    for (let i = 0; i < modelChain.length; i++) {
+      activeModel = modelChain[i];
+      try {
+        streamResult = await withRetry(
+          async () =>
+            ai.generateStream({
+              model: activeModel as any,
+              system: SYSTEM_PROMPT,
+              prompt,
+              ...(signal ? { abortSignal: signal } : {}),
+              output: {
+                format: 'json',
+                schema: AISecurityExplanationApiSchema,
+              },
+              config: {
+                maxOutputTokens: 3000,
+                temperature: 0.1,
+              },
+            }),
+          {
+            initialDelayMs: process.env.NODE_ENV === 'test' ? 10 : 100,
+          }
+        );
+        break;
+      } catch (modelErr) {
+        if (i < modelChain.length - 1 && (isRateLimitError(modelErr) || isTimeoutError(modelErr))) {
+          console.warn(`[AI_FALLBACK] Model ${String(activeModel)} failed (${String(modelErr)}). Switching to fallback model: ${String(modelChain[i + 1])}`);
+          continue;
+        }
+        throw modelErr;
       }
-    );
+    }
+
+    const { stream, response } = streamResult;
 
     let lastExplanation = '';
     for await (const chunk of stream) {

@@ -1,21 +1,25 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
-import FindingTriageControls from "./finding-triage-controls";
+import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
+import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW] Import SBOM Card
 import { TriageStatus } from "@/lib/actions/triage";
 import type {
   FindingFilterOptions,
   FindingRow,
   FindingsStats,
 } from "@/lib/actions/findings";
+import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -37,6 +41,7 @@ interface FindingsClientProps {
   pageSize: number;
   total: number;
   totalPages: number;
+  sbomReport?: SbomScanResult | null; // [NEW] Optional SBOM Report prop
 }
 
 export default function FindingsClient({
@@ -47,21 +52,66 @@ export default function FindingsClient({
   pageSize,
   total,
   totalPages,
+  sbomReport, // [NEW] Destructure SBOM report
 }: FindingsClientProps) {
+  // Bulk triage (#732). Selection is keyed by finding id, but each selected
+  // finding resolves to a (repositoryId, fingerprint) target for the action.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Only findings that carry both a repositoryId and a fingerprint can be
+  // triaged, so those are the only ones selectable.
+  const selectableIds = useMemo(
+    () =>
+      findings.filter((f) => f.repositoryId && f.fingerprint).map((f) => f.id),
+    [findings]
+  );
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const enterBulkMode = () => setBulkMode(true);
+  const exitBulkMode = () => {
+    setBulkMode(false);
+    clearSelection();
+  };
+
+  const bulkTargets = useMemo(
+    () =>
+      findings
+        .filter((f) => selected.has(f.id) && f.repositoryId && f.fingerprint)
+        .map((f) => ({ repositoryId: f.repositoryId!, fingerprint: f.fingerprint! })),
+    [findings, selected]
+  );
+
   return (
-  <div className="space-y-8 w-full animate-in fade-in duration-700">
+    <div className="space-y-8 w-full animate-in fade-in duration-700">
       <div>
-       <span className="text-sm font-medium uppercase tracking-widest text-primary">
-  Security Center
-</span>
+        <span className="text-sm font-medium uppercase tracking-widest text-primary">
+          Security Center
+        </span>
 
-<h1 className="mt-1 font-headline text-4xl font-extrabold tracking-tight">
-  Security Findings
-</h1>
+        <h1 className="mt-1 font-headline text-4xl font-extrabold tracking-tight">
+          Security Findings
+        </h1>
 
-<p className="mt-2 max-w-2xl text-muted-foreground">
-  Review detected threats, vulnerabilities, and repository security insights across your organization.
-</p>
+        <p className="mt-2 max-w-2xl text-muted-foreground">
+          Review detected threats, vulnerabilities, and repository security insights across your organization.
+        </p>
         <p className="text-muted-foreground">Analysis of all detected issues across your organization.</p>
       </div>
 
@@ -76,131 +126,167 @@ export default function FindingsClient({
         <StatBox icon={<Terminal />} value={stats.other} label="Other" color="slate" />
       </div>
 
-      <FindingsToolbar options={filterOptions} total={total} />
+      {/* [NEW] SBOM Report Section - Rendered if data exists */}
+      {sbomReport && (
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-blue-500" />
+            Dependency Security
+          </h2>
+          <SbomReportCard result={sbomReport} />
+        </div>
+      )}
+
+      <FindingsToolbar
+        options={filterOptions}
+        total={total}
+        bulkMode={bulkMode}
+        onToggleBulkMode={bulkMode ? exitBulkMode : enterBulkMode}
+        canBulkSelect={selectableIds.length > 0}
+      />
 
       <Card className="glass-card">
         <CardHeader className="flex flex-row items-center justify-between">
-  <CardTitle className="text-lg">Recent Findings</CardTitle>
+          <CardTitle className="text-lg">Recent Findings</CardTitle>
 
-  <Badge
-    variant="outline"
-    className="border-primary/20 bg-primary/5 text-primary"
-  >
-    {/* The filtered total, not findings.length -- which was the page size and
-        read "50 Findings" on every account with more than fifty. */}
-    {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
-  </Badge>
-</CardHeader>
-        
-     <CardContent className="min-h-[520px]">
-  {findings.length === 0 ? (
-   <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
-     <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
+          <Badge
+            variant="outline"
+            className="border-primary/20 bg-primary/5 text-primary"
+          >
+            {/* The filtered total, not findings.length -- which was the page size and
+                read "50 Findings" on every account with more than fifty. */}
+            {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
+          </Badge>
+        </CardHeader>
 
-<h3 className="text-2xl font-bold">
-  {total === 0 ? "No Security Findings" : "No findings match these filters"}
-</h3>
+        <CardContent className="min-h-[520px]">
+          {findings.length === 0 ? (
+            <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
+              <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
-<p className="mt-3 max-w-md text-sm text-muted-foreground">
-  {total === 0
-    ? "Great news! Your repositories are currently secure."
-    : "Every finding is filtered out by the current selection."}
-</p>
+              <h3 className="text-2xl font-bold">
+                {total === 0 ? "No Security Findings" : "No findings match these filters"}
+              </h3>
 
-<p className="mt-2 text-xs text-muted-foreground">
-  {total === 0
-    ? "Continue scanning your repositories to detect future vulnerabilities."
-    : "Clear the filters above to see the full list again."}
-</p>
-    </div>
-  ) : (
-    <>
-    <div className="mb-4">
-      <FindingTriageControls
-        variant="bulk"
-        targets={findings.map((finding) => ({
-          repositoryId: finding.repositoryId,
-          fingerprint: finding.fingerprint,
-        }))}
-      />
-    </div>
-    <Accordion type="single" collapsible className="space-y-4">
-      
-      {findings.map((finding) => {
-        const theme = getSeverityTheme(finding.severity);
-           
-        return (
-              <AccordionItem key={finding.id} value={finding.id} 
-            className="border border-white/10 rounded-xl overflow-hidden px-4 transition-all duration-300 hover:border-primary/40 hover:shadow-lg">
-                <AccordionTrigger className="hover:no-underline py-4">
-                  <div className="flex items-center gap-4 w-full text-left">
-                    <div className="flex-1">
-                      <div className="font-bold text-sm mb-0.5">{finding.type} Detected</div>
-                      <div className="text-[10px] font-mono text-muted-foreground">{finding.fileLocation}</div>
-                    </div>
-                    {finding.promptInjectionSuspected && (
-                      <Badge className="bg-yellow-500 text-black" title="The scanned code may contain content crafted to influence the AI explanation. Trust the severity badge over the narrative below.">
-                        ⚠️ Verify manually
-                      </Badge>
-                    )}
-                    {finding.triageStatus && finding.triageStatus !== "OPEN" && (
-                      <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground" title="Triage status">
-                        {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
-                      </Badge>
-                    )}
-                    <Badge className={theme.badgeClass} title={`Raw severity: ${finding.severity}`}>
-                      {theme.label}
-                    </Badge>
+              <p className="mt-3 max-w-md text-sm text-muted-foreground">
+                {total === 0
+                  ? "Great news! Your repositories are currently secure."
+                  : "Every finding is filtered out by the current selection."}
+              </p>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                {total === 0
+                  ? "Continue scanning your repositories to detect future vulnerabilities."
+                  : "Clear the filters above to see the full list again."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {bulkMode && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleAll}
+                      aria-label="Select all findings on this page"
+                    />
+                    <span>{allSelected ? "Deselect all" : "Select all on this page"}</span>
                   </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-6 pt-2">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
-                    <div className="space-y-6">
-                      {finding.promptInjectionSuspected && (
-                        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-xs text-yellow-200">
-                          ⚠️ <strong>AI explanation may be unreliable for this finding — verify manually.</strong> The scanned code may contain content crafted to look like instructions. The severity badge is set by the static scanner and is not affected by this.
-                        </div>
-                      )}
-                      <StreamingExplanation
-                        findingId={finding.id}
-                        storedExplanation={finding.explanation || 'No explanation provided.'}
-                      />
-                      
-                      <div>
-                        <h4 className="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                          <CheckCircle2 className="w-3 h-3" /> Remediation Steps
-                        </h4>
-                        <div className="text-sm text-muted-foreground leading-relaxed p-4 bg-white/5 border border-white/5 rounded-xl">
-                          {finding.remediation || 'Follow standard security practices to resolve this.'}
-                        </div>
-                      </div>
+                  {bulkTargets.length > 0 && (
+                    <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+                  )}
+                </div>
+              )}
+              <Accordion type="single" collapsible className="space-y-4">
+                {findings.map((finding) => {
+                  const theme = getSeverityTheme(finding.severity);
+                  const selectable = Boolean(finding.repositoryId && finding.fingerprint);
 
-                      {finding.repositoryId && finding.fingerprint && (
-                        <FindingTriageControls
-                          repositoryId={finding.repositoryId}
-                          fingerprint={finding.fingerprint}
-                          currentStatus={(finding.triageStatus ?? 'OPEN') as TriageStatus}
-                          currentNote={finding.triageNote ?? null}
-                        />
-                      )}
-                    </div>
-
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                        <Terminal className="w-3 h-3" /> Source Context
-                      </h4>
-                    <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
-                        {finding.codeSnippet || 'Code snippet unavailable.'}
+                  return (
+                    <AccordionItem 
+                      key={finding.id} 
+                      value={finding.id}
+                      className="border border-white/10 rounded-xl overflow-hidden px-4 transition-all duration-300 hover:border-primary/40 hover:shadow-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        {bulkMode && selectable && (
+                          <Checkbox
+                            checked={selected.has(finding.id)}
+                            onCheckedChange={() => toggleOne(finding.id)}
+                            aria-label={`Select finding in ${finding.fileLocation}`}
+                            className="shrink-0"
+                          />
+                        )}
+                        <AccordionTrigger className="flex-1 hover:no-underline py-4">
+                          <div className="flex items-center gap-4 w-full text-left">
+                            <div className="flex-1">
+                              <div className="font-bold text-sm mb-0.5">{finding.type} Detected</div>
+                              <div className="text-[10px] font-mono text-muted-foreground">{finding.fileLocation}</div>
+                            </div>
+                            {finding.promptInjectionSuspected && (
+                              <Badge className="bg-yellow-500 text-black" title="The scanned code may contain content crafted to influence the AI explanation. Trust the severity badge over the narrative below.">
+                                ⚠️ Verify manually
+                              </Badge>
+                            )}
+                            {finding.triageStatus && finding.triageStatus !== "OPEN" && (
+                              <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground" title="Triage status">
+                                {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                              </Badge>
+                            )}
+                            <Badge className={theme.badgeClass} title={`Raw severity: ${finding.severity}`}>
+                              {theme.label}
+                            </Badge>
+                          </div>
+                        </AccordionTrigger>
                       </div>
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-              );
-            })}
-          </Accordion>
-    </>
-  )}
+                      <AccordionContent className="pb-6 pt-2">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
+                          <div className="space-y-6">
+                            {finding.promptInjectionSuspected && (
+                              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-xs text-yellow-200">
+                                ⚠️ <strong>AI explanation may be unreliable for this finding — verify manually.</strong> The scanned code may contain content crafted to look like instructions. The severity badge is set by the static scanner and is not affected by this.
+                              </div>
+                            )}
+                            <StreamingExplanation
+                              findingId={finding.id}
+                              storedExplanation={finding.explanation || 'No explanation provided.'}
+                            />
+                            
+                            <div>
+                              <h4 className="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                <CheckCircle2 className="w-3 h-3" /> Remediation Steps
+                              </h4>
+                              <div className="text-sm text-muted-foreground leading-relaxed p-4 bg-white/5 border border-white/5 rounded-xl">
+                                {finding.remediation || 'Follow standard security practices to resolve this.'}
+                              </div>
+                            </div>
+                            
+                            {finding.repositoryId && finding.fingerprint && (
+                              <FindingTriageControls
+                                repositoryId={finding.repositoryId}
+                                fingerprint={finding.fingerprint}
+                                currentStatus={(finding.triageStatus ?? 'OPEN') as TriageStatus}
+                                currentNote={finding.triageNote ?? null}
+                              />
+                            )}
+                          </div>
+
+                          <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
+                              <Terminal className="w-3 h-3" /> Source Context
+                            </h4>
+                            <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
+                              {finding.codeSnippet || 'Code snippet unavailable.'}
+                            </div>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
+            </div>
+          )}
         </CardContent>
 
         <FindingsPagination
@@ -250,36 +336,36 @@ function StatBox({
     },
   };
 
- const theme = styles[color];
+  const theme = styles[color];
 
-return (
- <Card
-  className={`glass-card group overflow-hidden transition-all duration-300
-  hover:-translate-y-2
-  hover:shadow-2xl
-  hover:border-primary/40
-  cursor-pointer
-  ${theme.border}`}
->
-    <CardContent className="flex flex-col items-center p-6">
-     <div
-  className={`mb-4 flex h-14 w-14 items-center justify-center rounded-full
-  ${theme.bg} ${theme.text}
-  transition-all duration-300
-  group-hover:scale-110
-  group-hover:rotate-6`}
->
-        {icon}
-      </div>
+  return (
+    <Card
+      className={`glass-card group overflow-hidden transition-all duration-300
+      hover:-translate-y-2
+      hover:shadow-2xl
+      hover:border-primary/40
+      cursor-pointer
+      ${theme.border}`}
+    >
+      <CardContent className="flex flex-col items-center p-6">
+        <div
+          className={`mb-4 flex h-14 w-14 items-center justify-center rounded-full
+          ${theme.bg} ${theme.text}
+          transition-all duration-300
+          group-hover:scale-110
+          group-hover:rotate-6`}
+        >
+          {icon}
+        </div>
 
-      <h3 className="text-4xl font-bold">
-        <CountUp end={value} duration={1.8} />
-      </h3>
+        <h3 className="text-4xl font-bold">
+          <CountUp end={value} duration={1.8} />
+        </h3>
 
-      <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        {label}
-      </p>
-    </CardContent>
-  </Card>
-);
+        <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          {label}
+        </p>
+      </CardContent>
+    </Card>
+  );
 }

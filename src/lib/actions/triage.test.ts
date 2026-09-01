@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MAX_BULK_TRIAGE, setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
+import { setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
+// Not from '@/lib/actions/triage': that is a `"use server"` module, and a
+// non-async export from one fails `next build` (#747).
+import { MAX_BULK_TRIAGE } from '@/lib/triage/statuses';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
 

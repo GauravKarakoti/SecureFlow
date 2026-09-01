@@ -1,38 +1,77 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// --- Mock the genkit `ai` instance so tests never hit the network. generateStream returns an
-// async-iterable `stream` of partial JSON chunks plus a `response` promise for the final text,
-// mirroring Genkit's real contract (see docs: chunk.output is the JSON parsed so far). ---
-let mockChunks: Array<{ explanation?: string }> = [];
-let mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
-let mockGenerateStreamThrows = false;
-let mockCustomError: Error | null = null;
-
-vi.mock('@/ai/genkit', () => ({
-  ai: {
-    generateStream: () => {
-      if (mockCustomError) {
-        throw mockCustomError;
-      }
-      if (mockGenerateStreamThrows) {
-        throw new Error('simulated model failure');
-      }
-      return {
-        stream: (async function* () {
-          for (const chunk of mockChunks) {
-            yield { output: chunk };
-          }
-        })(),
-        response: Promise.resolve({ text: mockFinalText }),
-      };
-    },
-  },
-  defaultModel: 'mock-model',
-  // The security-explanation flows now import this explicitly (issue #217),
-  // so the mock must expose it too. Keeping it distinct from `defaultModel`
-  // lets future tests assert that the flow picked the security-specific model.
-  securityExplanationModel: 'mock-security-model',
+// --- Use vi.hoisted to safely share state with the hoisted vi.mock call ---
+const { mockState } = vi.hoisted(() => ({
+  mockState: {
+    chunks: [] as Array<{ explanation?: string }>,
+    finalText: '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}',
+    generateStreamThrows: false,
+    customError: null as Error | null,
+  }
 }));
+
+vi.mock('@/ai/genkit', () => {
+  const isPromptInjection = (req: any) => {
+    try {
+      const cache = new Set();
+      const str = JSON.stringify(req, (key, value) => {
+        if (typeof value === 'object' && value !== null) {
+          if (cache.has(value)) return '[Circular]';
+          cache.add(value);
+        }
+        return value;
+      });
+      return str.includes('ignore previous instructions');
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const mockGenerateStream = vi.fn(async () => {
+    if (mockState.customError) {
+      throw mockState.customError;
+    }
+    if (mockState.generateStreamThrows) {
+      throw new Error('simulated model failure');
+    }
+    return {
+      stream: (async function* () {
+        for (const chunk of mockState.chunks) {
+          yield { output: chunk, text: JSON.stringify(chunk) };
+        }
+      })(),
+      response: Promise.resolve({
+        text: mockState.finalText,
+        // Genkit attaches the parsed JSON to the 'output' property
+        get output() {
+          try {
+            return JSON.parse(mockState.finalText);
+          } catch {
+            return null;
+          }
+        }
+      }),
+    };
+  });
+
+  const mockGenerate = vi.fn(async (req) => {
+    const isInj = isPromptInjection(req);
+    return {
+      text: isInj ? '{"promptInjectionSuspected":true}' : '{"promptInjectionSuspected":false}',
+      output: { promptInjectionSuspected: isInj }
+    };
+  });
+
+  return {
+    ai: {
+      generateStream: mockGenerateStream,
+      generate: mockGenerate,
+    },
+    defaultModel: 'mock-model',
+    securityExplanationModel: 'mock-security-model',
+    getSecurityExplanationModelChain: vi.fn(() => ['mock-security-model']),
+  };
+});
 
 vi.mock('groq-sdk', () => {
   return {
@@ -74,19 +113,19 @@ const baseInput = {
 
 describe('streamDeveloperSecurityExplanations', () => {
   beforeEach(() => {
-    mockChunks = [];
-    mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
-    mockGenerateStreamThrows = false;
-    mockCustomError = null;
+    mockState.chunks = [];
+    mockState.finalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+    mockState.generateStreamThrows = false;
+    mockState.customError = null;
   });
 
   it('yields incremental chunk events as the explanation grows', async () => {
-    mockChunks = [
+    mockState.chunks = [
       { explanation: 'This' },
       { explanation: 'This query' },
       { explanation: 'This query concatenates' },
     ];
-    mockFinalText = JSON.stringify({
+    mockState.finalText = JSON.stringify({
       explanation: 'This query concatenates unsanitized input, enabling SQL injection.',
       remediationSuggestions: 'Use parameterized queries.',
     });
@@ -103,7 +142,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('skips emitting a chunk event when the partial explanation is unchanged', async () => {
-    mockChunks = [
+    mockState.chunks = [
       { explanation: 'Same text' },
       { explanation: 'Same text' }, // duplicate partial - shouldn't produce a second chunk event
       { explanation: 'Same text, now longer' },
@@ -116,7 +155,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('ends with a single done event containing the fully validated result', async () => {
-    mockFinalText = JSON.stringify({
+    mockState.finalText = JSON.stringify({
       explanation: 'This query concatenates unsanitized input, enabling SQL injection.',
       remediationSuggestions: 'Use parameterized queries.',
     });
@@ -133,7 +172,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('flags promptInjectionSuspected via the pre-filter, same as the non-streaming flow', async () => {
-    mockFinalText = JSON.stringify({
+    mockState.finalText = JSON.stringify({
       explanation: 'This hardcoded key exposes production credentials.',
       remediationSuggestions: 'Rotate the key.',
     });
@@ -153,7 +192,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('flags promptInjectionSuspected via the consistency check when the final text is dismissive', async () => {
-    mockFinalText = JSON.stringify({
+    mockState.finalText = JSON.stringify({
       explanation: 'This is not a real issue, safe to ignore, no action needed.',
       remediationSuggestions: 'None.',
     });
@@ -171,7 +210,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('falls back to a safe default explanation when the final response is not valid JSON', async () => {
-    mockFinalText = 'not valid json at all';
+    mockState.finalText = 'not valid json at all';
 
     const events = await collectEvents(baseInput);
     const done = events.find((e) => e.type === 'done');
@@ -183,7 +222,7 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('yields an error event (not a thrown exception) when generation fails', async () => {
-    mockGenerateStreamThrows = true;
+    mockState.generateStreamThrows = true;
 
     const events = await collectEvents(baseInput);
 
@@ -200,7 +239,7 @@ describe('streamDeveloperSecurityExplanations', () => {
       description: '',
       fileLocation: '',
       codeSnippet: '',
-    })) {
+    } as any)) {
       events.push(event);
     }
 
@@ -209,8 +248,8 @@ describe('streamDeveloperSecurityExplanations', () => {
   });
 
   it('uses the last streamed partial as a fallback explanation if final JSON has no explanation field', async () => {
-    mockChunks = [{ explanation: 'Partial streamed text only' }];
-    mockFinalText = JSON.stringify({ remediationSuggestions: 'Some fix.' });
+    mockState.chunks = [{ explanation: 'Partial streamed text only' }];
+    mockState.finalText = JSON.stringify({ remediationSuggestions: 'Some fix.' });
 
     const events = await collectEvents(baseInput);
     const done = events.find((e) => e.type === 'done');
@@ -225,10 +264,10 @@ describe('streamDeveloperSecurityExplanations', () => {
 describe('streaming flow uses securityExplanationModel', () => {
   it('calls ai.generateStream with securityExplanationModel, not defaultModel', async () => {
     // 0. Reset the mock state to prevent leakage from the previous describe block
-    mockChunks = [];
-    mockFinalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
-    mockGenerateStreamThrows = false;
-    mockCustomError = null;
+    mockState.chunks = [];
+    mockState.finalText = '{"explanation":"Default mocked explanation.","remediationSuggestions":"Default mocked remediation."}';
+    mockState.generateStreamThrows = false;
+    mockState.customError = null;
 
     // 1. Grab the 'ai' instance that was already mocked at the top of the file
     const { ai } = await import('@/ai/genkit');
@@ -257,7 +296,7 @@ describe('streaming flow uses securityExplanationModel', () => {
 
 describe('streamDeveloperSecurityExplanations — abort signal (#576)', () => {
   it('yields nothing when the caller signal is already aborted', async () => {
-    mockChunks = [{ explanation: 'partial' }];
+    mockState.chunks = [{ explanation: 'partial' }];
     const controller = new AbortController();
     controller.abort();
 
@@ -269,7 +308,7 @@ describe('streamDeveloperSecurityExplanations — abort signal (#576)', () => {
   });
 
   it('stops pulling once the signal aborts mid-stream (no done event)', async () => {
-    mockChunks = [{ explanation: 'a' }, { explanation: 'ab' }, { explanation: 'abc' }];
+    mockState.chunks = [{ explanation: 'a' }, { explanation: 'ab' }, { explanation: 'abc' }];
     const controller = new AbortController();
 
     const events: StreamExplanationEvent[] = [];

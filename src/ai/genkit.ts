@@ -109,3 +109,25 @@ export const defaultModel = `groq/${GROQ_MODEL}`;
 // the model choice is a code-level decision (it affects prompt behaviour,
 // JSON-mode support, etc.), not an ops-level one.
 export const securityExplanationModel = gptOssx20b;
+
+/**
+ * Secondary and tertiary fallback models configured for security explanation workflows (#729).
+ * Prevents rate-limit bottlenecks (HTTP 429) and timeouts during bulk repository scans.
+ */
+export const securityExplanationFallbackModels = [
+  'groq/llama-3.3-70b-versatile',
+  'groq/llama-3.1-8b-instant',
+  'groq/mixtral-8x7b-32768',
+] as const;
+
+/**
+ * Get ordered list of models for resilient failover execution.
+ */
+export function getSecurityExplanationModelChain(): Array<typeof gptOssx20b | string> {
+  const customFallback = process.env.GROQ_MODEL;
+  if (customFallback) {
+    return [securityExplanationModel, customFallback, ...securityExplanationFallbackModels];
+  }
+  return [securityExplanationModel, ...securityExplanationFallbackModels];
+}
+

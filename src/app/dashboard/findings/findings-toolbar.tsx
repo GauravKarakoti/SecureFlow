@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { Search, SlidersHorizontal, X, ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,9 +46,22 @@ const STATUS_LABELS: Record<string, string> = {
 export interface FindingsToolbarProps {
   options: FindingFilterOptions;
   total: number;
+  /**
+   * Bulk-select controls (#732). Optional so the toolbar renders unchanged
+   * where bulk triage is not wired up (and so its existing tests still pass).
+   */
+  bulkMode?: boolean;
+  onToggleBulkMode?: () => void;
+  canBulkSelect?: boolean;
 }
 
-export default function FindingsToolbar({ options, total }: FindingsToolbarProps) {
+export default function FindingsToolbar({
+  options,
+  total,
+  bulkMode,
+  onToggleBulkMode,
+  canBulkSelect,
+}: FindingsToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -209,6 +222,18 @@ export default function FindingsToolbar({ options, total }: FindingsToolbarProps
             ))}
           </SelectContent>
         </Select>
+
+        {onToggleBulkMode && canBulkSelect && (
+          <Button
+            variant={bulkMode ? "secondary" : "outline"}
+            onClick={onToggleBulkMode}
+            aria-pressed={bulkMode}
+            className="gap-2"
+          >
+            <ListChecks className="h-4 w-4" aria-hidden="true" />
+            {bulkMode ? "Cancel bulk select" : "Bulk select"}
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
