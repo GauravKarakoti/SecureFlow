@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  MAX_BULK_TRIAGE,
   SUPPRESSED_STATUSES,
   TRIAGE_STATUSES,
   isSuppressedStatus,
@@ -97,5 +98,21 @@ describe('isTriageStatus', () => {
     expect(isTriageStatus('DISMISSED')).toBe(false);
     expect(isTriageStatus('')).toBe(false);
     expect(isTriageStatus(null)).toBe(false);
+  });
+});
+
+describe('MAX_BULK_TRIAGE (#747)', () => {
+  it('is a plain number, not a server-action stub', () => {
+    // The point of it living here: `src/lib/actions/triage.ts` is a
+    // `"use server"` module, and the RSC compiler refuses a non-async export
+    // from one — `export const MAX_BULK_TRIAGE = 100` there failed `next build`
+    // outright while type-checking and testing cleanly.
+    expect(typeof MAX_BULK_TRIAGE).toBe('number');
+    expect(Number.isInteger(MAX_BULK_TRIAGE)).toBe(true);
+  });
+
+  it('is a usable cap', () => {
+    expect(MAX_BULK_TRIAGE).toBeGreaterThan(0);
+    expect(MAX_BULK_TRIAGE).toBe(100);
   });
 });

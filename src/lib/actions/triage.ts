@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
 import {
+  MAX_BULK_TRIAGE,
   isTriageStatus,
   type TriageStatus as SharedTriageStatus,
 } from "@/lib/triage/statuses";
@@ -19,6 +20,19 @@ import {
 // triage UI imports the type from this module.
 export type TriageStatus = SharedTriageStatus;
 
+/**
+ * The transaction surface `setFindingStatuses` uses.
+ *
+ * Narrowed by hand rather than taken from `Prisma.TransactionClient`, because
+ * this is a `"use server"` module: importing the Prisma namespace here for a
+ * type is fine, but the two calls below are all that is needed, and a narrow
+ * interface documents the transaction's scope at the same time.
+ */
+interface TriageTransactionClient {
+  findingTriage: { upsert: (args: unknown) => Promise<unknown> };
+  auditLog: { create: (args: unknown) => Promise<unknown> };
+}
+
 export interface SetFindingStatusInput {
   repositoryId: string;
   fingerprint: string;
@@ -31,6 +45,17 @@ export interface SetFindingStatusResult {
   error?: string;
 }
 
+export interface FindingTriageTarget {
+  repositoryId: string;
+  fingerprint: string;
+}
+
+export interface SetFindingStatusesInput {
+  items: FindingTriageTarget[];
+  status: TriageStatus;
+  note?: string | null;
+}
+
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
  * fingerprint so the decision survives the re-scans that recreate Finding rows.
@@ -39,7 +64,7 @@ export interface SetFindingStatusResult {
  * page, and writes one AuditLog entry per change like the rest of the app.
  */
 export async function setFindingStatus(
-  input: SetFindingStatusInput
+  input: SetFindingStatusInput,
 ): Promise<SetFindingStatusResult> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -94,103 +119,109 @@ export async function setFindingStatus(
   return { ok: true };
 }
 
-export interface BulkTriageTarget {
-  repositoryId: string;
-  fingerprint: string;
-}
+function normalizeTriageTargets(items: FindingTriageTarget[] | undefined): FindingTriageTarget[] {
+  const seen = new Set<string>();
+  const normalized: FindingTriageTarget[] = [];
 
-export interface SetFindingStatusBulkInput {
-  targets: BulkTriageTarget[];
-  status: TriageStatus;
-  note?: string | null;
-}
+  for (const item of items ?? []) {
+    if (!item?.repositoryId || !item?.fingerprint) continue;
+    const key = `${item.repositoryId}:${item.fingerprint}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ repositoryId: item.repositoryId, fingerprint: item.fingerprint });
+  }
 
-export interface SetFindingStatusBulkResult {
-  ok: boolean;
-  /** How many findings were triaged. */
-  updated: number;
-  error?: string;
+  return normalized;
 }
-
-/** Ceiling on findings triaged in a single bulk call, matching the page-size cap. */
-export const MAX_BULK_TRIAGE = 100;
 
 /**
- * Apply a triage status (+ optional note) to many findings at once (#732).
+ * Apply one triage status to many findings on the current page.
  *
- * A thin fan-out over the same upsert `setFindingStatus` performs: bulk triage
- * is a convenience for the reviewer, not a second code path, so it reuses the
- * ownership check, the audit log entry and the revalidation rather than
- * reimplementing them. The only additions are a per-call cap and a
- * per-repository ownership lookup that is done once rather than per finding.
+ * Ownership is checked once for every distinct repository. Writes and audit
+ * rows happen in a single transaction so a partial page update cannot land.
  */
-export async function setFindingStatusBulk(
-  input: SetFindingStatusBulkInput
-): Promise<SetFindingStatusBulkResult> {
+export async function setFindingStatuses(
+  input: SetFindingStatusesInput,
+): Promise<SetFindingStatusResult> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { ok: false, updated: 0, error: "Not authenticated" };
+    return { ok: false, error: "Not authenticated" };
   }
   const userId = session.user.id;
 
-  const { status } = input;
+  if (!isTriageStatus(input.status)) {
+    return { ok: false, error: "Invalid status" };
+  }
+
+  const items = normalizeTriageTargets(input.items);
+  if (items.length === 0) {
+    return { ok: false, error: "No findings selected" };
+  }
+  if (items.length > MAX_BULK_TRIAGE) {
+    return { ok: false, error: "Too many findings" };
+  }
+
   const note = input.note?.trim() ? input.note.trim() : null;
+  const { status } = input;
+  const repoIds = [...new Set(items.map((item) => item.repositoryId))];
 
-  if (!isTriageStatus(status)) {
-    return { ok: false, updated: 0, error: "Invalid status" };
-  }
-
-  const targets = (input.targets ?? []).filter(
-    (t) => t && t.repositoryId && t.fingerprint
-  );
-  if (targets.length === 0) {
-    return { ok: false, updated: 0, error: "No findings selected" };
-  }
-  if (targets.length > MAX_BULK_TRIAGE) {
-    return {
-      ok: false,
-      updated: 0,
-      error: `Cannot triage more than ${MAX_BULK_TRIAGE} findings at once`,
-    };
-  }
-
-  // Resolve — and authorise — every distinct repository once, so a request that
-  // names a repository the user does not own is rejected before any write.
-  const repoIds = [...new Set(targets.map((t) => t.repositoryId))];
   const repos = await prisma.repository.findMany({
     where: { id: { in: repoIds }, userId },
     select: { id: true, fullName: true },
   });
-  const ownedRepos = new Map(
-    repos.map((r: { id: string; fullName: string }) => [r.id, r.fullName])
-  );
-  if (ownedRepos.size !== repoIds.length) {
-    return { ok: false, updated: 0, error: "Repository not found" };
+
+  if (repos.length !== repoIds.length) {
+    return { ok: false, error: "Repository not found" };
   }
 
-  await prisma.$transaction(
-    targets.flatMap(({ repositoryId, fingerprint }) => [
-      prisma.findingTriage.upsert({
-        where: { repositoryId_fingerprint: { repositoryId, fingerprint } },
+  // Annotated because `prisma.repository.findMany` above is generic over its
+  // `select`, and without an annotation the callback parameters here and on the
+  // transaction below are implicitly `any` — two of the errors that had
+  // `npm run typecheck` red on `main` (#747).
+  const repoName = new Map<string, string>(
+    repos.map((repo: { id: string; fullName: string }) => [repo.id, repo.fullName]),
+  );
+
+  await prisma.$transaction(async (tx: TriageTransactionClient) => {
+    for (const item of items) {
+      await tx.findingTriage.upsert({
+        where: {
+          repositoryId_fingerprint: {
+            repositoryId: item.repositoryId,
+            fingerprint: item.fingerprint,
+          },
+        },
         update: { status, note, resolvedById: userId },
-        create: { repositoryId, fingerprint, status, note, resolvedById: userId },
-      }),
-      prisma.auditLog.create({
+        create: {
+          repositoryId: item.repositoryId,
+          fingerprint: item.fingerprint,
+          status,
+          note,
+          resolvedById: userId,
+        },
+      });
+
+      await tx.auditLog.create({
         data: sanitizeAuditLogInput({
           userId,
           action: "Finding Triage",
-          resource: `${ownedRepos.get(repositoryId)}:${fingerprint.slice(0, 12)}`,
+          resource: `${repoName.get(item.repositoryId)}:${item.fingerprint.slice(0, 12)}`,
           decision: status,
-          metadata: { repositoryId, fingerprint, status, hasNote: note !== null, bulk: true },
+          metadata: {
+            repositoryId: item.repositoryId,
+            fingerprint: item.fingerprint,
+            status,
+            hasNote: note !== null,
+            bulk: true,
+          },
         }),
-      }),
-    ])
-  );
+      });
+    }
+  });
 
   invalidateCachedUserFilters(userId);
-
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");
 
-  return { ok: true, updated: targets.length };
+  return { ok: true };
 }

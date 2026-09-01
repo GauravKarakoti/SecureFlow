@@ -131,6 +131,35 @@ These are only needed for advanced policy features. Leave blank for standard loc
 
 ---
 
+## 7. Workspace Architecture & Dependency Management
+
+SecureFlow is organized as an **npm workspace** monorepo with the root project and the `cli/` workspace (`secureflow-cli`). All dependencies are hoisted and managed under a single source of truth at `package-lock.json` in the project root.
+
+### Common Workspace Commands
+
+- **Install all dependencies across root and workspaces**:
+  ```bash
+  npm install
+  ```
+- **Build CLI package via workspace**:
+  ```bash
+  npm run cli:build
+  # or directly with npm workspace:
+  npm run build --workspace=cli
+  ```
+- **Run CLI tests via workspace**:
+  ```bash
+  npm run cli:test
+  # or directly with npm workspace:
+  npm run test --workspace=cli
+  ```
+- **Typecheck CLI workspace**:
+  ```bash
+  npm run cli:typecheck
+  ```
+
+---
+
 ## Quick-start checklist
 
 ```
@@ -140,5 +169,7 @@ These are only needed for advanced policy features. Leave blank for standard loc
 [ ] GitHub OAuth credentials set — CLIENT_ID, CLIENT_SECRET
 [ ] AUTH_SECRET generated and set
 [ ] ngrok running and Webhook URL updated in GitHub App settings
+[ ] npm install completed with single root package-lock.json
 [ ] npm run dev starts without errors at http://localhost:9002
 ```
+

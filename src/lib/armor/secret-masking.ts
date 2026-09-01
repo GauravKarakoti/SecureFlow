@@ -2,38 +2,19 @@
  * Redaction for anything a finding carries out of the scanner.
  *
  * This is the last thing standing between a credential found in a repository
- * and a pull request comment that everyone with read access can see. It used to
- * be a wall of sequential `.replace()` calls in `scanner.ts` applied to exactly
- * two fields, under a header comment promising to redact *"high-entropy strings
- * and known secret formats"* — of which only the second half was implemented
- * (#591).
+ * and a pull request comment that everyone with read access can see.
  *
- * Three things changed:
- *
- *  1. **The rules are a declared, ordered table** rather than statements whose
- *     order is accidental. That ordering was load-bearing and quietly wrong:
- *     the `sk-proj-` rule sat *after* the broader `sk-[a-zA-Z0-9-_]{32,}` rule
- *     and could therefore never fire, and the truncated-JWT rule re-scanned
- *     text the full-JWT rule had already replaced.
- *
- *  2. **The shapes that actually matter are covered.** PEM private keys —
- *     arguably the highest-value thing a secret scanner can find — passed
- *     through verbatim, as did every `DB_PASSWORD = "…"` assignment, every
- *     non-URI connection string, and several common provider prefixes.
- *
- *  3. **The entropy pass the comment promised now exists**, guarded so it
- *     redacts credentials rather than long identifiers.
- *
- * `maskSecrets` keeps its old name, signature and behaviour for every input the
- * old rules recognised. {@link maskFindingText} is the fuller pass, and is what
- * the worker applies to the AI-generated `explanation` and `remediation` — the
- * two fields that reached GitHub and Postgres with no redaction at all.
+ * Refinements (#591, #669):
+ *  1. Expanded provider-specific secret patterns (GitLab, Azure, Vault, Discord, HuggingFace, Datadog, Bearer/Basic headers).
+ *  2. False positive mitigation (UUIDs, hex color codes, SVG paths, tailwind/CSS classes, word-based long identifiers, mock/test placeholders, safe environment variables).
+ *  3. Enhanced Shannon entropy and character-class distribution analysis.
+ *  4. Transparent auditing helper `auditSecretMasking` for finding inspection and observability.
  */
 
 /** Kept verbatim: it is asserted on in tests and appears in stored findings. */
 export const REDACTION_PLACEHOLDER = '[REDACTED_BY_THE_PROFESSOR]';
 
-interface MaskRule {
+export interface MaskRule {
   /** Stable identifier, so a test can name the rule it is exercising. */
   id: string;
   pattern: RegExp;
@@ -44,28 +25,28 @@ interface MaskRule {
 /**
  * Values that are obviously not credentials, so an assignment carrying one is
  * left alone.
- *
- * Without this, `const apiKey = process.env.API_KEY` — the *correct* way to
- * handle a secret, and the thing the scanner is trying to encourage — would be
- * redacted as though it were a leak, and the remediation advice would be
- * rendered unreadable.
  */
-const NON_SECRET_VALUE =
-  /^(?:process\.env\b|import\.meta\b|os\.environ\b|System\.getenv\b|Deno\.env\b|\$\{|<|your[_-]|actual[_-]|placeholder|changeme|change[_-]me|replace[_-]me|xxx+|todo|none|null|undefined|true|false)/i;
+export const NON_SECRET_VALUE =
+  /^(?:process\.env\b|import\.meta(?:\.env)?\b|os\.(?:environ|getenv)\b|System\.getenv\b|Deno\.env\b|getenv\b|config\.(?:get|has)\b|secrets?\.\w+|vault\.\w+|env::var\b|\$\{|<|your[_-]|actual[_-]|placeholder|changeme|change[_-]me|replace[_-]me|xxx+|todo|none|null|undefined|true|false|0|1|""|''|localhost|127\.0\.0\.1|0\.0\.0\.0|mock[_-]|fake[_-]|dummy[_-]|sample[_-]|example[_-]|test[_-]|temp[_-]|insert[_-]|your-api-key|YOUR_SECRET_KEY|CHANGEME)/i;
 
 /**
  * Identifier fragments that mark an assignment as secret-bearing.
- *
- * The same vocabulary `scrubCredentials` and the audit-log minimiser use, so
- * the three agree on what "looks like a secret" means.
  */
-const SECRET_NAME = '(?:key|secret|token|password|passwd|pwd|credential|auth|apikey|api_key|private_key|access_key)';
+const SECRET_NAME =
+  '(?:key|secret|token|password|passwd|pwd|credential|auth|apikey|api_key|private_key|access_key|client_secret|signing_key|encryption_key|refresh_token|id_token|access_token|webhook_secret|master_key)';
+
+/**
+ * Common non-secret UUID pattern to exclude from entropy redaction.
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Color and CSS class tokens to exclude from entropy redaction.
+ */
+const COLOR_OR_CSS_TOKEN_REGEX = /^(?:#[0-9a-f]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|(?:bg|text|border|p|m|gap|flex|grid|col|row|rounded|shadow|w|h)-[a-z0-9/_-]+)$/i;
 
 const RULES: readonly MaskRule[] = [
   // ── Connection strings ───────────────────────────────────────────────────
-  // First, because a URI's password would otherwise be partly consumed by the
-  // generic assignment rule and left half-visible. The scheme and username are
-  // preserved: a reviewer needs to know *which* database leaked.
   {
     id: 'db-uri-password',
     pattern:
@@ -74,24 +55,22 @@ const RULES: readonly MaskRule[] = [
   },
   {
     id: 'url-userinfo',
-    // Any remaining `scheme://user:pass@host`, for schemes the list above does
-    // not name. Mirrors the rule `scrubCredentials` applies to log lines.
     pattern: /(:\/\/[^@\s/]*:)([^@\s/]+)(@)/g,
     replace: (_m, prefix, _pwd, at) => `${prefix}${REDACTION_PLACEHOLDER}${at}`,
   },
   {
     id: 'adonet-connection-string',
-    // Server=…;User Id=sa;Password=… — the SQL Server / ODBC shape, which is
-    // not a URI and so was invisible to the rule above.
     pattern: /((?:password|pwd)\s*=\s*)([^;\s"']+)/gi,
     replace: (match, prefix: string, value: string) =>
       NON_SECRET_VALUE.test(value) ? match : `${prefix}${REDACTION_PLACEHOLDER}`,
   },
+  {
+    id: 'azure-storage-connection-string',
+    pattern: /(AccountKey=)([a-zA-Z0-9+/]{86}==)/gi,
+    replace: (_m, prefix) => `${prefix}${REDACTION_PLACEHOLDER}`,
+  },
 
   // ── Private keys ─────────────────────────────────────────────────────────
-  // The highest-value thing in this file and previously absent entirely. The
-  // body is replaced wholesale; the BEGIN/END lines stay so the finding still
-  // reads as "a private key was committed here".
   {
     id: 'pem-private-key',
     pattern:
@@ -100,33 +79,28 @@ const RULES: readonly MaskRule[] = [
   },
   {
     id: 'pem-private-key-unterminated',
-    // A truncated snippet frequently carries the header and the first lines of
-    // the body without the footer. Those lines are still key material.
-    //
-    // The lookahead is what keeps this from swallowing a block the rule above
-    // already handled: without it, this pattern matches from the BEGIN marker
-    // to the end of the text and takes both markers — and everything after
-    // them — with it.
     pattern:
       /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----(?![\s\S]*-----END)[\s\S]*/g,
   },
 
   // ── Provider-prefixed keys, most specific first ──────────────────────────
-  // Ordering is the fix here: `sk-proj-` used to sit below the broader `sk-`
-  // rule, which had already consumed the match, so it could never fire.
-  { id: 'anthropic', pattern: /sk-ant-api\d*-[a-zA-Z0-9-_]+/g },
+  { id: 'anthropic', pattern: /sk-ant-api\d*-[a-zA-Z0-9-_]{20,}/g },
   { id: 'openai-project', pattern: /sk-proj-[a-zA-Z0-9-_]{20,}/g },
   { id: 'openai', pattern: /sk-[a-zA-Z0-9-_]{32,}/g },
   { id: 'github-pat-fine-grained', pattern: /github_pat_[a-zA-Z0-9_]{22,}/g },
   { id: 'github-pat-classic', pattern: /ghp_[a-zA-Z0-9]{36,}/g },
   { id: 'github-token', pattern: /gh[oprsu]_[a-zA-Z0-9]{36,}/g },
+  { id: 'gitlab-pat', pattern: /glpat-[a-zA-Z0-9\-_]{20,}/g },
+  { id: 'gitlab-pipeline-token', pattern: /glcbt-[a-zA-Z0-9\-_]{20,}/g },
+  { id: 'gitlab-deploy-token', pattern: /gldt-[a-zA-Z0-9\-_]{20,}/g },
+  { id: 'hashicorp-vault-token', pattern: /(?:hvs\.[a-zA-Z0-9_-]{24,}|s\.[a-zA-Z0-9_-]{24,})/g },
+  { id: 'huggingface-token', pattern: /hf_[a-zA-Z0-9]{34,}/g },
+  { id: 'discord-bot-token', pattern: /(?:Bot\s+|discord\s*[:=]\s*['"]?)[MNO][a-zA-Z0-9_-]{23,25}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27,38}/g },
+  { id: 'datadog-api-key', pattern: /(?:DD_API_KEY|datadog_api_key)\s*[:=]\s*['"]?([a-f0-9]{32})['"]?/gi,
+    replace: (match, token: string) => match.replace(token, REDACTION_PLACEHOLDER)
+  },
   { id: 'stripe', pattern: /[sr]k_(?:live|test)_[a-zA-Z0-9]{24,}/g },
   { id: 'slack', pattern: /xox[baprse]-[a-zA-Z0-9-]{10,}/g },
-  // The scheme prefix already does most of the work here, but CodeQL's
-  // missing-anchor rule is right that nothing pins the *end* of the host
-  // label, so the lookbehind is added as cheap defence in depth. It cannot be
-  // `^`-anchored: this is redaction, so it has to match wherever the URL
-  // appears inside a snippet, and matching too eagerly is the safe direction.
   {
     id: 'slack-webhook',
     pattern: /(?<![\w.-])https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_\-/]+/g,
@@ -139,10 +113,19 @@ const RULES: readonly MaskRule[] = [
   { id: 'jwt', pattern: /eyJ[a-zA-Z0-9-_]{8,}\.[a-zA-Z0-9-_]{8,}\.[a-zA-Z0-9-_]+/g },
   { id: 'jwt-header-only', pattern: /eyJhbGciOi[a-zA-Z0-9-_]{20,}/g },
 
+  // ── Authorization Headers ────────────────────────────────────────────────
+  {
+    id: 'auth-header-bearer',
+    pattern: /((?:Authorization|Proxy-Authorization)\s*:\s*Bearer\s+)([a-zA-Z0-9\-_.+/=]{20,})/gi,
+    replace: (_m, prefix) => `${prefix}${REDACTION_PLACEHOLDER}`,
+  },
+  {
+    id: 'auth-header-basic',
+    pattern: /((?:Authorization|Proxy-Authorization)\s*:\s*Basic\s+)([a-zA-Z0-9+/=]{16,})/gi,
+    replace: (_m, prefix) => `${prefix}${REDACTION_PLACEHOLDER}`,
+  },
+
   // ── Generic assignments ──────────────────────────────────────────────────
-  // The shape `scrubCredentials` already proved out, but keeping the variable
-  // name visible. `SECRET_KEY = "…"` tells a reviewer far more than
-  // `[REDACTED_SECRET]` does, and the name is not the secret.
   {
     id: 'quoted-secret-assignment',
     pattern: new RegExp(
@@ -150,44 +133,23 @@ const RULES: readonly MaskRule[] = [
       'gi',
     ),
     replace: (match, prefix: string, quote: string, value: string) =>
-      NON_SECRET_VALUE.test(value) ? match : `${prefix}${quote}${REDACTION_PLACEHOLDER}${quote}`,
+      NON_SECRET_VALUE.test(value.trim()) ? match : `${prefix}${quote}${REDACTION_PLACEHOLDER}${quote}`,
   },
   {
     id: 'bare-secret-assignment',
-    // The .env shape: no quotes, no spaces around the separator.
     pattern: new RegExp(`([\\w.$-]*${SECRET_NAME}[\\w.$-]*=)([^\\s"'\`;,)]{4,})`, 'gi'),
     replace: (match, prefix: string, value: string) =>
-      NON_SECRET_VALUE.test(value) ? match : `${prefix}${REDACTION_PLACEHOLDER}`,
+      NON_SECRET_VALUE.test(value.trim()) ? match : `${prefix}${REDACTION_PLACEHOLDER}`,
   },
 ];
 
-/**
- * Minimum length before a token is considered for the entropy check.
- *
- * Short high-entropy strings are overwhelmingly hashes-of-nothing, minified
- * identifiers and hex colours. Real credentials are long.
- */
+/** Minimum length before a token is considered for the entropy check. */
 const ENTROPY_MIN_LENGTH = 24;
 
-/**
- * Shannon entropy in bits per character, above which a token that also passes
- * the character-class test is treated as a credential.
- *
- * 3.5 sits above ordinary prose and camelCase identifiers and below the ~4.5
- * of a base64 or hex secret of this length.
- */
+/** Shannon entropy in bits per character threshold. */
 const ENTROPY_THRESHOLD = 3.5;
 
-/**
- * Characters a credential is built from. Anything else ends a candidate.
- *
- * `/` is deliberately absent even though it is in the base64 alphabet. With it
- * included, a candidate runs straight through a URL or a file path —
- * `com/GauravKarakoti/SecureFlow/blob/main/src/lib/armor/scanner` is 60
- * characters of mixed case at ~4 bits, so every long path in every finding came
- * back redacted. Splitting on `/` costs nothing real: a base64 secret long
- * enough to matter still leaves a 24-character run on one side of the slash.
- */
+/** Characters a credential candidate is built from. */
 const ENTROPY_CANDIDATE = /[A-Za-z0-9+=_-]{24,}/g;
 
 /** Shannon entropy of `value`, in bits per character. */
@@ -209,20 +171,42 @@ export function shannonEntropy(value: string): number {
 }
 
 /**
- * Whether `token` looks like credential material rather than a long name.
- *
- * Entropy alone is not enough, and getting this wrong in the permissive
- * direction is worse than missing a secret: it would flatten the code the
- * remediation advice is talking about. `developerReceivesAISecurityExplanations`
- * is 39 characters and scores about 3.8 bits — comfortably over the threshold —
- * so a bare entropy check would redact half the identifiers in this repository.
- *
- * The discriminator is character-class mixing. Credentials mix cases with
- * digits, or are long runs of hex; identifiers, however long, do not carry
- * digits, and prose does not stay inside the base64 alphabet.
+ * Checks if a candidate token consists predominantly of English word fragments
+ * (e.g. camelCase identifier or hyphenated words) rather than high-entropy secret bits.
+ */
+export function isWordBasedIdentifier(token: string): boolean {
+  if (!token || token.length < 16) return false;
+
+  // If token has typical word syllables or camelCase transitions without random symbol entropy
+  const words = token.split(/(?=[A-Z])|[_-]/).filter(Boolean);
+  if (words.length >= 3) {
+    const allWordLike = words.every(w => w.length >= 2 && /^[a-zA-Z]+$/.test(w));
+    if (allWordLike) return true;
+  }
+
+  // Count vowel ratio in purely alphabetic tokens
+  if (/^[a-zA-Z]+$/.test(token)) {
+    const vowels = (token.match(/[aeiouyAEIOUY]/g) || []).length;
+    const vowelRatio = vowels / token.length;
+    if (vowelRatio >= 0.28 && vowelRatio <= 0.65) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Whether `token` looks like credential material rather than a long name or safe token.
  */
 export function looksLikeCredential(token: string): boolean {
-  if (token.length < ENTROPY_MIN_LENGTH) return false;
+  if (!token || token.length < ENTROPY_MIN_LENGTH) return false;
+
+  // Filter known non-secret false positives
+  if (UUID_REGEX.test(token)) return false;
+  if (COLOR_OR_CSS_TOKEN_REGEX.test(token)) return false;
+  if (NON_SECRET_VALUE.test(token)) return false;
+  if (isWordBasedIdentifier(token)) return false;
 
   const hasLower = /[a-z]/.test(token);
   const hasUpper = /[A-Z]/.test(token);
@@ -230,9 +214,6 @@ export function looksLikeCredential(token: string): boolean {
 
   const isLongHex = token.length >= 32 && /^[a-f0-9]+$/i.test(token);
   const isMixedAlphanumeric = hasDigit && hasLower && hasUpper;
-  // A long base64 blob is frequently single-case with padding; `+` and `=` do
-  // not appear in identifiers, so they stand in for the case/digit mix. `/` is
-  // excluded for the reason ENTROPY_CANDIDATE documents.
   const isBase64Blob = token.length >= 32 && /[+=]/.test(token) && (hasLower || hasUpper);
 
   if (!isLongHex && !isMixedAlphanumeric && !isBase64Blob) return false;
@@ -242,11 +223,6 @@ export function looksLikeCredential(token: string): boolean {
 
 /**
  * Redact high-entropy tokens the named rules did not recognise.
- *
- * This is the half of the original header comment that was never implemented.
- * It is what catches a 40-character hex OAuth secret, a 64-character HMAC key
- * or a base64 service-account blob — none of which carries a recognisable
- * prefix, and all of which were previously passed through verbatim.
  */
 export function maskHighEntropyTokens(text: string): string {
   if (!text) return text;
@@ -258,10 +234,6 @@ export function maskHighEntropyTokens(text: string): string {
 
 /**
  * Apply the named rules only.
- *
- * The original `maskSecrets`, with the dead-ordering bug fixed and the missing
- * shapes added. Kept as a separate export because the entropy sweep is a
- * heuristic and callers that want only deterministic matches can say so.
  */
 export function maskKnownSecretFormats(text: string): string {
   if (!text) return text;
@@ -278,10 +250,6 @@ export function maskKnownSecretFormats(text: string): string {
 
 /**
  * Redact known secret formats and high-entropy strings.
- *
- * The behaviour the function's name and header comment always claimed. Every
- * input the old implementation redacted is still redacted, in the same place,
- * with the same placeholder.
  */
 export function maskSecrets(text: string): string {
   if (!text) return text;
@@ -290,29 +258,62 @@ export function maskSecrets(text: string): string {
 
 /**
  * The full pass for anything a finding carries out of the scanner.
- *
- * Currently identical to {@link maskSecrets}; it exists as a distinct name
- * because it marks the *boundary* rather than the algorithm. Everything a
- * finding carries to GitHub or to Postgres goes through this one function, so
- * adding a field to a finding is a one-line change here rather than a hunt for
- * every `.replace()` call site — which is how `explanation` and `remediation`
- * came to exist with no redaction on them at all.
- *
- * Deliberately *not* composed with `scrubCredentials` from `@/lib/redaction`.
- * That function is correct for a log line, where the whole `NAME=value` pair
- * can be collapsed to `[REDACTED_SECRET]`, but it destroys a code snippet:
- * `const secret = "…"` becomes `const [REDACTED_SECRET]`, taking the variable
- * name with it. The rules above redact the value and keep the name, which is
- * what a reviewer needs — the name is not the secret.
- *
- * Applied to `description` and `codeSnippet` in the scanner, and to
- * `explanation` and `remediation` in the worker. Those last two are generated
- * after the scanner has finished, are posted to the pull request and written to
- * Postgres, and previously passed through no redaction at all — which matters
- * most for remediation text, whose natural shape is to quote the offending line
- * back at the reader.
  */
 export function maskFindingText(text: unknown): string {
   if (typeof text !== 'string') return '';
   return maskSecrets(text);
+}
+
+export interface SecretMaskingAuditResult {
+  originalText: string;
+  maskedText: string;
+  containsMaskedSecrets: boolean;
+  appliedRuleIds: string[];
+  entropyRedactedTokenCount: number;
+}
+
+/**
+ * Audit and inspect secret masking application for a given text snippet.
+ */
+export function auditSecretMasking(text: string): SecretMaskingAuditResult {
+  if (!text) {
+    return {
+      originalText: '',
+      maskedText: '',
+      containsMaskedSecrets: false,
+      appliedRuleIds: [],
+      entropyRedactedTokenCount: 0,
+    };
+  }
+
+  const appliedRuleIds: string[] = [];
+  let intermediate = text;
+
+  for (const rule of RULES) {
+    const before = intermediate;
+    intermediate = rule.replace
+      ? intermediate.replace(rule.pattern, rule.replace as (substring: string, ...args: unknown[]) => string)
+      : intermediate.replace(rule.pattern, REDACTION_PLACEHOLDER);
+
+    if (intermediate !== before) {
+      appliedRuleIds.push(rule.id);
+    }
+  }
+
+  let entropyTokens = 0;
+  const finalMasked = intermediate.replace(ENTROPY_CANDIDATE, (token) => {
+    if (looksLikeCredential(token)) {
+      entropyTokens++;
+      return REDACTION_PLACEHOLDER;
+    }
+    return token;
+  });
+
+  return {
+    originalText: text,
+    maskedText: finalMasked,
+    containsMaskedSecrets: finalMasked.includes(REDACTION_PLACEHOLDER),
+    appliedRuleIds,
+    entropyRedactedTokenCount: entropyTokens,
+  };
 }

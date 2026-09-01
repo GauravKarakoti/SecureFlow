@@ -190,9 +190,9 @@ model ScanResult {
 }
 
 model Finding {
-  id                       String          @id @default(cuid())
+  id                       String            @id @default(cuid())
   scanResultId             String
-  scanResult               ScanResult      @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
+  scanResult               ScanResult        @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
   type                     FindingType
   severity                 FindingSeverity
   fileLocation             String
@@ -201,12 +201,29 @@ model Finding {
   codeSnippet              String?
   explanation              String?
   remediation              String?
-  promptInjectionSuspected Boolean         @default(false)
-  fingerprint              String          @default("")
-  createdAt                DateTime        @default(now())
+  promptInjectionSuspected Boolean           @default(false)
+  fingerprint              String            @default("")
+  createdAt                DateTime          @default(now())
+  remediationPatch         RemediationPatch?
 
   @@index([scanResultId])
   @@index([fingerprint])
+  // Severity-bucketed reads on /dashboard/findings (#731). planSeverityPage
+  // walks one severity at a time within a scan's findings, so the list and its
+  // per-bucket counts filter on (scanResultId, severity) together.
+  @@index([scanResultId, severity])
+}
+
+model RemediationPatch {
+  id        String   @id @default(cuid())
+  findingId String   @unique
+  finding   Finding  @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  patchDiff String   // Unified diff format
+  status    String   @default("PENDING") // PENDING, GENERATED, APPLIED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("remediation_patches")
 }
 
 model FindingTriage {
@@ -223,6 +240,10 @@ model FindingTriage {
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
   @@index([fingerprint])
+  // Suppressed/triage lookups on the dashboard (#731). getSuppressedFingerprints
+  // filters a repository's rows by status; the plain (repositoryId) index still
+  // scans and filters status, so pair them.
+  @@index([repositoryId, status])
 }
 
 model AuditLog {

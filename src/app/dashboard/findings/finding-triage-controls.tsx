@@ -12,12 +12,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   setFindingStatus,
-  setFindingStatusBulk,
-  type BulkTriageTarget,
-  TriageStatus,
+  setFindingStatuses,
+  type FindingTriageTarget,
+  type TriageStatus,
 } from "@/lib/actions/triage";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
@@ -34,19 +44,42 @@ const STATUS_BADGE: Record<TriageStatus, string> = {
   IGNORED: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
 };
 
-interface FindingTriageControlsProps {
+type SingleFindingTriageControlsProps = {
   repositoryId: string;
   fingerprint: string;
   currentStatus: TriageStatus;
   currentNote: string | null;
+};
+
+type BulkFindingTriageControlsProps = {
+  variant: "bulk";
+  targets: FindingTriageTarget[];
+};
+
+type FindingTriageControlsProps = SingleFindingTriageControlsProps | BulkFindingTriageControlsProps;
+
+function isBulkProps(props: FindingTriageControlsProps): props is BulkFindingTriageControlsProps {
+  return "variant" in props && props.variant === "bulk";
 }
 
-export default function FindingTriageControls({
+function statusLabel(status: TriageStatus): string {
+  return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+}
+
+export default function FindingTriageControls(props: FindingTriageControlsProps) {
+  if (isBulkProps(props)) {
+    return <BulkTriageControls targets={props.targets} />;
+  }
+
+  return <SingleTriageControls {...props} />;
+}
+
+function SingleTriageControls({
   repositoryId,
   fingerprint,
   currentStatus,
   currentNote,
-}: FindingTriageControlsProps) {
+}: SingleFindingTriageControlsProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -63,7 +96,7 @@ export default function FindingTriageControls({
           toast({
             variant: "success",
             title: "PLAN EXECUTED: TRIAGE RECORDED 🛡️",
-            description: `Finding status updated to ${STATUS_OPTIONS.find((o) => o.value === status)?.label}. Vault security updated.`,
+            description: `Finding status updated to ${statusLabel(status)}. Vault security updated.`,
           });
           router.refresh();
         } else {
@@ -90,11 +123,15 @@ export default function FindingTriageControls({
           Triage
         </h4>
         <Badge variant="outline" className={STATUS_BADGE[currentStatus]}>
-          {STATUS_OPTIONS.find((o) => o.value === currentStatus)?.label}
+          {statusLabel(currentStatus)}
         </Badge>
       </div>
 
-      <Select value={status} onValueChange={(v) => setStatus(v as TriageStatus)} disabled={isPending}>
+      <Select
+        value={status}
+        onValueChange={(v) => setStatus(v as TriageStatus)}
+        disabled={isPending}
+      >
         <SelectTrigger className="h-9 text-sm">
           <SelectValue placeholder="Set status" />
         </SelectTrigger>
@@ -130,18 +167,18 @@ const BULK_STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "IGNORED", label: "Ignored" },
 ];
 
-interface BulkTriageBarProps {
+export interface BulkTriageBarProps {
   /** The findings currently selected, resolved to their triage targets. */
-  targets: BulkTriageTarget[];
+  targets: FindingTriageTarget[];
   /** Clear the selection after a successful bulk action. */
-  onDone: () => void;
+  onDone?: () => void;
 }
 
 /**
  * Action bar for triaging many findings at once (#732).
  *
  * Rendered by the findings list only while at least one finding is selected. It
- * wraps {@link setFindingStatusBulk}, which reuses the same ownership check and
+ * wraps {@link setFindingStatuses}, which reuses the same ownership check and
  * audit trail as the single-finding control above.
  */
 export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
@@ -150,21 +187,26 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TriageStatus>("RESOLVED");
   const [note, setNote] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
 
   const count = targets.length;
 
-  const apply = () => {
+  if (count === 0) {
+    return null;
+  }
+
+  const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        const result = await setFindingStatusBulk({ targets, status, note });
+        const result = await setFindingStatuses({ items: targets, status: applyStatus, note });
         if (result.ok) {
           toast({
             variant: "success",
             title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
-            description: `${result.updated} ${result.updated === 1 ? "finding" : "findings"} updated to ${BULK_STATUS_OPTIONS.find((o) => o.value === status)?.label}.`,
+            description: `${count} ${count === 1 ? "finding" : "findings"} updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
           setNote("");
-          onDone();
+          onDone?.();
           router.refresh();
         } else {
           toast({
@@ -179,9 +221,13 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           title: "Couldn't update findings",
           description: "An unexpected error occurred. Please try again.",
         });
+      } finally {
+        setPendingStatus(null);
       }
     });
   };
+
+  const pendingLabel = pendingStatus ? statusLabel(pendingStatus) : "";
 
   return (
     <div
@@ -215,9 +261,40 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         aria-label="Bulk triage note"
       />
 
-      <Button size="sm" onClick={apply} disabled={count === 0 || isPending}>
-        {isPending ? "Applying…" : `Apply to ${count}`}
+      <Button size="sm" onClick={() => setPendingStatus(status)} disabled={count === 0 || isPending}>
+        {isPending && pendingStatus !== null ? "Applying…" : `Apply to ${count}`}
       </Button>
+
+      <AlertDialog
+        open={pendingStatus !== null && !isPending}
+        onOpenChange={(open) => {
+          if (!open && !isPending) setPendingStatus(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply bulk triage?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark {count} {count === 1 ? "finding" : "findings"} on
+              this page as {pendingLabel}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingStatus) apply(pendingStatus);
+              }}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
+}
+
+function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+  return <BulkTriageBar targets={targets} />;
 }

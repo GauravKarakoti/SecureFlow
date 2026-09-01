@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setFindingStatus, setFindingStatusBulk } from '@/lib/actions/triage';
+import { setFindingStatus, setFindingStatuses } from '@/lib/actions/triage';
+// Not from '@/lib/actions/triage': that is a `"use server"` module, and a
+// non-async export from one fails `next build` (#747).
+import { MAX_BULK_TRIAGE } from '@/lib/triage/statuses';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
 
@@ -105,20 +108,23 @@ describe('setFindingStatus', () => {
   });
 });
 
-describe('setFindingStatusBulk', () => {
-  const targets = [
+describe('setFindingStatuses', () => {
+  const items = [
     { repositoryId: 'repo-1', fingerprint: 'a'.repeat(64) },
     { repositoryId: 'repo-1', fingerprint: 'b'.repeat(64) },
   ];
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (prisma.$transaction as any).mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) =>
+      fn(prisma)
+    );
   });
 
   it('rejects unauthenticated callers without touching the DB', async () => {
     (auth as any).mockResolvedValue(null);
 
-    const result = await setFindingStatusBulk({ targets, status: 'RESOLVED' });
+    const result = await setFindingStatuses({ items, status: 'IGNORED' });
 
     expect(result.ok).toBe(false);
     expect(prisma.repository.findMany).not.toHaveBeenCalled();
@@ -128,76 +134,66 @@ describe('setFindingStatusBulk', () => {
   it('rejects an invalid status', async () => {
     (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
 
-    const result = await setFindingStatusBulk({ targets, status: 'BOGUS' as any });
+    const result = await setFindingStatuses({ items, status: 'BOGUS' as any });
 
     expect(result.ok).toBe(false);
     expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 
-  it('rejects an empty selection', async () => {
+  it('rejects an empty item list', async () => {
     (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
 
-    const result = await setFindingStatusBulk({ targets: [], status: 'RESOLVED' });
+    const result = await setFindingStatuses({ items: [], status: 'IGNORED' });
 
     expect(result.ok).toBe(false);
-    expect(result.updated).toBe(0);
+    expect(result.error).toBe('No findings selected');
     expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 
-  it('refuses when a selected repository is not owned by the user', async () => {
+  it('rejects more items than MAX_BULK_TRIAGE', async () => {
     (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
-    // Only one repo comes back for the single distinct repo requested? Simulate none owned.
+    const tooMany = Array.from({ length: MAX_BULK_TRIAGE + 1 }, (_, index) => ({
+      repositoryId: 'repo-1',
+      fingerprint: `fp-${index}`,
+    }));
+
+    const result = await setFindingStatuses({ items: tooMany, status: 'FALSE_POSITIVE' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Too many findings');
+    expect(prisma.repository.findMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses to triage a repository the user does not own', async () => {
+    (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
     (prisma.repository.findMany as any).mockResolvedValue([]);
 
-    const result = await setFindingStatusBulk({ targets, status: 'RESOLVED' });
+    const result = await setFindingStatuses({ items, status: 'IGNORED' });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe('Repository not found');
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('upserts every target and writes one audit entry per finding', async () => {
+  it('upserts every finding and writes one audit log entry each', async () => {
     (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
-    (prisma.repository.findMany as any).mockResolvedValue([
-      { id: 'repo-1', fullName: 'acme/app' },
-    ]);
-    (prisma.findingTriage.upsert as any).mockReturnValue('upsert-op');
-    (prisma.auditLog.create as any).mockReturnValue('audit-op');
-    (prisma.$transaction as any).mockResolvedValue([]);
+    (prisma.repository.findMany as any).mockResolvedValue([{ id: 'repo-1', fullName: 'acme/app' }]);
+    (prisma.findingTriage.upsert as any).mockResolvedValue({});
+    (prisma.auditLog.create as any).mockResolvedValue({});
 
-    const result = await setFindingStatusBulk({
-      targets,
-      status: 'IGNORED',
-      note: '  bulk note  ',
+    const result = await setFindingStatuses({
+      items: [...items, items[0]],
+      status: 'FALSE_POSITIVE',
+      note: '  noise  ',
     });
 
     expect(result.ok).toBe(true);
-    expect(result.updated).toBe(2);
-
-    // One upsert + one audit entry per target.
     expect(prisma.findingTriage.upsert).toHaveBeenCalledTimes(2);
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-
-    // Note is trimmed and applied to each upsert.
     expect(prisma.findingTriage.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        update: expect.objectContaining({ status: 'IGNORED', note: 'bulk note', resolvedById: 'user-1' }),
+        update: { status: 'FALSE_POSITIVE', note: 'noise', resolvedById: 'user-1' },
       })
     );
-  });
-
-  it('rejects a selection over the per-call cap', async () => {
-    (auth as any).mockResolvedValue({ user: { id: 'user-1' } });
-
-    const tooMany = Array.from({ length: 101 }, (_, i) => ({
-      repositoryId: 'repo-1',
-      fingerprint: String(i).padStart(64, '0'),
-    }));
-
-    const result = await setFindingStatusBulk({ targets: tooMany, status: 'RESOLVED' });
-
-    expect(result.ok).toBe(false);
-    expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 });

