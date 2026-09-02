@@ -70,7 +70,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.3",
-    "bullmq": "^6.3.1",
+    "bullmq": "^6.3.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.5",
@@ -82,7 +82,7 @@
     "genkitx-groq": "^0.31.0",
     "groq-sdk": "^1.6.0",
     "ioredis": "^6.0.0",
-    "lucide-react": "^1.35.0",
+    "lucide-react": "^1.37.0",
     "next": "16.3.3",
     "next-auth": "^5.0.0-beta.32",
     "octokit": "^5.0.5",
@@ -92,12 +92,12 @@
     "react-countup": "^6.5.3",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.8",
-    "react-hook-form": "^7.86.0",
+    "react-hook-form": "^7.87.0",
     "react-is": "^19.2.8",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
@@ -123,7 +123,7 @@
     "prisma": "^7.10.0",
     "secureflow-cli": "^1.2.0",
     "tailwindcss": "^4.3.2",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^6",
     "vitest": "^4.1.11"
   }
