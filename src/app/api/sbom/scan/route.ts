@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { auth } from '@/auth';
 import { parseManifestFile } from '@/lib/sbom/dependency-parser';
 import { matchVulnerabilities } from '@/lib/sbom/vulnerability-matcher';
 import { SbomScanResult } from '@/types/sbom';
@@ -12,8 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const session = await auth();
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

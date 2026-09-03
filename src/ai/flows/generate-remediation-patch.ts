@@ -1,9 +1,8 @@
-import { defineFlow, defineSchema } from 'genkit';
-import { z } from 'zod';
-import { groq } from '@genkit-ai/groq';
+import { z } from 'genkit'; 
+import { ai, securityExplanationModel } from '@/ai/genkit';
 
-// Schema for the AI output to ensure structured patch generation
-const PatchOutputSchema = defineSchema({
+// Use z.object() to create a standard Zod schema
+const PatchOutputSchema = z.object({
   patchDiff: z.string().describe("The unified diff patch to fix the vulnerability."),
   explanation: z.string().describe("Brief explanation of the changes made.")
 });
@@ -12,7 +11,7 @@ const PatchOutputSchema = defineSchema({
  * Genkit AI Flow: Generate Remediation Patch
  * Analyzes a security finding and its surrounding code context to generate a unified diff patch.
  */
-export const generateRemediationPatchFlow = defineFlow(
+export const generateRemediationPatchFlow = ai.defineFlow(
   {
     name: 'generateRemediationPatch',
     inputSchema: z.object({
@@ -36,12 +35,16 @@ ${input.vulnerableCode}
 Provide ONLY the unified diff patch that fixes this issue securely. Do not include markdown code blocks around the diff, just the raw diff text. Also provide a brief 1-sentence explanation of the fix.
 `;
 
-    const result = await groq.generate({
-      model: 'llama-3.1-8b-instant',
+    const { output } = await ai.generate({
+      model: securityExplanationModel,
       prompt: prompt,
       output: { schema: PatchOutputSchema, format: 'json' }
     });
 
-    return result.output;
+    if (!output) {
+      throw new Error("Failed to generate a valid remediation patch.");
+    }
+
+    return output;
   }
 );

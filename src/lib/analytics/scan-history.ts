@@ -11,7 +11,6 @@
  */
 
 import prisma from "@/lib/prisma";
-import { Prisma, FindingSeverity } from "@prisma/client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -381,7 +380,7 @@ export async function fetchRepoSummaries(
     take: MAX_REPOS,
   });
 
-  const summaries: RepoScanSummary[] = repos.map((repo) => {
+  const summaries: RepoScanSummary[] = repos.map((repo: any) => {
     let totalScans = 0;
     let totalFindings = 0;
     let criticalFindings = 0;
@@ -486,11 +485,11 @@ export async function fetchTopFindingTypes(
   });
 
   const totalTypeFindings = findings.reduce(
-    (sum, f) => sum + f._count.type,
+    (sum: number, f: any) => sum + f._count.type,
     0
   );
 
-  return findings.map((f) => ({
+  return findings.map((f: any) => ({
     type: f.type,
     count: f._count.type,
     percentage: totalTypeFindings > 0

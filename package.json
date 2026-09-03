@@ -95,6 +95,7 @@
     "react-hook-form": "^7.87.0",
     "react-is": "^19.2.8",
     "recharts": "^3.10.1",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^4.5.4"
@@ -113,6 +114,7 @@
     "@types/react": "^19.2.18",
     "@types/react-countup": "^4.3.1",
     "@types/react-dom": "^19.2.5",
+    "@types/uuid": "^10.0.0",
     "eslint": "^10.9.1",
     "eslint-config-next": "^16.3.3",
     "genkit-cli": "^1.42.0",
