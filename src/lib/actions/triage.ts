@@ -5,7 +5,11 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
-import { isTriageStatus, type TriageStatus as SharedTriageStatus } from "@/lib/triage/statuses";
+import {
+  MAX_BULK_TRIAGE,
+  isTriageStatus,
+  type TriageStatus as SharedTriageStatus,
+} from "@/lib/triage/statuses";
 
 // The lifecycle a finding can move through. OPEN is the implicit default (no
 // triage row); the other three suppress the finding from the dashboard tiles,
@@ -15,6 +19,19 @@ import { isTriageStatus, type TriageStatus as SharedTriageStatus } from "@/lib/t
 // hand-written copy of the same strings (#689). Re-exported here because the
 // triage UI imports the type from this module.
 export type TriageStatus = SharedTriageStatus;
+
+/**
+ * The transaction surface `setFindingStatuses` uses.
+ *
+ * Narrowed by hand rather than taken from `Prisma.TransactionClient`, because
+ * this is a `"use server"` module: importing the Prisma namespace here for a
+ * type is fine, but the two calls below are all that is needed, and a narrow
+ * interface documents the transaction's scope at the same time.
+ */
+interface TriageTransactionClient {
+  findingTriage: { upsert: (args: unknown) => Promise<unknown> };
+  auditLog: { create: (args: unknown) => Promise<unknown> };
+}
 
 export interface SetFindingStatusInput {
   repositoryId: string;
@@ -38,9 +55,6 @@ export interface SetFindingStatusesInput {
   status: TriageStatus;
   note?: string | null;
 }
-
-/** Cap matches the findings list page-size ceiling so one page cannot overflow this. */
-const MAX_BULK_TRIAGE = 100;
 
 /**
  * Set the triage status (+ optional note) for a finding, keyed by its stable
@@ -155,13 +169,20 @@ export async function setFindingStatuses(
     where: { id: { in: repoIds }, userId },
     select: { id: true, fullName: true },
   });
+
   if (repos.length !== repoIds.length) {
     return { ok: false, error: "Repository not found" };
   }
 
-  const repoName = new Map(repos.map((repo: any) => [repo.id, repo.fullName]));
+  // Annotated because `prisma.repository.findMany` above is generic over its
+  // `select`, and without an annotation the callback parameters here and on the
+  // transaction below are implicitly `any` — two of the errors that had
+  // `npm run typecheck` red on `main` (#747).
+  const repoName = new Map<string, string>(
+    repos.map((repo: { id: string; fullName: string }) => [repo.id, repo.fullName]),
+  );
 
-  await prisma.$transaction(async (tx: any) => {
+  await prisma.$transaction(async (tx: TriageTransactionClient) => {
     for (const item of items) {
       await tx.findingTriage.upsert({
         where: {

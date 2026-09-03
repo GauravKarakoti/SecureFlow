@@ -7,6 +7,8 @@
  * (#593).
  */
 
+import { formatSarifJson } from './sarif.js';
+
 /** One flagged call site. */
 export interface Violation {
   /** 1-based line of the `console.*` call. */
@@ -284,3 +286,33 @@ export function scanFile(path: string, content: string): FileScanResult {
 
   return { path, violations: findSecretLogging(content) };
 }
+
+export type OutputFormat = 'text' | 'json' | 'sarif';
+
+/**
+ * Format scan results based on the chosen output format ('text' | 'json' | 'sarif').
+ */
+export function formatScanResults(
+  results: FileScanResult[],
+  format: OutputFormat = 'text'
+): string {
+  if (format === 'json') {
+    return JSON.stringify(results, null, 2);
+  }
+
+  if (format === 'sarif') {
+    return formatSarifJson(results);
+  }
+
+  // Default text summary
+  let text = '';
+  for (const r of results) {
+    for (const v of r.violations) {
+      text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
+      text += `   -> ${v.text}\n`;
+      text += `   why: ${v.reason} passed to a console call\n`;
+    }
+  }
+  return text;
+}
+

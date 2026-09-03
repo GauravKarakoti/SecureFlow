@@ -160,39 +160,57 @@ function SingleTriageControls({
   );
 }
 
-function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+export interface BulkTriageBarProps {
+  /** The findings currently selected, resolved to their triage targets. */
+  targets: FindingTriageTarget[];
+  /** Clear the selection after a successful bulk action. */
+  onDone?: () => void;
+}
+
+/**
+ * Action bar for triaging many findings at once (#732).
+ *
+ * Rendered by the findings list only while at least one finding is selected. It
+ * wraps {@link setFindingStatuses}, which reuses the same ownership check and
+ * audit trail as the single-finding control above.
+ */
+export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [note, setNote] = useState("");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
 
-  if (targets.length === 0) {
+  const count = targets.length;
+
+  if (count === 0) {
     return null;
   }
 
-  const apply = (status: TriageStatus) => {
+  const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        const result = await setFindingStatuses({ items: targets, status, note });
+        const result = await setFindingStatuses({ items: targets, status: applyStatus, note });
         if (result.ok) {
           toast({
             variant: "success",
             title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
-            description: `${targets.length} findings updated to ${statusLabel(status)}. Vault security updated.`,
+            description: `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
+          setNote("");
+          onDone?.();
           router.refresh();
         } else {
           toast({
             variant: "destructive",
-            title: "Couldn't update triage",
+            title: "Couldn't update findings",
             description: result.error ?? "An unexpected error occurred.",
           });
         }
       } catch {
         toast({
           variant: "destructive",
-          title: "Couldn't update triage",
+          title: "Couldn't update findings",
           description: "An unexpected error occurred. Please try again.",
         });
       } finally {
@@ -204,13 +222,13 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
   const pendingLabel = pendingStatus ? statusLabel(pendingStatus) : "";
 
   return (
-    <div className="space-y-3 rounded-xl border border-white/5 bg-white/5 p-4">
+    <div className="space-y-3 rounded-xl border border-white/5 bg-white/5 p-4" data-testid="bulk-triage-bar">
       <div className="flex items-center justify-between gap-2">
         <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
           Bulk triage
         </h4>
         <Badge variant="outline" className="border-white/15 bg-white/5 text-muted-foreground">
-          {targets.length} on this page
+          {count} on this page
         </Badge>
       </div>
 
@@ -252,7 +270,7 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply bulk triage?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark {targets.length} {targets.length === 1 ? "finding" : "findings"} on
+              This will mark {count} {count === 1 ? "finding" : "findings"} on
               this page as {pendingLabel}.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -270,4 +288,8 @@ function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
       </AlertDialog>
     </div>
   );
+}
+
+function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+  return <BulkTriageBar targets={targets} />;
 }

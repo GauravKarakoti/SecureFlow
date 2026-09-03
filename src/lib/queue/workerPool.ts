@@ -11,16 +11,31 @@
  *   scanWorkerPool.stop();    // Graceful shutdown
  */
 
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import { redis } from './redis';
-import { scanQueue, scanDLQ, type ScanJobData, updateScanJobProgress } from './scanQueue';
+import { scanDLQ, type ScanJobData, updateScanJobProgress } from './scanQueue';
 import { processScanJob } from '@/lib/scanner/scanEngine';
+import {
+  InvalidInstallationIdError,
+  ScanPersistenceError,
+  scanJobCompletion,
+} from '@/lib/scanner/scan-persistence';
 
 /** Maximum concurrent scans. Avoids overwhelming the LLM API and DB connection pool. */
 const DEFAULT_CONCURRENCY = 3;
 
 /** Maximum time a single scan job can run before being timed out. */
 const SCAN_JOB_TIMEOUT_MS = 600_000; // 10 minutes
+
+/**
+ * How often the queue is checked for jobs whose lock has lapsed.
+ *
+ * Was passed under `settings`, where BullMQ v5 does not read it — `stalledInterval`
+ * is a top-level `WorkerOptions` field and `AdvancedOptions` has no such
+ * property, which is what `tsc` was reporting. The value was therefore ignored
+ * and the default 30 s applied, against a `lockDuration` of ten minutes.
+ */
+const STALLED_CHECK_INTERVAL_MS = 60_000;
 
 export interface WorkerPoolOptions {
   concurrency?: number;
@@ -63,10 +78,8 @@ class ScanWorkerPool {
         concurrency: this.concurrency,
         lockDuration: SCAN_JOB_TIMEOUT_MS,
         lockRenewTime: 30_000, // Renew lock every 30s
-        settings: {
-          stalledInterval: 60_000, // Check for stalled jobs every 60s
-          maxStalledCount: 1,
-        } as any,
+        stalledInterval: STALLED_CHECK_INTERVAL_MS,
+        maxStalledCount: 1,
       }
     );
 
@@ -80,10 +93,18 @@ class ScanWorkerPool {
       // Route to DLQ on permanent failure
       if (job && job.attemptsMade >= (job.opts.attempts ?? 2)) {
         console.warn(`[WorkerPool] Routing job ${job.id} to DLQ after ${job.attemptsMade} attempts`);
-        await scanDLQ.add('failed-scan', {
-          ...job.data,
-          error: err.message,
-        } as any);
+        try {
+          await scanDLQ.add('failed-scan', {
+            ...job.data,
+            error: err.message,
+          } as any);
+        } catch (dlqErr) {
+          // An `async` listener's rejection is an unhandled rejection, which
+          // under Node's default policy takes the worker process down — so a
+          // Redis blip while recording a failed job would stop every other scan
+          // in flight. Logged and dropped instead.
+          console.error(`[WorkerPool] Failed to route job ${job.id} to DLQ:`, dlqErr);
+        }
       }
     });
 
@@ -149,15 +170,11 @@ class ScanWorkerPool {
         job.updateProgress(progress).catch(() => {});
       });
 
-      // Mark as completed
-      await updateScanJobProgress(scanJobId, {
-        status: 'COMPLETED',
-        scannedFiles: result.scannedFiles,
-        vulnerabilitiesFound: result.vulnerabilitiesFound,
-        riskScore: result.riskScore,
-        policyDecision: result.policyDecision,
-        completedAt: new Date(),
-      });
+      // Mark as completed. The decision goes through `scanJobCompletion`, which
+      // maps the scanner's verdict onto a `PolicyDecision` member — writing
+      // `'REVIEW REQUIRED'` here is what made this update throw, and the catch
+      // below then marked a perfectly good scan FAILED and re-ran it (#747).
+      await updateScanJobProgress(scanJobId, scanJobCompletion(result));
 
       return { scanJobId };
     } catch (err) {
@@ -169,6 +186,17 @@ class ScanWorkerPool {
         error: errorMessage,
         completedAt: new Date(),
       }).catch(() => {});
+
+      // Two failures are worth failing on the first pass rather than after the
+      // full retry chain, following the same reasoning as `outboundWorker`:
+      //
+      //  - a malformed installation id will be exactly as malformed next time;
+      //  - a persistence failure happens *after* the check run and the PR
+      //    comment have already been posted, so retrying duplicates both while
+      //    repeating the LLM spend, and cannot fix a rejected write.
+      if (err instanceof ScanPersistenceError || err instanceof InvalidInstallationIdError) {
+        throw new UnrecoverableError(errorMessage);
+      }
 
       throw err;
     }

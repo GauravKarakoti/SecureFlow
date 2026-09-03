@@ -531,3 +531,95 @@ export function exportSignatureCatalogSummary(): SignatureCatalogSummary {
     version: '1.1.0'
   };
 }
+
+/**
+ * Whether the expanded registry has already been merged into the singleton.
+ *
+ * Module-level, so it is per-process: the Next.js server and the worker each
+ * import this module once and each warm their own engine.
+ */
+let expandedRegistryLoaded = false;
+
+/** What one load attempt did. */
+export interface SignatureLoadReport {
+  /** True when this call performed the merge; false when it was already done. */
+  loaded: boolean;
+  /** Signatures merged in by this call. Zero on a repeat call or a failure. */
+  count: number;
+  /** Present when the merge was refused; the engine is left as it was. */
+  error?: string;
+}
+
+/**
+ * Merge the expanded registry into the shared engine, once per process (#751).
+ *
+ * `loadRegistryIntoEngine` existed and nothing called it. A `grep` for it
+ * across `src`, `cli` and `scripts` returned the definition, a re-export in
+ * `./fingerprint`, and a unit test — no production caller anywhere. So the
+ * engine only ever held `DEFAULT_PAYLOAD_SIGNATURES`: four JavaScript-shaped
+ * patterns, for the lifetime of the process, because `dynamicFingerprintEngine`
+ * is a module-level singleton and nothing ever updated it.
+ *
+ * Every finding goes through that engine — `scanner.ts` calls
+ * `computeDynamicFingerprint` on each one and stores `matchedSignatures`,
+ * `signatureVersion` and `isZeroDay` from the result. On a scan of a Python
+ * service, `SIG-PY-001` (pickle deserialisation, CRITICAL, CWE-502) could not
+ * match, because it was not loaded. `isZeroDay` is derived from
+ * `category === 'ZERO_DAY_EXPLOIT' || category === 'RCE'` over the matched set,
+ * so none of the registry's RCE signatures could raise it either.
+ *
+ * ## Merge, not rotate
+ *
+ * This goes through `loadRegistryIntoEngine`, which calls
+ * `updateSignatureDatabase` — that merges by id and leaves the four defaults in
+ * place. The engine's other public path, `rotateSignatures`, *replaces* the map
+ * wholesale and would silently drop them. The two are one word apart at the
+ * call site, which is why this function exists rather than the call being
+ * written inline at whichever entry point needed it first.
+ *
+ * ## Failing safely
+ *
+ * `prepareBatch` throws `SignatureValidationError` listing every problem if any
+ * entry is malformed. A throw from here would take down the scan path
+ * entirely — a bad *addition* would disable detection that already worked — so
+ * the failure is caught and reported, leaving the engine with its defaults.
+ * The corresponding test asserts the shipped registry loads cleanly, so a
+ * malformed entry fails CI rather than silently degrading production.
+ */
+export function ensureExpandedSignaturesLoaded(
+  engine: DynamicFingerprintEngine = dynamicFingerprintEngine,
+  options?: LoadRegistryOptions
+): SignatureLoadReport {
+  if (expandedRegistryLoaded) return { loaded: false, count: 0 };
+
+  try {
+    const count = loadRegistryIntoEngine(engine, options);
+    expandedRegistryLoaded = true;
+    return { loaded: true, count };
+  } catch (err) {
+    // Marked loaded even on failure: a malformed registry is malformed on every
+    // call, and retrying it per scan would turn one bad entry into a validation
+    // pass over 26 signatures on every finding.
+    expandedRegistryLoaded = true;
+    return {
+      loaded: false,
+      count: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** Whether this process has already attempted the merge. */
+export function isExpandedRegistryLoaded(): boolean {
+  return expandedRegistryLoaded;
+}
+
+/**
+ * Test seam: forget that the merge happened.
+ *
+ * Does not touch the engine — a test that wants the defaults back calls
+ * `resetToDefaults()` itself, which keeps the two concerns separable.
+ */
+export function __resetExpandedRegistryForTests(): void {
+  expandedRegistryLoaded = false;
+}

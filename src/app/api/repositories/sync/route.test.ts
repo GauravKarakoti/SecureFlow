@@ -16,6 +16,21 @@ vi.mock("@/lib/redis", () => ({
   checkRateLimitDetailed: vi.fn(),
 }));
 
+// The named-repository path resolves the id against the caller before doing
+// anything (#749). Previously it looked nothing up at all, which is why the two
+// cases below could pass a repository id that no fixture ever made real.
+const repositoryFindFirst = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prisma", () => ({
+  default: { repository: { findFirst: repositoryFindFirst } },
+}));
+
+const OWNED_REPO = {
+  id: "repo-monorepo-1",
+  fullName: "octocat/monorepo",
+  owner: "octocat",
+  isActive: true,
+};
+
 const logged: { level: string; message: string; meta?: Record<string, unknown> }[] = [];
 vi.mock("@/lib/logger", () => ({
   createLogger: () => ({
@@ -73,6 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   logged.length = 0;
   vi.mocked(checkRateLimitDetailed).mockResolvedValue(allow());
+  repositoryFindFirst.mockResolvedValue(OWNED_REPO);
 });
 
 describe("POST /api/repositories/sync route (#634)", () => {
@@ -125,7 +141,20 @@ describe("POST /api/repositories/sync route (#634)", () => {
     expect(data.error).toBe("Failed to synchronize repositories");
   });
 
-  it("handles monorepo sync optimization with shallow batch chunking (#674)", async () => {
+  it("runs the real sync for a named repository instead of counting fabricated files", async () => {
+    // This branch used to build 4500 hardcoded paths, count them in a loop
+    // whose body was `totalSyncedFiles++`, and answer
+    // `{ success: true, status: "COMPLETED", synchronizedFilesCount: 4500 }`
+    // without a single query, GitHub call or write (#749).
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    vi.spyOn(syncEngine, "syncUserRepositories").mockResolvedValue({
+      synced: 4,
+      hasInstallation: true,
+      installationId: 443322,
+      skipped: 1,
+      failed: 0,
+    });
+
     const mockReq = {
       json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1", branch: "main" }),
       signal: { aborted: false },
@@ -136,15 +165,98 @@ describe("POST /api/repositories/sync route (#634)", () => {
     expect(response.status).toBe(200);
 
     const data = await response.json();
-    expect(data).toEqual({
+    expect(syncEngine.syncUserRepositories).toHaveBeenCalledTimes(1);
+    expect(data).toMatchObject({
       success: true,
       status: "COMPLETED",
-      synchronizedFilesCount: 4500,
-      batchesProcessed: 45,
+      repository: OWNED_REPO,
+      synced: 4,
+      skipped: 1,
+      failed: 0,
+    });
+    expect(data).not.toHaveProperty("synchronizedFilesCount");
+    expect(data).not.toHaveProperty("batchesProcessed");
+  });
+
+  it("resolves the named repository against the caller", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    vi.spyOn(syncEngine, "syncUserRepositories").mockResolvedValue({
+      synced: 1,
+      hasInstallation: true,
+    });
+
+    const mockReq = {
+      json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1" }),
+      signal: { aborted: false },
+      headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
+    } as any;
+
+    await POST(mockReq);
+
+    expect(repositoryFindFirst).toHaveBeenCalledWith({
+      where: { id: "repo-monorepo-1", userId: "user-123" },
+      select: { id: true, fullName: true, owner: true, isActive: true },
     });
   });
 
-  it("returns 408 when monorepo sync is aborted by client signal (#674)", async () => {
+  it("returns 404 for a repository the caller does not own", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    const syncSpy = vi.spyOn(syncEngine, "syncUserRepositories");
+    repositoryFindFirst.mockResolvedValue(null);
+
+    const mockReq = {
+      json: vi.fn().mockResolvedValue({ repositoryId: "someone-elses-repo" }),
+      signal: { aborted: false },
+      headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
+    } as any;
+
+    const response = await POST(mockReq);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Repository not found" });
+    expect(syncSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unusable repositoryId rather than falling through", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    const syncSpy = vi.spyOn(syncEngine, "syncUserRepositories");
+
+    for (const repositoryId of ["", "   ", 42, { $ne: null }]) {
+      const mockReq = {
+        json: vi.fn().mockResolvedValue({ repositoryId }),
+        signal: { aborted: false },
+        headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
+      } as any;
+
+      const response = await POST(mockReq);
+      expect(response.status).toBe(400);
+    }
+
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect(repositoryFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("does not report success when the account has no installation", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    vi.spyOn(syncEngine, "syncUserRepositories").mockResolvedValue({
+      synced: 0,
+      hasInstallation: false,
+    });
+
+    const mockReq = {
+      json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1" }),
+      signal: { aborted: false },
+      headers: new Headers({ "x-forwarded-for": "203.0.113.7" }),
+    } as any;
+
+    const data = await (await POST(mockReq)).json();
+    expect(data.success).toBe(false);
+    expect(data.status).toBe("NO_INSTALLATION");
+  });
+
+  it("returns 408 when a named sync is aborted by client signal (#674)", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    const syncSpy = vi.spyOn(syncEngine, "syncUserRepositories");
+
     const mockReq = {
       json: vi.fn().mockResolvedValue({ repositoryId: "repo-monorepo-1" }),
       signal: { aborted: true },
@@ -156,6 +268,20 @@ describe("POST /api/repositories/sync route (#634)", () => {
 
     const data = await response.json();
     expect(data.error).toBe("Sync task aborted by client timeout signal");
+    expect(syncSpy).not.toHaveBeenCalled();
+  });
+
+  it("leaves the full-sync response shape alone", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue(session());
+    vi.spyOn(syncEngine, "syncUserRepositories").mockResolvedValue({
+      synced: 2,
+      hasInstallation: true,
+    });
+
+    const data = await (await POST(request())).json();
+
+    expect(data).toEqual({ synced: 2, hasInstallation: true });
+    expect(repositoryFindFirst).not.toHaveBeenCalled();
   });
 });
 
