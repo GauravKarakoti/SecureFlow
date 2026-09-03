@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  BarChart3,
   Activity,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -24,6 +25,7 @@ import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
 const NAV_ITEMS = [
   { name: "Mission Control", href: "/dashboard", icon: LayoutDashboard },
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
+  { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
   { name: "System Status", href: "/dashboard/status", icon: Activity },
