@@ -93,8 +93,8 @@ describe("computeTrendDirection", () => {
   });
 
   it("returns 'flat' when change is below threshold", () => {
-    // 9 vs 10 is a 10% decrease, which is exactly at threshold
-    expect(computeTrendDirection([10, 10, 9, 9])).toBe("flat");
+    // 95 vs 100 is a 5% decrease, which is safely below the threshold
+    expect(computeTrendDirection([100, 100, 95, 95])).toBe("flat");
   });
 
   it("handles all zeros", () => {

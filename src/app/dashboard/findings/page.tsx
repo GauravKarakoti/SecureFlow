@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserFindingFilters, getUserFindings } from "@/lib/actions/findings";
 import { fromSearchParams } from "@/lib/findings/query";
+import { SbomScanResult } from "@/types/sbom";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export default async function FindingsPage({
       pageSize={result.pageSize}
       total={result.total}
       totalPages={result.totalPages}
-      sbomReport={sbomReport}
+      sbomReport={sbomReport as SbomScanResult | null}
     />
   );
 }

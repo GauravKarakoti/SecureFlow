@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import AnalyticsClient from "./analytics-client";
@@ -76,10 +79,11 @@ describe("AnalyticsClient", () => {
 
   it("renders all four summary stat cards", () => {
     render(<AnalyticsClient {...mockProps} />);
-    expect(screen.getByText("Total Scans")).toBeTruthy();
-    expect(screen.getByText("Total Findings")).toBeTruthy();
-    expect(screen.getByText("Pass Rate")).toBeTruthy();
-    expect(screen.getByText("Avg Risk Score")).toBeTruthy();
+    // Used getAllByText because these labels also appear as table headers
+    expect(screen.getAllByText("Total Scans")[0]).toBeTruthy();
+    expect(screen.getAllByText("Total Findings")[0]).toBeTruthy();
+    expect(screen.getAllByText("Pass Rate")[0]).toBeTruthy();
+    expect(screen.getAllByText("Avg Risk Score")[0]).toBeTruthy();
   });
 
   it("renders chart section headers", () => {
