@@ -1,9 +1,8 @@
 <div align="center">
 
 # 🎭 SecureFlow
-
 ## The Digital Heist Defense System — AI-Powered GitHub Pull Request Security Scanner
-
+> Local PR scanner integration testgir
 [![GitHub stars](https://img.shields.io/github/stars/GauravKarakoti/SecureFlow?style=for-the-badge&color=gold)](https://github.com/GauravKarakoti/SecureFlow/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/GauravKarakoti/SecureFlow?style=for-the-badge&color=blue)](https://github.com/GauravKarakoti/SecureFlow/network)
 [![GitHub issues](https://img.shields.io/github/issues/GauravKarakoti/SecureFlow?style=for-the-badge&color=red)](https://github.com/GauravKarakoti/SecureFlow/issues)
