@@ -5,6 +5,26 @@ import { scanFile, formatScanResults, type FileScanResult, type OutputFormat } f
 
 const VERBOSE = process.argv.includes("--verbose");
 
+function printHelp(): void {
+  console.log(`
+SecureFlow CLI - Security analysis tool for staged git files
+
+Usage:
+  secureflow [options]
+
+Options:
+  --verbose              Enable verbose logging
+  --format <format>      Output format: text, json, sarif (default: text)
+  -o, --output <path>    Write output to specified file path
+  -h, --help             Show this help message
+
+Examples:
+  $ secureflow                          # Run standard security scan on staged files
+  $ secureflow --format json -o res.json # Scan and export results to JSON file
+  $ secureflow --verbose                 # Run scan with detailed verbose logging
+`);
+}
+
 function parseFormatArg(): OutputFormat {
   const formatIndex = process.argv.findIndex((arg) => arg === "--format");
   if (formatIndex !== -1) {
@@ -45,6 +65,10 @@ function reportViolations(result: FileScanResult): void {
 }
 
 function main(): number {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printHelp();
+    return 0;
+  }
   const format = parseFormatArg();
   const outputPath = parseOutputArg();
   let staged: string[];
