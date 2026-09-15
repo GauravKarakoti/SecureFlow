@@ -1,4 +1,4 @@
-﻿name: "CodeQL Static Analysis"
+name: "CodeQL Static Analysis"
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
