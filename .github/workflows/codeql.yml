@@ -1,4 +1,4 @@
-﻿name: "CodeQL Static Analysis"
+name: "CodeQL Static Analysis"
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
 
       - name: Cache node_modules
         id: node-modules-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
