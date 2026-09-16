@@ -32,7 +32,7 @@
     "retention": "tsx --env-file=.env scripts/retention.ts",
     "retention:render": "tsx scripts/retention.ts",
     "format": "prettier --write .",
-    "format:check": "prettier --check . || (echo. && echo ❌ Formatting check failed! && echo Run: npm run format && exit /b 1)",
+    "format:check": "prettier --check .",
     "changeset": "changeset",
     "changeset:version": "changeset version",
     "prepare": "husky",
