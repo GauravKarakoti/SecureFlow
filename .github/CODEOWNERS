@@ -1,0 +1,135 @@
+# CODEOWNERS for SecureFlow
+#
+# This file defines code ownership for automatic review requests on Pull Requests.
+#
+# SYNTAX NOTES:
+# - Lines are processed bottom-to-top (LAST MATCHING RULE WINS)
+# - More specific paths should be listed AFTER general ones
+# - Patterns follow .gitignore glob syntax
+# - Use @username or @org/team-name for owners
+#
+# ENFORCEMENT:
+# To enforce code owner reviews, enable "Require review from Code Owners" in:
+# Repository Settings → Branches → Branch protection rules for main
+#
+# Without branch protection enabled, CODEOWNERS will still auto-request reviews
+# but won't block merges.
+
+# ==============================================================================
+# DEFAULT OWNER (least specific, listed first)
+# ==============================================================================
+
+# Global default - all files require review from the maintainer
+* @GauravKarakoti
+
+# ==============================================================================
+# DEPENDENCY MANAGEMENT
+# ==============================================================================
+
+# Package dependencies - critical for supply chain security
+package.json @GauravKarakoti
+package-lock.json @GauravKarakoti
+pnpm-lock.yaml @GauravKarakoti
+
+# ==============================================================================
+# INFRASTRUCTURE & DEPLOYMENT
+# ==============================================================================
+
+# Docker configuration - affects deployment and container security
+Dockerfile @GauravKarakoti
+docker-compose.yml @GauravKarakoti
+.dockerignore @GauravKarakoti
+
+# Environment configuration templates
+.env.example @GauravKarakoti
+
+# ==============================================================================
+# CI/CD PIPELINES
+# ==============================================================================
+
+# GitHub Actions workflows - can execute arbitrary code in CI
+.github/workflows/ @GauravKarakoti
+
+# ==============================================================================
+# DATABASE & DATA LAYER
+# ==============================================================================
+
+# Database schema and migrations - critical for data integrity
+prisma/ @GauravKarakoti
+prisma/schema.prisma @GauravKarakoti
+prisma/migrations/ @GauravKarakoti
+prisma/seed.ts @GauravKarakoti
+
+# Database client configuration
+db-client.ts @GauravKarakoti
+prisma.config.ts @GauravKarakoti
+
+# ==============================================================================
+# CORE SECURITY ENGINE
+# ==============================================================================
+
+# Secret detection and vulnerability scanning engine
+src/lib/armor/ @GauravKarakoti
+
+# Security-specific utilities
+src/lib/middleware/rate-limit.ts @GauravKarakoti
+src/lib/security-headers.ts @GauravKarakoti
+src/lib/github/webhook-verification.ts @GauravKarakoti
+
+# Audit logging and retention
+src/lib/audit/ @GauravKarakoti
+
+# ==============================================================================
+# AI & LLM INTEGRATION
+# ==============================================================================
+
+# AI prompt engineering and security explanation flows
+# Critical for prompt injection defense and AI response quality
+src/ai/ @GauravKarakoti
+src/ai/flows/ @GauravKarakoti
+src/ai/flows/heist-prompt-guard.ts @GauravKarakoti
+src/ai/flows/security-helpers.ts @GauravKarakoti
+
+# ==============================================================================
+# AUTHENTICATION & AUTHORIZATION
+# ==============================================================================
+
+# NextAuth.js configuration - authentication logic
+src/auth.ts @GauravKarakoti
+src/auth.config.ts @GauravKarakoti
+
+# Authentication API routes
+src/app/api/auth/ @GauravKarakoti
+
+# Admin portal and RBAC
+src/lib/admin/ @GauravKarakoti
+src/app/admin/ @GauravKarakoti
+src/app/api/admin/ @GauravKarakoti
+
+# ==============================================================================
+# API ROUTES (more specific rules after general ones)
+# ==============================================================================
+
+# General API routes
+src/app/api/ @GauravKarakoti
+
+# Webhook handlers - integrate with GitHub and handle external events
+src/app/api/webhooks/ @GauravKarakoti
+
+# ==============================================================================
+# SECURITY DOCUMENTATION
+# ==============================================================================
+
+# Security policy and documentation
+SECURITY.md @GauravKarakoti
+docs/security/ @GauravKarakoti
+
+# ==============================================================================
+# CONFIGURATION FILES
+# ==============================================================================
+
+# TypeScript configuration
+tsconfig.json @GauravKarakoti
+
+# Next.js configuration - affects build, security headers, and runtime
+next.config.ts @GauravKarakoti
