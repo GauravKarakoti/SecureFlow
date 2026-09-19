@@ -10,11 +10,14 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_SCANNED_BYTES,
   findSecretLogging,
+  formatScanResults,
   lineOf,
   looksBinary,
   maskStringLiterals,
+  parseFailOnArg,
   readArgumentList,
   scanFile,
+  shouldFailScan,
   shouldScanFile,
 } from "./scanner.js";
 
@@ -265,5 +268,56 @@ describe("scanFile", () => {
     const result = scanFile("src/data.ts", "console.log(process.env.S);\u0000\u0000");
 
     expect(result.skipped).toBe("binary content");
+  });
+});
+
+describe("formatScanResults", () => {
+  it("formats results as markdown when format is 'markdown'", () => {
+    const result = scanFile("src/debug.ts", "console.log(process.env.SECRET);");
+    const output = formatScanResults([result], "markdown");
+
+    expect(output).toContain("# 🛡️ SecureFlow Scan Report");
+    expect(output).toContain("| File | Line | Violation | Reason |");
+    expect(output).toContain("src/debug.ts");
+    expect(output).toContain("environment variable");
+  });
+});
+
+describe("parseFailOnArg", () => {
+  it("parses --fail-on=SEVERITY syntax", () => {
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=HIGH"])).toBe("HIGH");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=CRITICAL"])).toBe("CRITICAL");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=medium"])).toBe("MEDIUM");
+  });
+
+  it("parses --fail-on SEVERITY separate argument syntax", () => {
+    expect(parseFailOnArg(["node", "index.js", "--fail-on", "CRITICAL"])).toBe("CRITICAL");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on", "low"])).toBe("LOW");
+  });
+
+  it("returns null when --fail-on is not specified or invalid", () => {
+    expect(parseFailOnArg(["node", "index.js"])).toBeNull();
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toBeNull();
+  });
+});
+
+describe("shouldFailScan", () => {
+  it("defaults to failing on local violations or HIGH/CRITICAL AI findings when failOnThreshold is null", () => {
+    expect(shouldFailScan(1, [], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "HIGH" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "LOW" }], null)).toBe(false);
+  });
+
+  it("fails when local violations (HIGH) meet or exceed threshold", () => {
+    expect(shouldFailScan(1, [], "HIGH")).toBe(true);
+    expect(shouldFailScan(1, [], "LOW")).toBe(true);
+    expect(shouldFailScan(1, [], "CRITICAL")).toBe(false);
+  });
+
+  it("fails when AI findings meet or exceed threshold", () => {
+    expect(shouldFailScan(0, [{ severity: "CRITICAL" }], "CRITICAL")).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "HIGH" }], "CRITICAL")).toBe(false);
+    expect(shouldFailScan(0, [{ severity: "MEDIUM" }], "MEDIUM")).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "LOW" }], "MEDIUM")).toBe(false);
   });
 });

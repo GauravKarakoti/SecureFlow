@@ -38,6 +38,22 @@ describe("findingsAboveThreshold", () => {
     expect(SLACK_ALERT_THRESHOLD).toBe("HIGH");
     expect(findingsAboveThreshold([finding({ severity: "MEDIUM" })])).toEqual([]);
   });
+
+  it("respects custom severity threshold", () => {
+    const findings = [
+      finding({ severity: "CRITICAL" }),
+      finding({ severity: "HIGH" }),
+      finding({ severity: "MEDIUM" }),
+    ];
+    expect(findingsAboveThreshold(findings, "CRITICAL").map((f) => f.severity)).toEqual([
+      "CRITICAL",
+    ]);
+    expect(findingsAboveThreshold(findings, "MEDIUM").map((f) => f.severity)).toEqual([
+      "CRITICAL",
+      "HIGH",
+      "MEDIUM",
+    ]);
+  });
 });
 
 describe("pullRequestUrl", () => {
@@ -99,6 +115,18 @@ describe("buildSlackAlert", () => {
     });
 
     expect(JSON.stringify(message!.blocks)).toContain("and 3 more");
+  });
+
+  it("respects custom minSeverity threshold in alert building", () => {
+    const message = buildSlackAlert({
+      repositoryFullName: "acme/widgets",
+      prNumber: 7,
+      findings: [finding({ severity: "HIGH" }), finding({ severity: "CRITICAL" })],
+      minSeverity: "CRITICAL",
+    });
+
+    expect(message).not.toBeNull();
+    expect(message!.text).toContain("1 critical-severity finding");
   });
 });
 
@@ -186,5 +214,24 @@ describe("notifyHighSeverityFindings", () => {
       "https://hooks.slack.com/services/x",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("respects custom minSeverity when notifying", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    const sent = await notifyHighSeverityFindings(
+      "https://hooks.slack.com/services/x",
+      {
+        repositoryFullName: "acme/widgets",
+        prNumber: 1,
+        findings: [finding({ severity: "HIGH" })],
+      },
+      "CRITICAL",
+    );
+
+    expect(sent).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

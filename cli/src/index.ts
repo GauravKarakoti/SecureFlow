@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import fs from "fs";
 import { GitError, getStagedFiles, readStagedContent } from "./git.js";
-import { scanFile, formatScanResults, type FileScanResult, type OutputFormat } from "./scanner.js";
+import {
+  scanFile,
+  formatScanResults,
+  parseFailOnArg,
+  shouldFailScan,
+  type FileScanResult,
+  type OutputFormat,
+} from "./scanner.js";
 import {
   NetworkUnavailableError,
   requestAiFileScan,
@@ -46,8 +53,18 @@ function parseFormatArg(): OutputFormat {
     const valStr = process.argv[formatIndex + 1];
     if (valStr) {
       const val = valStr.toLowerCase();
-      if (val === "sarif" || val === "json" || val === "text" || val === "csv" || val === "html") {
+      if (
+        val === "sarif" ||
+        val === "json" ||
+        val === "text" ||
+        val === "csv" ||
+        val === "html" ||
+        val === "markdown"
+      ) {
         return val as OutputFormat;
+      }
+      if (val === "md") {
+        return "markdown";
       }
     }
   }
@@ -168,7 +185,13 @@ async function main(): Promise<number> {
     (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
   ).length;
 
-  if (format === "sarif" || format === "json" || format === "csv" || format === "html") {
+  if (
+    format === "sarif" ||
+    format === "json" ||
+    format === "csv" ||
+    format === "html" ||
+    format === "markdown"
+  ) {
     const outputString = formatScanResults(fileResults, format);
     if (outputPath) {
       fs.writeFileSync(outputPath, outputString, "utf-8");
@@ -192,15 +215,20 @@ async function main(): Promise<number> {
     );
   }
 
-  if (violationCount > 0 || aiViolationCount > 0) {
+  const failOnThreshold = parseFailOnArg();
+  const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
+
+  if (shouldFail) {
     if (format === "text") {
       console.error(
         `\n❌ SecureFlow blocked this commit: ${violationCount} secret-logging violation${
           violationCount === 1 ? "" : "s"
         }${
           aiViolationCount > 0
-            ? ` and ${aiViolationCount} AI-detected HIGH/CRITICAL finding${aiViolationCount === 1 ? "" : "s"}`
+            ? ` and ${aiViolationCount} AI-detected finding${aiViolationCount === 1 ? "" : "s"}`
             : ""
+        }${
+          failOnThreshold ? ` (cleared --fail-on=${failOnThreshold})` : ""
         }. Remove the exposed secrets/env variables, then re-stage.`,
       );
     }
@@ -208,7 +236,13 @@ async function main(): Promise<number> {
   }
 
   if (format === "text") {
-    console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+    if (violationCount > 0 || aiFindings.length > 0) {
+      console.log(
+        `⚠️  SecureFlow advisory warning: findings detected below --fail-on=${failOnThreshold} threshold. Scan passing.`,
+      );
+    } else {
+      console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+    }
   }
   return 0;
 }
