@@ -391,5 +391,54 @@ describe("osv-client", () => {
       const body = JSON.parse(vi.mocked(globalThis.fetch).mock.calls[0][1]!.body as string);
       expect(body.package.ecosystem).toBe("PyPI");
     });
+
+    it("returns empty list when version is unknown or missing", async () => {
+      const fetchSpy = vi.mocked(globalThis.fetch);
+      const depUnknown: Dependency = {
+        name: "express",
+        version: "unknown",
+        manifestFile: "package.json",
+        ecosystem: "npm",
+      };
+      const result = await queryOsvForDependency(depUnknown);
+      expect(result).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("mapOsvVulns — fallback handling", () => {
+    it("uses details slice when summary is missing", () => {
+      const dep: Dependency = {
+        name: "lodash",
+        version: "4.17.20",
+        manifestFile: "package.json",
+        ecosystem: "npm",
+      };
+      const vulns: OsvVulnerability[] = [
+        {
+          id: "GHSA-details-only",
+          details: "Detailed security explanation of vulnerability in lodash",
+        },
+      ];
+
+      const matches = mapOsvVulns(dep, vulns);
+      expect(matches).toHaveLength(1);
+      expect(matches[0].description).toBe(
+        "Detailed security explanation of vulnerability in lodash",
+      );
+    });
+
+    it("uses generic fallback when both summary and details are missing", () => {
+      const dep: Dependency = {
+        name: "express",
+        version: "4.18.2",
+        manifestFile: "package.json",
+        ecosystem: "npm",
+      };
+      const vulns: OsvVulnerability[] = [{ id: "GHSA-no-desc" }];
+
+      const matches = mapOsvVulns(dep, vulns);
+      expect(matches[0].description).toBe("Known vulnerability in express");
+    });
   });
 });

@@ -26,8 +26,14 @@ import {
   type UserAuditLogResult,
 } from "@/lib/actions/audit";
 import type { UserAuditLogRow } from "@/lib/audit/export-limits";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { downloadCSV } from "@/lib/utils/exportCsv";
+import { downloadCSV, downloadJSON } from "@/lib/utils/exportCsv";
 
 const PAGE_SIZE = 10;
 const ALL = "ALL";
@@ -79,7 +85,7 @@ export default function AuditLogTable({
   // range, action, decision, and search — not just the current page. The
   // table above is paginated for readability, but an export should cover
   // everything the user has filtered down to, not just the 10 rows shown.
-  const exportLogs = async () => {
+  const exportLogs = async (exportFormat: "csv" | "json" = "csv") => {
     setIsExporting(true);
     try {
       const result = await getUserAuditLogsForExport({
@@ -100,15 +106,29 @@ export default function AuditLogTable({
         return;
       }
 
-      const rows = result.rows.map((log) => ({
-        action: log.action,
-        user: displayUser(log),
-        resource: log.resource,
-        decision: log.decision || "INFO",
-        timestamp: new Date(log.timestamp).toISOString(),
-      }));
       const dateStamp = new Date().toISOString().slice(0, 10);
-      downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
+
+      if (exportFormat === "json") {
+        const jsonRows = result.rows.map((log) => ({
+          id: log.id,
+          action: log.action,
+          user: displayUser(log),
+          resource: log.resource,
+          decision: log.decision || "INFO",
+          timestamp: new Date(log.timestamp).toISOString(),
+          metadata: log.metadata ?? null,
+        }));
+        downloadJSON(jsonRows, `audit-logs-${dateStamp}.json`);
+      } else {
+        const rows = result.rows.map((log) => ({
+          action: log.action,
+          user: displayUser(log),
+          resource: log.resource,
+          decision: log.decision || "INFO",
+          timestamp: new Date(log.timestamp).toISOString(),
+        }));
+        downloadCSV(rows, `audit-logs-${dateStamp}.csv`);
+      }
 
       // The export is capped, and a capped file that looks complete is the
       // worst outcome for an audit trail — this is the artefact someone hands
@@ -122,7 +142,7 @@ export default function AuditLogTable({
       } else {
         toast({
           title: "Export complete",
-          description: `Exported ${result.rows.length.toLocaleString()} entries.`,
+          description: `Exported ${result.rows.length.toLocaleString()} entries as ${exportFormat.toUpperCase()}.`,
         });
       }
     } finally {
@@ -237,16 +257,23 @@ export default function AuditLogTable({
             />
           </div>
 
-          <Button
-            onClick={exportLogs}
-            disabled={isExporting}
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 shrink-0"
-          >
-            <Download className="w-3.5 h-3.5" />
-            {isExporting ? "Exporting..." : "Export CSV"}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                disabled={isExporting}
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {isExporting ? "Exporting..." : "Export"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportLogs("csv")}>Export as CSV</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportLogs("json")}>Export as JSON</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {hasFilters && (
             <button
