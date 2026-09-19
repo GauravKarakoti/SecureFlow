@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { escapeCsv, escapeHtml, formatCsv, formatHtml } from "./exporters.js";
+import {
+  escapeCsv,
+  escapeHtml,
+  escapeMarkdownTable,
+  formatCsv,
+  formatHtml,
+  formatMarkdown,
+} from "./exporters.js";
 import type { FileScanResult } from "./scanner.js";
 
 const sampleResults: FileScanResult[] = [
@@ -274,5 +281,79 @@ describe("formatHtml", () => {
     // Count the number of <tr> elements in tbody (excluding the header row)
     const dataRowMatches = html.match(/<tr>\s*\n\s*<td>/g);
     expect(dataRowMatches).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escapeMarkdownTable
+// ---------------------------------------------------------------------------
+
+describe("escapeMarkdownTable", () => {
+  it("should escape pipe characters", () => {
+    expect(escapeMarkdownTable("foo|bar")).toBe("foo\\|bar");
+  });
+
+  it("should replace newlines with <br>", () => {
+    expect(escapeMarkdownTable("line1\nline2")).toBe("line1<br>line2");
+    expect(escapeMarkdownTable("line1\r\nline2")).toBe("line1<br>line2");
+  });
+
+  it("should escape backslashes", () => {
+    expect(escapeMarkdownTable("C:\\path\\file.ts")).toBe("C:\\\\path\\\\file.ts");
+  });
+
+  it("should handle normal strings unchanged", () => {
+    expect(escapeMarkdownTable("src/utils/logger.ts")).toBe("src/utils/logger.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatMarkdown
+// ---------------------------------------------------------------------------
+
+describe("formatMarkdown", () => {
+  it("should render report title and table headers", () => {
+    const md = formatMarkdown(sampleResults);
+    expect(md).toContain("# 🛡️ SecureFlow Scan Report");
+    expect(md).toContain("| File | Line | Violation | Reason |");
+    expect(md).toContain("| --- | --- | --- | --- |");
+  });
+
+  it("should contain violation details in markdown table format", () => {
+    const md = formatMarkdown(sampleResults);
+    expect(md).toContain(
+      '| src/config/db.ts | 15 | `console.log("DB Password:", process.env.DB_PASSWORD);` | environment variable |',
+    );
+    expect(md).toContain(
+      '| src/utils/logger.ts | 42 | `console.error("Auth:", customAuthSecret);` | secret-named identifier |',
+    );
+  });
+
+  it("should render total violation count summary", () => {
+    const md = formatMarkdown(sampleResults);
+    expect(md).toContain("Found **3** violations.");
+  });
+
+  it("should render clean state when no violations are found", () => {
+    const md = formatMarkdown(emptyResults);
+    expect(md).toContain("✅ **No violations detected.**");
+    expect(md).not.toContain("| File | Line | Violation | Reason |");
+  });
+
+  it("should escape pipe characters inside violation code blocks", () => {
+    const pipeResults: FileScanResult[] = [
+      {
+        path: "src/pipe.ts",
+        violations: [
+          {
+            line: 10,
+            text: 'console.log("a|b");',
+            reason: "secret-named identifier",
+          },
+        ],
+      },
+    ];
+    const md = formatMarkdown(pipeResults);
+    expect(md).toContain('`console.log("a\\|b");`');
   });
 });

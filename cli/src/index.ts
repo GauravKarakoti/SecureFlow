@@ -46,8 +46,18 @@ function parseFormatArg(): OutputFormat {
     const valStr = process.argv[formatIndex + 1];
     if (valStr) {
       const val = valStr.toLowerCase();
-      if (val === "sarif" || val === "json" || val === "text" || val === "csv" || val === "html") {
+      if (
+        val === "sarif" ||
+        val === "json" ||
+        val === "text" ||
+        val === "csv" ||
+        val === "html" ||
+        val === "markdown"
+      ) {
         return val as OutputFormat;
+      }
+      if (val === "md") {
+        return "markdown";
       }
     }
   }
@@ -168,7 +178,13 @@ async function main(): Promise<number> {
     (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
   ).length;
 
-  if (format === "sarif" || format === "json" || format === "csv" || format === "html") {
+  if (
+    format === "sarif" ||
+    format === "json" ||
+    format === "csv" ||
+    format === "html" ||
+    format === "markdown"
+  ) {
     const outputString = formatScanResults(fileResults, format);
     if (outputPath) {
       fs.writeFileSync(outputPath, outputString, "utf-8");

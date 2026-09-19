@@ -47,6 +47,8 @@ export interface BuildSlackAlertArgs {
   prNumber: number;
   /** All findings from the scan; filtered to the alert threshold here. */
   findings: readonly AlertFinding[];
+  /** Optional minimum severity threshold for triggering an alert (default: SLACK_ALERT_THRESHOLD). */
+  minSeverity?: Severity;
 }
 
 /** A Slack Incoming Webhook message payload (Block Kit). */
@@ -94,12 +96,16 @@ function summariseFinding(finding: AlertFinding): string {
  * alert).
  */
 export function buildSlackAlert(args: BuildSlackAlertArgs): SlackMessage | null {
-  const flagged = findingsAboveThreshold(args.findings);
+  const threshold = args.minSeverity ?? SLACK_ALERT_THRESHOLD;
+  const flagged = findingsAboveThreshold(args.findings, threshold);
   if (flagged.length === 0) return null;
 
   const url = pullRequestUrl(args.repositoryFullName, args.prNumber);
+  const severityLabel = threshold.toLowerCase();
   const heading =
-    flagged.length === 1 ? "1 high-severity finding" : `${flagged.length} high-severity findings`;
+    flagged.length === 1
+      ? `1 ${severityLabel}-severity finding`
+      : `${flagged.length} ${severityLabel}-severity findings`;
 
   const fallback = `🛡️ SecureFlow: ${heading} in ${args.repositoryFullName}#${args.prNumber}`;
 
@@ -192,10 +198,12 @@ export async function sendSlackAlert(webhookUrl: string, message: SlackMessage):
 export async function notifyHighSeverityFindings(
   webhookUrl: string | null | undefined,
   args: BuildSlackAlertArgs,
+  minSeverity?: Severity,
 ): Promise<boolean> {
   if (!webhookUrl || !webhookUrl.trim()) return false;
 
-  const message = buildSlackAlert(args);
+  const alertArgs = minSeverity !== undefined ? { ...args, minSeverity } : args;
+  const message = buildSlackAlert(alertArgs);
   if (!message) return false;
 
   return sendSlackAlert(webhookUrl.trim(), message);
