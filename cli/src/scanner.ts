@@ -8,7 +8,7 @@
  */
 
 import { formatSarifJson } from "./sarif.js";
-import { formatCsv, formatHtml } from "./exporters.js";
+import { formatCsv, formatHtml, formatMarkdown } from "./exporters.js";
 
 /** One flagged call site. */
 export interface Violation {
@@ -330,10 +330,10 @@ export function scanFile(path: string, content: string): FileScanResult {
   return { path, violations: findSecretLogging(content) };
 }
 
-export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html";
+export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown";
 
 /**
- * Format scan results based on the chosen output format ('text' | 'json' | 'sarif' | 'csv' | 'html').
+ * Format scan results based on the chosen output format ('text' | 'json' | 'sarif' | 'csv' | 'html' | 'markdown').
  */
 export function formatScanResults(
   results: FileScanResult[],
@@ -355,6 +355,10 @@ export function formatScanResults(
     return formatHtml(results);
   }
 
+  if (format === "markdown") {
+    return formatMarkdown(results);
+  }
+
   // Default text summary
   let text = "";
   for (const r of results) {
@@ -365,4 +369,78 @@ export function formatScanResults(
     }
   }
   return text;
+}
+
+// ---------------------------------------------------------------------------
+// Severity Threshold (Fail-on) helpers
+// ---------------------------------------------------------------------------
+
+export type FailOnSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+const SEVERITY_RANK: Record<FailOnSeverity, number> = {
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1,
+  NONE: 0,
+};
+
+export function isValidFailOnSeverity(val: string): boolean {
+  return ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"].includes(val.toUpperCase());
+}
+
+/**
+ * Parses `--fail-on=<SEVERITY>` or `--fail-on <SEVERITY>` command line argument.
+ */
+export function parseFailOnArg(args: string[] = process.argv): FailOnSeverity | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+    if (arg.startsWith("--fail-on=")) {
+      const parts = arg.split("=");
+      const val = parts[1]?.toUpperCase();
+      if (val && isValidFailOnSeverity(val)) return val as FailOnSeverity;
+    }
+    if (arg === "--fail-on" && i + 1 < args.length) {
+      const nextArg = args[i + 1];
+      const val = nextArg?.toUpperCase();
+      if (val && isValidFailOnSeverity(val)) return val as FailOnSeverity;
+    }
+  }
+  return null;
+}
+
+/**
+ * Determines whether a scan should return non-zero exit code based on the failOnThreshold.
+ *
+ * Local secret logging violations are treated as HIGH severity (rank 3).
+ */
+export function shouldFailScan(
+  localViolationCount: number,
+  aiFindings: { severity: string }[],
+  failOnThreshold: FailOnSeverity | null = null,
+): boolean {
+  if (failOnThreshold === null) {
+    const aiHighOrCritical = aiFindings.filter(
+      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
+    ).length;
+    return localViolationCount > 0 || aiHighOrCritical > 0;
+  }
+
+  const thresholdRank = SEVERITY_RANK[failOnThreshold];
+
+  // Local secret-logging violations are treated as HIGH severity (rank 3)
+  if (localViolationCount > 0 && SEVERITY_RANK["HIGH"] >= thresholdRank) {
+    return true;
+  }
+
+  for (const finding of aiFindings) {
+    const findingSev = (finding.severity?.toUpperCase() as FailOnSeverity) || "LOW";
+    const rank = SEVERITY_RANK[findingSev] ?? 1;
+    if (rank >= thresholdRank) {
+      return true;
+    }
+  }
+
+  return false;
 }

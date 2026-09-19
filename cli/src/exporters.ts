@@ -57,6 +57,13 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Escapes characters that break Markdown table syntax (pipes, backslashes, and line breaks).
+ */
+export function escapeMarkdownTable(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+}
+
 // ---------------------------------------------------------------------------
 // CSV formatter
 // ---------------------------------------------------------------------------
@@ -206,4 +213,45 @@ ${tableRows}
 </body>
 </html>
 `;
+}
+
+// ---------------------------------------------------------------------------
+// Markdown formatter
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats scan results as a GitHub-flavored Markdown report.
+ */
+export function formatMarkdown(results: FileScanResult[]): string {
+  const violations: { path: string; line: number; text: string; reason: string }[] = [];
+
+  for (const file of results) {
+    for (const v of file.violations) {
+      violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+    }
+  }
+
+  const lines: string[] = ["# 🛡️ SecureFlow Scan Report", ""];
+
+  if (violations.length === 0) {
+    lines.push("✅ **No violations detected.**");
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  lines.push(`Found **${violations.length}** violation${violations.length === 1 ? "" : "s"}.`);
+  lines.push("");
+  lines.push("| File | Line | Violation | Reason |");
+  lines.push("| --- | --- | --- | --- |");
+
+  for (const v of violations) {
+    const file = escapeMarkdownTable(v.path);
+    const line = v.line;
+    const text = `\`${escapeMarkdownTable(v.text)}\``;
+    const reason = escapeMarkdownTable(v.reason);
+    lines.push(`| ${file} | ${line} | ${text} | ${reason} |`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
 }
