@@ -113,6 +113,12 @@ export default function DocumentationPage() {
               >
                 Read the brief <ChevronRight className="h-4 w-4" />
               </a>
+              <Link
+                href="/docs/api-playground"
+                className="inline-flex items-center gap-2 border border-white/15 px-4 py-3 font-bold uppercase tracking-wide text-muted-foreground hover:border-primary hover:text-foreground"
+              >
+                API playground <Terminal className="h-4 w-4" />
+              </Link>
             </div>
           </header>
 
