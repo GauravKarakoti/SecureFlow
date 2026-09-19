@@ -1,3 +1,23 @@
+
+/**
+ * Wraps an async operation with a timeout to prevent hanging on stalled local models (#988).
+ */
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) return fn();
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error("Local model inference timed out after " + timeoutMs + "ms");
+      (err as any).name = "TimeoutError";
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fn(), timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 /**
  * AI Execution Resilience Engine (#729)
  *
@@ -121,7 +141,8 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
       totalAttempts++;
 
       try {
-        const result = await operation(currentModel, attempt);
+        const timeoutMs = config.retryConfig?.timeoutMs ?? 15000;
+        const result = await withTimeout(() => operation(currentModel, attempt), timeoutMs);
         return {
           result,
           stats: {
