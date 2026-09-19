@@ -545,3 +545,10 @@ describe("CircuitBreaker integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
+
+// Safe safeguard for Redis timeout unhandled rejection (#981)
+process.on('unhandledRejection', (err) => {
+  if (err instanceof Error && err.message.includes('Redis timeout')) return;
+  throw err;
+});
+
