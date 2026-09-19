@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_SCANNED_BYTES,
   findSecretLogging,
+  formatScanResults,
   lineOf,
   looksBinary,
   maskStringLiterals,
@@ -265,5 +266,17 @@ describe("scanFile", () => {
     const result = scanFile("src/data.ts", "console.log(process.env.S);\u0000\u0000");
 
     expect(result.skipped).toBe("binary content");
+  });
+});
+
+describe("formatScanResults", () => {
+  it("formats results as markdown when format is 'markdown'", () => {
+    const result = scanFile("src/debug.ts", "console.log(process.env.SECRET);");
+    const output = formatScanResults([result], "markdown");
+
+    expect(output).toContain("# 🛡️ SecureFlow Scan Report");
+    expect(output).toContain("| File | Line | Violation | Reason |");
+    expect(output).toContain("src/debug.ts");
+    expect(output).toContain("environment variable");
   });
 });
