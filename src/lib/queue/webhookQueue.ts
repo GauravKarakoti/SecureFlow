@@ -5,6 +5,15 @@ export interface WebhookJobData {
   payload?: Record<string, unknown>;
   event?: string | null;
   deliveryId?: string | null;
+  /**
+   * How many times the DLQ auto-retry worker has requeued this delivery.
+   *
+   * Carried on the job so that, if it fails again, the worker's `failed`
+   * handler can write the count back onto the new DLQ entry. Without it every
+   * re-failure arrived in the DLQ as a first-time entry, so the auto-retry
+   * limit and backoff never applied.
+   */
+  dlqAutoRetryCount?: number;
 }
 
 export const webhookQueue = new Queue<WebhookJobData>("github-webhooks", {
@@ -33,6 +42,18 @@ export interface AddWebhookJobOptions {
    * already occupied a worker slot.
    */
   jobId?: string;
+  /**
+   * Replace a *failed* job that already holds `jobId`, instead of deduping
+   * against it. Set by the DLQ requeue paths.
+   *
+   * The main queue keeps failed jobs, so a delivery that exhausted its attempts
+   * still owns `delivery-<id>` when its DLQ entry is requeued. BullMQ treats
+   * the requeue as a duplicate of that dead job and returns it without adding
+   * anything: the DLQ entry is already gone and the webhook never runs again.
+   * A job in any other state is a live or finished copy, and deduping against
+   * it is still correct.
+   */
+  replaceFailed?: boolean;
 }
 
 export async function addWebhookJob(payload: WebhookJobData, options: AddWebhookJobOptions = {}) {
@@ -42,6 +63,12 @@ export async function addWebhookJob(payload: WebhookJobData, options: AddWebhook
       name: "process-webhook",
       data: payload,
     };
+  }
+  if (options.jobId && options.replaceFailed) {
+    const existing = await webhookQueue.getJob(options.jobId);
+    if (existing && (await existing.getState()) === "failed") {
+      await existing.remove();
+    }
   }
   return await webhookQueue.add("process-webhook", payload, {
     attempts: 3,

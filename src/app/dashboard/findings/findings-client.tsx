@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
+import BulkRemediationBar from "./bulk-remediation-bar";
 import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
 import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW] Import SBOM Card
@@ -95,6 +96,11 @@ export default function FindingsClient({
       findings
         .filter((f) => selected.has(f.id) && f.repositoryId && f.fingerprint)
         .map((f) => ({ repositoryId: f.repositoryId!, fingerprint: f.fingerprint! })),
+    [findings, selected],
+  );
+
+  const selectedFindings = useMemo(
+    () => findings.filter((f) => selected.has(f.id)),
     [findings, selected],
   );
 
@@ -203,7 +209,13 @@ export default function FindingsClient({
                     <span>{allSelected ? "Deselect all" : "Select all on this page"}</span>
                   </div>
                   {bulkTargets.length > 0 && (
-                    <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+                    <div className="space-y-4">
+                      <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+                      <BulkRemediationBar
+                        selectedFindings={selectedFindings}
+                        onClearSelection={clearSelection}
+                      />
+                    </div>
                   )}
                 </div>
               )}

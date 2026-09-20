@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mockCreate } from "../../../__mocks__/groq-sdk";
 import {
   maskSecrets,
@@ -9,6 +9,7 @@ import {
   sanitizeRecursively,
   filterFalsePositives,
   compileIgnorePatterns,
+  resolveScanModel,
 } from "./scanner";
 import type { ScanFinding } from "./scanner";
 
@@ -189,6 +190,48 @@ describe("sanitizeRecursively", () => {
   it("returns unchanged input when no decoding needed", () => {
     const text = 'const x = "hello world";';
     expect(sanitizeRecursively(text)).toBe(text);
+  });
+
+  it("decodes decimal numeric HTML entities", () => {
+    expect(sanitizeRecursively("&#60;")).toBe("<");
+  });
+
+  it("decodes hexadecimal numeric HTML entities (lowercase x)", () => {
+    expect(sanitizeRecursively("&#x3C;")).toBe("<");
+  });
+
+  it("decodes hexadecimal numeric HTML entities (uppercase X)", () => {
+    expect(sanitizeRecursively("&#X3C;")).toBe("<");
+  });
+
+  it("decodes astral Unicode code points from hexadecimal entities", () => {
+    expect(sanitizeRecursively("&#x1F600;")).toBe("😀");
+  });
+
+  it("decodes astral Unicode code points from decimal entities", () => {
+    expect(sanitizeRecursively("&#128512;")).toBe("😀");
+  });
+
+  it("recursively decodes nested numeric HTML entities", () => {
+    const input = "&#60;script&#62;";
+    const result = sanitizeRecursively(input);
+    expect(result).toBe("<script>");
+  });
+
+  it("leaves malformed hexadecimal entities unchanged", () => {
+    expect(sanitizeRecursively("&#xZZ;")).toBe("&#xZZ;");
+  });
+
+  it("leaves code points above Unicode maximum unchanged", () => {
+    expect(sanitizeRecursively("&#x110000;")).toBe("&#x110000;");
+  });
+
+  it("leaves lone UTF-16 surrogate unchanged", () => {
+    expect(sanitizeRecursively("&#55296;")).toBe("&#55296;");
+  });
+
+  it("normalizes full-width characters to ASCII via NFKC", () => {
+    expect(sanitizeRecursively("ＡＢＣ１２３")).toBe("ABC123");
   });
 });
 
@@ -425,5 +468,55 @@ another_placeholder
     // Without the signal wired in, controller.abort() was a no-op and the
     // AbortError handler was unreachable dead code.
     expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+// ─── Model selection ─────────────────────────────────────────────────────────
+
+describe("scan model", () => {
+  const original = process.env.GROQ_MODEL;
+
+  beforeEach(() => {
+    mockCreate.mockClear();
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.GROQ_MODEL;
+    } else {
+      process.env.GROQ_MODEL = original;
+    }
+  });
+
+  it("resolves an unset or blank GROQ_MODEL to the default model", () => {
+    expect(resolveScanModel(undefined)).toBe("openai/gpt-oss-20b");
+    expect(resolveScanModel("")).toBe("openai/gpt-oss-20b");
+    expect(resolveScanModel("   ")).toBe("openai/gpt-oss-20b");
+    expect(resolveScanModel(" openai/gpt-oss-20b ")).toBe("openai/gpt-oss-20b");
+  });
+
+  it("sends the default model when GROQ_MODEL is unset", async () => {
+    delete process.env.GROQ_MODEL;
+    const scannerInstance = new ArmorIQScanner();
+
+    await scannerInstance.scanPullRequest(
+      [{ filename: "src/index.ts", patch: "+const x = 5;" }],
+      [],
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate.mock.calls[0][0].model).toBe("openai/gpt-oss-20b");
+  });
+
+  it("sends GROQ_MODEL when it is set", async () => {
+    process.env.GROQ_MODEL = "openai/gpt-oss-20b";
+    const scannerInstance = new ArmorIQScanner();
+
+    await scannerInstance.scanPullRequest(
+      [{ filename: "src/index.ts", patch: "+const x = 5;" }],
+      [],
+    );
+
+    expect(mockCreate.mock.calls[0][0].model).toBe("openai/gpt-oss-20b");
   });
 });

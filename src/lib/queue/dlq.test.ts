@@ -86,7 +86,7 @@ describe("requeueOptionsFor (#656)", () => {
     // the requeue paths passed no options at all.
     const options = requeueOptionsFor({ deliveryId: "delivery-abc", event: "push" });
 
-    expect(options).toEqual({ jobId: webhookJobId("delivery-abc") });
+    expect(options).toEqual({ jobId: webhookJobId("delivery-abc"), replaceFailed: true });
   });
 
   it("produces a stable id, so requeue and a GitHub redelivery collapse to one job", () => {

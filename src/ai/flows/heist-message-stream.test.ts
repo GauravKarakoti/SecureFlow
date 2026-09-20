@@ -15,7 +15,6 @@ vi.mock("@/ai/genkit", () => ({
         throw new Error("simulated model failure");
       }
       return {
-        // Each chunk yields `{ text: delta }` — plain text, no JSON schema.
         stream: (async function* () {
           for (const delta of mockChunks) {
             yield { text: delta };
@@ -25,7 +24,8 @@ vi.mock("@/ai/genkit", () => ({
       };
     },
   },
-  defaultModel: "mock-model",
+  // Replace `defaultModel` with `DEFAULT_SECURITY_CONFIG`
+  DEFAULT_SECURITY_CONFIG: { modelName: "mock-model" },
 }));
 
 vi.mock("dotenv/config", () => ({}));

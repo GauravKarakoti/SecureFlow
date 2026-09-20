@@ -58,12 +58,12 @@ vi.mock("@/lib/middleware/error-handler", () => {
 
 /** Captures what each route asks `withRateLimit` for. */
 const { rateLimitConfigs } = vi.hoisted(() => ({
-  rateLimitConfigs: [] as Array<{ keyPrefix: string }>,
+  rateLimitConfigs: [] as Array<{ keyPrefix: string; fallbackStrategy?: string }>,
 }));
 
 vi.mock("@/lib/middleware/rate-limit", () => ({
   TIERS: { STANDARD: { limit: 120, windowSeconds: 60, fallbackStrategy: "fail-open" } },
-  withRateLimit: <T>(handler: T, config: { keyPrefix: string }): T => {
+  withRateLimit: <T>(handler: T, config: { keyPrefix: string; fallbackStrategy?: string }): T => {
     rateLimitConfigs.push(config);
     return handler;
   },
@@ -209,8 +209,10 @@ describe("POST /api/findings", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("keeps its own rate-limit bucket", () => {
-    expect(rateLimitConfigs.map((c) => c.keyPrefix)).toContain("findings:scan");
+  it("keeps its own rate-limit bucket and fails closed", () => {
+    const config = rateLimitConfigs.find((c) => c.keyPrefix === "findings:create");
+    expect(config).toBeDefined();
+    expect(config?.fallbackStrategy).toBe("fail-closed");
   });
 });
 

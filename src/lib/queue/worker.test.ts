@@ -30,6 +30,9 @@ vi.mock("bullmq", () => {
 vi.mock("./redis", () => ({ redis: {} }));
 vi.mock("@/lib/prisma", () => ({ default: {} }));
 vi.mock("@/lib/armor/scanner", () => ({ scanner: {}, parseSecureFlowIgnore: vi.fn() }));
+vi.mock("@/lib/sbom/pull-request-manifests", () => ({
+  handlePullRequestSynchronize: vi.fn(),
+}));
 vi.mock("@/ai/flows/developer-receives-ai-security-explanations", () => ({
   developerReceivesAISecurityExplanations: vi.fn(),
 }));
@@ -42,8 +45,26 @@ import {
   getCommentableLines,
   getGitHubAppCredentials,
   selectRepositoryList,
+  shouldScanPullRequestManifests,
   truncateForError,
 } from "./worker";
+
+describe("shouldScanPullRequestManifests", () => {
+  it("runs the manifest (SBOM) scan for new commits on a pull request", () => {
+    expect(shouldScanPullRequestManifests("pull_request", "synchronize")).toBe(true);
+  });
+
+  it.each([
+    ["pull_request", "closed"],
+    ["pull_request", "labeled"],
+    ["pull_request", undefined],
+    ["installation", "created"],
+    ["branch_protection_rule", "edited"],
+    [null, "synchronize"],
+  ])("skips %s / %s", (event, action) => {
+    expect(shouldScanPullRequestManifests(event, action)).toBe(false);
+  });
+});
 
 describe("Webhook Worker DLQ Routing", () => {
   beforeEach(() => {
@@ -78,6 +99,38 @@ describe("Webhook Worker DLQ Routing", () => {
       }),
       { attempts: 1 },
     );
+  });
+
+  it("writes the auto-retry count back onto the DLQ entry for a requeued job", async () => {
+    const mockJob = {
+      id: "delivery-abc",
+      name: "process-webhook",
+      data: { event: "pull_request", deliveryId: "abc", dlqAutoRetryCount: 2 },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+
+    await handlers.failed!(mockJob, new Error("still failing"));
+
+    const [, entry] = mockDLQAdd.mock.calls[0];
+    expect(entry).toMatchObject({ autoRetryCount: 2, nextRetryAt: expect.any(String) });
+  });
+
+  it("leaves a first-time DLQ entry without auto-retry state", async () => {
+    await handlers.failed!(
+      {
+        id: "job-1",
+        name: "process-webhook",
+        data: { event: "pull_request" },
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+      },
+      new Error("boom"),
+    );
+
+    const [, entry] = mockDLQAdd.mock.calls[0];
+    expect(entry).not.toHaveProperty("autoRetryCount");
+    expect(entry).not.toHaveProperty("nextRetryAt");
   });
 
   it("does NOT route to DLQ when job fails temporarily (attempts remaining)", async () => {

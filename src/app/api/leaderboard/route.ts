@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { loadLeaderboard } from "@/app/leaderboard/aggregate";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
+import { createLogger } from "@/lib/logger";
 import {
   DEFAULT_LEADERBOARD_LIMIT,
   getLeaderboardBroadcaster,
@@ -8,6 +9,18 @@ import {
 } from "@/lib/leaderboard/broadcaster";
 
 export const dynamic = "force-dynamic";
+
+const log = createLogger({ context: { component: "api-leaderboard" } });
+
+/**
+ * What an unauthenticated caller is told when the standings cannot be loaded.
+ *
+ * Constant on purpose. The underlying error comes from Prisma, and its message
+ * names the database host and port ("Can't reach database server at …") or
+ * quotes the failing query. The page never shows this text either way: the
+ * client ignores `error` frames and falls back to polling on a non-OK status.
+ */
+const LOAD_FAILURE_MESSAGE = "Failed to load leaderboard data";
 
 /**
  * SSE comment sent between updates.
@@ -36,9 +49,9 @@ async function handler(req: NextRequest): Promise<Response> {
     try {
       const contributors = await loadLeaderboard(DEFAULT_LEADERBOARD_LIMIT);
       return NextResponse.json({ contributors, timestamp: Date.now() });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load leaderboard data";
-      return NextResponse.json({ error: message }, { status: 500 });
+    } catch (error) {
+      log.error("Failed to load leaderboard", { error });
+      return NextResponse.json({ error: LOAD_FAILURE_MESSAGE }, { status: 500 });
     }
   }
 
@@ -107,7 +120,7 @@ async function handler(req: NextRequest): Promise<Response> {
         const payload =
           event.type === "update"
             ? { contributors: event.contributors, timestamp: event.timestamp }
-            : { error: event.message };
+            : { error: LOAD_FAILURE_MESSAGE };
         write(`data: ${JSON.stringify(payload)}\n\n`);
       };
 

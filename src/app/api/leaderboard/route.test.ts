@@ -29,6 +29,11 @@ vi.mock("@/app/leaderboard/aggregate", () => ({
 }));
 
 import { GET } from "./route";
+import { loadLeaderboard } from "@/app/leaderboard/aggregate";
+import { resetLeaderboardBroadcaster } from "@/lib/leaderboard/broadcaster";
+
+/** The shape of a Prisma connection failure: it names the database host. */
+const DB_ERROR = "Can't reach database server at `db.internal-prod.example:5432`";
 
 async function readSSE(response: Response): Promise<Array<Record<string, unknown>>> {
   const reader = response.body!.getReader();
@@ -88,5 +93,29 @@ describe("GET /api/leaderboard", () => {
     const res = await GET(req);
 
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+  });
+
+  describe("when the leaderboard cannot be loaded", () => {
+    beforeEach(() => {
+      resetLeaderboardBroadcaster();
+      vi.mocked(loadLeaderboard).mockRejectedValue(new Error(DB_ERROR));
+    });
+
+    it("does not return the database error to the caller as JSON", async () => {
+      const res = await GET(new NextRequest("http://localhost:9002/api/leaderboard"));
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(JSON.stringify(body)).not.toContain("db.internal-prod.example");
+      expect(body.error).toBe("Failed to load leaderboard data");
+    });
+
+    it("does not stream the database error to SSE subscribers", async () => {
+      const res = await GET(new NextRequest("http://localhost:9002/api/leaderboard?stream=true"));
+
+      const events = await readSSE(res);
+
+      expect(events).toEqual([{ error: "Failed to load leaderboard data" }]);
+    });
   });
 });

@@ -1,8 +1,13 @@
 import "dotenv/config";
-import Groq from "groq-sdk";
 import { getVulnerabilityMetadata } from "../../database/vulnerabilityDb";
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
-import { ai, securityExplanationModel, getSecurityExplanationModelChain } from "@/ai/genkit";
+import {
+  getAiInstance,
+  getDefaultModelRef,
+  ai,
+  securityExplanationModel,
+  getSecurityExplanationModelChain,
+} from "@/ai/genkit";
 import { executeWithFallbackAndRetry } from "../resilience";
 import {
   AISecurityExplanationApiSchema,
@@ -13,8 +18,6 @@ import {
   type AISecurityExplanationOutput,
 } from "./security-explanation-schemas";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "dummy-key-for-build" });
-
 interface StreamOptions {
   vulnerabilityId: string;
   sourceCode: string;
@@ -23,6 +26,14 @@ interface StreamOptions {
 
 /**
  * Highly optimized, low-latency streaming pipeline for real-time security explanations.
+ *
+ * Previously used a hardcoded `new Groq()` client, which bypassed the local
+ * model routing introduced in #892. When LOCAL_AI_URL is set, all AI calls
+ * must route to the local inference server — no code should leave the machine.
+ *
+ * Fixed by using getAiInstance().generateStream() with getDefaultModelRef(),
+ * matching the pattern already used by streamDeveloperSecurityExplanations()
+ * in this same file.
  */
 export async function streamSecurityExplanation({
   vulnerabilityId,
@@ -30,7 +41,6 @@ export async function streamSecurityExplanation({
   onChunk,
 }: StreamOptions): Promise<void> {
   try {
-    // Optimization 1: Execute local metadata lookups concurrently with the initial stream preparation
     const metadataPromise = getVulnerabilityMetadata(vulnerabilityId);
 
     const systemPrompt = `You are an expert security engineer. Analyze the provided source code for the specified vulnerability.
@@ -38,39 +48,33 @@ Provide a concise explanation, architectural impact, and immediate remediation s
 
     const userPrompt = `Vulnerability ID: ${vulnerabilityId}\nSource Code:\n\`\`\`\n${sourceCode}\n\`\`\``;
 
-    // Resolve concurrent metadata lookup
     const metadata = await metadataPromise;
     const contextualPrompt = metadata
       ? `${userPrompt}\nContextual Details: ${metadata.description} (CVSS: ${metadata.cvss})`
       : userPrompt;
 
-    // Optimization 2: Fine-tune hyper-parameters to minimize Time-to-First-Token (TTFT)
-    // - Set 'stream: true' for instantaneous chunk emissions
-    // - Use Groq's low-latency streaming inference
-    const responseStream = await groq.chat.completions.create({
-      model: process.env.STREAM_AI_MODEL || process.env.GROQ_MODEL || "llama-3.1-8b-instant",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: contextualPrompt },
-      ],
-      stream: true,
-      temperature: 0.1, // Low temperature reduces sampling variance latency
-      max_tokens: 800, // Cap max tokens to bound total transmission time
+    const activeAi = getAiInstance();
+    const activeModel = getDefaultModelRef();
+
+    const { stream } = await activeAi.generateStream({
+      model: activeModel as any,
+      system: systemPrompt,
+      prompt: contextualPrompt,
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 800,
+      },
     });
 
-    // Optimization 3: Inline memory handling utilizing single string buffers instead of array push/join allocations
-    for await (const chunk of responseStream) {
-      const textChunk = chunk.choices[0]?.delta?.content;
+    for await (const chunk of stream) {
+      const textChunk = (chunk as any).text ?? (chunk as any).content ?? "";
       if (textChunk) {
         onChunk(textChunk);
       }
     }
   } catch (error) {
-    console.error(
-      "[AI_STREAM_ERROR] Critical failure in latency-optimized streaming pipeline:",
-      error,
-    );
-    throw new Error("Streaming optimization pipeline encountered an internal execution fault.");
+    console.error("[AI_STREAM_ERROR] Critical failure in streaming pipeline:", error);
+    throw new Error("Streaming pipeline encountered an internal execution fault.");
   }
 }
 

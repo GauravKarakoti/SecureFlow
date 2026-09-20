@@ -25,10 +25,11 @@
  * Configuration:
  *
  *   TRUSTED_PROXY_HOP_COUNT  number of trusted proxies in front of the app.
- *                            Default 1 (Vercel, Render, Cloudflare, a single
- *                            nginx). Set to 0 when the app is exposed directly,
- *                            which makes the forwarding headers untrusted
- *                            entirely.
+ *                            Default 0 (secure-by-default). When unset or
+ *                            empty the app is treated as directly exposed and
+ *                            all forwarding headers are ignored. Set to 1 for
+ *                            a single proxy (Vercel, Render, Cloudflare,
+ *                            nginx), or to a higher value for a deeper chain.
  *   TRUSTED_PROXY_IPS        optional comma-separated allowlist of proxy
  *                            addresses / IPv4 CIDRs. When set, the chain is
  *                            walked from the right past known proxies instead of
@@ -254,21 +255,52 @@ export function parseForwardedChain(header: string | null | undefined): string[]
 /**
  * Read and validate `TRUSTED_PROXY_HOP_COUNT`.
  *
- * A malformed value falls back to the safe default of 1 rather than to 0 (which
- * would discard the headers and collapse everyone into one bucket) or to a large
- * number (which would trust the whole chain).
+ * When the variable is absent or empty the function returns 0, which causes
+ * `getClientIp` to ignore all forwarding headers. This is the safe default for
+ * a directly-exposed deployment: without an explicit trusted-proxy
+ * configuration a client-supplied `X-Forwarded-For` must not influence the
+ * rate-limit identity.
+ *
+ * A malformed value (non-integer, negative, or above the chain cap) also falls
+ * back to 0 for the same reason — a misconfigured deployment should fail safe
+ * rather than open.
  */
 export function resolveHopCount(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === "") return 1;
+  if (raw === undefined || raw.trim() === "") return 0;
 
   const parsed = Number(raw.trim());
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_CHAIN_ENTRIES) return 1;
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_CHAIN_ENTRIES) return 0;
 
   return parsed;
 }
 
+let warnedUnconfiguredProxy = false;
+
+/**
+ * Warn once when forwarding headers arrive but no proxy is configured.
+ *
+ * With both settings unset every caller resolves to `UNKNOWN_CLIENT_IP`, so the
+ * whole deployment shares one rate-limit bucket and one noisy client throttles
+ * everybody. That is the right answer for a directly exposed app, but behind
+ * Vercel, Render or nginx it is almost always a missing setting — and before the
+ * default changed to 0, those deployments did not need it. Only an *unset*
+ * variable warns: an explicit `0` is a deliberate choice.
+ */
+function warnIfProxyUnconfigured(headers: Headers): void {
+  if (warnedUnconfiguredProxy) return;
+  if (process.env.TRUSTED_PROXY_HOP_COUNT?.trim()) return;
+  if (!headers.has("x-forwarded-for") && !headers.has("x-real-ip")) return;
+
+  warnedUnconfiguredProxy = true;
+  console.warn(
+    "[client-ip] Forwarding headers are present but TRUSTED_PROXY_HOP_COUNT / TRUSTED_PROXY_IPS " +
+      "are not set, so every client shares one rate-limit bucket. Set TRUSTED_PROXY_HOP_COUNT=1 " +
+      "behind a single proxy (Vercel, Render, nginx), or 0 if the app is exposed directly.",
+  );
+}
+
 export interface ClientIpOptions {
-  /** Trusted proxies in front of the app. Defaults to `TRUSTED_PROXY_HOP_COUNT`, or 1. */
+  /** Trusted proxies in front of the app. Defaults to `TRUSTED_PROXY_HOP_COUNT`, or 0. */
   trustedHopCount?: number;
   /** Trusted proxy allowlist. Defaults to `TRUSTED_PROXY_IPS`. */
   trustedProxies?: TrustedEntry[];
@@ -299,6 +331,9 @@ export function getClientIp(headers: Headers, options: ClientIpOptions = {}): st
     options.trustedProxies ?? parseTrustedProxies(process.env.TRUSTED_PROXY_IPS);
 
   if (trustedHopCount === 0 && trustedProxies.length === 0) {
+    if (options.trustedHopCount === undefined && options.trustedProxies === undefined) {
+      warnIfProxyUnconfigured(headers);
+    }
     return UNKNOWN_CLIENT_IP;
   }
 

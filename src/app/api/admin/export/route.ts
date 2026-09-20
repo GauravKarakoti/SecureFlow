@@ -179,6 +179,15 @@ async function handler(req: NextRequest) {
         where: buildExportWhere(range, cursor),
         orderBy: [{ timestamp: "desc" }, { id: "asc" }],
         take,
+        select: {
+          id: true,
+          userId: true,
+          action: true,
+          resource: true,
+          decision: true,
+          metadata: true,
+          timestamp: true,
+        },
       });
 
       const last = rows[rows.length - 1];

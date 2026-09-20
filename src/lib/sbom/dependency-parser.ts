@@ -1,5 +1,12 @@
 import { Dependency } from "@/types/sbom";
 
+/** Manifest file names `parseManifestFile` can read. Any other file yields no dependencies. */
+export const SUPPORTED_MANIFESTS = ["package.json", "requirements.txt"] as const;
+
+export function isSupportedManifest(filePath: string): boolean {
+  return SUPPORTED_MANIFESTS.some((name) => filePath.endsWith(name));
+}
+
 /**
  * Parses a package.json file content to extract dependencies.
  */

@@ -19,8 +19,25 @@ vi.mock("@/lib/actions/findings", () => ({
 }));
 
 vi.mock("./findings-client", () => ({
-  default: ({ findings, stats, total }: { findings: any[]; stats: any; total: number }) => (
+  default: ({
+    findings,
+    stats,
+    total,
+    sbomReport,
+  }: {
+    findings: any[];
+    stats: any;
+    total: number;
+    sbomReport: any;
+  }) => (
     <div data-testid="findings-client">
+      <div data-testid="sbom-report">
+        {sbomReport
+          ? `${sbomReport.status}:${sbomReport.vulnerabilities
+              .map((v: any) => `${v.dependency.name}@${v.dependency.version}`)
+              .join(",")}`
+          : "none"}
+      </div>
       <div data-testid="critical-count">{stats.criticalSecrets}</div>
       <div data-testid="vuln-count">{stats.vulnerabilities}</div>
       <div data-testid="misconfig-count">{stats.misconfigs}</div>
@@ -83,5 +100,41 @@ describe("Findings Page Server Component (#633)", () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("SECRET:CRITICAL:src/auth.ts");
     expect(items[1].textContent).toContain("VULNERABILITY:HIGH:src/api/users.ts");
+  });
+
+  it("passes the SBOM worker's dependency findings to the Dependency Security card", async () => {
+    vi.mocked(authModule.auth).mockResolvedValue({ user: { id: "user-123" } } as any);
+    vi.mocked(findingsActions.getUserFindingFilters).mockResolvedValue({} as any);
+    vi.mocked(findingsActions.getUserFindings).mockResolvedValue({
+      findings: [
+        {
+          id: "finding-1",
+          type: "VULNERABILITY",
+          severity: "CRITICAL",
+          fileLocation: "package.json",
+          codeSnippet: "Dependency: minimist@1.2.5\nPatched: 1.2.6",
+          explanation: "Prototype pollution (CVE-2021-44906).",
+          remediation: "Update minimist to version 1.2.6 or higher.",
+        },
+        {
+          id: "finding-2",
+          type: "VULNERABILITY",
+          severity: "HIGH",
+          fileLocation: "src/api/users.ts",
+          codeSnippet: "db.query(sql + id)",
+          explanation: "SQL injection",
+          remediation: null,
+        },
+      ],
+      stats: { criticalSecrets: 0, vulnerabilities: 2, misconfigs: 0, other: 0 },
+      total: 2,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    } as any);
+
+    render(await FindingsPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.getByTestId("sbom-report").textContent).toBe("VULNERABLE:minimist@1.2.5");
   });
 });

@@ -5,6 +5,7 @@ import { getApiRateLimiter } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { classifyApiPath, rateLimitHeaders } from "@/lib/api-rate-limit-policy";
 import { applySecurityHeaders, securityHeaderOptionsFromEnv } from "@/lib/security-headers";
+import { isMockAuthEnabled } from "@/lib/mock-auth";
 
 const { auth } = NextAuth(authConfig);
 
@@ -75,7 +76,7 @@ export default auth(async function middleware(
   const isAdminApiRoute = request.nextUrl.pathname.startsWith("/api/admin");
 
   if (isAdminWebRoute || isAdminApiRoute) {
-    if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+    if (isMockAuthEnabled()) {
       const mockSession = request.cookies.get("mock-session")?.value;
       if (mockSession === "admin") {
         return NextResponse.next();
@@ -125,7 +126,7 @@ export default auth(async function middleware(
   const isCodenameSetupRoute = request.nextUrl.pathname === "/setup/codename";
   const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
 
-  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+  if (isMockAuthEnabled()) {
     const mockSession = request.cookies.get("mock-session")?.value;
     if (isCodenameSetupRoute) {
       if (!mockSession || mockSession === "none") {

@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -34,7 +34,7 @@ jobs:
 
       - name: Cache node_modules
         id: node-modules-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -54,6 +54,9 @@ jobs:
           # security-extended (default + lower severity) and
           # security-and-quality (extended + maintainability/reliability).
           queries: security-extended,security-and-quality
+          paths: |
+            src
+            cli
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4

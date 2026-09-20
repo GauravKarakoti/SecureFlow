@@ -160,6 +160,7 @@ describe("Queue Actions & DLQ", () => {
       expect(result).toEqual({ success: true });
       expect(mockAddWebhookJob).toHaveBeenCalledWith(payloadFor("del-abc"), {
         jobId: webhookJobId("del-abc"),
+        replaceFailed: true,
       });
       expect(remove).toHaveBeenCalledOnce();
       expect(revalidatePath).toHaveBeenCalledWith("/admin/queue");
@@ -328,9 +329,11 @@ describe("Queue Actions & DLQ", () => {
       expect(result).toMatchObject({ success: true, count: 2 });
       expect(mockAddWebhookJob).toHaveBeenNthCalledWith(1, payloadFor("del-1"), {
         jobId: webhookJobId("del-1"),
+        replaceFailed: true,
       });
       expect(mockAddWebhookJob).toHaveBeenNthCalledWith(2, payloadFor("del-2"), {
         jobId: webhookJobId("del-2"),
+        replaceFailed: true,
       });
     });
 
@@ -372,6 +375,7 @@ describe("Queue Actions & DLQ", () => {
       expect(result).toMatchObject({ success: true, count: 2, missing: 0 });
       expect(mockAddWebhookJob).toHaveBeenCalledWith(payloadFor("del-1"), {
         jobId: webhookJobId("del-1"),
+        replaceFailed: true,
       });
       expect(job1.remove).toHaveBeenCalledOnce();
       expect(job2.remove).toHaveBeenCalledOnce();

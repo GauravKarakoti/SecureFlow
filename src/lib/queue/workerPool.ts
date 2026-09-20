@@ -20,9 +20,7 @@ import {
   ScanPersistenceError,
   scanJobCompletion,
 } from "@/lib/scanner/scan-persistence";
-
-/** Maximum concurrent scans. Avoids overwhelming the LLM API and DB connection pool. */
-const DEFAULT_CONCURRENCY = 3;
+import { DEFAULT_SCAN_WORKER_CONCURRENCY } from "./scan-worker-bootstrap";
 
 /** Maximum time a single scan job can run before being timed out. */
 const SCAN_JOB_TIMEOUT_MS = 600_000; // 10 minutes
@@ -36,6 +34,17 @@ const SCAN_JOB_TIMEOUT_MS = 600_000; // 10 minutes
  * and the default 30 s applied, against a `lockDuration` of ten minutes.
  */
 const STALLED_CHECK_INTERVAL_MS = 60_000;
+
+/**
+ * Whether BullMQ is done with a failed job: its attempts are used up, or it
+ * threw `UnrecoverableError`, which ends the retry chain on any attempt.
+ */
+export function isFinalFailure(
+  job: { attemptsMade: number; opts: { attempts?: number } },
+  err: { name?: string },
+): boolean {
+  return err.name === "UnrecoverableError" || job.attemptsMade >= (job.opts.attempts ?? 2);
+}
 
 export interface WorkerPoolOptions {
   concurrency?: number;
@@ -51,9 +60,9 @@ export interface WorkerPoolOptions {
 class ScanWorkerPool {
   private worker: Worker<ScanJobData> | null = null;
   private running = false;
-  private readonly concurrency: number;
+  private concurrency: number;
 
-  constructor(concurrency: number = DEFAULT_CONCURRENCY) {
+  constructor(concurrency: number = DEFAULT_SCAN_WORKER_CONCURRENCY) {
     this.concurrency = concurrency;
   }
 
@@ -61,12 +70,21 @@ class ScanWorkerPool {
    * Start the worker pool.
    *
    * Begins processing scan jobs from the queue with the configured concurrency.
+   *
+   * `concurrency` is the value `resolveScanWorkerConcurrency` validated at
+   * startup (`planWorkerStartup().scanConcurrency`). Passing it here is what
+   * makes that validation apply: the singleton used to read the variable again
+   * with a bare `parseInt`, which disagreed with the validator on an empty
+   * value — the validator falls back to the default, `parseInt("")` is NaN,
+   * and BullMQ throws on a NaN concurrency.
    */
-  start(): void {
+  start(concurrency?: number): void {
     if (this.running) {
       console.warn("[WorkerPool] Already running");
       return;
     }
+
+    if (concurrency !== undefined) this.concurrency = concurrency;
 
     this.worker = new Worker<ScanJobData>(
       "vulnerability-scans",
@@ -92,8 +110,12 @@ class ScanWorkerPool {
     this.worker.on("failed", async (job, err) => {
       console.error(`[WorkerPool] Job ${job?.id} failed:`, err.message);
 
-      // Route to DLQ on permanent failure
-      if (job && job.attemptsMade >= (job.opts.attempts ?? 2)) {
+      // Route to DLQ on permanent failure. `processJob` throws UnrecoverableError
+      // for a persistence failure or a bad installation id, and BullMQ then fails
+      // the job after that one attempt — `attemptsMade` is 1, below
+      // `attempts`, so the count alone never routed those jobs to the DLQ.
+      // Same rule as `outboundWorker` and `sbomWorker`.
+      if (job && isFinalFailure(job, err)) {
         console.warn(
           `[WorkerPool] Routing job ${job.id} to DLQ after ${job.attemptsMade} attempts`,
         );
@@ -211,15 +233,13 @@ class ScanWorkerPool {
 
 // --- Singleton ---
 
-export const scanWorkerPool = new ScanWorkerPool(
-  parseInt(process.env.SCAN_WORKER_CONCURRENCY ?? "3", 10),
-);
+export const scanWorkerPool = new ScanWorkerPool();
 
 /**
  * Convenience: start the scan worker pool.
  */
-export function startScanWorker(): void {
-  scanWorkerPool.start();
+export function startScanWorker(concurrency?: number): void {
+  scanWorkerPool.start(concurrency);
 }
 
 /**

@@ -63,6 +63,15 @@ following as you can:
 - If a report is declined (for example, because it describes expected/by-design
   behavior or is out of scope), we will explain why.
 
+### Out of Scope Vulnerabilities
+
+When reporting vulnerabilities, please consider the actual security impact on SecureFlow. The following issues are generally considered out of scope:
+
+- Vulnerabilities found in third-party dependencies or upstream packages (e.g., Next.js, Prisma, or individual npm modules) unless a direct, actionable exploitation path within SecureFlow is demonstrated.
+- Automated vulnerability scanner output or static analysis tool alerts without manual verification, context, or a working proof-of-concept.
+- Denial of Service (DoS) attacks against local development instances or public preview deployments.
+- Social engineering attacks directed at project maintainers or contributors.
+
 ## Responsible Disclosure
 
 We ask that you:

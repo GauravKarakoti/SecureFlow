@@ -90,7 +90,11 @@ export const AUTH_PREFIX = "/api/auth";
  * class exists so the middleware's decision matches rather than silently
  * overriding it with whichever number happens to be stricter.
  */
-export const STREAM_PREFIXES: readonly string[] = ["/api/heist-transmission", "/api/og/heist"];
+export const STREAM_PREFIXES: readonly string[] = [
+  "/api/heist-transmission",
+  "/api/og/heist",
+  "/api/cli/scan",
+];
 
 /** Suffix of an AI streaming route under `/api/findings/[id]/`. */
 const FINDINGS_STREAM_SUFFIX = "/explain-stream";

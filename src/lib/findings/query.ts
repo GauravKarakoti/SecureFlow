@@ -54,6 +54,9 @@ export type FindingStatus = TriageStatus;
 
 export const DISMISSED_STATUSES: readonly FindingStatus[] = SUPPRESSED_STATUSES;
 
+export const VALID_FINDING_TYPES = ["SECRET", "VULNERABILITY", "MISCONFIG"] as const;
+export type ValidFindingType = (typeof VALID_FINDING_TYPES)[number];
+
 /** Sort keys the UI exposes. */
 export const FINDING_SORTS = ["newest", "oldest", "severity", "file"] as const;
 export type FindingSort = (typeof FINDING_SORTS)[number];
@@ -94,7 +97,7 @@ export interface NormalizedFindingsQuery {
   page: number;
   pageSize: number;
   severity: StoredSeverity[];
-  type: string[];
+  type: ValidFindingType[];
   status: FindingStatus[];
   repositoryId: string | null;
   search: string | null;
@@ -196,6 +199,12 @@ export function parseStatusFilter(values: readonly string[]): FindingStatus[] {
   return FINDING_STATUSES.filter((status) => wanted.has(status));
 }
 
+/** Keep only recognised finding types, de-duplicated and in declared order. */
+export function parseTypeFilter(values: readonly string[]): ValidFindingType[] {
+  const wanted = new Set(values.map((v) => v.trim().toUpperCase()));
+  return VALID_FINDING_TYPES.filter((t) => wanted.has(t));
+}
+
 /** Resolve a sort key, falling back to `newest` for anything unrecognised. */
 export function parseSort(value: unknown): FindingSort {
   if (typeof value !== "string") return DEFAULT_SORT;
@@ -226,10 +235,7 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
     page: clampPage(query.page ?? 1),
     pageSize: clampPageSize(query.pageSize ?? DEFAULT_PAGE_SIZE),
     severity: parseSeverityFilter(query.severity ?? []),
-    type: (query.type ?? [])
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .slice(0, MAX_FILTER_VALUES),
+    type: parseTypeFilter(query.type ?? []),
     status: parseStatusFilter(query.status ?? []),
     repositoryId:
       typeof query.repositoryId === "string" && query.repositoryId.trim()

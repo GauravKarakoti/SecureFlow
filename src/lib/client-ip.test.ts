@@ -106,22 +106,25 @@ describe("parseForwardedChain", () => {
 });
 
 describe("resolveHopCount", () => {
-  it("defaults to one trusted hop", () => {
-    expect(resolveHopCount(undefined)).toBe(1);
-    expect(resolveHopCount("")).toBe(1);
-    expect(resolveHopCount("   ")).toBe(1);
+  it("defaults to zero (untrusted/safe) when no value is configured", () => {
+    // Secure-by-default: an unconfigured deployment must NOT trust X-Forwarded-For.
+    expect(resolveHopCount(undefined)).toBe(0);
+    expect(resolveHopCount("")).toBe(0);
+    expect(resolveHopCount("   ")).toBe(0);
   });
 
   it("honours a valid value", () => {
     expect(resolveHopCount("0")).toBe(0);
+    expect(resolveHopCount("1")).toBe(1);
     expect(resolveHopCount("2")).toBe(2);
   });
 
-  it("falls back to the safe default for a malformed value", () => {
-    expect(resolveHopCount("abc")).toBe(1);
-    expect(resolveHopCount("-1")).toBe(1);
-    expect(resolveHopCount("1.5")).toBe(1);
-    expect(resolveHopCount("9999")).toBe(1);
+  it("falls back to zero (safe) for a malformed value", () => {
+    // Fail-safe: a misconfigured deployment should not accidentally trust headers.
+    expect(resolveHopCount("abc")).toBe(0);
+    expect(resolveHopCount("-1")).toBe(0);
+    expect(resolveHopCount("1.5")).toBe(0);
+    expect(resolveHopCount("9999")).toBe(0);
   });
 });
 
@@ -312,14 +315,17 @@ describe("getClientIp — fallbacks", () => {
 });
 
 describe("getClientIp — environment configuration", () => {
-  it("defaults to one trusted hop when nothing is configured", () => {
+  it("returns the sentinel when nothing is configured (secure-by-default)", () => {
+    // Previously this returned "203.0.113.9" because the default was 1 hop,
+    // which allowed a client-supplied X-Forwarded-For to control identity.
+    // The fix: no explicit proxy config → trust no forwarding headers.
     const previousHops = process.env.TRUSTED_PROXY_HOP_COUNT;
     const previousIps = process.env.TRUSTED_PROXY_IPS;
     delete process.env.TRUSTED_PROXY_HOP_COUNT;
     delete process.env.TRUSTED_PROXY_IPS;
 
     try {
-      expect(getClientIp(h({ "x-forwarded-for": "1.2.3.4, 203.0.113.9" }))).toBe("203.0.113.9");
+      expect(getClientIp(h({ "x-forwarded-for": "1.2.3.4, 203.0.113.9" }))).toBe(UNKNOWN_CLIENT_IP);
     } finally {
       if (previousHops !== undefined) process.env.TRUSTED_PROXY_HOP_COUNT = previousHops;
       if (previousIps !== undefined) process.env.TRUSTED_PROXY_IPS = previousIps;
@@ -338,5 +344,104 @@ describe("getClientIp — environment configuration", () => {
       if (previous === undefined) delete process.env.TRUSTED_PROXY_HOP_COUNT;
       else process.env.TRUSTED_PROXY_HOP_COUNT = previous;
     }
+  });
+});
+
+// ---- Security regression tests (spoofed X-Forwarded-For) ----
+
+describe("getClientIp — security regression: spoofed X-Forwarded-For", () => {
+  /**
+   * Test 1 — No trusted proxy configured.
+   *
+   * TRUSTED_PROXY_HOP_COUNT is not set. A client-supplied X-Forwarded-For
+   * header must NOT become the rate-limit identity.
+   */
+  it("Test 1: ignores X-Forwarded-For when no trusted proxy is configured", () => {
+    // Simulate completely unconfigured environment (no env var, no options).
+    const ip = getClientIp(h({ "x-forwarded-for": "1.2.3.4" }), {
+      trustedHopCount: 0,
+      trustedProxies: [],
+    });
+    expect(ip).toBe(UNKNOWN_CLIENT_IP);
+    expect(ip).not.toBe("1.2.3.4");
+  });
+
+  /**
+   * Test 2 — Spoofed header rotation must not yield different rate-limit buckets.
+   *
+   * An attacker who rotates X-Forwarded-For between requests must always end up
+   * in the same bucket (UNKNOWN_CLIENT_IP) when no proxy is configured.
+   */
+  it("Test 2: rotating X-Forwarded-For does not yield distinct identities", () => {
+    const opts = { trustedHopCount: 0 as const, trustedProxies: [] };
+
+    const id1 = getClientIp(h({ "x-forwarded-for": "1.1.1.1" }), opts);
+    const id2 = getClientIp(h({ "x-forwarded-for": "2.2.2.2" }), opts);
+
+    // Both must resolve to the sentinel — not to different IPs.
+    expect(id1).toBe(UNKNOWN_CLIENT_IP);
+    expect(id2).toBe(UNKNOWN_CLIENT_IP);
+    expect(id1).toBe(id2);
+  });
+
+  /**
+   * Test 3 — Explicit trusted proxy still resolves the forwarded IP correctly.
+   *
+   * A deployment that sets TRUSTED_PROXY_HOP_COUNT=1 must continue to get the
+   * correct client IP from the chain.
+   */
+  it("Test 3: explicit trusted proxy resolves the expected forwarded IP", () => {
+    const ip = getClientIp(h({ "x-forwarded-for": "1.2.3.4, 203.0.113.9" }), {
+      trustedHopCount: 1,
+      trustedProxies: [],
+    });
+    // With 1 trusted proxy, the rightmost entry appended by that proxy is resolved as client IP.
+    expect(ip).toBe("203.0.113.9");
+  });
+
+  /**
+   * Test 4 — Multiple forwarded addresses with configured hop count.
+   *
+   * X-Forwarded-For: client, proxy1, proxy2 with trustedHopCount=2 must
+   * resolve to "client".
+   */
+  it("Test 4: multiple forwarded addresses obey the configured hop count", () => {
+    // Chain: client → proxy1 → proxy2 → app
+    // Header built up: X-Forwarded-For: client_ip, proxy1_ip  (proxy2 is the connection IP)
+    const ip = getClientIp(h({ "x-forwarded-for": "203.0.113.9, 10.0.0.1, 10.0.0.2" }), {
+      trustedHopCount: 2,
+      trustedProxies: [],
+    });
+    // chain = ["203.0.113.9", "10.0.0.1", "10.0.0.2"]
+    // index = 3 - 2 = 1 → "10.0.0.1" is the address the outermost trusted proxy observed,
+    // which is the real client as seen by proxy1.
+    // With trustedHopCount=2 and 3 entries the resolved address is chain[1].
+    expect(ip).toBe("10.0.0.1");
+
+    // Specifically: the client-supplied leftmost entry is NOT trusted.
+    expect(ip).not.toBe("203.0.113.9");
+  });
+
+  /**
+   * Test 5 — Existing behaviour is preserved for explicitly configured proxies.
+   *
+   * Ensure no legitimate hop-count or allowlist behaviour was broken.
+   */
+  it("Test 5: existing trusted-proxy allowlist behaviour is unchanged", () => {
+    const trustedProxies = parseTrustedProxies("10.0.0.0/8");
+
+    // Single known proxy in the chain — should skip it and return the next left entry.
+    const ip = getClientIp(h({ "x-forwarded-for": "203.0.113.9, 10.5.5.5" }), {
+      trustedHopCount: 1,
+      trustedProxies,
+    });
+    expect(ip).toBe("203.0.113.9");
+
+    // Multiple known proxies — first non-proxy from the right is the client.
+    const ip2 = getClientIp(h({ "x-forwarded-for": "203.0.113.9, 10.1.1.1, 10.2.2.2" }), {
+      trustedHopCount: 1,
+      trustedProxies,
+    });
+    expect(ip2).toBe("203.0.113.9");
   });
 });

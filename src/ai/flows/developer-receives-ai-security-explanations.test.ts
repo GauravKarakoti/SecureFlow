@@ -11,7 +11,9 @@ vi.mock("@/ai/genkit", () => ({
     generate: (...args: unknown[]) => mockGenerate(...args),
   },
   defaultModel: "mock-model",
-  securityExplanationModel: "mock-groq-model-id", // Added missing export
+  securityExplanationModel: "mock-groq-model-id",
+  getAiInstance: vi.fn(() => ({ generate: mockGenerate })),
+  getDefaultModelRef: vi.fn(() => "mock-model"),
 }));
 
 vi.mock("dotenv/config", () => ({}));
@@ -239,5 +241,83 @@ describe("developerReceivesAISecurityExplanations (end-to-end flow)", () => {
     // The fallback explanation won't trigger contradictsSeverity for MEDIUM,
     // and the benign snippet won't trigger the pre-filter.
     expect(result.promptInjectionSuspected).toBe(false);
+  });
+});
+
+describe("developerReceivesAISecurityExplanations — Web3 routing (#891)", () => {
+  beforeEach(() => {
+    mockResponseText = JSON.stringify({
+      explanation: "Reentrancy allows an attacker to drain the vault before state updates.",
+      remediationSuggestions: "Apply the Checks-Effects-Interactions pattern.",
+    });
+    mockGenerate.mockReset();
+    mockGenerate.mockImplementation(async () => ({ text: mockResponseText }));
+  });
+
+  it("routes a .sol file to the Web3 flow", async () => {
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: "Vulnerability",
+      severity: "CRITICAL",
+      description: "Reentrancy in withdraw()",
+      fileLocation: "contracts/Vault.sol",
+      codeSnippet: "(bool ok,) = msg.sender.call{value: bal}(''); bal = 0;",
+    });
+
+    expect(typeof result.explanation).toBe("string");
+    expect(typeof result.remediationSuggestions).toBe("string");
+    // Web3 flow ran — model was called
+    expect(mockGenerate).toHaveBeenCalledOnce();
+  });
+
+  it("routes a .circom file to the Web3 flow", async () => {
+    mockResponseText = JSON.stringify({
+      explanation: "Signal is under-constrained, allowing a malicious prover to cheat.",
+      remediationSuggestions: "Add signal * (signal - 1) === 0 constraint.",
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: "ZK Circuit Bug",
+      severity: "CRITICAL",
+      description: "Under-constrained signal",
+      fileLocation: "circuits/hash.circom",
+      codeSnippet: "signal output hash;",
+    });
+
+    expect(typeof result.explanation).toBe("string");
+    expect(mockGenerate).toHaveBeenCalledOnce();
+  });
+
+  it("routes a .rs file to the Web3 flow", async () => {
+    mockResponseText = JSON.stringify({
+      explanation: "Unchecked arithmetic allows integer overflow in token transfer.",
+      remediationSuggestions: "Use checked_add() instead of the + operator.",
+    });
+
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: "Vulnerability",
+      severity: "HIGH",
+      description: "Unchecked arithmetic",
+      fileLocation: "programs/token.rs",
+      codeSnippet: "let new_balance = balance + amount;",
+    });
+
+    expect(typeof result.explanation).toBe("string");
+    expect(mockGenerate).toHaveBeenCalledOnce();
+  });
+
+  it("does NOT route a regular .ts file to the Web3 flow", async () => {
+    // A normal TypeScript finding must still go through the standard flow,
+    // not the Web3 dispatcher.
+    const result = await developerReceivesAISecurityExplanations({
+      findingType: "Vulnerability",
+      severity: "HIGH",
+      description: "SQL injection",
+      fileLocation: "src/db.ts",
+      codeSnippet: "db.query('SELECT * FROM users WHERE id = ' + id);",
+    });
+
+    expect(typeof result.explanation).toBe("string");
+    // Standard flow also calls mockGenerate once
+    expect(mockGenerate).toHaveBeenCalledOnce();
   });
 });

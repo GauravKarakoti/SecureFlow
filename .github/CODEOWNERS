@@ -1,0 +1,77 @@
+# CODEOWNERS
+#
+# This file defines who is responsible for reviewing code changes
+# in specific parts of the SecureFlow repository.
+#
+# Each line is a file pattern followed by one or more owners.
+# Order matters — the last matching pattern takes precedence.
+# GitHub usernames and teams are supported.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ---------------------------------------------------------------
+# Global Owner — reviews all files unless overridden below
+# ---------------------------------------------------------------
+* @GauravKarakoti
+
+# ---------------------------------------------------------------
+# CI/CD & GitHub Configuration
+# ---------------------------------------------------------------
+.github/                          @GauravKarakoti
+.github/workflows/                @GauravKarakoti
+
+# ---------------------------------------------------------------
+# AI / LLM Flows
+# ---------------------------------------------------------------
+src/ai/                           @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Security Scanning Engine
+# ---------------------------------------------------------------
+src/lib/armor/                    @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Database & Prisma
+# ---------------------------------------------------------------
+prisma/                           @GauravKarakoti
+src/database/                     @GauravKarakoti
+db-client.ts                      @GauravKarakoti
+
+# ---------------------------------------------------------------
+# API Routes
+# ---------------------------------------------------------------
+src/app/api/                      @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------
+src/app/api/auth/                 @GauravKarakoti
+src/app/login/                    @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Frontend — Dashboard & Components
+# ---------------------------------------------------------------
+src/app/dashboard/                @GauravKarakoti
+src/components/                   @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Docker & Deployment
+# ---------------------------------------------------------------
+Dockerfile                        @GauravKarakoti
+docker-compose.yml                @GauravKarakoti
+entrypoint.sh                     @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------
+tests/                            @GauravKarakoti
+e2e/                              @GauravKarakoti
+
+# ---------------------------------------------------------------
+# Documentation & Contribution Guidelines
+# ---------------------------------------------------------------
+README.md                         @GauravKarakoti
+CONTRIBUTING.md                   @GauravKarakoti
+SECURITY.md                       @GauravKarakoti
+CODE_OF_CONDUCT.md                @GauravKarakoti
+docs/                             @GauravKarakoti

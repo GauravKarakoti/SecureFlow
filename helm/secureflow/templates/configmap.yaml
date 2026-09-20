@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "secureflow.configMapName" . }}
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.app.env.PORT | quote }}
+  NODE_ENV: {{ .Values.app.env.NODE_ENV | quote }}
+  NEXT_TELEMETRY_DISABLED: {{ .Values.app.env.NEXT_TELEMETRY_DISABLED | quote }}
+  TRUSTED_PROXY_HOP_COUNT: {{ .Values.config.trustedProxyHopCount | quote }}
+  TRUSTED_PROXY_IPS: {{ .Values.config.trustedProxyIps | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  AUTH_URL: {{ .Values.config.authUrl | quote }}
+  NEXT_PUBLIC_APP_URL: {{ .Values.config.nextPublicAppUrl | quote }}
+  GROQ_MODEL: {{ .Values.config.groqModel | quote }}
+  FINDING_SNIPPET_REDACT_DAYS: {{ .Values.config.findingSnippetRedactDays | quote }}
+  WEBHOOK_EVENT_RETENTION_DAYS: {{ .Values.config.webhookEventRetentionDays | quote }}
+  SCAN_RESULT_RETENTION_DAYS: {{ .Values.config.scanResultRetentionDays | quote }}
+  AUDIT_LOG_RETENTION_DAYS: {{ .Values.config.auditLogRetentionDays | quote }}
+  CSP_REPORT_ONLY: {{ .Values.config.cspReportOnly | quote }}
+  CSP_REPORT_URI: {{ .Values.config.cspReportUri | quote }}
+  ALLOW_MOCK_AUTH: {{ .Values.config.allowMockAuth | quote }}
+  NEXT_PUBLIC_MOCK_AUTH: {{ .Values.config.nextPublicMockAuth | quote }}
+  OUTBOUND_WEBHOOK_TIMEOUT_MS: {{ .Values.config.outboundWebhookTimeoutMs | quote }}
+  OUTBOUND_WEBHOOK_MAX_RESPONSE_BYTES: {{ .Values.config.outboundWebhookMaxResponseBytes | quote }}
+  OUTBOUND_WEBHOOK_ALLOWED_HOSTS: {{ .Values.config.outboundWebhookAllowedHosts | quote }}
+  OUTBOUND_WEBHOOK_ALLOW_INSECURE_HTTP: {{ .Values.config.outboundWebhookAllowInsecureHttp | quote }}
+  OUTBOUND_WEBHOOK_ALLOW_PRIVATE_NETWORKS: {{ .Values.config.outboundWebhookAllowPrivateNetworks | quote }}
+  DB_POOL_MAX: {{ .Values.config.dbPoolMax | quote }}
+  SCAN_WORKER_CONCURRENCY: {{ .Values.worker.concurrency | quote }}

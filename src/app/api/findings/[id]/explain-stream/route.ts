@@ -6,6 +6,12 @@ import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { checkRateLimit } from "@/lib/redis";
 import { ratelimit } from "@/lib/rate-limit";
 import { streamManager } from "@/lib/sse/streamManager";
+import {
+  createExplanationCacheKey,
+  getCachedExplanation,
+  setCachedExplanation,
+} from "@/lib/explanation-cache";
+import { scrubSensitiveData } from "@/lib/redaction";
 
 export const dynamic = "force-dynamic";
 
@@ -65,31 +71,80 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
 
-  // FIX: First, check if the finding exists at all to prevent BOLA/IDOR masking
-  const existingFinding = await prisma.finding.findUnique({
+  // One query answers both questions: does the finding exist (404 if not), and does it
+  // belong to the signed-in user (403 if not). Only fields that exist on `Finding` may be
+  // selected — Prisma rejects an unknown field at runtime, not at compile time.
+  const finding = await prisma.finding.findUnique({
     where: { id },
-  });
-
-  if (!existingFinding) {
-    return NextResponse.json({ error: "Finding not found" }, { status: 404 });
-  }
-
-  // Next, verify that the authenticated user actually owns this finding
-  const finding = await prisma.finding.findFirst({
-    where: {
-      id,
-      scanResult: { pullRequest: { repository: { userId } } },
+    select: {
+      id: true,
+      type: true,
+      severity: true,
+      fileLocation: true,
+      codeSnippet: true,
+      scanResult: {
+        select: { pullRequest: { select: { repository: { select: { userId: true } } } } },
+      },
     },
   });
 
   if (!finding) {
+    return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+  }
+
+  if (finding.scanResult.pullRequest.repository.userId !== userId) {
     return NextResponse.json(
       { error: "Forbidden: You do not have access to this finding" },
       { status: 403 },
     );
   }
 
+  // Declared before the cache check: both the cached and the live stream encode SSE frames.
   const encoder = new TextEncoder();
+
+  const cacheKey = createExplanationCacheKey({
+    findingType: finding.type,
+    severity: finding.severity,
+    fileLocation: finding.fileLocation,
+    codeSnippet: finding.codeSnippet || "",
+  });
+
+  const cachedExplanation = await getCachedExplanation(cacheKey);
+  if (cachedExplanation) {
+    const cachedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "chunk",
+              explanation: cachedExplanation.explanation,
+            })}\n\n`,
+          ),
+        );
+
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "done",
+              result: cachedExplanation,
+            })}\n\n`,
+          ),
+        );
+
+        controller.close();
+      },
+    });
+
+    return new Response(cachedStream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   const { signal: abortSignal, release } = streamManager.register(request.signal, "explain-stream");
 
   let closed = false;
@@ -150,6 +205,7 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
           send(event);
 
           if (event.type === "done") {
+            await setCachedExplanation(cacheKey, event.result);
             // Persist the refreshed explanation so a page reload (or the batch webhook view)
             // reflects the same text the user just watched stream in, rather than going stale.
             try {
@@ -172,7 +228,8 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
         if (!abortSignal.aborted) {
           send({
             type: "error",
-            message: err instanceof Error ? err.message : "AI generation failed.",
+            message:
+              err instanceof Error ? scrubSensitiveData(err.message) : "AI generation failed.",
           });
         }
       } finally {

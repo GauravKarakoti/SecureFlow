@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
-import { ai, defaultModel } from "@/ai/genkit";
+import { ai, DEFAULT_SECURITY_CONFIG } from "@/ai/genkit";
 import { isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
 import {
   DEFAULT_PROJECT_NAME,
@@ -153,13 +153,11 @@ export async function* streamHeistMessage(
   const prompt = buildPrompt(guardedInput);
 
   try {
-    // ── Stream from Groq via Genkit with retries ──────────────────────────────
-    // We ask for plain text output (no JSON schema) so the model doesn't wrap
-    // the monologue in JSON structure — the prompt explicitly says "plain prose".
     const { stream, response } = await withRetry(
       async () =>
         ai.generateStream({
-          model: defaultModel,
+          // Replace `defaultModel` with the property from the config
+          model: DEFAULT_SECURITY_CONFIG.modelName,
           system: SYSTEM_PROMPT,
           prompt,
           ...(signal ? { abortSignal: signal } : {}),

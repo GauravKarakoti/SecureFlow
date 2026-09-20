@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUserFindingFilters, getUserFindings } from "@/lib/actions/findings";
 import { fromSearchParams } from "@/lib/findings/query";
-import { SbomScanResult } from "@/types/sbom";
+import { buildSbomReport } from "@/lib/sbom/findings-report";
 
 export const dynamic = "force-dynamic";
 
@@ -39,34 +39,9 @@ export default async function FindingsPage({
     getUserFindingFilters(),
   ]);
 
-  // [NEW] Calculate SBOM-specific stats for the report card
-  const sbomFindings = result.findings.filter(
-    (finding) => finding.type === "DEPENDENCY_VULNERABILITY",
-  );
-
-  const sbomReport =
-    sbomFindings.length > 0
-      ? {
-          scanId: "aggregated-scan",
-          timestamp: new Date(),
-          totalDependencies: sbomFindings.length,
-          vulnerabilities: sbomFindings.map((v: any) => ({
-            dependency: {
-              name: v.file.split("/").pop() || v.file,
-              version: "latest",
-              manifestFile: v.file,
-              ecosystem: v.file.endsWith("package.json") ? "npm" : "pip",
-            },
-            cveId: v.description.match(/CVE-\d{4}-\d+/)?.[0] || "CVE-Aggregated",
-            severity: v.severity,
-            description: v.description,
-            patchedVersion: v.remediation.match(/version\s+(\S+)/i)?.[1] || "N/A",
-          })),
-          status: sbomFindings.some((f) => f.severity === "CRITICAL" || f.severity === "HIGH")
-            ? "VULNERABLE"
-            : "WARNING",
-        }
-      : null;
+  // Dependency findings from the SBOM worker are stored as VULNERABILITY rows with a
+  // "Dependency: name@version" snippet; there is no separate finding type to filter on.
+  const sbomReport = buildSbomReport(result.findings);
 
   return (
     <FindingsClient
@@ -77,7 +52,7 @@ export default async function FindingsPage({
       pageSize={result.pageSize}
       total={result.total}
       totalPages={result.totalPages}
-      sbomReport={sbomReport as SbomScanResult | null}
+      sbomReport={sbomReport}
     />
   );
 }

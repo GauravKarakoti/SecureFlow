@@ -104,9 +104,14 @@ export function deliveryIdOf(payload: WebhookJobData | null | undefined): string
  * delivery id still requeues, just without the guarantee — that is strictly
  * better than refusing to requeue it, and it is the pre-existing behaviour.
  */
-export function requeueOptionsFor(payload: WebhookJobData | null | undefined): { jobId?: string } {
+export function requeueOptionsFor(payload: WebhookJobData | null | undefined): {
+  jobId?: string;
+  replaceFailed?: boolean;
+} {
   const deliveryId = deliveryIdOf(payload);
-  return deliveryId ? { jobId: webhookJobId(deliveryId) } : {};
+  // The failed original still holds this id in the main queue; see
+  // `AddWebhookJobOptions.replaceFailed`.
+  return deliveryId ? { jobId: webhookJobId(deliveryId), replaceFailed: true } : {};
 }
 
 /**

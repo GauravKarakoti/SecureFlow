@@ -16,12 +16,12 @@ policy is what most callers actually experience.
 a pure function of the path, so it is testable without a request, a Redis or a
 session.
 
-| Class      | Paths                                                                    | Budget   | Redis prefix   |
-| ---------- | ------------------------------------------------------------------------ | -------- | -------------- |
-| `exempt`   | `/api/webhooks/**`, `/api/health`, `/api/ready`, anything outside `/api` | —        | —              |
-| `auth`     | `/api/auth/**`                                                           | 60 / 60s | `api:auth`     |
-| `stream`   | `/api/heist-transmission`, `/api/og/heist`, `**/explain-stream`          | 20 / 60s | `api:stream`   |
-| `standard` | everything else under `/api`                                             | 20 / 60s | `api:standard` |
+| Class      | Paths                                                                            | Budget   | Redis prefix   |
+| ---------- | -------------------------------------------------------------------------------- | -------- | -------------- |
+| `exempt`   | `/api/webhooks/**`, `/api/health`, `/api/ready`, anything outside `/api`         | —        | —              |
+| `auth`     | `/api/auth/**`                                                                   | 60 / 60s | `api:auth`     |
+| `stream`   | `/api/heist-transmission`, `/api/og/heist`, `/api/cli/scan`, `**/explain-stream` | 20 / 60s | `api:stream`   |
+| `standard` | everything else under `/api`                                                     | 20 / 60s | `api:standard` |
 
 Each class gets its own Upstash limiter with its own key prefix. Sharing a
 prefix would put the classes back into one bucket, which is the thing the
@@ -29,6 +29,47 @@ classes exist to prevent.
 
 `standard` keeps the previous global number, so nothing that worked before
 changes.
+
+## Route-Level Limiting (`withRateLimit` & `TIERS`)
+
+In addition to edge proxy middleware, route handlers enforce fine-grained rate limits using `withRateLimit` (`src/lib/middleware/rate-limit.ts`). This provides defense-in-depth, allows per-user or per-action keying, and controls failure modes via `fallbackStrategy`.
+
+### Tier Presets
+
+Preset configurations are defined in `TIERS`:
+
+| Tier             | Limit    | Window | Strategy      | Timeout | Intended Use                                                             |
+| ---------------- | -------- | ------ | ------------- | ------- | ------------------------------------------------------------------------ |
+| `AUTH`           | 10 reqs  | 60s    | `fail-closed` | 1000ms  | Login/OAuth mutations; blocks credential stuffing and brute-force.       |
+| `AI_STREAM`      | 20 reqs  | 60s    | `fail-closed` | 1000ms  | Heavy LLM streaming/generation; protects model spend and compute.        |
+| `AI_STREAM_USER` | 10 reqs  | 60s    | `fail-closed` | 1000ms  | Per-user inner guard for streaming routes used alongside IP-tier limits. |
+| `STANDARD`       | 120 reqs | 60s    | `fail-open`   | default | Read routes and light data queries; prioritizes availability.            |
+| `ADMIN`          | 30 reqs  | 60s    | `fail-closed` | 1000ms  | Administrative endpoints and bulk exports.                               |
+| `REPO_SYNC`      | 6 reqs   | 60s    | `fail-closed` | 1000ms  | GitHub repository sync; tight limit due to installation walking cost.    |
+
+### Enforced Route Inventory
+
+| Route                               | Method   | Middleware Class    | Route Handler Tier / Config                | Fallback Strategy |
+| ----------------------------------- | -------- | ------------------- | ------------------------------------------ | ----------------- |
+| `/api/cli/scan`                     | POST     | `stream` (20/60s)   | 20 / 60s (`cli:scan`)                      | `fail-closed`     |
+| `/api/heist-transmission`           | GET      | `stream` (20/60s)   | `TIERS.AI_STREAM` (20/60s)                 | `fail-closed`     |
+| `/api/findings/[id]/explain-stream` | GET      | `stream` (20/60s)   | `TIERS.AI_STREAM` (20/60s)                 | `fail-closed`     |
+| `/api/findings/[id]/remediate`      | POST     | `standard` (20/60s) | `TIERS.AI_STREAM` (20/60s)                 | `fail-closed`     |
+| `/api/findings/bulk-remediate`      | POST     | `standard` (20/60s) | `TIERS.AI_STREAM` (20/60s)                 | `fail-closed`     |
+| `/api/findings`                     | POST     | `standard` (20/60s) | 10 / 60s (`findings:create`)               | `fail-closed`     |
+| `/api/findings/status/[jobId]`      | GET      | `standard` (20/60s) | `TIERS.STANDARD` (120/60s)                 | `fail-open`       |
+| `/api/repositories/sync`            | POST     | `standard` (20/60s) | `TIERS.REPO_SYNC` (6/60s)                  | `fail-closed`     |
+| `/api/leaderboard`                  | GET      | `standard` (20/60s) | `TIERS.STANDARD` (120/60s)                 | `fail-open`       |
+| `/api/admin/export`                 | GET/POST | `standard` (20/60s) | `TIERS.ADMIN` (30/60s)                     | `fail-closed`     |
+| `/api/auth/[...nextauth]`           | POST     | `auth` (60/60s)     | `TIERS.AUTH` (10/60s)                      | `fail-closed`     |
+| `/api/webhooks/github`              | POST     | `exempt` (HMAC)     | Custom delivery deduplication + rate limit | `fail-open`       |
+
+### Fallback Strategies (`fail-open` vs `fail-closed`)
+
+When Redis is degraded or unreachable:
+
+- **`fail-closed`**: Used on expensive or sensitive routes (AI scanning, authentication, repo sync, admin export) to prevent cost overruns, abuse, and brute-force attacks during infrastructure outages.
+- **`fail-open`**: Used on general read/standard endpoints (`STANDARD` tier) to ensure high availability and user experience remain uninterrupted during transient cache failures.
 
 ## Why the exemptions exist
 

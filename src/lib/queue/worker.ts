@@ -2,6 +2,7 @@ import { Worker, Job } from "bullmq";
 import { z } from "zod";
 import { redis } from "./redis";
 import { webhookDLQ, WebhookJobData } from "./webhookQueue";
+import { dlqRetryStateFor } from "./dlq-auto-retry";
 import { scanner, parseSecureFlowIgnore } from "@/lib/armor/scanner";
 import { processScanJob, type ScanJobResult } from "@/lib/scanner/scanEngine";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
@@ -13,11 +14,18 @@ import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-re
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
 import {
+  buildSarifDocument,
+  pullRequestRef,
+  uploadSarifAnalysis,
+  type CodeScanningClient,
+} from "@/lib/github/code-scanning";
+import {
   buildPullRequestFacts,
   classifyPullRequestAction,
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
+import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import {
@@ -26,6 +34,7 @@ import {
   normalizePrStatusEnum,
 } from "@/lib/finding-taxonomy";
 import { sanitizeLogValue } from "@/lib/logger";
+import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -231,6 +240,22 @@ export interface PullRequestContext {
  * pending PR comment had already been posted, leaving a permanent
  * "⏳ Evaluating..." comment that nothing ever updated.
  */
+/**
+ * Whether a delivery should also get a dependency (SBOM) scan of the manifests
+ * it changes.
+ *
+ * Only `synchronize` — new commits on an existing pull request — which is the
+ * trigger the webhook route used when it ran this inline. #927 moved every
+ * delivery to this worker and dropped the route's call, so without this the
+ * manifest scan had no caller at all.
+ */
+export function shouldScanPullRequestManifests(
+  event: string | null | undefined,
+  action: string | null | undefined,
+): boolean {
+  return event === "pull_request" && action === "synchronize";
+}
+
 export function assertPullRequestContext(payload: {
   pull_request?: any;
   repository?: any;
@@ -521,6 +546,13 @@ export const worker = new Worker<WebhookJobData>(
         // leaving a permanent "⏳ Evaluating..." comment nothing ever updated.
         assertPullRequestContext(payload as any);
 
+        if (shouldScanPullRequestManifests(event, action)) {
+          // Never throws (it logs and returns), so a manifest problem cannot
+          // fail the code scan below. SBOM jobs are keyed by head SHA and file,
+          // so a retry of this delivery does not enqueue them twice.
+          await handlePullRequestSynchronize(payload, deliveryId ?? undefined);
+        }
+
         console.log(
           `Processing PR #${sanitize(pull_request.number)} on ${sanitize(repository.full_name)}`,
         );
@@ -663,10 +695,12 @@ export const worker = new Worker<WebhookJobData>(
         // Scanning only. This function posts its own check run and pull request
         // comment below, writes its own AuditLog row and creates its own
         // ScanResult, so letting the engine do the same would duplicate all four
-        // (#747).
+        // (#747). It also requests the AI explanations itself, below, so the
+        // engine must not request them first.
         const scanResult = await processScanJob(scanJobData, undefined, {
           report: false,
           persist: false,
+          enrich: false,
         });
         const findings = scanResult.findings;
 
@@ -786,6 +820,43 @@ export const worker = new Worker<WebhookJobData>(
               (coverageNotice ? `\n\n${coverageNotice}` : ""),
           },
         });
+
+        // Publish the same findings to GitHub's Code Scanning UI, so they show
+        // up in the PR's "Security" tab without a trip to the dashboard.
+        //
+        // Deliberately after the check run and deliberately unable to fail the
+        // scan: a private repository without Advanced Security answers 403 here,
+        // which says nothing about the code that was just scanned. The upload is
+        // built from `enrichedFindings` (active findings only) so a finding the
+        // user dismissed does not reopen as an alert on the next push.
+        //
+        // The try/catch covers `buildSarifDocument` as well as the upload:
+        // `uploadSarifAnalysis` guards its own request, but the document is
+        // built here, and a throw from it would fail a scan job whose check run
+        // has already been posted — turning a delivered result into a retry.
+        try {
+          const sarifOutcome = await uploadSarifAnalysis(octokit as unknown as CodeScanningClient, {
+            owner: repository.owner.login,
+            repo: repository.name,
+            commitSha: pull_request.head.sha,
+            ref: pullRequestRef(pull_request.number),
+            document: buildSarifDocument(enrichedFindings),
+          });
+
+          const target = `${sanitize(repository.full_name)}#${sanitize(String(pull_request.number))}`;
+
+          console.log(
+            sarifOutcome.status === "uploaded"
+              ? `[Worker] Uploaded SARIF for ${target}`
+              : `[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`,
+          );
+        } catch (err) {
+          console.log(
+            `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(
+              err instanceof Error ? err.message : String(err),
+            )}`,
+          );
+        }
 
         if (enrichedFindings.length > 0) {
           // Badge rendering comes from `@/lib/severity`. The previous inline
@@ -971,6 +1042,27 @@ export const worker = new Worker<WebhookJobData>(
               },
             },
           });
+
+          // Real-time Slack alert for CRITICAL/HIGH findings (#936). Best-effort
+          // and non-throwing, so a Slack outage cannot fail the webhook job or
+          // trigger a BullMQ retry of an already-persisted scan. The severity
+          // threshold is applied inside the integration.
+          if (userId && enrichedFindings.length > 0) {
+            try {
+              const owner = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { slackWebhookUrl: true },
+              });
+
+              await notifyHighSeverityFindings(owner?.slackWebhookUrl, {
+                repositoryFullName: repository.full_name,
+                prNumber: pull_request.number,
+                findings: enrichedFindings,
+              });
+            } catch (err) {
+              console.error(`[Worker] Slack notification step failed:`, err);
+            }
+          }
         }
       }
     }
@@ -1007,6 +1099,7 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
           failedReason: err.message,
           failedAt: new Date().toISOString(),
           attemptsMade: job.attemptsMade,
+          ...dlqRetryStateFor(job.data?.dlqAutoRetryCount),
         },
         {
           attempts: 1,

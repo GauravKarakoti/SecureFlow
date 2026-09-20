@@ -1,0 +1,23 @@
+# Patterns to ignore when packaging a Helm chart
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+# Common editor dirs
+.vscode/
+.idea/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+# Helm package files
+*.tgz
+# Temporary files
+.terraform/
+.terraform.lock.hcl

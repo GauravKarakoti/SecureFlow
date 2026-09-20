@@ -8,7 +8,13 @@ import {
   isTimeoutError,
   withRetry,
 } from "./security-helpers";
-import { ai, defaultModel, securityExplanationModel } from "@/ai/genkit";
+import {
+  ai,
+  defaultModel,
+  securityExplanationModel,
+  getAiInstance,
+  getDefaultModelRef,
+} from "@/ai/genkit";
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -16,13 +22,34 @@ import {
   type AISecurityExplanationInput,
   type AISecurityExplanationOutput,
 } from "./security-explanation-schemas";
+import { detectWeb3Ecosystem, web3SecurityExplanation } from "./web3-security-explanations";
 
 const { contradictsSeverity, buildPrompt } = __internal;
+
+/**
+ * Returns true when the finding originates from a Web3 / ZK-circuit file.
+ *
+ * Used by the dispatcher below to route to the ecosystem-specific prompt
+ * templates in web3-security-explanations.ts instead of the generic flow.
+ */
+function isWeb3Finding(input: AISecurityExplanationInput): boolean {
+  const ecosystem = detectWeb3Ecosystem(input.fileLocation, input.findingType);
+  return ecosystem !== "generic-web3";
+}
 
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput,
 ): Promise<AISecurityExplanationOutput> {
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
+
+  // Route Web3 / ZK-circuit findings to the ecosystem-specific flow.
+  // detectWeb3Ecosystem() identifies .sol, .rs, .circom, .leo files and
+  // Web3-specific finding types (reentrancy, underconstrained, CPI, etc.).
+  // The web3 flow runs the same injection pre-filter and consistency checks
+  // but uses domain-specific system prompts and prompt templates.
+  if (isWeb3Finding(validatedInput)) {
+    return web3SecurityExplanation(validatedInput);
+  }
 
   // Two-layer injection check runs on the raw, attacker-controlled fields BEFORE anything is
   // sent to the main Genkit engine:
@@ -42,11 +69,15 @@ export async function developerReceivesAISecurityExplanations(
   let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
   try {
-    // Explicitly route to the fastest Groq model with retry logic for rate limits and timeouts.
+    // Route to local model when LOCAL_AI_URL is set, otherwise use the pinned
+    // fast Groq model. Retry logic and fallback chain are preserved for cloud
+    // mode; local mode uses a single model (no cloud fallback by design).
+    const activeAi = getAiInstance();
+    const activeModel = getDefaultModelRef();
     const res = await withRetry(
       () =>
-        ai.generate({
-          model: securityExplanationModel,
+        activeAi.generate({
+          model: activeModel as any,
           system: SYSTEM_PROMPT,
           prompt,
           config: {

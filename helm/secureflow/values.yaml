@@ -1,0 +1,333 @@
+# ============================================================================
+# SecureFlow Helm Chart Configuration
+# ============================================================================
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# ----------------------------------------------------------------------------
+# Next.js Application (Web / API)
+# ----------------------------------------------------------------------------
+app:
+  replicaCount: 2
+  image:
+    repository: secureflow/app
+    pullPolicy: IfNotPresent
+    tag: "" # Overrides the image tag whose default is the chart appVersion.
+
+  service:
+    type: ClusterIP
+    port: 9002
+
+  env:
+    PORT: "9002"
+    NODE_ENV: "production"
+    NEXT_TELEMETRY_DISABLED: "1"
+    TRUSTED_PROXY_HOP_COUNT: "1"
+    LOG_LEVEL: "info"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 9002
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 9002
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  startupProbe:
+    httpGet:
+      path: /
+      port: 9002
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 30
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ----------------------------------------------------------------------------
+# Background Worker (BullMQ Queues)
+# ----------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: secureflow/app
+    pullPolicy: IfNotPresent
+    tag: ""
+
+  # Command to run worker script in standalone/container environment
+  command: ["node", "/app/scripts/start-worker.js"]
+  args: []
+
+  concurrency: 5 # Sets SCAN_WORKER_CONCURRENCY
+
+  service:
+    enabled: true
+    port: 3000
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    tcpSocket:
+      port: 3000
+    initialDelaySeconds: 15
+    periodSeconds: 20
+
+  readinessProbe:
+    tcpSocket:
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ----------------------------------------------------------------------------
+# Database Migrations (Helm Pre-install / Pre-upgrade Hook)
+# ----------------------------------------------------------------------------
+migration:
+  enabled: true
+  image:
+    repository: secureflow/app
+    pullPolicy: IfNotPresent
+    tag: ""
+  command: ["node", "/opt/prisma-cli/node_modules/prisma/build/index.js", "migrate", "deploy"]
+  backoffLimit: 3
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# ----------------------------------------------------------------------------
+# Data Retention Cleanup (Scheduled CronJob)
+# ----------------------------------------------------------------------------
+retention:
+  enabled: true
+  schedule: "0 2 * * *" # Daily at 02:00 UTC
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  image:
+    repository: secureflow/app
+    pullPolicy: IfNotPresent
+    tag: ""
+  command: ["node", "/app/scripts/retention.js"]
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# ----------------------------------------------------------------------------
+# Ingress Configuration
+# ----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: secureflow.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: secureflow-tls
+  #    hosts:
+  #      - secureflow.example.com
+
+# ----------------------------------------------------------------------------
+# Non-sensitive Application Configuration
+# ----------------------------------------------------------------------------
+config:
+  authUrl: "http://secureflow.example.com"
+  nextPublicAppUrl: "http://secureflow.example.com"
+  groqModel: "openai/gpt-oss-20b"
+  findingSnippetRedactDays: 90
+  webhookEventRetentionDays: 30
+  scanResultRetentionDays: 180
+  auditLogRetentionDays: 365
+  trustedProxyHopCount: 1
+  trustedProxyIps: ""
+  cspReportOnly: false
+  cspReportUri: ""
+  allowMockAuth: false
+  nextPublicMockAuth: false
+  outboundWebhookTimeoutMs: 10000
+  outboundWebhookMaxResponseBytes: 65536
+  outboundWebhookAllowedHosts: ""
+  outboundWebhookAllowInsecureHttp: false
+  outboundWebhookAllowPrivateNetworks: false
+  dbPoolMax: 10
+
+# ----------------------------------------------------------------------------
+# Sensitive Secrets Configuration
+# ----------------------------------------------------------------------------
+secrets:
+  # If existingSecret is set, the chart uses the specified secret rather than creating one.
+  existingSecret: ""
+  
+  # Plaintext values to populate if existingSecret is empty
+  authSecret: "changeme-generate-a-secure-random-auth-secret"
+  groqApiKey: ""
+  githubAppId: ""
+  githubWebhookSecret: ""
+  githubPrivateKey: ""
+  githubClientId: ""
+  githubClientSecret: ""
+  armoriqApiKey: ""
+
+# ----------------------------------------------------------------------------
+# PostgreSQL Configuration (In-cluster deployment or External Database)
+# ----------------------------------------------------------------------------
+postgresql:
+  # When true, deploys a standalone in-cluster PostgreSQL instance.
+  # For production, set enabled to false and provide external database details below.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: secureflow
+    password: secureflow_password
+    database: secureflow
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # Used when postgresql.enabled is false (External AWS RDS / Neon / Cloud SQL)
+  external:
+    host: ""
+    port: 5432
+    database: "secureflow"
+    username: "secureflow"
+    password: ""
+    sslmode: "prefer"
+    # Optional full connection URL (overrides individual host/user/pass fields)
+    url: ""
+    # Name of existing secret containing DATABASE_URL
+    existingSecret: ""
+    existingSecretKey: "DATABASE_URL"
+
+# ----------------------------------------------------------------------------
+# Redis Configuration (In-cluster deployment or External Redis)
+# ----------------------------------------------------------------------------
+redis:
+  # When true, deploys a standalone in-cluster Redis instance.
+  # For production, set enabled to false and provide external Redis details below.
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    enabled: false
+    password: ""
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Used when redis.enabled is false (External Redis / AWS ElastiCache / Upstash)
+  external:
+    url: "" # e.g. redis://:password@redis-host:6379/0
+    existingSecret: ""
+    existingSecretKey: "REDIS_URL"
+
+# ----------------------------------------------------------------------------
+# ServiceAccount
+# ----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""

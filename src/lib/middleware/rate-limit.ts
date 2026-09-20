@@ -136,8 +136,12 @@ export function withRateLimit(
       response &&
       typeof (response as NextResponse).headers?.set === "function"
     ) {
-      for (const [header, value] of Object.entries(buildRateLimitHeaders(result))) {
-        response.headers.set(header, value);
+      try {
+        for (const [header, value] of Object.entries(buildRateLimitHeaders(result))) {
+          response.headers.set(header, value);
+        }
+      } catch {
+        // Headers may be immutable (e.g. standard Web API Response or Response.redirect)
       }
     }
 

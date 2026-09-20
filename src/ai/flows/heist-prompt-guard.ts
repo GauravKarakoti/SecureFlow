@@ -23,6 +23,7 @@
  */
 
 import { __internal } from "./security-helpers";
+import { logger } from "@/lib/logger";
 
 const { detectPromptInjection } = __internal;
 
@@ -114,6 +115,9 @@ export function screenProjectName(raw: string | null | undefined): ProjectNameSc
 
   const marker = DELIMITER_MARKERS.find((pattern) => pattern.test(normalized));
   if (marker) {
+    logger.warn("[PROMPT_TELEMETRY] Injection blocked: contains prompt structure markers", {
+      reason: "contains prompt structure markers",
+    });
     return {
       projectName: DEFAULT_PROJECT_NAME,
       rejected: true,
@@ -122,6 +126,9 @@ export function screenProjectName(raw: string | null | undefined): ProjectNameSc
   }
 
   if (detectPromptInjection(normalized)) {
+    logger.warn("[PROMPT_TELEMETRY] Injection blocked: matched a prompt-injection pattern", {
+      reason: "matched a prompt-injection pattern",
+    });
     return {
       projectName: DEFAULT_PROJECT_NAME,
       rejected: true,

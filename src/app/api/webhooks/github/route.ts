@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addWebhookJob } from "@/lib/queue/webhookQueue";
+
+export const maxDuration = 60; // optionally increase timeout if not already set
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb",
+    },
+  },
+};
+
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import { withRateLimit } from "@/lib/middleware/rate-limit";
 import {
@@ -13,10 +23,7 @@ import {
   verifySignature,
   webhookJobId,
 } from "@/lib/github/webhook-verification";
-import prisma from "@/lib/prisma";
-import { Octokit } from "octokit";
-import { parseManifestFile } from "@/lib/sbom/dependency-parser";
-import { matchVulnerabilities } from "@/lib/sbom/vulnerability-matcher";
+import { env } from "@/lib/env";
 
 /**
  * GitHub webhook ingest (#562).
@@ -37,139 +44,9 @@ import { matchVulnerabilities } from "@/lib/sbom/vulnerability-matcher";
  * so each branch is unit-testable without constructing a request.
  */
 
-async function fetchFileContent(
-  octokit: InstanceType<typeof Octokit>,
-  owner: string,
-  repo: string,
-  path: string,
-  ref: string,
-) {
-  try {
-    // Added .rest namespace
-    const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref });
-    if ("content" in data && data.content) {
-      return Buffer.from(data.content, "base64").toString("utf-8");
-    }
-    return null;
-  } catch (error) {
-    console.error(`[SBOM] Failed to fetch ${path}:`, error);
-    return null;
-  }
-}
-
-/**
- * Executes routines when an existing Pull Request receives new code commits
- */
-export async function handlePullRequestSynchronize(payload: Record<string, unknown> | any) {
-  const prNumber = payload.number;
-  const repoName = payload.repository?.full_name;
-  const headSha = payload.pull_request?.head?.sha;
-
-  console.log(
-    `[PR_SYNC] New code pushed to PR #${prNumber} on repo ${repoName}. Head SHA: ${headSha}`,
-  );
-
-  // Extract necessary fields for SBOM scanning
-  const { pull_request, repository, installation } = payload;
-
-  if (!pull_request || !repository || !installation) {
-    console.warn("[PR_SYNC] Missing required fields for SBOM processing");
-    return;
-  }
-
-  try {
-    // 1. Save/Update PR Record
-    const prRecord = await prisma.pullRequest.upsert({
-      where: { githubPrId: pull_request.id.toString() },
-      update: {
-        title: pull_request.title,
-        state: pull_request.state,
-        updatedAt: new Date(),
-      },
-      create: {
-        githubPrId: pull_request.id.toString(),
-        title: pull_request.title,
-        state: pull_request.state,
-        branch: pull_request.head.ref,
-        repositoryId: repository.id.toString(),
-        repository: {
-          connectOrCreate: {
-            where: { githubRepoId: repository.id.toString() },
-            create: {
-              githubRepoId: repository.id.toString(),
-              name: repository.full_name,
-              owner: repository.owner.login,
-            },
-          },
-        },
-      },
-    });
-
-    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const owner = repository.owner.login;
-    const repo = repository.name;
-
-    // 2. Get changed files
-    // Added .rest namespace
-    const { data: files } = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: pull_request.number,
-    });
-
-    // 3. Standard AI Scan (Existing Logic)
-    // ... [Assume existing AI scan logic runs here for code files] ...
-
-    // 4. [NEW] SBOM Dependency Scan Integration
-    console.log(`[SBOM] Checking ${files.length} files for manifests...`);
-
-    for (const file of files) {
-      // Detect manifest files
-      if (file.filename.endsWith("package.json") || file.filename.endsWith("requirements.txt")) {
-        console.log(`[SBOM] Detected manifest: ${file.filename}`);
-
-        // Fetch content (using PR head ref to get the version being merged)
-        const content = await fetchFileContent(
-          octokit,
-          owner,
-          repo,
-          file.filename,
-          pull_request.head.ref,
-        );
-
-        if (content) {
-          // Parse dependencies
-          const dependencies = parseManifestFile(content, file.filename);
-
-          // Match against CVE database
-          const vulnerabilities = matchVulnerabilities(dependencies);
-
-          console.log(`[SBOM] Found ${vulnerabilities.length} vulnerabilities in ${file.filename}`);
-
-          // Save findings to Database
-          for (const vuln of vulnerabilities) {
-            await prisma.finding.create({
-              data: {
-                pullRequestId: prRecord.id,
-                type: "DEPENDENCY_VULNERABILITY",
-                severity: vuln.severity,
-                file: file.filename,
-                description: `${vuln.dependency.name}@${vuln.dependency.version}: ${vuln.description}`,
-                codeSnippet: `Dependency: ${vuln.dependency.name}\nCurrent: ${vuln.dependency.version}\nPatched: ${vuln.patchedVersion || "Unknown"}`,
-                remediation: `Update ${vuln.dependency.name} to version ${vuln.patchedVersion} or higher.`,
-                line: 0, // Line 0 indicates manifest-level finding
-                aiExplanation: `Detected known vulnerability ${vuln.cveId} in ${vuln.dependency.name}.`,
-              },
-            });
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error("[PR_SYNC] Error during SBOM processing:", error);
-    // Don't throw - we still want to queue the job even if SBOM fails
-  }
-}
+// Runs in the webhook worker now (see `src/lib/queue/worker.ts`); re-exported
+// so existing callers and tests keep importing it from here.
+export { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 
 /**
  * Triggers security tracking or alert logging loops when repository protection controls change
@@ -186,9 +63,15 @@ export async function handleBranchProtectionMutation(payload: Record<string, unk
 }
 
 const handler = withErrorHandler(async function POST(req: NextRequest) {
-  const maxBytes = parseMaxWebhookBytes(process.env.GITHUB_WEBHOOK_MAX_BYTES);
+  // 1. Validate environment configuration first
+  const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new AppError("Server misconfiguration: GitHub webhook secret is missing.", 500);
+  }
 
-  // 1. Size, from the header, before reading a single byte.
+  const maxBytes = parseMaxWebhookBytes(env.GITHUB_WEBHOOK_MAX_BYTES);
+
+  // 2. Size, from the header, before reading a single byte.
   //
   // `req.text()` buffers the whole body into memory. With a 50/minute rate limit
   // and no cap, one source could make the process buffer ~1.25 GB per minute of
@@ -197,15 +80,12 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   if (isPayloadTooLarge(req.headers.get("content-length"), maxBytes)) {
     throw new AppError("Webhook payload exceeds the configured size limit", 413);
   }
-
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    // A deployment fault rather than a caller fault: not operational, so the
-    // error handler returns a generic message instead of naming the variable.
-    throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500, false);
+  const webhookSecret = env.GITHUB_WEBHOOK_SECRET ?? process.env.GITHUB_WEBHOOK_SECRET;
+  if (!webhookSecret || !webhookSecret.trim()) {
+    throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500);
   }
 
-  // 2. Delivery ID, required.
+  // 3. Delivery ID, required.
   //
   // The worker guards its idempotency check on this value being truthy, so a
   // delivery without the header used to skip the duplicate check entirely — and
@@ -216,28 +96,49 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     throw new AppError("Missing or invalid x-github-delivery header", 400);
   }
 
-  const signatureHex = parseGithubSignature(req.headers.get("x-hub-signature-256"));
+  const signatureHex = parseGithubSignature(
+    req.headers.get("x-hub-signature-256") ?? req.headers.get("X-Hub-Signature-256"),
+  );
   if (!signatureHex) {
     throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
   }
 
   // Read the raw text so the signature is verified over the exact bytes sent,
   // before anything parses them.
-  const rawPayloadText = await req.text();
-
-  // `Content-Length` is attacker-supplied, so the real length is re-checked. A
-  // chunked request legitimately omits the header, which is why the first check
-  // cannot be the only one.
-  if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
-    throw new AppError("Webhook payload exceeds the configured size limit", 413);
+  // We stream the body if possible to enforce the size limit on unbounded
+  // chunked requests and prevent memory exhaustion (OOM).
+  let rawPayloadText = "";
+  if (req.body) {
+    let totalBytes = 0;
+    const reader = req.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > maxBytes) {
+        reader.releaseLock();
+        throw new AppError("Webhook payload exceeds the configured size limit", 413);
+      }
+      rawPayloadText += decoder.decode(value, { stream: true });
+    }
+    rawPayloadText += decoder.decode();
+  } else {
+    rawPayloadText = await req.text();
+    // `Content-Length` is attacker-supplied, so the real length is re-checked. A
+    // chunked request legitimately omits the header, which is why the first check
+    // cannot be the only one.
+    if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
+      throw new AppError("Webhook payload exceeds the configured size limit", 413);
+    }
   }
 
-  // 3. Signature, before the body is interpreted in any way.
-  if (!verifySignature(rawPayloadText, webhookSecret, signatureHex)) {
+  // 4. Signature, before the body is interpreted in any way.
+  if (!verifySignature(rawPayloadText, secret, signatureHex)) {
     throw new AppError("Invalid GitHub webhook signature", 401);
   }
 
-  // 4. Parse.
+  // 5. Parse.
   //
   // This was a bare `JSON.parse` inline. A verified-but-malformed body threw a
   // SyntaxError with no `statusCode`, so the error handler fell through to 500 —
@@ -250,7 +151,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   const event = req.headers.get("x-github-event");
 
-  // 5. Dispatch — now that the delivery is known to be genuine.
+  // 6. Dispatch — now that the delivery is known to be genuine.
   if (event === "ping") {
     // Answered only after verification, so a successful ping is real evidence
     // that the configured secret matches ours.
@@ -262,13 +163,6 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   if (!isTrackedEvent(event)) {
     return NextResponse.json({ message: "Event not tracked", deliveryId }, { status: 200 });
-  }
-
-  // Route event actions
-  if (event === "pull_request" && parsed.payload.action === "synchronize") {
-    await handlePullRequestSynchronize(parsed.payload);
-  } else if (event === "branch_protection_rule") {
-    await handleBranchProtectionMutation(parsed.payload);
   }
 
   // 6. Delegate to the queue.
