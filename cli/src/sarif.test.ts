@@ -7,7 +7,12 @@ import {
   SarifValidationError,
   SarifDocument,
 } from "./sarif.js";
-import { FileScanResult, formatScanResults } from "./scanner.js";
+import {
+  filterBySeverity,
+  type FileScanResult,
+  formatScanResults,
+  type Severity,
+} from "./scanner.js";
 
 describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
   const sampleScanResults: FileScanResult[] = [
@@ -336,6 +341,43 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       expect(htmlOutput).toContain("SecureFlow Scan Report");
       expect(htmlOutput).toContain("src/config/db.ts");
       expect(htmlOutput).toContain("3 violations found.");
+    });
+  });
+
+  describe("severity filtering with SARIF output", () => {
+    it("should pass through all unlabeled violations regardless of filter", () => {
+      const filtered = filterBySeverity(sampleScanResults, new Set(["CRITICAL" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(3);
+    });
+
+    it("should filter labeled violations before SARIF generation", () => {
+      const labeledResults: FileScanResult[] = [
+        {
+          path: "src/a.ts",
+          violations: [
+            { line: 1, text: "console.log(process.env.X)", reason: "environment variable", severity: "CRITICAL" },
+            { line: 5, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
+          ],
+        },
+      ];
+      const filtered = filterBySeverity(labeledResults, new Set(["CRITICAL" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(1);
+    });
+
+    it("should produce empty SARIF results when all labeled violations are filtered out", () => {
+      const labeledResults: FileScanResult[] = [
+        {
+          path: "src/a.ts",
+          violations: [
+            { line: 1, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
+          ],
+        },
+      ];
+      const filtered = filterBySeverity(labeledResults, new Set(["LOW" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(0);
     });
   });
 });
