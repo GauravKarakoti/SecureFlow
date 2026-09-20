@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   isSupportedManifest,
+  isSbomManifest,
   normalizeNpmVersion,
   parseManifestFile,
   SUPPORTED_MANIFESTS,
@@ -68,16 +69,40 @@ describe("isSupportedManifest", () => {
     expect(isSupportedManifest("requirements.txt")).toBe(true);
   });
 
+  it("accepts SBOM standard filenames", () => {
+    expect(isSupportedManifest("bom.json")).toBe(true);
+    expect(isSupportedManifest("sbom.json")).toBe(true);
+    expect(isSupportedManifest("output.cdx.json")).toBe(true);
+    expect(isSupportedManifest("output.spdx.json")).toBe(true);
+    expect(isSupportedManifest("path/to/bom.json")).toBe(true);
+  });
+
   it("rejects anything else", () => {
     expect(isSupportedManifest("pom.xml")).toBe(false);
     expect(isSupportedManifest("package.json.bak")).toBe(false);
     expect(isSupportedManifest("")).toBe(false);
+    expect(isSupportedManifest("tsconfig.json")).toBe(false);
+    expect(isSupportedManifest("data.json")).toBe(false);
   });
 
   it("lists exactly what it accepts", () => {
     for (const name of SUPPORTED_MANIFESTS) {
       expect(isSupportedManifest(name)).toBe(true);
     }
+  });
+});
+
+describe("isSbomManifest", () => {
+  it("identifies SBOM filenames", () => {
+    expect(isSbomManifest("bom.json")).toBe(true);
+    expect(isSbomManifest("sbom.json")).toBe(true);
+    expect(isSbomManifest("app.cdx.json")).toBe(true);
+    expect(isSbomManifest("app.spdx.json")).toBe(true);
+  });
+
+  it("does not match package.json or requirements.txt", () => {
+    expect(isSbomManifest("package.json")).toBe(false);
+    expect(isSbomManifest("requirements.txt")).toBe(false);
   });
 });
 
@@ -138,6 +163,69 @@ describe("parseManifestFile — requirements.txt", () => {
       { name: "requests", version: "2.0", manifestFile: "requirements.txt", ecosystem: "pypi" },
       { name: "flask", version: "unknown", manifestFile: "requirements.txt", ecosystem: "pypi" },
     ]);
+  });
+});
+
+describe("parseManifestFile — CycloneDX SBOM", () => {
+  it("extracts dependencies from a valid CycloneDX document", () => {
+    const content = JSON.stringify({
+      bomFormat: "CycloneDX",
+      specVersion: "1.5",
+      components: [
+        { name: "express", version: "4.18.2", purl: "pkg:npm/express@4.18.2" },
+        { name: "lodash", version: "4.17.21", purl: "pkg:npm/lodash@4.17.21" },
+      ],
+    });
+
+    const deps = parseManifestFile(content, "bom.json");
+
+    expect(deps).toHaveLength(2);
+    expect(deps[0]).toEqual({
+      name: "express",
+      version: "4.18.2",
+      manifestFile: "bom.json",
+      ecosystem: "npm",
+    });
+  });
+
+  it("returns empty for invalid JSON in SBOM file", () => {
+    expect(parseManifestFile("{ not json", "bom.json")).toEqual([]);
+  });
+
+  it("returns empty for JSON that is not CycloneDX or SPDX", () => {
+    const content = JSON.stringify({ random: "data" });
+    expect(parseManifestFile(content, "bom.json")).toEqual([]);
+  });
+});
+
+describe("parseManifestFile — SPDX SBOM", () => {
+  it("extracts dependencies from a valid SPDX document", () => {
+    const content = JSON.stringify({
+      spdxVersion: "SPDX-2.3",
+      packages: [
+        {
+          name: "flask",
+          versionInfo: "2.3.2",
+          externalRefs: [
+            {
+              referenceCategory: "PACKAGE-MANAGER",
+              referenceType: "purl",
+              referenceLocator: "pkg:pypi/flask@2.3.2",
+            },
+          ],
+        },
+      ],
+    });
+
+    const deps = parseManifestFile(content, "output.spdx.json");
+
+    expect(deps).toHaveLength(1);
+    expect(deps[0]).toEqual({
+      name: "flask",
+      version: "2.3.2",
+      manifestFile: "output.spdx.json",
+      ecosystem: "pypi",
+    });
   });
 });
 
