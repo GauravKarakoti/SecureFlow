@@ -1,0 +1,19 @@
+{{- if .Values.app.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "secureflow.fullname" . }}-app
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  {{- if .Values.app.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.app.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.app.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.app.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "secureflow.selectorLabels" . | nindent 6 }}
+{{- end }}

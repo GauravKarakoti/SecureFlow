@@ -1,0 +1,21 @@
+{{- if and .Values.redis.enabled .Values.redis.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "secureflow.fullname" . }}-redis
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  {{- if .Values.redis.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.redis.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.redis.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.redis.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "secureflow.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: redis
+{{- end }}
