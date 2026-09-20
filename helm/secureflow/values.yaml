@@ -81,9 +81,26 @@ app:
         - ALL
     readOnlyRootFilesystem: false
 
+  # Pod Disruption Budget for zero-downtime cluster maintenance
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    # maxUnavailable: 1
+
   nodeSelector: {}
   tolerations: []
-  affinity: {}
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                    - app
+            topologyKey: kubernetes.io/hostname
   podAnnotations: {}
 
 # ----------------------------------------------------------------------------
@@ -122,6 +139,12 @@ worker:
     targetCPUUtilizationPercentage: 80
     targetMemoryUtilizationPercentage: 80
 
+  # Pod Disruption Budget for zero-downtime cluster maintenance & worker availability
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    # maxUnavailable: 1
+
   livenessProbe:
     tcpSocket:
       port: 3000
@@ -148,7 +171,48 @@ worker:
 
   nodeSelector: {}
   tolerations: []
-  affinity: {}
+
+  # Node affinity & pod anti-affinity to ensure scan workers are scheduled on appropriate compute nodes
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/worker
+                operator: In
+                values:
+                  - "true"
+                  - "worker"
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: workload
+                operator: In
+                values:
+                  - "compute"
+                  - "worker"
+                  - "scanner"
+                  - "security-worker"
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - "amd64"
+                  - "arm64"
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                    - worker
+            topologyKey: kubernetes.io/hostname
   podAnnotations: {}
 
 # ----------------------------------------------------------------------------
@@ -278,6 +342,12 @@ postgresql:
       cpu: 250m
       memory: 256Mi
 
+  # Pod Disruption Budget for in-cluster database maintenance
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    # maxUnavailable: 1
+
   # Used when postgresql.enabled is false (External AWS RDS / Neon / Cloud SQL)
   external:
     host: ""
@@ -317,6 +387,12 @@ redis:
     requests:
       cpu: 100m
       memory: 128Mi
+
+  # Pod Disruption Budget for in-cluster Redis maintenance
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    # maxUnavailable: 1
 
   # Used when redis.enabled is false (External Redis / AWS ElastiCache / Upstash)
   external:
