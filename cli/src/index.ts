@@ -149,7 +149,9 @@ function parseSeverityArg(): Set<Severity> | null {
   if (idx === -1) return null;
 
   const arg = process.argv[idx]!;
-  const valStr = arg.startsWith("--severity=") ? arg.slice("--severity=".length) : process.argv[idx + 1];
+  const valStr = arg.startsWith("--severity=")
+    ? arg.slice("--severity=".length)
+    : process.argv[idx + 1];
   if (!valStr) {
     console.error(
       "❌ [SecureFlow] --severity requires a comma-separated list (e.g. --severity high,critical)",

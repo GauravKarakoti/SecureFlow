@@ -174,8 +174,7 @@ export function resolveLocalModelConfig(
     return {
       baseUrl: normalizeLocalAiUrl(localUrl),
       model:
-        localModel ||
-        (detectedProvider === "vllm" ? DEFAULT_VLLM_MODEL : DEFAULT_LOCAL_AI_MODEL),
+        localModel || (detectedProvider === "vllm" ? DEFAULT_VLLM_MODEL : DEFAULT_LOCAL_AI_MODEL),
       provider: providerEnv || detectedProvider,
       apiKey,
     };
@@ -226,7 +225,8 @@ export async function pingLocalModel(
   } catch (err: any) {
     return {
       ok: false,
-      error: err?.name === "AbortError" ? `Connection timed out after ${timeoutMs}ms` : err?.message,
+      error:
+        err?.name === "AbortError" ? `Connection timed out after ${timeoutMs}ms` : err?.message,
       provider: config.provider,
     };
   } finally {

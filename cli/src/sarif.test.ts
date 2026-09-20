@@ -356,8 +356,18 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
         {
           path: "src/a.ts",
           violations: [
-            { line: 1, text: "console.log(process.env.X)", reason: "environment variable", severity: "CRITICAL" },
-            { line: 5, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
+            {
+              line: 1,
+              text: "console.log(process.env.X)",
+              reason: "environment variable",
+              severity: "CRITICAL",
+            },
+            {
+              line: 5,
+              text: "console.log(token)",
+              reason: "secret-named identifier",
+              severity: "HIGH",
+            },
           ],
         },
       ];
@@ -371,7 +381,12 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
         {
           path: "src/a.ts",
           violations: [
-            { line: 1, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
+            {
+              line: 1,
+              text: "console.log(token)",
+              reason: "secret-named identifier",
+              severity: "HIGH",
+            },
           ],
         },
       ];
