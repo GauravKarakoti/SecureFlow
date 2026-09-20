@@ -28,11 +28,17 @@ describe("hostedAiScanSkipReason", () => {
 
   it("skips the upload under --vllm for air-gapped vLLM execution", () => {
     expect(hostedAiScanSkipReason(["node", "secureflow", "--vllm"])).toBe("local");
+    expect(hostedAiScanSkipReason(["node", "secureflow", "--vllm=http://localhost:8000/v1"])).toBe(
+      "local",
+    );
     expect(
-      hostedAiScanSkipReason(["node", "secureflow", "--vllm=http://localhost:8000/v1"]),
-    ).toBe("local");
-    expect(
-      hostedAiScanSkipReason(["node", "secureflow", "--vllm", "--vllm-model", "meta-llama/Meta-Llama-3-8B-Instruct"]),
+      hostedAiScanSkipReason([
+        "node",
+        "secureflow",
+        "--vllm",
+        "--vllm-model",
+        "meta-llama/Meta-Llama-3-8B-Instruct",
+      ]),
     ).toBe("local");
   });
 

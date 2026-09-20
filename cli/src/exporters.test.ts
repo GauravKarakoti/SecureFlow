@@ -472,8 +472,18 @@ describe("filterBySeverity", () => {
     {
       path: "src/a.ts",
       violations: [
-        { line: 1, text: "console.log(process.env.X)", reason: "environment variable", severity: "CRITICAL" },
-        { line: 5, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
+        {
+          line: 1,
+          text: "console.log(process.env.X)",
+          reason: "environment variable",
+          severity: "CRITICAL",
+        },
+        {
+          line: 5,
+          text: "console.log(token)",
+          reason: "secret-named identifier",
+          severity: "HIGH",
+        },
       ],
     },
   ];
@@ -512,8 +522,18 @@ describe("filterBySeverity", () => {
         path: "src/mix.ts",
         violations: [
           { line: 1, text: "console.log(secret)", reason: "secret-named identifier" },
-          { line: 2, text: "console.log(token)", reason: "secret-named identifier", severity: "HIGH" },
-          { line: 3, text: "console.log(process.env.X)", reason: "environment variable", severity: "CRITICAL" },
+          {
+            line: 2,
+            text: "console.log(token)",
+            reason: "secret-named identifier",
+            severity: "HIGH",
+          },
+          {
+            line: 3,
+            text: "console.log(process.env.X)",
+            reason: "environment variable",
+            severity: "CRITICAL",
+          },
         ],
       },
     ];
@@ -536,10 +556,34 @@ describe("filterBySeverity", () => {
 
 describe("AI finding severity filtering", () => {
   const aiFindings = [
-    { type: "secret-exposure", severity: "CRITICAL" as const, description: "API key in log", fileLocation: "src/a.ts", lineStart: 1 },
-    { type: "secret-exposure", severity: "HIGH" as const, description: "Token in log", fileLocation: "src/b.ts", lineStart: 5 },
-    { type: "info-leak", severity: "MEDIUM" as const, description: "Debug info", fileLocation: "src/c.ts", lineStart: 10 },
-    { type: "info-leak", severity: "LOW" as const, description: "Verbose log", fileLocation: "src/d.ts", lineStart: 20 },
+    {
+      type: "secret-exposure",
+      severity: "CRITICAL" as const,
+      description: "API key in log",
+      fileLocation: "src/a.ts",
+      lineStart: 1,
+    },
+    {
+      type: "secret-exposure",
+      severity: "HIGH" as const,
+      description: "Token in log",
+      fileLocation: "src/b.ts",
+      lineStart: 5,
+    },
+    {
+      type: "info-leak",
+      severity: "MEDIUM" as const,
+      description: "Debug info",
+      fileLocation: "src/c.ts",
+      lineStart: 10,
+    },
+    {
+      type: "info-leak",
+      severity: "LOW" as const,
+      description: "Verbose log",
+      fileLocation: "src/d.ts",
+      lineStart: 20,
+    },
   ];
 
   it("--severity=critical should keep only CRITICAL AI findings", () => {

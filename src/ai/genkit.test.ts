@@ -21,6 +21,7 @@ vi.stubGlobal(
 );
 
 async function loadGenkit() {
+  vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }
 
@@ -42,6 +43,7 @@ describe("model defaults", () => {
   async function loadWith(groqModel: string | undefined) {
     vi.resetModules();
     vi.stubEnv("GROQ_MODEL", groqModel as string);
+    vi.stubEnv("LOCAL_AI_URL", "");
     if (groqModel === undefined) delete process.env.GROQ_MODEL;
     try {
       return await import("./genkit");

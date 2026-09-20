@@ -24,6 +24,7 @@ vi.stubGlobal(
 );
 
 async function loadGenkit() {
+  vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }
 
