@@ -289,8 +289,10 @@ ${textOutput}`);
   }
 
   const failOnThreshold = parseFailOnArg();
-  const shouldFail = shouldFailScan(violationCount, filteredAiFindings, failOnThreshold);
-  const blockingAi = blockingAiFindings(filteredAiFindings, failOnThreshold);
+  // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
+  // filter, not a security gate bypass. --fail-on must see every finding.
+  const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
+  const blockingAi = blockingAiFindings(aiFindings, failOnThreshold);
 
   if (shouldFail) {
     if (format === "text") {
@@ -312,7 +314,7 @@ ${textOutput}`);
   }
 
   if (format === "text") {
-    const advisoryCount = violationCount + filteredAiFindings.length;
+    const advisoryCount = violationCount + aiFindings.length;
     if (advisoryCount > 0) {
       console.log(
         `⚠️  SecureFlow advisory warning: ${advisoryCount} finding${

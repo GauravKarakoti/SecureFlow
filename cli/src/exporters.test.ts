@@ -9,8 +9,10 @@ import {
   toMarkdownCodeSpan,
 } from "./exporters.js";
 import {
+  blockingAiFindings,
   filterBySeverity,
   parseSeverityFilter,
+  shouldFailScan,
   type FileScanResult,
   type Severity,
 } from "./scanner.js";
@@ -554,30 +556,67 @@ describe("AI finding severity filtering", () => {
     expect(filtered.map((f) => f.severity)).toEqual(["CRITICAL", "HIGH"]);
   });
 
-  it("--severity=low should suppress all HIGH/CRITICAL findings from exit-code count", () => {
+  it("--severity filters display but does not affect exit-code input", () => {
     const filter = parseSeverityFilter("low");
-    const filtered = aiFindings.filter((f) => filter.has(f.severity));
-    const aiViolationCount = filtered.filter(
-      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-    ).length;
-    expect(aiViolationCount).toBe(0);
-  });
+    const displayed = aiFindings.filter((f) => filter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+    expect(displayed[0]!.severity).toBe("LOW");
 
-  it("--severity=critical should count exactly 1 toward exit-code", () => {
-    const filter = parseSeverityFilter("critical");
-    const filtered = aiFindings.filter((f) => filter.has(f.severity));
-    const aiViolationCount = filtered.filter(
-      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-    ).length;
-    expect(aiViolationCount).toBe(1);
+    // Exit-code logic uses unfiltered findings — shouldFailScan sees all 4
+    expect(shouldFailScan(0, aiFindings, null)).toBe(true);
   });
 
   it("no filter should preserve all AI findings", () => {
-    const filtered = aiFindings;
-    expect(filtered).toHaveLength(4);
-    const aiViolationCount = filtered.filter(
-      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-    ).length;
-    expect(aiViolationCount).toBe(2);
+    expect(aiFindings).toHaveLength(4);
+    expect(shouldFailScan(0, aiFindings, null)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --severity + --fail-on combined interaction
+// ---------------------------------------------------------------------------
+
+describe("--severity and --fail-on combined", () => {
+  const aiFindings = [
+    { severity: "CRITICAL", type: "a", description: "a", fileLocation: "a.ts", lineStart: 1 },
+    { severity: "HIGH", type: "b", description: "b", fileLocation: "b.ts", lineStart: 2 },
+    { severity: "MEDIUM", type: "c", description: "c", fileLocation: "c.ts", lineStart: 3 },
+    { severity: "LOW", type: "d", description: "d", fileLocation: "d.ts", lineStart: 4 },
+  ];
+
+  it("--severity=critical does NOT hide HIGH findings from --fail-on=high", () => {
+    // --severity=critical means the user only SEES critical in output
+    const severityFilter = parseSeverityFilter("critical");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+
+    // But --fail-on=high must still see ALL findings, including the HIGH one
+    // that was filtered from display. Otherwise CI silently passes.
+    expect(shouldFailScan(0, aiFindings, "HIGH")).toBe(true);
+    expect(blockingAiFindings(aiFindings, "HIGH")).toHaveLength(2);
+  });
+
+  it("--severity=low --fail-on=high still blocks on the unseen HIGH finding", () => {
+    const severityFilter = parseSeverityFilter("low");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+    expect(displayed[0]!.severity).toBe("LOW");
+
+    // The HIGH and CRITICAL findings are hidden from output but still block
+    expect(shouldFailScan(0, aiFindings, "HIGH")).toBe(true);
+  });
+
+  it("--fail-on=NONE makes scan advisory regardless of --severity filter", () => {
+    expect(shouldFailScan(0, aiFindings, "NONE")).toBe(false);
+    expect(blockingAiFindings(aiFindings, "NONE")).toHaveLength(0);
+  });
+
+  it("--severity=critical --fail-on=critical blocks on the CRITICAL finding", () => {
+    const severityFilter = parseSeverityFilter("critical");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+
+    expect(shouldFailScan(0, aiFindings, "CRITICAL")).toBe(true);
+    expect(blockingAiFindings(aiFindings, "CRITICAL")).toHaveLength(1);
   });
 });
