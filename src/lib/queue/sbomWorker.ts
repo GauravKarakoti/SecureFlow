@@ -10,7 +10,12 @@
 import { Worker, Job, UnrecoverableError } from "bullmq";
 import { redis } from "./redis";
 import prisma from "@/lib/prisma";
-import { isSupportedManifest, parseManifestFile } from "@/lib/sbom/dependency-parser";
+import {
+  isSupportedManifest,
+  isSbomManifest,
+  parseManifestFile,
+} from "@/lib/sbom/dependency-parser";
+import { detectAndParseSbom } from "@/lib/sbom/sbom-format-detector";
 import { matchVulnerabilities } from "@/lib/sbom/vulnerability-matcher";
 import { sbomDLQ, SbomJobData, SBOM_QUEUE_NAME } from "./sbomQueue";
 import type { SbomScanResult, VulnerabilityMatch } from "@/types/sbom";
@@ -247,6 +252,17 @@ export async function processSbomJob(job: Job<SbomJobData>): Promise<SbomScanRes
       }
       if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
         await failUnreadable(`${fileName} must contain a JSON object`);
+      }
+    } else if (isSbomManifest(fileName)) {
+      let sbomDoc: unknown;
+      try {
+        sbomDoc = JSON.parse(content);
+      } catch {
+        await failUnreadable(`Invalid JSON syntax in ${fileName}`);
+      }
+      const detection = detectAndParseSbom(sbomDoc, fileName);
+      if (!detection) {
+        await failUnreadable(`${fileName} is not a recognized CycloneDX or SPDX document`);
       }
     }
 

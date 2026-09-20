@@ -1,10 +1,27 @@
 import { Dependency } from "@/types/sbom";
+import { detectAndParseSbom } from "./sbom-format-detector";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger({ context: { component: "dependency-parser" } });
 
 /** Manifest file names `parseManifestFile` can read. Any other file yields no dependencies. */
-export const SUPPORTED_MANIFESTS = ["package.json", "requirements.txt"] as const;
+export const SUPPORTED_MANIFESTS = [
+  "package.json",
+  "requirements.txt",
+  "bom.json",
+  "sbom.json",
+] as const;
+
+const SBOM_SUFFIX_PATTERNS = [".cdx.json", ".spdx.json"] as const;
 
 export function isSupportedManifest(filePath: string): boolean {
-  return SUPPORTED_MANIFESTS.some((name) => filePath.endsWith(name));
+  if (SUPPORTED_MANIFESTS.some((name) => filePath.endsWith(name))) return true;
+  return SBOM_SUFFIX_PATTERNS.some((suffix) => filePath.endsWith(suffix));
+}
+
+export function isSbomManifest(filePath: string): boolean {
+  if (filePath.endsWith("bom.json") || filePath.endsWith("sbom.json")) return true;
+  return SBOM_SUFFIX_PATTERNS.some((suffix) => filePath.endsWith(suffix));
 }
 
 /**
@@ -122,6 +139,30 @@ export function parseManifestFile(content: string, filePath: string): Dependency
   if (filePath.endsWith("requirements.txt")) {
     return parseRequirementsTxt(content, filePath);
   }
-  // Extendable for pom.xml, Gemfile, etc.
+  if (isSbomManifest(filePath)) {
+    return parseSbomFile(content, filePath);
+  }
   return [];
+}
+
+function parseSbomFile(content: string, filePath: string): Dependency[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(content);
+  } catch {
+    log.warn("SBOM file is not valid JSON", { filePath });
+    return [];
+  }
+
+  const result = detectAndParseSbom(doc, filePath);
+  if (!result) {
+    log.warn("JSON file does not match CycloneDX or SPDX format", { filePath });
+    return [];
+  }
+
+  for (const warning of result.warnings) {
+    log.warn(`SBOM parse warning: ${warning}`, { filePath, format: result.format });
+  }
+
+  return result.dependencies;
 }
