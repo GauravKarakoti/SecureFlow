@@ -9,8 +9,11 @@ import {
   loadSecureFlowIgnore,
   blockingAiFindings,
   describeFailThreshold,
+  filterBySeverity,
+  parseSeverityFilter,
   type FileScanResult,
   type OutputFormat,
+  type Severity,
 } from "./scanner.js";
 import {
   NetworkUnavailableError,
@@ -139,6 +142,29 @@ function parseIgnoreFileArg(): string | undefined {
   return undefined;
 }
 
+function parseSeverityArg(): Set<Severity> | null {
+  const idx = process.argv.findIndex(
+    (arg) => arg === "--severity" || arg.startsWith("--severity="),
+  );
+  if (idx === -1) return null;
+
+  const arg = process.argv[idx]!;
+  const valStr = arg.startsWith("--severity=") ? arg.slice("--severity=".length) : process.argv[idx + 1];
+  if (!valStr) {
+    console.error(
+      "❌ [SecureFlow] --severity requires a comma-separated list (e.g. --severity high,critical)",
+    );
+    process.exit(1);
+  }
+
+  try {
+    return parseSeverityFilter(valStr);
+  } catch (err) {
+    console.error(`❌ [SecureFlow] ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
 function reportSkipped(result: FileScanResult): void {
   if (VERBOSE && result.skipped) {
     console.log(`  ↷ skipped ${result.path} (${result.skipped})`);
@@ -193,6 +219,7 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 async function main(): Promise<number> {
   const format = parseFormatArg();
   const outputPath = parseOutputArg();
+  const severityFilter = parseSeverityArg();
   let staged: string[];
 
   try {
@@ -205,7 +232,6 @@ async function main(): Promise<number> {
   const fileResults: FileScanResult[] = [];
   const unreadable: string[] = [];
   const stagedForAi: StagedFileForAiScan[] = [];
-  let violationCount = 0;
 
   const customIgnorePath = parseIgnoreFileArg();
   const ignoreData = loadSecureFlowIgnore(customIgnorePath);
@@ -216,6 +242,8 @@ async function main(): Promise<number> {
       `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
     );
   }
+
+  let violationCount = 0;
 
   if (staged.length > 0) {
     for (const path of staged) {
@@ -240,13 +268,20 @@ async function main(): Promise<number> {
     }
   }
 
+  const filteredResults = severityFilter
+    ? filterBySeverity(fileResults, severityFilter)
+    : fileResults;
+
   // AI-powered pass, additive on top of the local scan above. Only
   // affects the text output/exit code today -- JSON/SARIF export stays
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
   const aiFindings = await runAiScanIfAvailable(stagedForAi);
+  const filteredAiFindings = severityFilter
+    ? aiFindings.filter((f) => severityFilter.has(f.severity))
+    : aiFindings;
   if (format === "text") {
-    for (const finding of aiFindings) {
+    for (const finding of filteredAiFindings) {
       reportAiFinding(finding);
     }
   }
@@ -257,7 +292,7 @@ async function main(): Promise<number> {
     format === "html" ||
     format === "markdown"
   ) {
-    const outputString = formatScanResults(fileResults, format);
+    const outputString = formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:
@@ -272,7 +307,7 @@ ${outputString}`);
       console.log(outputString);
     }
   } else if (outputPath) {
-    const textOutput = formatScanResults(fileResults, "text");
+    const textOutput = formatScanResults(filteredResults, "text");
     if (DRY_RUN) {
       console.log(`[DRY RUN] Would write to ${outputPath}:
 ${textOutput}`);
@@ -291,11 +326,9 @@ ${textOutput}`);
   }
 
   const failOnThreshold = parseFailOnArg();
+  // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
+  // filter, not a security gate bypass. --fail-on must see every finding.
   const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
-  // Which AI findings actually cleared the active bar — not just the
-  // HIGH/CRITICAL ones the old count was limited to. Under
-  // `--fail-on=LOW` a single LOW finding blocks the commit, and the message has
-  // to name it rather than reporting "0 violations".
   const blockingAi = blockingAiFindings(aiFindings, failOnThreshold);
 
   if (shouldFail) {

@@ -27,6 +27,15 @@ export {
   type SecureFlowIgnoreConfig,
 };
 
+export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export const VALID_SEVERITIES: ReadonlySet<Severity> = new Set([
+  "CRITICAL",
+  "HIGH",
+  "MEDIUM",
+  "LOW",
+]);
+
 /** One flagged call site. */
 export interface Violation {
   /** 1-based line of the `console.*` call. */
@@ -35,6 +44,7 @@ export interface Violation {
   text: string;
   /** Which indicator matched, so the message can say why. */
   reason: string;
+  severity?: Severity;
 }
 
 /** Console methods that put their arguments somewhere durable. */
@@ -511,4 +521,29 @@ export function shouldFailScan(
   }
 
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Severity filter helpers (--severity flag)
+// ---------------------------------------------------------------------------
+
+export function parseSeverityFilter(value: string): Set<Severity> {
+  const levels = value.split(",").map((s) => s.trim().toUpperCase());
+  const invalid = levels.filter((l) => !VALID_SEVERITIES.has(l as Severity));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Invalid severity level(s): ${invalid.join(", ")}. Valid levels: CRITICAL, HIGH, MEDIUM, LOW`,
+    );
+  }
+  return new Set(levels as Severity[]);
+}
+
+export function filterBySeverity(
+  results: FileScanResult[],
+  severities: ReadonlySet<Severity>,
+): FileScanResult[] {
+  return results.map((file) => ({
+    ...file,
+    violations: file.violations.filter((v) => !v.severity || severities.has(v.severity)),
+  }));
 }
