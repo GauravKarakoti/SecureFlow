@@ -93,6 +93,35 @@ vi.mock("@/lib/middleware/error-handler", () => {
   };
 });
 
+vi.mock("next/server", () => {
+  class MockNextResponse {
+    status: number;
+    headers: Headers;
+    _data: unknown;
+    constructor(body?: unknown, init?: { status?: number; headers?: HeadersInit }) {
+      this.status = init?.status ?? 200;
+      this.headers = new Headers(init?.headers);
+      this._data = body;
+    }
+    static json(data: unknown, init?: { status?: number; headers?: HeadersInit }) {
+      const res = new MockNextResponse(data, init);
+      (res as any).json = async () => data;
+      return res;
+    }
+  }
+  return {
+    NextRequest: class MockNextRequest {},
+    NextResponse: MockNextResponse,
+  };
+});
+
+vi.mock("@/lib/middleware/rate-limit", () => ({
+  withRateLimit: <T extends (...args: unknown[]) => unknown>(handler: T): T => handler,
+  TIERS: {
+    WEBHOOK: { limit: 60, windowSeconds: 60, fallbackStrategy: "fail-closed", timeoutMs: 1000 },
+  },
+}));
+
 vi.mock("@/lib/middleware/rateLimit", () => ({
   withRateLimit: <T extends (...args: unknown[]) => unknown>(handler: T): T => handler,
 }));
