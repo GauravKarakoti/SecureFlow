@@ -13,6 +13,7 @@ import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
+import { renderScanReportSummary } from "@/lib/github/scan-report";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -879,29 +880,13 @@ export const worker = new Worker<WebhookJobData>(
             }
           });
 
-          const renderSummary = (findingsToRender: any[]) => {
-            let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
-            body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies. Please review them before merging.\n\n`;
-            if (coverageNotice) {
-              body += `${coverageNotice}\n\n`;
-            }
-            if (inlineComments.length > 0 && findingsToRender.length < enrichedFindings.length) {
-              body += `📍 **${inlineComments.length}** finding(s) are annotated inline on the exact changed lines below.\n\n`;
-            }
-            findingsToRender.forEach((f: any) => {
-              body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
-              // Layer 4: surface injection warning in the summary body when the flag is set.
-              if (f.promptInjectionSuspected) {
-                body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`;
-              }
-              body += `> ${f.explanation}\n\n`;
-              body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
-              body += `${f.remediation}\n\n`;
-              body += `</details>\n\n`;
-              body += `---\n\n`;
+          const renderSummary = (findingsToRender: any[]) =>
+            renderScanReportSummary({
+              findings: findingsToRender,
+              totalFindings: enrichedFindings.length,
+              inlineCount: inlineComments.length,
+              coverageNotice,
             });
-            return body;
-          };
 
           // Try to post the anchored findings as an inline review. If that fails
           // (e.g. a line slipped past the guard), fall back to a summary comment
