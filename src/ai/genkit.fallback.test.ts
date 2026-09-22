@@ -18,12 +18,22 @@ vi.mock("@/lib/queue/redis", () => ({
   redis: { get: vi.fn(), set: vi.fn(), on: vi.fn(), status: "ready" },
 }));
 // Prevent fetch hangs (e.g., local-model pings)
+// Returning { data: [], models: [] } prevents TypeErrors in Ollama/OpenAI parsers
+// which would otherwise cause an infinite retry loop during module initialization.
 vi.stubGlobal(
   "fetch",
-  vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
+  vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: [], models: [] }),
+      text: () => Promise.resolve("OK"),
+    }),
+  ),
 );
 
 async function loadGenkit() {
+  vi.resetModules();
   vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }

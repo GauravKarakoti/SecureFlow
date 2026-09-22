@@ -295,7 +295,6 @@ export async function processSbomJob(job: Job<SbomJobData>): Promise<SbomScanRes
     );
   }
 
-  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let heartbeatInProgress = false;
   let ownershipLost = false;
 
@@ -357,7 +356,7 @@ export async function processSbomJob(job: Job<SbomJobData>): Promise<SbomScanRes
     }
   };
 
-  heartbeatTimer = setInterval(() => {
+  const heartbeatTimer: ReturnType<typeof setInterval> | undefined = setInterval(() => {
     void renewLease();
   }, SCAN_HEARTBEAT_INTERVAL_MS);
 

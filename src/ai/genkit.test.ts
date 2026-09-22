@@ -17,10 +17,18 @@ vi.mock("@/lib/queue/redis", () => ({
 }));
 vi.stubGlobal(
   "fetch",
-  vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
+  vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: [], models: [] }),
+      text: () => Promise.resolve("OK"),
+    }),
+  ),
 );
 
 async function loadGenkit() {
+  vi.resetModules();
   vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }
