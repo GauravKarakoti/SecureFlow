@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SUPPRESSED_STATUSES } from "@/lib/triage/queries";
 import { SEVERITY_ORDER, STORED_SEVERITIES } from "@/lib/severity";
 import {
+  typesMatchingSearch,
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
   DISMISSED_STATUSES,
@@ -327,16 +328,34 @@ describe("buildFindingsWhere", () => {
     expect(where.scanResult.pullRequest.repository.id).toBe("repo-9");
   });
 
-  it("searches across type, file, explanation and remediation, case-insensitively", () => {
+  it("searches file, explanation and remediation case-insensitively", () => {
     const where = buildFindingsWhere(CONTEXT, normalizeFindingsQuery({ search: "aws" })) as any;
 
     const clause = where.AND.find((entry: any) => Array.isArray(entry.OR));
     expect(clause.OR).toEqual([
-      { type: { contains: "aws", mode: "insensitive" } },
       { fileLocation: { contains: "aws", mode: "insensitive" } },
       { explanation: { contains: "aws", mode: "insensitive" } },
       { remediation: { contains: "aws", mode: "insensitive" } },
     ]);
+  });
+
+  it("matches the type column with an enum `in`, never `contains`", () => {
+    // `type` is the FindingType enum. Prisma rejects `contains` on an enum at
+    // runtime ("Unknown argument `contains`"), which failed every search.
+    const where = buildFindingsWhere(CONTEXT, normalizeFindingsQuery({ search: "secr" })) as any;
+
+    const clause = where.AND.find((entry: any) => Array.isArray(entry.OR));
+    expect(clause.OR[0]).toEqual({ type: { in: ["SECRET"] } });
+    expect(JSON.stringify(clause.OR.filter((c: any) => "type" in c))).not.toContain("contains");
+  });
+
+  it("resolves a type search to the enum members whose name contains it", () => {
+    expect(typesMatchingSearch("secret")).toEqual(["SECRET"]);
+    expect(typesMatchingSearch("  Vuln ")).toEqual(["VULNERABILITY"]);
+    expect(typesMatchingSearch("config")).toEqual(["MISCONFIG"]);
+    expect(typesMatchingSearch("e")).toEqual(["SECRET", "VULNERABILITY"]);
+    expect(typesMatchingSearch("aws")).toEqual([]);
+    expect(typesMatchingSearch("   ")).toEqual([]);
   });
 
   it("keeps both the status filter and the search when they are combined", () => {
@@ -350,7 +369,9 @@ describe("buildFindingsWhere", () => {
 
     expect(where.AND).toHaveLength(2);
     expect(where.AND[0]).toEqual({ fingerprint: { in: ["fp-resolved"] } });
-    expect(where.AND[1].OR).toHaveLength(4);
+    // File, explanation and remediation; "aws" names no finding type, so there
+    // is no type clause.
+    expect(where.AND[1].OR).toHaveLength(3);
   });
 
   it("omits the dismissal clause when the user has dismissed nothing", () => {
