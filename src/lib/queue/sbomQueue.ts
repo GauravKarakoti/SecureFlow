@@ -16,6 +16,7 @@ import { redis } from "./redis";
 import prisma from "@/lib/prisma";
 import type { ScanJobStatus } from "@prisma/client";
 import type { SbomScanResult } from "@/types/sbom";
+import { DEPENDENCY_FINDING_WHERE, recoveredMatch } from "@/lib/sbom/stored-findings";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 
 export const SBOM_QUEUE_NAME = "sbom-scans";
@@ -311,28 +312,31 @@ export async function getSbomJobStatus(scanJobId: string): Promise<SbomJobStatus
     // Fallback to durable ScanResult if linked to a pullRequest
     if (!result && job.pullRequestId) {
       try {
+        // Only the SBOM worker's own dependency findings, and only a ScanResult
+        // that has some. The latest ScanResult on a pull request is usually the
+        // PR *code* scan — so this used to report that scan's secrets and
+        // misconfigurations as this SBOM job's vulnerabilities, and its policy
+        // decision as this job's status. The name was also split on the first
+        // `@`, which reads `Dependency: @scope/pkg@1.0.0` as package "unknown"
+        // at version "scope/pkg".
         const scanResult = await prisma.scanResult.findFirst({
-          where: { pullRequestId: job.pullRequestId },
+          where: {
+            pullRequestId: job.pullRequestId,
+            findings: { some: DEPENDENCY_FINDING_WHERE },
+          },
           orderBy: { createdAt: "desc" },
-          include: { findings: true },
+          include: { findings: { where: DEPENDENCY_FINDING_WHERE } },
         });
         if (scanResult) {
+          const vulnerabilities = scanResult.findings.map((f: any) =>
+            recoveredMatch(f, f.fileLocation ?? ""),
+          );
           result = {
             scanId: scanJobId,
             timestamp: scanResult.createdAt,
             totalDependencies: job.totalFiles,
-            vulnerabilities: scanResult.findings.map((f: any) => ({
-              dependency: {
-                name: f.codeSnippet?.split("@")[0]?.replace("Dependency: ", "") || "unknown",
-                version: f.codeSnippet?.split("@")[1]?.split("\n")[0] || "unknown",
-              },
-              cveId: f.explanation?.match(/CVE-[A-Za-z0-9-]+/)?.[0] || "CVE-UNKNOWN",
-              severity: f.severity as any,
-              description: f.explanation || "",
-              patchedVersion:
-                f.remediation?.replace(/Update .* to version | or higher\./g, "") || "",
-            })),
-            status: scanResult.policyDecision === "BLOCK" ? "VULNERABLE" : "CLEAN",
+            vulnerabilities,
+            status: vulnerabilities.length > 0 ? "VULNERABLE" : "CLEAN",
           };
         }
       } catch {
