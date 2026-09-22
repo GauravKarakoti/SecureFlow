@@ -10,6 +10,7 @@
  */
 
 import type { Dependency, SeverityLevel, VulnerabilityMatch } from "@/types/sbom";
+import { severityFromCvssEntries } from "./cvss";
 
 const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
 const OSV_TIMEOUT_MS = 15_000;
@@ -43,6 +44,7 @@ export interface OsvVulnerability {
   affected?: Array<{
     package?: { name: string; ecosystem: string };
     ranges?: OsvAffectedRange[];
+    severity?: Array<{ type: string; score: string }>;
     database_specific?: Record<string, unknown>;
   }>;
   database_specific?: Record<string, unknown>;
@@ -85,6 +87,13 @@ export function extractSeverity(vuln: OsvVulnerability): SeverityLevel {
     const fromAffected = asSeverity(affected.database_specific?.severity);
     if (fromAffected) return fromAffected;
   }
+
+  // No curated label (the usual case outside GitHub-reviewed advisories): score
+  // the CVSS vector OSV provides, advisory-level first, then per package.
+  const fromCvss =
+    severityFromCvssEntries(vuln.severity) ??
+    severityFromCvssEntries((vuln.affected ?? []).flatMap((affected) => affected.severity ?? []));
+  if (fromCvss) return fromCvss;
 
   return "MEDIUM";
 }
