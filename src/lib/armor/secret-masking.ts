@@ -25,9 +25,20 @@ export interface MaskRule {
 /**
  * Values that are obviously not credentials, so an assignment carrying one is
  * left alone.
+ *
+ * Two kinds of alternative, and the difference matters:
+ *
+ *  - Prefixes (`process.env`, `${`, `your_`, `mock_`, ...) mark the whole value
+ *    as a lookup or a template however it continues.
+ *  - Literals (`true`, `null`, `0`, `1`, `none`, `changeme`, ...) only mean
+ *    "not a secret" when they are the entire value. Matched as prefixes, `0`
+ *    and `1` exempted every value starting with either digit — one hex API key
+ *    in eight, and passwords like `1qaz2wsx!QAZ` — from both the assignment
+ *    rules and the entropy pass, and `true`/`none`/`null` did the same for
+ *    `trueN0rth!2024` or `nonesuchP4ss`.
  */
 export const NON_SECRET_VALUE =
-  /^(?:process\.env\b|import\.meta(?:\.env)?\b|os\.(?:environ|getenv)\b|System\.getenv\b|Deno\.env\b|getenv\b|config\.(?:get|has)\b|secrets?\.\w+|vault\.\w+|env::var\b|\$\{|<|your[_-]|actual[_-]|placeholder|changeme|change[_-]me|replace[_-]me|xxx+|todo|none|null|undefined|true|false|0|1|""|''|localhost|127\.0\.0\.1|0\.0\.0\.0|mock[_-]|fake[_-]|dummy[_-]|sample[_-]|example[_-]|test[_-]|temp[_-]|insert[_-]|your-api-key|YOUR_SECRET_KEY|CHANGEME)/i;
+  /^(?:process\.env\b|import\.meta(?:\.env)?\b|os\.(?:environ|getenv)\b|System\.getenv\b|Deno\.env\b|getenv\b|config\.(?:get|has)\b|secrets?\.\w+|vault\.\w+|env::var\b|\$\{|<|your[_-]|actual[_-]|placeholder|change[_-]me|replace[_-]me|xxx+|(?:localhost|127\.0\.0\.1|0\.0\.0\.0)\b|mock[_-]|fake[_-]|dummy[_-]|sample[_-]|example[_-]|test[_-]|temp[_-]|insert[_-]|your-api-key|YOUR_SECRET_KEY|(?:changeme|todo|none|null|undefined|true|false|0|1|""|'')$)/i;
 
 /**
  * Identifier fragments that mark an assignment as secret-bearing.
