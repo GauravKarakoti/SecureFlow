@@ -76,6 +76,23 @@ jobs:
 
       - name: Build Application
         run: npm run build
+        # `next build` evaluates src/lib/env.ts while collecting page data, and
+        # that schema requires these variables. This job has no secrets (and
+        # pull requests from forks never get any), so without placeholders the
+        # build fails on "Invalid environment variables" before it can catch a
+        # real build error. Nothing connects to these during the build.
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/secureflow
+          DATABASE_POOL_URL: postgresql://ci:ci@localhost:5432/secureflow
+          GROQ_API_KEY: ci-build-placeholder
+          GITHUB_APP_ID: "1"
+          GITHUB_WEBHOOK_SECRET: ci-build-placeholder
+          GITHUB_PRIVATE_KEY: ci-build-placeholder
+          GITHUB_CLIENT_ID: ci-build-placeholder
+          GITHUB_CLIENT_SECRET: ci-build-placeholder
+          AUTH_SECRET: ci-build-placeholder-not-for-production
+          AUTH_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
 
   cli:
     name: CLI Build & Test
