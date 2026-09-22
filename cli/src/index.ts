@@ -21,7 +21,7 @@ import {
   type AiFinding,
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
-import { hostedAiScanSkipReason } from "./lib/local-mode.js";
+import { hostedAiScanSkipReason, localModeEnv } from "./lib/local-mode.js";
 
 const VERBOSE = process.argv.includes("--verbose");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -36,60 +36,7 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  * that reads them via resolveLocalModelConfig().
  * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
  */
-const LOCAL_FLAG = process.argv.includes("--local");
-const OLLAMA_FLAG = process.argv.some((a) => a === "--ollama" || a.startsWith("--ollama="));
-const VLLM_FLAG = process.argv.some((a) => a === "--vllm" || a.startsWith("--vllm="));
-
-if (LOCAL_FLAG || OLLAMA_FLAG || VLLM_FLAG) {
-  let customUrl: string | undefined;
-  let customModel: string | undefined;
-  let provider: string | undefined;
-
-  if (OLLAMA_FLAG) {
-    provider = "ollama";
-    const ollamaArg = process.argv.find((a) => a.startsWith("--ollama="));
-    if (ollamaArg) {
-      customUrl = ollamaArg.split("=")[1];
-    } else {
-      const idx = process.argv.findIndex((a) => a === "--ollama");
-      const next = process.argv[idx + 1];
-      if (next && (next.startsWith("http://") || next.startsWith("https://"))) {
-        customUrl = next;
-      }
-    }
-    const modelIdx = process.argv.findIndex((a) => a === "--ollama-model");
-    if (modelIdx !== -1) customModel = process.argv[modelIdx + 1];
-  } else if (VLLM_FLAG) {
-    provider = "vllm";
-    const vllmArg = process.argv.find((a) => a.startsWith("--vllm="));
-    if (vllmArg) {
-      customUrl = vllmArg.split("=")[1];
-    } else {
-      const idx = process.argv.findIndex((a) => a === "--vllm");
-      const next = process.argv[idx + 1];
-      if (next && (next.startsWith("http://") || next.startsWith("https://"))) {
-        customUrl = next;
-      }
-    }
-    const modelIdx = process.argv.findIndex((a) => a === "--vllm-model");
-    if (modelIdx !== -1) customModel = process.argv[modelIdx + 1];
-  } else if (LOCAL_FLAG) {
-    const localFlagIndex = process.argv.findIndex((a) => a === "--local");
-    const nextArg = process.argv[localFlagIndex + 1];
-    customUrl =
-      nextArg && (nextArg.startsWith("http://") || nextArg.startsWith("https://"))
-        ? nextArg
-        : undefined;
-  }
-
-  const genericModelIdx = process.argv.findIndex((a) => a === "--local-model");
-  if (genericModelIdx !== -1) customModel = process.argv[genericModelIdx + 1];
-
-  if (provider) process.env.LOCAL_AI_PROVIDER = provider;
-  const defaultUrl = provider === "vllm" ? "http://localhost:8000/v1" : "http://localhost:11434/v1";
-  process.env.LOCAL_AI_URL = customUrl || process.env.LOCAL_AI_URL || defaultUrl;
-  if (customModel) process.env.LOCAL_AI_MODEL = customModel;
-}
+Object.assign(process.env, localModeEnv(process.argv, process.env));
 
 function parseFormatArg(): OutputFormat {
   const formatIndex = process.argv.findIndex((arg) => arg === "--format");
