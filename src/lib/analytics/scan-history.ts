@@ -156,6 +156,32 @@ export function buildDateIndex(dates: string[]): Map<string, number> {
 }
 
 /**
+ * Count scans per UTC day over the last `days` days, oldest first, labelled the
+ * way every analytics chart is labelled.
+ *
+ * For the overview dashboard's 7-day chart, which used to bucket by the
+ * server's local day (`setHours(0, 0, 0, 0)` and `toLocaleDateString` with no
+ * time zone) while the analytics page buckets by UTC day. On any server not
+ * running in UTC the two charts put the same scan on different days, and the
+ * dashboard's window started at local midnight rather than UTC midnight.
+ */
+export function bucketScansByUtcDay(
+  createdAt: readonly Date[],
+  days: number,
+): Array<{ name: string; scans: number }> {
+  const dateRange = generateDateRange(days);
+  const dateIndex = buildDateIndex(dateRange);
+  const counts = dateRange.map((isoDate) => ({ name: formatDateLabel(isoDate), scans: 0 }));
+
+  for (const date of createdAt) {
+    const idx = dateIndex.get(date.toISOString().split("T")[0]);
+    if (idx !== undefined) counts[idx].scans += 1;
+  }
+
+  return counts;
+}
+
+/**
  * Compute the trend direction from two halves of a numeric series.
  *
  * Splits the series in half, averages each half, and returns:

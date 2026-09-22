@@ -4,6 +4,11 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getSuppressedFingerprints } from "@/lib/triage/queries";
 import { syncUserRepositories } from "@/lib/github/sync-user-repos";
+import {
+  bucketScansByUtcDay,
+  generateDateRange,
+  utcRangeBounds,
+} from "@/lib/analytics/scan-history";
 
 export const dynamic = "force-dynamic";
 
@@ -102,9 +107,8 @@ export default async function OverviewPage() {
   ]);
 
   // 4. Generate real Chart Data (Last 7 days of scans)
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-  sevenDaysAgo.setHours(0, 0, 0, 0);
+  // UTC days, the same buckets and labels as the analytics page.
+  const { startDate: sevenDaysAgo } = utcRangeBounds(generateDateRange(7));
 
   const recentScans = await prisma.scanResult.findMany({
     where: {
@@ -115,19 +119,10 @@ export default async function OverviewPage() {
   });
 
   // Group scans by date
-  const scansByDate = recentScans.reduce((acc: Record<string, number>, scan: any) => {
-    const date = scan.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    acc[date] = (acc[date] || 0) + 1;
-    return acc;
-  }, {});
-
-  // Create an array representing the last 7 days sequentially
-  const chartData = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return { name: dateStr, scans: scansByDate[dateStr] || 0 };
-  });
+  const chartData = bucketScansByUtcDay(
+    recentScans.map((scan: { createdAt: Date }) => scan.createdAt),
+    7,
+  );
 
   const stats = { totalScans, blockedPRs, approvedPRs, secretsDetected };
   const distribution = { critical, high, medium, low };
