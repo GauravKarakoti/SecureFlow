@@ -4,6 +4,7 @@ import {
   SLACK_SECTION_TEXT_LIMIT,
   SLACK_ALERT_THRESHOLD,
   buildSlackAlert,
+  describeFlaggedFindings,
   findingsAboveThreshold,
   notifyHighSeverityFindings,
   pullRequestUrl,
@@ -87,7 +88,23 @@ describe("buildSlackAlert", () => {
     const serialized = JSON.stringify(message!.blocks);
     expect(serialized).toContain("https://github.com/acme/widgets/pull/7");
     expect(serialized).toContain("src/db.ts");
-    expect(serialized).toContain("1 high-severity finding");
+    expect(serialized).toContain("1 critical-severity finding");
+  });
+
+  it("labels the heading with the severities present, not the threshold", () => {
+    const message = buildSlackAlert({
+      repositoryFullName: "acme/widgets",
+      prNumber: 7,
+      findings: [
+        finding({ severity: "CRITICAL" }),
+        finding({ severity: "CRITICAL" }),
+        finding({ severity: "HIGH" }),
+        finding({ severity: "LOW" }),
+      ],
+    });
+
+    expect(message!.text).toBe("🛡️ SecureFlow: 3 findings (2 critical, 1 high) in acme/widgets#7");
+    expect(JSON.stringify(message!.blocks)).not.toContain("high-severity findings");
   });
 
   it("masks secrets in the summary line", () => {
@@ -129,6 +146,30 @@ describe("buildSlackAlert", () => {
 
     expect(message).not.toBeNull();
     expect(message!.text).toContain("1 critical-severity finding");
+  });
+});
+
+describe("describeFlaggedFindings", () => {
+  it("names the single severity when every finding shares it", () => {
+    expect(describeFlaggedFindings([finding({ severity: "HIGH" })])).toBe(
+      "1 high-severity finding",
+    );
+    expect(
+      describeFlaggedFindings([
+        finding({ severity: "CRITICAL" }),
+        finding({ severity: "CRITICAL" }),
+      ]),
+    ).toBe("2 critical-severity findings");
+  });
+
+  it("breaks a mixed set down from most to least severe", () => {
+    expect(
+      describeFlaggedFindings([
+        finding({ severity: "HIGH" }),
+        finding({ severity: "CRITICAL" }),
+        finding({ severity: "HIGH" }),
+      ]),
+    ).toBe("3 findings (1 critical, 2 high)");
   });
 });
 
