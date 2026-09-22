@@ -87,6 +87,17 @@ describe("isAirGappedEndpoint", () => {
     expect(isAirGappedEndpoint("http://8.8.8.8:8000/v1")).toBe(false);
     expect(isAirGappedEndpoint("")).toBe(false);
   });
+
+  it("does not treat public hostnames that merely start with a private prefix as local", () => {
+    expect(isAirGappedEndpoint("https://10.example.com/v1")).toBe(false);
+    expect(isAirGappedEndpoint("https://192.168.attacker.net/v1")).toBe(false);
+    expect(isAirGappedEndpoint("https://172.16.cdn.example/v1")).toBe(false);
+  });
+
+  it("does not vouch for a URL it cannot parse", () => {
+    expect(isAirGappedEndpoint("api.example.com/v10.1")).toBe(false);
+    expect(isAirGappedEndpoint("not a url but mentions localhost")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
