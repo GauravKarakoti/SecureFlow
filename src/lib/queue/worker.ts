@@ -154,7 +154,12 @@ export interface RepositoryListSelection {
  *    some selected-repository flows;
  *  - `installation_repositories` / 'added' carries `repositories_added`;
  *  - `installation_repositories` / 'removed' carries `repositories_removed`,
- *    which the old code did not handle at all.
+ *    which the old code did not handle at all;
+ *  - `installation` / 'deleted' (the App was uninstalled) and 'suspend' carry
+ *    the installation's `repositories`, which must stop being treated as
+ *    active; 'unsuspend' carries the same list back. These were ignored, so an
+ *    uninstalled App left every repository `isActive` on the dashboard and in
+ *    analytics indefinitely.
  *
  * Returning an empty list rather than throwing means a delivery with nothing to
  * do is a no-op, not three retries and a DLQ entry.
@@ -175,8 +180,13 @@ export function selectRepositoryList(
         ) as RepoLike[])
       : [];
 
-  if (event === "installation" && action === "created") {
-    return { intent: "add", repositories: asList(payload.repositories) };
+  if (event === "installation") {
+    if (action === "created" || action === "unsuspend") {
+      return { intent: "add", repositories: asList(payload.repositories) };
+    }
+    if (action === "deleted" || action === "suspend") {
+      return { intent: "remove", repositories: asList(payload.repositories) };
+    }
   }
 
   if (event === "installation_repositories") {
@@ -420,8 +430,9 @@ export const worker = new Worker<WebhookJobData>(
         );
       }
     } else if (
-      event === "installation_repositories" &&
-      (action === "added" || action === "removed")
+      (event === "installation_repositories" && (action === "added" || action === "removed")) ||
+      (event === "installation" &&
+        (action === "deleted" || action === "suspend" || action === "unsuspend"))
     ) {
       const senderId = payload.sender?.id?.toString();
       const account = await prisma.account.findFirst({
@@ -452,7 +463,7 @@ export const worker = new Worker<WebhookJobData>(
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
                 count: repoSelection.repositories.length,
-                event: "installation_repositories",
+                event,
               },
             }),
           }),
@@ -478,7 +489,7 @@ export const worker = new Worker<WebhookJobData>(
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
                 count: repoSelection.repositories.length,
-                event: "installation_repositories",
+                event,
               },
             }),
           }),
