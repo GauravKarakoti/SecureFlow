@@ -11,6 +11,8 @@ import {
   sendSlackAlert,
   type AlertFinding,
 } from "./slack";
+// Imported separately so parallel changes to the list above do not collide.
+import { escapeSlackText } from "./slack";
 
 function finding(overrides: Partial<AlertFinding> = {}): AlertFinding {
   return {
@@ -276,6 +278,64 @@ describe("notifyHighSeverityFindings", () => {
 
     expect(sent).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("escapeSlackText", () => {
+  it("escapes the three characters Slack's mrkdwn treats as control characters", () => {
+    expect(escapeSlackText("a < b && c > d")).toBe("a &lt; b &amp;&amp; c &gt; d");
+  });
+
+  it("escapes & first so existing entities are not double-decoded", () => {
+    expect(escapeSlackText("&lt;!channel&gt;")).toBe("&amp;lt;!channel&amp;gt;");
+  });
+});
+
+describe("buildSlackAlert escaping", () => {
+  function findingsText(overrides: Partial<AlertFinding>) {
+    const message = buildSlackAlert({
+      repositoryFullName: "acme/widgets",
+      prNumber: 3,
+      findings: [finding(overrides)],
+    });
+    const blocks = message!.blocks as Array<{ type: string; text?: { text: string } }>;
+    return blocks[2]!.text!.text;
+  }
+
+  it("cannot be made to mention the whole channel by the code under review", () => {
+    const text = findingsText({
+      description: "Hardcoded token <!channel> please rotate",
+    });
+
+    expect(text).not.toContain("<!channel>");
+    expect(text).toContain("&lt;!channel&gt;");
+  });
+
+  it("cannot be made to render a spoofed link", () => {
+    const text = findingsText({
+      explanation: "Fix at <https://evil.example/login|github.com/acme/widgets>",
+    });
+
+    expect(text).not.toMatch(/<https:\/\/evil/);
+  });
+
+  it("escapes the finding type and file location too", () => {
+    const text = findingsText({ type: "XSS <script>", fileLocation: "src/a&b.tsx" });
+
+    expect(text).toContain("*XSS &lt;script&gt;*");
+    expect(text).toContain("`src/a&amp;b.tsx`");
+  });
+
+  it("keeps the PR link in the heading clickable", () => {
+    const message = buildSlackAlert({
+      repositoryFullName: "acme/widgets",
+      prNumber: 3,
+      findings: [finding()],
+    });
+
+    expect(JSON.stringify(message!.blocks)).toContain(
+      "<https://github.com/acme/widgets/pull/3|acme/widgets#3>",
+    );
   });
 });
 
