@@ -53,12 +53,33 @@ function makeRequest(id: string) {
   });
 }
 
+// Shaped like a real `Finding` row. The fixture used to carry a `description`,
+// which the table does not have, and that is what hid the route's invalid select.
 const FINDING = {
   id: "finding-1",
+  type: "VULNERABILITY",
   codeSnippet: "db.query('SELECT * FROM users WHERE id = ' + id)",
-  description: "SQL injection via string concatenation",
+  explanation: "SQL injection via string concatenation",
+  remediation: "Use a parameterized query.",
   fileLocation: "src/db.ts",
 };
+
+/** Every scalar column of `model Finding` in prisma/schema.prisma. */
+const FINDING_COLUMNS = [
+  "id",
+  "scanResultId",
+  "type",
+  "severity",
+  "fileLocation",
+  "lineStart",
+  "lineEnd",
+  "codeSnippet",
+  "explanation",
+  "remediation",
+  "promptInjectionSuspected",
+  "fingerprint",
+  "createdAt",
+];
 
 const PATCH = {
   id: "patch-1",
@@ -154,14 +175,38 @@ describe("POST /api/findings/[id]/remediate — field name fix", () => {
     );
   });
 
-  it("passes codeSnippet and description to the AI flow", async () => {
+  it("selects only columns that exist on Finding", async () => {
+    // Prisma rejects an unknown select key at runtime, before the query runs.
+    await POST(makeRequest("finding-1"), { params: Promise.resolve({ id: "finding-1" }) });
+
+    const { select } = mockFindFirst.mock.calls[0][0];
+    for (const key of Object.keys(select)) {
+      expect(FINDING_COLUMNS).toContain(key);
+    }
+  });
+
+  it("passes the code snippet and the stored explanation to the AI flow", async () => {
     await POST(makeRequest("finding-1"), { params: Promise.resolve({ id: "finding-1" }) });
 
     expect(generatePatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         vulnerableCode: FINDING.codeSnippet,
-        findingDescription: FINDING.description,
+        findingDescription: FINDING.explanation,
       }),
+    );
+  });
+
+  it("falls back to the remediation text, then the finding type, like the bulk route", async () => {
+    mockFindFirst.mockResolvedValueOnce({ ...FINDING, explanation: null });
+    await POST(makeRequest("finding-1"), { params: Promise.resolve({ id: "finding-1" }) });
+    expect(generatePatchMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ findingDescription: FINDING.remediation }),
+    );
+
+    mockFindFirst.mockResolvedValueOnce({ ...FINDING, explanation: null, remediation: null });
+    await POST(makeRequest("finding-1"), { params: Promise.resolve({ id: "finding-1" }) });
+    expect(generatePatchMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ findingDescription: "VULNERABILITY vulnerability" }),
     );
   });
 
