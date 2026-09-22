@@ -91,21 +91,27 @@ export function normalizeLocalAiUrl(rawUrl: string): string {
 
 /**
  * Checks whether an endpoint URL is local or private network to verify air-gapped data residency.
+ *
+ * The RFC 1918 prefixes only mean anything on an IPv4 literal: `10.example.com`
+ * and `192.168.attacker.net` are ordinary public hostnames. A URL that cannot be
+ * parsed cannot be shown to be local either, so it is not.
  */
 export function isAirGappedEndpoint(url: string): boolean {
   if (!url) return false;
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
+    const isIPv4Literal = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
     return (
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
       hostname === "0.0.0.0" ||
       hostname === "::1" ||
       hostname === "[::1]" ||
-      hostname.startsWith("10.") ||
-      hostname.startsWith("192.168.") ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+      (isIPv4Literal &&
+        (hostname.startsWith("10.") ||
+          hostname.startsWith("192.168.") ||
+          /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname))) ||
       hostname.endsWith(".local") ||
       hostname.endsWith(".internal") ||
       hostname.endsWith(".corp") ||
@@ -113,14 +119,7 @@ export function isAirGappedEndpoint(url: string): boolean {
       hostname.endsWith(".cluster.local")
     );
   } catch {
-    return (
-      url.includes("localhost") ||
-      url.includes("127.0.0.1") ||
-      url.includes("0.0.0.0") ||
-      url.includes("10.") ||
-      url.includes("192.168.") ||
-      url.endsWith(".local")
-    );
+    return false;
   }
 }
 
