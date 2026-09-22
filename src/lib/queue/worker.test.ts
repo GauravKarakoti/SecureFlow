@@ -277,8 +277,32 @@ describe("selectRepositoryList", () => {
 
   it("ignores unrelated events and actions", () => {
     expect(selectRepositoryList("pull_request", "opened", {}).intent).toBe("ignore");
-    expect(selectRepositoryList("installation", "deleted", {}).intent).toBe("ignore");
     expect(selectRepositoryList("installation_repositories", "weird", {}).intent).toBe("ignore");
+  });
+
+  it("deactivates an uninstalled or suspended installation's repositories", () => {
+    // Ignored before, so uninstalling the App left every repository active.
+    for (const action of ["deleted", "suspend"]) {
+      const result = selectRepositoryList("installation", action, {
+        repositories: [repo(5, "acme/api"), repo(6, "acme/web")],
+      });
+      expect(result.intent).toBe("remove");
+      expect(result.repositories.map((r) => r.full_name)).toEqual(["acme/api", "acme/web"]);
+    }
+  });
+
+  it("reactivates an unsuspended installation's repositories", () => {
+    const result = selectRepositoryList("installation", "unsuspend", {
+      repositories: [repo(5, "acme/api")],
+    });
+    expect(result.intent).toBe("add");
+    expect(result.repositories).toHaveLength(1);
+  });
+
+  it("ignores installation actions that do not change repository access", () => {
+    expect(selectRepositoryList("installation", "new_permissions_accepted", {}).intent).toBe(
+      "ignore",
+    );
   });
 
   it("drops malformed entries rather than passing them to BigInt()", () => {
