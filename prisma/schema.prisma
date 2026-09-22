@@ -356,6 +356,8 @@ model ScanJob {
   error                String?
   queuedAt             DateTime        @default(now())
   startedAt            DateTime?
+  processingToken      String?
+  leaseExpiresAt       DateTime?
   completedAt          DateTime?
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
