@@ -15,10 +15,57 @@ const PURL_ECOSYSTEM: Record<string, Dependency["ecosystem"]> = {
   gem: "gem",
 };
 
-function ecosystemFromPurl(purl: string): Dependency["ecosystem"] | null {
-  const match = purl.match(/^pkg:([^/]+)\//);
+interface PackageCoordinates {
+  ecosystem: Dependency["ecosystem"];
+  name: string;
+}
+
+function decodePurlSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * The package name as OSV knows it, for an ecosystem where a namespace is part
+ * of the name. npm scopes are `@scope/name` and Maven packages are
+ * `groupId:artifactId`; for PyPI and RubyGems the name stands alone.
+ */
+function qualifiedName(
+  ecosystem: Dependency["ecosystem"],
+  namespace: string,
+  name: string,
+): string {
+  if (!namespace) return name;
+  if (ecosystem === "maven") return `${namespace}:${name}`;
+  if (ecosystem === "npm") return `${namespace}/${name}`;
+  return name;
+}
+
+/**
+ * Ecosystem and OSV package name from a package URL
+ * (`pkg:type/namespace/name@version?qualifiers#subpath`).
+ *
+ * A CycloneDX component's `name` (and an SPDX package's) drops the namespace:
+ * `org.apache.logging.log4j:log4j-core` is `name: "log4j-core"` with the group
+ * in a separate field, and `@babel/core` is `name: "core"`. Querying OSV with
+ * the bare name finds nothing for the first and the wrong package for the
+ * second, so the purl, which carries the full coordinates, is preferred.
+ */
+function coordinatesFromPurl(purl: string): PackageCoordinates | null {
+  const match = purl.match(/^pkg:([^/]+)\/([^@?#]+)/);
   if (!match) return null;
-  return PURL_ECOSYSTEM[match[1].toLowerCase()] ?? null;
+
+  const ecosystem = PURL_ECOSYSTEM[match[1]!.toLowerCase()];
+  if (!ecosystem) return null;
+
+  const segments = match[2]!.split("/").filter(Boolean).map(decodePurlSegment);
+  const name = segments.pop();
+  if (!name) return null;
+
+  return { ecosystem, name: qualifiedName(ecosystem, segments.join("/"), name) };
 }
 
 function isCycloneDx(doc: Record<string, unknown>): boolean {
@@ -55,7 +102,7 @@ function parseCycloneDxComponents(
       continue;
     }
 
-    const name = c.name.trim();
+    let name = c.name.trim();
     let version = "unknown";
     if (typeof c.version === "string" && c.version.trim() !== "") {
       version = c.version.trim();
@@ -64,11 +111,12 @@ function parseCycloneDxComponents(
     }
 
     let ecosystem: Dependency["ecosystem"] = "npm";
-    if (typeof c.purl === "string") {
-      const detected = ecosystemFromPurl(c.purl);
-      if (detected) {
-        ecosystem = detected;
-      }
+    const fromPurl = typeof c.purl === "string" ? coordinatesFromPurl(c.purl) : null;
+    if (fromPurl) {
+      ({ ecosystem, name } = fromPurl);
+    } else if (typeof c.group === "string" && c.group.trim() !== "") {
+      // No usable purl: CycloneDX carries the npm scope or Maven groupId here.
+      name = qualifiedName(ecosystem, c.group.trim(), name);
     }
 
     dependencies.push({ name, version, manifestFile: fileName, ecosystem });
@@ -103,7 +151,7 @@ function parseSpdxPackages(
       continue;
     }
 
-    const name = p.name.trim();
+    let name = p.name.trim();
     let version = "unknown";
     if (typeof p.versionInfo === "string" && p.versionInfo.trim() !== "") {
       version = p.versionInfo.trim();
@@ -122,9 +170,9 @@ function parseSpdxPackages(
         ) {
           const locator = (ref as Record<string, unknown>).referenceLocator as string;
           if (locator.startsWith("pkg:")) {
-            const detected = ecosystemFromPurl(locator);
+            const detected = coordinatesFromPurl(locator);
             if (detected) {
-              ecosystem = detected;
+              ({ ecosystem, name } = detected);
               break;
             }
           }

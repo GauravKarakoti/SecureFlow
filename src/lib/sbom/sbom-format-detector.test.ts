@@ -187,6 +187,55 @@ describe("detectAndParseSbom", () => {
       expect(result!.dependencies[3].ecosystem).toBe("npm");
     });
 
+    it("keeps the Maven groupId and npm scope that OSV needs in the package name", () => {
+      const doc = {
+        bomFormat: "CycloneDX",
+        specVersion: "1.5",
+        components: [
+          {
+            group: "org.apache.logging.log4j",
+            name: "log4j-core",
+            version: "2.14.1",
+            purl: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+          },
+          {
+            group: "@babel",
+            name: "core",
+            version: "7.22.0",
+            purl: "pkg:npm/%40babel/core@7.22.0",
+          },
+          {
+            name: "guava",
+            version: "31.1",
+            purl: "pkg:maven/com.google.guava/guava@31.1?type=jar",
+          },
+        ],
+      };
+
+      const result = detectAndParseSbom(doc, "bom.json");
+
+      expect(result!.dependencies.map((d) => [d.ecosystem, d.name])).toEqual([
+        ["maven", "org.apache.logging.log4j:log4j-core"],
+        ["npm", "@babel/core"],
+        ["maven", "com.google.guava:guava"],
+      ]);
+    });
+
+    it("falls back to the group field when there is no purl", () => {
+      const doc = {
+        bomFormat: "CycloneDX",
+        specVersion: "1.5",
+        components: [
+          { group: "@types", name: "node", version: "20.0.0" },
+          { name: "left-pad", version: "1.3.0" },
+        ],
+      };
+
+      const result = detectAndParseSbom(doc, "bom.json");
+
+      expect(result!.dependencies.map((d) => d.name)).toEqual(["@types/node", "left-pad"]);
+    });
+
     it("is case-insensitive on bomFormat value", () => {
       const doc = {
         bomFormat: "cyclonedx",
@@ -310,6 +359,7 @@ describe("detectAndParseSbom", () => {
 
       const result = detectAndParseSbom(doc, "sbom.json");
       expect(result!.dependencies[0].ecosystem).toBe("maven");
+      expect(result!.dependencies[0].name).toBe("com.google.guava:guava");
     });
   });
 
