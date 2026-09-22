@@ -348,6 +348,28 @@ export interface FindingsWhereContext {
 }
 
 /**
+ * Group triaged fingerprints by status so the status filter can resolve to a
+ * fingerprint set. Triage keys off the fingerprint, not `Finding.id`, so this
+ * cannot be a relational include.
+ *
+ * `byKey` is `getUserTriage`'s `${repositoryId}:${fingerprint}` map. Shared by
+ * the findings page and `/api/findings/export`, so the two filter identically.
+ */
+export function groupFingerprintsByStatus(
+  byKey: ReadonlyMap<string, { status: string }>,
+): Partial<Record<FindingStatus, string[]>> {
+  const grouped: Partial<Record<FindingStatus, string[]>> = {};
+
+  for (const [key, entry] of byKey) {
+    const fingerprint = key.slice(key.indexOf(":") + 1);
+    const status = entry.status as FindingStatus;
+    (grouped[status] ??= []).push(fingerprint);
+  }
+
+  return grouped;
+}
+
+/**
  * Build the Prisma `where` clause.
  *
  * Used by **both** the list query and every count, which is the point: the two
