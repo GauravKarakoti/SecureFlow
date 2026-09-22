@@ -55,10 +55,18 @@ const handler = withErrorHandler(async function POST(
         },
       },
     },
+    // Only columns `Finding` has. This selected `description`, which is a field
+    // of the scanner's in-memory finding but not of the table, and Prisma rejects
+    // an unknown select key at runtime ("Unknown field `description` for select
+    // statement on model `Finding`") before the query is even sent — so every
+    // request failed with a 500 and no patch was ever generated. The typed
+    // client does not catch it, which is how it survived.
     select: {
       id: true,
+      type: true,
       codeSnippet: true,
-      description: true,
+      explanation: true,
+      remediation: true,
       fileLocation: true,
     },
   });
@@ -69,7 +77,9 @@ const handler = withErrorHandler(async function POST(
 
   const aiResult = await generateRemediationPatchFlow({
     vulnerableCode: finding.codeSnippet || "",
-    findingDescription: finding.description,
+    // The same fallback chain as /api/findings/bulk-remediate.
+    findingDescription:
+      finding.explanation || finding.remediation || `${finding.type} vulnerability`,
     // Fixed: was `finding.filePath` which does not exist on the Prisma model.
     // The correct field is `fileLocation`.
     filePath: finding.fileLocation,
