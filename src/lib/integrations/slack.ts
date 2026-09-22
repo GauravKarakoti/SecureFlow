@@ -87,6 +87,20 @@ export function pullRequestUrl(repositoryFullName: string, prNumber: number): st
 }
 
 /**
+ * Escape text for a Slack `mrkdwn` field.
+ *
+ * Slack parses `<…>` as a control sequence: links (`<https://x|label>`),
+ * channel-wide mentions (`<!channel>`, `<!here>`) and user mentions
+ * (`<@U123>`). Its formatting reference requires `&`, `<` and `>` to be
+ * escaped wherever text is meant to be shown literally. Finding text comes from
+ * the pull request under review, so without this the PR author decides what the
+ * alert pings and links to.
+ */
+export function escapeSlackText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
  * One masked, length-bounded summary line for a finding.
  *
  * The masked explanation is used when the enrichment step produced one; the raw
@@ -98,7 +112,7 @@ function summariseFinding(finding: AlertFinding): string {
   const masked = maskFindingText(raw).replace(/\s+/g, " ").trim();
   const clipped =
     masked.length > MAX_SUMMARY_LENGTH ? `${masked.slice(0, MAX_SUMMARY_LENGTH - 1)}…` : masked;
-  return clipped || "No description provided.";
+  return clipped ? escapeSlackText(clipped) : "No description provided.";
 }
 
 /**
@@ -163,7 +177,7 @@ export function buildSlackAlert(args: BuildSlackAlertArgs): SlackMessage | null 
   const listed = flagged.slice(0, MAX_LISTED_FINDINGS);
   const findingLines = listed.map(
     (f) =>
-      `${severityBadge(f.severity)} *${f.type}* in \`${f.fileLocation}\`\n${summariseFinding(f)}`,
+      `${severityBadge(f.severity)} *${escapeSlackText(f.type)}* in \`${escapeSlackText(f.fileLocation)}\`\n${summariseFinding(f)}`,
   );
 
   const overflow = flagged.length - listed.length;
