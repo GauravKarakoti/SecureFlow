@@ -7,12 +7,29 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let mockChunks: string[] = [];
 let mockFinalText = "Bella ciao, accomplice. The vault is sealed.";
 let mockGenerateStreamThrows = false;
+// Errors thrown when the stream is first pulled, one per call, like a real
+// provider failure surfacing through Genkit's stream rather than the call.
+let mockPullErrors: Error[] = [];
+let mockGenerateStreamCalls = 0;
 
 vi.mock("@/ai/genkit", () => ({
   ai: {
     generateStream: () => {
+      mockGenerateStreamCalls++;
       if (mockGenerateStreamThrows) {
         throw new Error("simulated model failure");
+      }
+      const pullError = mockPullErrors.shift();
+      if (pullError) {
+        const response = Promise.reject(pullError);
+        response.catch(() => {});
+        return {
+          stream: (async function* () {
+            yield* [];
+            throw pullError;
+          })(),
+          response,
+        };
       }
       return {
         stream: (async function* () {
@@ -62,6 +79,8 @@ describe("streamHeistMessage", () => {
     mockChunks = [];
     mockFinalText = "Bella ciao, accomplice. The vault is sealed.";
     mockGenerateStreamThrows = false;
+    mockPullErrors = [];
+    mockGenerateStreamCalls = 0;
   });
 
   // ── Streaming chunks ────────────────────────────────────────────────────────
@@ -145,6 +164,41 @@ describe("streamHeistMessage", () => {
     if (events[0].type === "error") {
       expect(events[0].message).toContain("simulated model failure");
     }
+  });
+
+  it("retries when the provider rate-limits the stream before the first chunk", async () => {
+    mockPullErrors = [Object.assign(new Error("429 Too Many Requests"), { status: 429 })];
+    mockChunks = ["Bella ", "ciao."];
+    mockFinalText = "Bella ciao.";
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "done", message: "Bella ciao." });
+  });
+
+  it("reports the rate limit once retries are exhausted", async () => {
+    const rateLimited = () => Object.assign(new Error("429 Too Many Requests"), { status: 429 });
+    mockPullErrors = [rateLimited(), rateLimited(), rateLimited(), rateLimited()];
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(4);
+    expect(events).toEqual([
+      {
+        type: "error",
+        message: "Groq API rate limit reached (429). Falling back to default heist transmission.",
+      },
+    ]);
+  });
+
+  it("does not retry a non-retryable stream failure", async () => {
+    mockPullErrors = [new Error("invalid api key")];
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(1);
+    expect(events).toEqual([{ type: "error", message: "invalid api key" }]);
   });
 
   it("yields an error event for invalid input (missing projectName)", async () => {
