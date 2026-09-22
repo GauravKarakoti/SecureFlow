@@ -271,6 +271,27 @@ describe("aggregateContributors", () => {
     expect(karakotiRow?.codename).toBe("Tokyo");
   });
 
+  it("gives a login its owner's codename even when another user's name alias comes first", async () => {
+    seed({
+      prs: [
+        { authorLogin: "alice", status: "PASS", createdAt: day(1) },
+        { authorLogin: "bob", status: "PASS", createdAt: day(1) },
+      ],
+      codenames: [
+        // Listed first, and their display name / email prefix collide with
+        // other users' GitHub logins.
+        { githubLogin: "carol", name: "Alice", email: "x@example.com", codename: "Tokyo" },
+        { githubLogin: "dave", name: null, email: "bob@example.com", codename: "Oslo" },
+        { githubLogin: "alice", name: null, email: null, codename: "Delhi" },
+        { githubLogin: "Bob", name: null, email: null, codename: "Lisbon" },
+      ],
+    });
+
+    const rows = await loadContributors();
+    expect(rows.find((r) => r.login === "alice")?.codename).toBe("Delhi");
+    expect(rows.find((r) => r.login === "bob")?.codename).toBe("Lisbon");
+  });
+
   it("breaks score ties deterministically by merges then login", async () => {
     seed({
       prs: [
