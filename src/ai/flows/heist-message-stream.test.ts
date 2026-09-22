@@ -11,11 +11,15 @@ let mockGenerateStreamThrows = false;
 // provider failure surfacing through Genkit's stream rather than the call.
 let mockPullErrors: Error[] = [];
 let mockGenerateStreamCalls = 0;
+// Local-model mode (LOCAL_AI_URL set) and the instance/model each call used.
+let mockLocalMode = false;
+let mockLastCall: { instance: "cloud" | "local"; model: unknown } | null = null;
 
-vi.mock("@/ai/genkit", () => ({
-  ai: {
-    generateStream: () => {
+vi.mock("@/ai/genkit", () => {
+  const ai = {
+    generateStream: (options: { model?: unknown }) => {
       mockGenerateStreamCalls++;
+      mockLastCall = { instance: "cloud", model: options?.model };
       if (mockGenerateStreamThrows) {
         throw new Error("simulated model failure");
       }
@@ -40,10 +44,27 @@ vi.mock("@/ai/genkit", () => ({
         response: Promise.resolve({ text: mockFinalText }),
       };
     },
-  },
-  // Replace `defaultModel` with `DEFAULT_SECURITY_CONFIG`
-  DEFAULT_SECURITY_CONFIG: { modelName: "mock-model" },
-}));
+  };
+  const localAi = {
+    generateStream: (options: { model?: unknown }) => {
+      mockGenerateStreamCalls++;
+      mockLastCall = { instance: "local", model: options?.model };
+      return {
+        stream: (async function* () {
+          yield { text: "Local transmission." };
+        })(),
+        response: Promise.resolve({ text: "Local transmission." }),
+      };
+    },
+  };
+  return {
+    ai,
+    getAiInstance: () => (mockLocalMode ? localAi : ai),
+    isLocalModelEnabled: () => mockLocalMode,
+    getDefaultModelRef: () => (mockLocalMode ? "openai/llama3.1" : "groq-pinned-ref"),
+    DEFAULT_SECURITY_CONFIG: { modelName: "mock-model" },
+  };
+});
 
 vi.mock("dotenv/config", () => ({}));
 
@@ -81,6 +102,31 @@ describe("streamHeistMessage", () => {
     mockGenerateStreamThrows = false;
     mockPullErrors = [];
     mockGenerateStreamCalls = 0;
+    mockLocalMode = false;
+    mockLastCall = null;
+  });
+
+  // ── Model routing ───────────────────────────────────────────────────────────
+
+  it("uses the Groq instance and GROQ_MODEL-derived model in cloud mode", async () => {
+    mockChunks = ["Bella ciao."];
+    await collectEvents(baseInput);
+    expect(mockLastCall).toEqual({ instance: "cloud", model: "mock-model" });
+  });
+
+  it("routes to the local model when LOCAL_AI_URL is configured", async () => {
+    // It used to call the Groq-backed `ai` unconditionally, so a local-model
+    // deployment failed every transmission and always served the fallback.
+    mockLocalMode = true;
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockLastCall).toEqual({ instance: "local", model: "openai/llama3.1" });
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      message: "Local transmission.",
+      guarded: false,
+    });
   });
 
   // ── Streaming chunks ────────────────────────────────────────────────────────

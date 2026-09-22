@@ -1,6 +1,11 @@
 import "dotenv/config";
 import { z } from "zod";
-import { ai, DEFAULT_SECURITY_CONFIG } from "@/ai/genkit";
+import {
+  DEFAULT_SECURITY_CONFIG,
+  getAiInstance,
+  getDefaultModelRef,
+  isLocalModelEnabled,
+} from "@/ai/genkit";
 import { isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
 import {
   DEFAULT_PROJECT_NAME,
@@ -152,15 +157,22 @@ export async function* streamHeistMessage(
 
   const prompt = buildPrompt(guardedInput);
 
+  // Resolved per request, like every other flow, so `LOCAL_AI_URL` is honoured.
+  // This flow imported the Groq-backed `ai` directly, so a local-model
+  // deployment (no Groq key, or no route to Groq at all) failed every
+  // transmission and always served the static fallback. The cloud path keeps
+  // `DEFAULT_SECURITY_CONFIG.modelName`, which follows `GROQ_MODEL`.
+  const activeAi = getAiInstance();
+  const model = isLocalModelEnabled() ? getDefaultModelRef() : DEFAULT_SECURITY_CONFIG.modelName;
+
   try {
     const { iterator, first, response } = await withRetry(
       async () => {
         // Genkit's generateStream() returns synchronously and only reports
         // provider failures (429, timeouts) through the stream and `response`.
         // Pull the first chunk here so those failures reach withRetry.
-        const { stream, response } = ai.generateStream({
-          // Replace `defaultModel` with the property from the config
-          model: DEFAULT_SECURITY_CONFIG.modelName,
+        const { stream, response } = activeAi.generateStream({
+          model: model as any,
           system: SYSTEM_PROMPT,
           prompt,
           ...(signal ? { abortSignal: signal } : {}),
