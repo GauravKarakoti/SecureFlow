@@ -621,7 +621,13 @@ describe("AI finding severity filtering", () => {
 // ---------------------------------------------------------------------------
 
 describe("--severity and --fail-on combined", () => {
-  const aiFindings = [
+  const aiFindings: {
+    severity: Severity;
+    type: string;
+    description: string;
+    fileLocation: string;
+    lineStart: number;
+  }[] = [
     { severity: "CRITICAL", type: "a", description: "a", fileLocation: "a.ts", lineStart: 1 },
     { severity: "HIGH", type: "b", description: "b", fileLocation: "b.ts", lineStart: 2 },
     { severity: "MEDIUM", type: "c", description: "c", fileLocation: "c.ts", lineStart: 3 },
