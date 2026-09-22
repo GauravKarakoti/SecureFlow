@@ -68,13 +68,25 @@ export interface LocalModelConfig {
  *
  * Handles bare domains/ports (e.g. `http://localhost:11434` -> `http://localhost:11434/v1`)
  * and removes accidental trailing slashes.
+ *
+ * A URL that already has a path is the caller's chosen API base and is kept.
+ * Custom OpenAI-compatible gateways do not all end in `/v1`
+ * (`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/openai`,
+ * `https://generativelanguage.googleapis.com/v1beta/openai`), and appending
+ * one sends every request to a path that does not exist.
  */
 export function normalizeLocalAiUrl(rawUrl: string): string {
-  let url = rawUrl.trim().replace(/\/+$/, "");
-  if (!url.endsWith("/v1")) {
-    url = `${url}/v1`;
+  const url = rawUrl.trim().replace(/\/+$/, "");
+
+  let hasPath: boolean;
+  try {
+    hasPath = new URL(url).pathname !== "/";
+  } catch {
+    // Not a parseable absolute URL: keep the old behaviour.
+    hasPath = url.endsWith("/v1");
   }
-  return url;
+
+  return hasPath ? url : `${url}/v1`;
 }
 
 /**

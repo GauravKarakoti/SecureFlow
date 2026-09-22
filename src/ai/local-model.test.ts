@@ -55,6 +55,32 @@ describe("normalizeLocalAiUrl", () => {
     expect(normalizeLocalAiUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
     expect(normalizeLocalAiUrl("http://localhost:8000/v1")).toBe("http://localhost:8000/v1");
   });
+
+  it("keeps a custom endpoint's own API path instead of appending /v1 to it", () => {
+    expect(normalizeLocalAiUrl("https://gateway.ai.cloudflare.com/v1/acct/gw/openai")).toBe(
+      "https://gateway.ai.cloudflare.com/v1/acct/gw/openai",
+    );
+    expect(normalizeLocalAiUrl("https://generativelanguage.googleapis.com/v1beta/openai/")).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/openai",
+    );
+    expect(normalizeLocalAiUrl("http://llm.corp.internal:8080/api/v2")).toBe(
+      "http://llm.corp.internal:8080/api/v2",
+    );
+  });
+
+  it("still appends /v1 to a bare host, ignoring whitespace and trailing slashes", () => {
+    expect(normalizeLocalAiUrl("  https://llm.corp.internal///  ")).toBe(
+      "https://llm.corp.internal/v1",
+    );
+  });
+
+  it("uses the configured custom path end to end via LOCAL_AI_URL", () => {
+    const config = resolveLocalModelConfig({
+      LOCAL_AI_URL: "https://gateway.ai.cloudflare.com/v1/acct/gw/openai",
+    });
+
+    expect(config?.baseUrl).toBe("https://gateway.ai.cloudflare.com/v1/acct/gw/openai");
+  });
 });
 
 // ---------------------------------------------------------------------------
