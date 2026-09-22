@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal } from "lucide-react";
+import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { downloadCSV } from "@/lib/utils/exportCsv";
 import {
   Accordion,
   AccordionContent,
@@ -60,6 +62,25 @@ export default function FindingsClient({
   // finding resolves to a (repositoryId, fingerprint) target for the action.
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Export the currently loaded findings as CSV, reusing the same
+  // formula-injection-safe serializer the audit log uses.
+  const handleExportCsv = () => {
+    const rows = findings.map((f) => ({
+      severity: f.severity,
+      type: f.type,
+      file: f.fileLocation,
+      lineStart: f.lineStart ?? "",
+      lineEnd: f.lineEnd ?? "",
+      repository: f.repositoryFullName,
+      pullRequest: f.pullRequestNumber,
+      status: f.triageStatus,
+      remediation: f.remediation ?? "",
+      createdAt: new Date(f.createdAt).toISOString(),
+    }));
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(rows, `secureflow-findings-${dateStamp}.csv`);
+  };
 
   // Only findings that carry both a repositoryId and a fingerprint can be
   // triaged, so those are the only ones selectable.
@@ -168,11 +189,24 @@ export default function FindingsClient({
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Recent Findings</CardTitle>
 
-          <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-            {/* The filtered total, not findings.length -- which was the page size and
-                read "50 Findings" on every account with more than fifty. */}
-            {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={findings.length === 0}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+
+            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+              {/* The filtered total, not findings.length -- which was the page size and
+                  read "50 Findings" on every account with more than fifty. */}
+              {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
+            </Badge>
+          </div>
         </CardHeader>
 
         <CardContent className="min-h-[520px]">
