@@ -36,6 +36,7 @@ import {
 } from "@/lib/finding-taxonomy";
 import { sanitizeLogValue } from "@/lib/logger";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -287,6 +288,18 @@ export function assertPullRequestContext(payload: {
  * the same walk in `@/lib/armor/diff`, which makes the disagreement structurally
  * impossible rather than fixed-for-now.
  */
+/**
+ * AI explanations requested at once for one pull request.
+ *
+ * Enrichment used `Promise.all(activeFindings.map(...))`, so a PR with forty
+ * findings opened forty simultaneous completions against Groq. That is the
+ * burst its per-minute limits reject; `withRetry` backs off, but every call is
+ * retrying against the same limit at the same moment, and once the retries run
+ * out the finding is stored — and posted on the PR — with the canned
+ * "Groq API rate limit reached (429)" text in place of an explanation.
+ */
+export const AI_EXPLANATION_CONCURRENCY = 3;
+
 export function getCommentableLines(patch: string): Set<number> {
   return commentableLineNumbers(parseUnifiedPatch(patch));
 }
@@ -709,8 +722,10 @@ export const worker = new Worker<WebhookJobData>(
         // Enrich and post ONLY the active findings: a finding the user dismissed
         // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
         // spend) nor re-posted as a PR comment on every re-scan.
-        const enrichedFindings = await Promise.all(
-          activeFindings.map(async (finding: any) => {
+        const enrichedFindings = await mapWithConcurrency(
+          activeFindings,
+          AI_EXPLANATION_CONCURRENCY,
+          async (finding: any) => {
             const aiResponse = await developerReceivesAISecurityExplanations({
               findingType: finding.type,
               severity: finding.severity,
@@ -733,7 +748,7 @@ export const worker = new Worker<WebhookJobData>(
               // and dashboard so reviewers are warned when the AI narrative may be unreliable.
               promptInjectionSuspected: aiResponse.promptInjectionSuspected,
             };
-          }),
+          },
         );
 
         // The full list is still persisted (active + dismissed) so the dashboard
