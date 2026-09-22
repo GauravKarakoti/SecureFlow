@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockContributors = [
@@ -64,6 +64,11 @@ describe("GET /api/leaderboard", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+    resetLeaderboardBroadcaster();
+  });
+
   it("returns standard JSON data when stream query param is not set", async () => {
     const req = new NextRequest("http://localhost:9002/api/leaderboard");
     const res = await GET(req);
@@ -93,6 +98,54 @@ describe("GET /api/leaderboard", () => {
     const res = await GET(req);
 
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+  });
+
+  it("does not start a heartbeat if the client disconnects during the initial load", async () => {
+    vi.useFakeTimers();
+    resetLeaderboardBroadcaster();
+
+    type LeaderboardResult = Awaited<ReturnType<typeof loadLeaderboard>>;
+
+    let resolveLeaderboard!: (value: LeaderboardResult) => void;
+
+    const pendingLeaderboard = new Promise<LeaderboardResult>((resolve) => {
+      resolveLeaderboard = resolve;
+    });
+
+    vi.mocked(loadLeaderboard).mockReturnValue(pendingLeaderboard);
+
+    const abortController = new AbortController();
+
+    const req = new NextRequest("http://localhost:9002/api/leaderboard?stream=true", {
+      signal: abortController.signal,
+    });
+
+    const res = await GET(req);
+
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+
+    // Allow start() to begin the initial refresh.
+    await Promise.resolve();
+
+    // The broadcaster starts one shared polling timer.
+    expect(vi.getTimerCount()).toBe(1);
+
+    // Disconnect while the initial leaderboard load is still pending.
+    abortController.abort();
+
+    // Teardown should clear the broadcaster's polling timer.
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Resolve the initial load after the client has disconnected.
+    resolveLeaderboard([] as LeaderboardResult);
+
+    // Allow the pending refresh and stream start() to resume.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No heartbeat should be created after teardown.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   describe("when the leaderboard cannot be loaded", () => {
