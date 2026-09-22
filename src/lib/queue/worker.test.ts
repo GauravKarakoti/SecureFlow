@@ -44,6 +44,7 @@ import {
   assertPullRequestContext,
   getCommentableLines,
   getGitHubAppCredentials,
+  repositoryIdentity,
   selectRepositoryList,
   shouldScanPullRequestManifests,
   truncateForError,
@@ -227,6 +228,34 @@ describe("getCommentableLines (diff-position guard)", () => {
   it("returns an empty set for a patch with only removed lines", () => {
     const patch = ["@@ -5,2 +5,0 @@", "-gone one", "-gone two"].join("\n");
     expect(getCommentableLines(patch).size).toBe(0);
+  });
+});
+
+describe("repositoryIdentity", () => {
+  it("takes the current name and owner from the delivery", () => {
+    // A rename or transfer keeps the numeric id, so the row is found by githubId
+    // and must pick up the new name rather than keep the one it was created with.
+    expect(
+      repositoryIdentity({ full_name: "new-org/renamed", owner: { login: "new-org" } }),
+    ).toEqual({ fullName: "new-org/renamed", owner: "new-org" });
+  });
+
+  it("falls back to the owner segment of full_name when owner.login is missing", () => {
+    expect(repositoryIdentity({ full_name: "acme/api" })).toEqual({
+      fullName: "acme/api",
+      owner: "acme",
+    });
+    expect(repositoryIdentity({ full_name: "acme/api", owner: { login: "" } }).owner).toBe("acme");
+    expect(repositoryIdentity({ full_name: "acme/api", owner: "not-an-object" }).owner).toBe(
+      "acme",
+    );
+  });
+
+  it("never includes userId", () => {
+    expect(Object.keys(repositoryIdentity({ full_name: "acme/api" }))).toEqual([
+      "fullName",
+      "owner",
+    ]);
   });
 });
 

@@ -201,6 +201,32 @@ export function selectRepositoryList(
   return { intent: "ignore", repositories: [] };
 }
 
+/**
+ * The name and owner a repository row should carry, from a webhook's repository.
+ *
+ * GitHub keeps a repository's numeric id across a rename or a transfer, so the
+ * row is found by `githubId` either way — but the webhook paths only ever wrote
+ * the name on create. Their upserts updated `isActive` alone and the PR path
+ * never updated the row at all, so a renamed or transferred repository kept its
+ * old `fullName` on the dashboard, in analytics, in audit rows and in every
+ * scan's `repositoryFullName` until someone happened to run a manual sync
+ * (`sync-user-repos.ts` already refreshes both fields). `userId` is
+ * deliberately not part of this, for the reason given there (#657).
+ */
+export function repositoryIdentity(repo: { full_name: string; owner?: unknown }): {
+  fullName: string;
+  owner: string;
+} {
+  const login =
+    repo.owner && typeof repo.owner === "object"
+      ? (repo.owner as { login?: unknown }).login
+      : undefined;
+  return {
+    fullName: repo.full_name,
+    owner: typeof login === "string" && login !== "" ? login : repo.full_name.split("/")[0]!,
+  };
+}
+
 export interface PullRequestContext {
   pullRequest: Record<string, any>;
   repository: Record<string, any>;
@@ -407,11 +433,10 @@ export const worker = new Worker<WebhookJobData>(
           ...repoSelection.repositories.map((repo) =>
             prisma.repository.upsert({
               where: { githubId: BigInt(repo.id) },
-              update: { isActive: true },
+              update: { isActive: true, ...repositoryIdentity(repo) },
               create: {
                 githubId: BigInt(repo.id),
-                fullName: repo.full_name,
-                owner: repo.full_name.split("/")[0],
+                ...repositoryIdentity(repo),
                 userId: account.userId,
               },
             }),
@@ -473,11 +498,10 @@ export const worker = new Worker<WebhookJobData>(
           ...repoSelection.repositories.map((repo) =>
             prisma.repository.upsert({
               where: { githubId: BigInt(repo.id) },
-              update: { isActive: true },
+              update: { isActive: true, ...repositoryIdentity(repo) },
               create: {
                 githubId: BigInt(repo.id),
-                fullName: repo.full_name,
-                owner: repo.full_name.split("/")[0],
+                ...repositoryIdentity(repo),
                 userId: account.userId,
               },
             }),
@@ -572,6 +596,16 @@ export const worker = new Worker<WebhookJobData>(
             console.log(
               `[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`,
             );
+          }
+        }
+
+        if (dbRepo) {
+          const identity = repositoryIdentity(repository);
+          if (dbRepo.fullName !== identity.fullName || dbRepo.owner !== identity.owner) {
+            dbRepo = await prisma.repository.update({
+              where: { id: dbRepo.id },
+              data: identity,
+            });
           }
         }
 
