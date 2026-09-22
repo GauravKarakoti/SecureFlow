@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  MAX_LISTED_UNDIFFED_FILES,
+  undiffedFiles,
   DEFAULT_MAX_PR_FILES,
   PR_FILES_PAGE_SIZE,
   fetchPullRequestFiles,
@@ -236,5 +238,88 @@ describe("formatCoverageNotice", () => {
 
     expect(notice).toContain("300");
     expect(notice).toContain("not");
+  });
+});
+
+describe("files GitHub returned without a diff", () => {
+  const file = (filename: string, overrides: Partial<PullRequestFile> = {}): PullRequestFile => ({
+    filename,
+    status: "modified",
+    patch: "@@ -1 +1 @@\n+x",
+    ...overrides,
+  });
+
+  it("lists changed text files that came back without a patch", () => {
+    expect(
+      undiffedFiles([
+        file("src/app.ts"),
+        file("lib/vendor-bundle.js", { patch: undefined }),
+        file("config/huge.json", { patch: "" }),
+      ]),
+    ).toEqual(["lib/vendor-bundle.js", "config/huge.json"]);
+  });
+
+  it("leaves out removed files and files the scanner ignores anyway", () => {
+    expect(
+      undiffedFiles([
+        file("src/old.ts", { status: "removed", patch: undefined }),
+        file("public/logo.png", { patch: undefined }),
+        file("package-lock.json", { patch: undefined }),
+        file("node_modules/pkg/index.js", { patch: undefined }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("warns about them even when the file list was not truncated", () => {
+    // These used to be dropped silently, and the report still read "No
+    // vulnerabilities found in the N analyzed files".
+    const notice = formatCoverageNotice({
+      files: [file("src/app.ts"), file("vendor/sdk.js", { patch: undefined })],
+      fetched: 2,
+      truncated: false,
+      totalChanged: 2,
+    });
+
+    expect(notice).toContain("1 changed file(s) were **not** analysed");
+    expect(notice).toContain("`vendor/sdk.js`");
+  });
+
+  it("caps the listed names and says how many more there are", () => {
+    const many = Array.from({ length: MAX_LISTED_UNDIFFED_FILES + 3 }, (_, i) =>
+      file(`gen/file-${i}.js`, { patch: undefined }),
+    );
+    const notice = formatCoverageNotice({
+      files: many,
+      fetched: many.length,
+      truncated: false,
+      totalChanged: many.length,
+    })!;
+
+    expect(notice).toContain(`${many.length} changed file(s)`);
+    expect(notice).toContain("and 3 more");
+    expect(notice).not.toContain(`gen/file-${MAX_LISTED_UNDIFFED_FILES}.js`);
+  });
+
+  it("combines with the truncation notice", () => {
+    const notice = formatCoverageNotice({
+      files: [file("big.sql", { patch: undefined })],
+      fetched: 300,
+      truncated: true,
+      totalChanged: 412,
+    })!;
+
+    expect(notice).toContain("300 of 412");
+    expect(notice).toContain("`big.sql`");
+    expect(notice.split("\n\n")).toHaveLength(2);
+  });
+
+  it("keeps a backtick in a file name from breaking the code span", () => {
+    const notice = formatCoverageNotice({
+      files: [file("odd`name.js", { patch: undefined })],
+      fetched: 1,
+      truncated: false,
+      totalChanged: 1,
+    });
+    expect(notice).toContain("`odd'name.js`");
   });
 });

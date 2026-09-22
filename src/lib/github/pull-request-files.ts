@@ -9,6 +9,8 @@
  * PASS rather than a cosmetic truncation.
  */
 
+import { ignoreReasonFor } from "@/lib/armor/ignore-rules";
+
 /** GitHub's maximum page size for this endpoint. */
 export const PR_FILES_PAGE_SIZE = 100;
 
@@ -125,19 +127,72 @@ export async function fetchPullRequestFiles(
   };
 }
 
+/** Most file names listed in the notice before it says "and N more". */
+export const MAX_LISTED_UNDIFFED_FILES = 10;
+
+/**
+ * Changed files the scan could not read: GitHub returned them without a
+ * `patch`.
+ *
+ * GitHub omits the patch for a binary file and for a text diff too large to
+ * display (a big generated or minified file, a vendored bundle). The worker only
+ * scans files that carry a patch, so these were dropped without a word — the
+ * report still read "No vulnerabilities found in the N analyzed files", with N
+ * quietly smaller than the number of files changed, and a credential pasted
+ * into a large file never surfaced at all.
+ *
+ * Removed files are excluded (there is nothing left to scan), and so are files
+ * the scanner ignores anyway (images, archives, lockfiles, `node_modules/`…),
+ * which would otherwise make every notice noise.
+ */
+export function undiffedFiles(files: readonly PullRequestFile[]): string[] {
+  return files
+    .filter(
+      (file) =>
+        file.status !== "removed" &&
+        (typeof file.patch !== "string" || file.patch === "") &&
+        ignoreReasonFor(file.filename) === null,
+    )
+    .map((file) => file.filename);
+}
+
 /**
  * Human-readable coverage line for the PR comment and the check run output.
  *
- * Returns null when the whole PR was analysed, so callers can omit the line
- * entirely rather than printing a reassurance nobody needs.
+ * Covers both ways a scan can see less than the whole pull request: the file
+ * list was truncated, or GitHub returned some files without a diff. Returns null
+ * when the whole PR was analysed, so callers can omit the line entirely rather
+ * than printing a reassurance nobody needs.
  */
 export function formatCoverageNotice(result: PullRequestFilesResult): string | null {
-  if (!result.truncated) return null;
+  const notices: string[] = [];
 
-  const total = result.totalChanged;
-  const scope = total === null ? "the first" : `${result.fetched} of ${total}`;
+  if (result.truncated) {
+    const total = result.totalChanged;
+    const scope = total === null ? "the first" : `${result.fetched} of ${total}`;
 
-  return total === null
-    ? `⚠️ This pull request changed more files than SecureFlow analyses in a single scan. Only ${scope} ${result.fetched} files were reviewed — findings in the remaining files are **not** reflected below.`
-    : `⚠️ Only ${scope} changed files were analysed. Findings in the remaining ${total - result.fetched} file(s) are **not** reflected below.`;
+    notices.push(
+      total === null
+        ? `⚠️ This pull request changed more files than SecureFlow analyses in a single scan. Only ${scope} ${result.fetched} files were reviewed — findings in the remaining files are **not** reflected below.`
+        : `⚠️ Only ${scope} changed files were analysed. Findings in the remaining ${total - result.fetched} file(s) are **not** reflected below.`,
+    );
+  }
+
+  const undiffed = undiffedFiles(result.files ?? []);
+  if (undiffed.length > 0) {
+    const listed = undiffed
+      .slice(0, MAX_LISTED_UNDIFFED_FILES)
+      .map((name) => `\`${name.replace(/`/g, "'")}\``)
+      .join(", ");
+    const more =
+      undiffed.length > MAX_LISTED_UNDIFFED_FILES
+        ? ` and ${undiffed.length - MAX_LISTED_UNDIFFED_FILES} more`
+        : "";
+
+    notices.push(
+      `⚠️ ${undiffed.length} changed file(s) were **not** analysed because GitHub did not return a diff for them (binary, or too large to display): ${listed}${more}.`,
+    );
+  }
+
+  return notices.length > 0 ? notices.join("\n\n") : null;
 }
