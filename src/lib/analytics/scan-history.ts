@@ -543,7 +543,7 @@ export async function fetchScanVelocity(
 /**
  * Fetch aggregate summary statistics.
  */
-export async function fetchAnalyticsSummary(userId: string) {
+export async function fetchAnalyticsSummary(userId: string, days: number = DEFAULT_DAYS) {
   const [totalScans, totalFindings, totalPRs, passCount, riskAgg] = await Promise.all([
     prisma.scanResult.count({
       where: {
@@ -577,7 +577,9 @@ export async function fetchAnalyticsSummary(userId: string) {
   ]);
 
   // Compute trend direction from recent scan finding counts
-  const recentMetrics = await fetchDailyScanMetrics(userId, 30);
+  // Over the same window as the charts, so the trend badge describes what is
+  // drawn below it rather than a fixed 30 days whatever range is selected.
+  const recentMetrics = await fetchDailyScanMetrics(userId, days);
   const findingCounts = recentMetrics.map((m) => m.findings);
   const trendDirection = computeTrendDirection(findingCounts);
 
@@ -608,7 +610,7 @@ export async function getAnalyticsPayload(
       fetchRepoSummaries(userId),
       fetchTopFindingTypes(userId, days),
       fetchScanVelocity(userId, days),
-      fetchAnalyticsSummary(userId),
+      fetchAnalyticsSummary(userId, days),
     ]);
 
   return {

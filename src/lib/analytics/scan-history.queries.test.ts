@@ -285,6 +285,16 @@ describe("fetchAnalyticsSummary and getAnalyticsPayload", () => {
     expect((await fetchAnalyticsSummary("user-1")).avgRiskScore).toBe(0);
   });
 
+  it("computes the trend over the requested window, not a fixed 30 days", async () => {
+    stubAggregates(10);
+
+    await fetchAnalyticsSummary("user-1", 7);
+
+    const { where } = prismaMock.scanResult.findMany.mock.calls[0][0];
+    expect(where.createdAt.gte.toISOString()).toBe("2026-09-13T00:00:00.000Z");
+    expect(where.createdAt.lte.toISOString()).toBe("2026-09-19T23:59:59.999Z");
+  });
+
   it("assembles every section of the payload", async () => {
     stubAggregates(10);
 
