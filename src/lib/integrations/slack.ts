@@ -18,7 +18,13 @@
  * persisted (the plan's "handle asynchronously to prevent blocking" note).
  */
 
-import { isAtLeast, severityBadge, type Severity } from "@/lib/severity";
+import {
+  SEVERITY_ORDER,
+  countBySeverity,
+  isAtLeast,
+  severityBadge,
+  type Severity,
+} from "@/lib/severity";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 
 /** The severity floor that triggers a Slack alert. */
@@ -142,6 +148,26 @@ export function packSectionBodies(
 }
 
 /**
+ * The alert heading, labelled with the severities actually present.
+ *
+ * It used to use the *threshold's* name for every finding, so a scan with two
+ * CRITICALs was announced as "2 high-severity findings": understating exactly
+ * the alert that most needs attention.
+ */
+export function describeFlaggedFindings(flagged: readonly AlertFinding[]): string {
+  const counts = countBySeverity(flagged);
+  const present = SEVERITY_ORDER.filter((level) => counts[level] > 0);
+  const noun = flagged.length === 1 ? "finding" : "findings";
+
+  if (present.length === 1) {
+    return `${flagged.length} ${present[0]!.toLowerCase()}-severity ${noun}`;
+  }
+
+  const breakdown = present.map((level) => `${counts[level]} ${level.toLowerCase()}`).join(", ");
+  return `${flagged.length} ${noun} (${breakdown})`;
+}
+
+/**
  * Build the Slack message for a scan's high-severity findings, or `null` when
  * none clear the threshold (so the caller sends nothing rather than an empty
  * alert).
@@ -152,11 +178,7 @@ export function buildSlackAlert(args: BuildSlackAlertArgs): SlackMessage | null 
   if (flagged.length === 0) return null;
 
   const url = pullRequestUrl(args.repositoryFullName, args.prNumber);
-  const severityLabel = threshold.toLowerCase();
-  const heading =
-    flagged.length === 1
-      ? `1 ${severityLabel}-severity finding`
-      : `${flagged.length} ${severityLabel}-severity findings`;
+  const heading = describeFlaggedFindings(flagged);
 
   const fallback = `🛡️ SecureFlow: ${heading} in ${args.repositoryFullName}#${args.prNumber}`;
 
