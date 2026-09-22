@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  isSecretIdentifier,
   MAX_SCANNED_BYTES,
   blockingAiFindings,
   describeFailThreshold,
@@ -388,5 +389,49 @@ describe("describeFailThreshold", () => {
     // which read "below --fail-on=null threshold".
     expect(describeFailThreshold(null)).toBe("the default HIGH/CRITICAL threshold");
     expect(describeFailThreshold(null)).not.toContain("null");
+  });
+});
+
+describe("secret-named identifiers", () => {
+  const flagged = (code: string) => scanFile("a.ts", code + "\n", []).violations.length > 0;
+
+  it.each([
+    "console.log(private_key);",
+    "console.log(PRIVATE_KEY);",
+    "console.log(privateKey);",
+    "console.log(passphrase);",
+    "console.log(gpg_passphrase);",
+    "console.log(signing_key);",
+    "console.log(encryptionKey);",
+    "console.log(password);",
+    "console.log(authToken);",
+    "console.log(tokens);",
+    "console.log(passwordLength);",
+  ])("flags %s", (code) => {
+    expect(flagged(code)).toBe(true);
+  });
+
+  it.each([
+    "console.log(tokenizer);",
+    "console.log(maxTokens);",
+    "console.log(usage.totalTokens, usage.promptTokens);",
+    "console.log(completion_tokens);",
+    "console.log(tokenCount);",
+    "console.log(tokenUsage);",
+    "console.log(tokenized);",
+  ])("does not flag token counts or tokenizers: %s", (code) => {
+    // `token` as a bare substring used to flag every one of these.
+    expect(flagged(code)).toBe(false);
+  });
+
+  it("still flags a secret logged alongside a token count", () => {
+    expect(flagged("console.log(maxTokens, apiToken);")).toBe(true);
+  });
+
+  it("normalizes separators and case", () => {
+    expect(isSecretIdentifier("PRIVATE-KEY")).toBe(true);
+    expect(isSecretIdentifier("private_key")).toBe(true);
+    expect(isSecretIdentifier("MAX_TOKENS")).toBe(false);
+    expect(isSecretIdentifier("authorName")).toBe(false);
   });
 });
