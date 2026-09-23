@@ -44,7 +44,7 @@ app:
 
   livenessProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 15
     periodSeconds: 20
@@ -53,20 +53,22 @@ app:
 
   readinessProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
+    successThreshold: 1
 
   startupProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 5
     periodSeconds: 5
     failureThreshold: 30
+    timeoutSeconds: 5
 
   podSecurityContext:
     runAsNonRoot: true
@@ -150,12 +152,16 @@ worker:
       port: 3000
     initialDelaySeconds: 15
     periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
 
   readinessProbe:
     tcpSocket:
       port: 3000
     initialDelaySeconds: 10
     periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
 
   podSecurityContext:
     runAsNonRoot: true
