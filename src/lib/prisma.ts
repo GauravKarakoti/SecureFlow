@@ -592,6 +592,18 @@ const prismaClientSingleton = () => {
   return client;
 };
 
+// ─── Global Singleton (Connection-Pool Guard) ────────────────────────────────
+//
+// Next.js hot-reloading in development re-evaluates modules on every edit,
+// which would ordinarily open a fresh PrismaClient (and a fresh pg.Pool) on
+// every save, quickly exhausting the database's connection limit.
+//
+// The guard below stores the singleton on `globalThis`, which survives module
+// re-evaluation.  In production, where modules are evaluated only once, this
+// is a no-op — the singleton created at cold-start is used for the lifetime of
+// the process.
+//
+// Reference: https://www.prisma.io/docs/orm/more/help-and-troubleshooting/help-articles/nextjs-prisma-client-dev-practices
 declare const globalThis: {
   prismaGlobal: ReturnType<typeof prismaClientSingleton>;
 } & typeof global;
