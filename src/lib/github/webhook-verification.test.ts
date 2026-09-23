@@ -243,6 +243,14 @@ describe("admitWebhook", () => {
       ok: false,
       status: 500,
     });
+    expect(admitWebhook({ ...base, secret: "" })).toMatchObject({
+      ok: false,
+      status: 500,
+    });
+    expect(admitWebhook({ ...base, secret: "   " })).toMatchObject({
+      ok: false,
+      status: 500,
+    });
   });
 
   it("rejects a missing delivery header with 400", () => {

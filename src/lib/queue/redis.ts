@@ -7,11 +7,18 @@ const redisOptions = {
   enableReadyCheck: false,
 };
 
-// Use a singleton pattern to avoid multiple connections in Next.js development
-const globalForRedis = global as unknown as { redis: any };
+// Use a singleton pattern to avoid multiple connections in Next.js development.
+//
+// Keyed `queueRedis`: this module and the rate-limit client in
+// `src/lib/redis.ts` both used `globalThis.redis`, but the two clients are
+// configured differently on purpose — BullMQ needs `maxRetriesPerRequest: null`
+// (a Worker throws on any other value), the rate limiter wants a bounded retry
+// count. Sharing one key meant whichever module loaded first handed its client
+// to the other.
+const globalForRedis = global as unknown as { queueRedis: any };
 
 export const redis =
-  globalForRedis.redis ||
+  globalForRedis.queueRedis ||
   (process.env.NEXT_PUBLIC_MOCK_DB === "true"
     ? ({
         on: () => {},
@@ -23,7 +30,7 @@ export const redis =
     : new Redis(redisUrl, redisOptions));
 
 if (process.env.NODE_ENV !== "production") {
-  globalForRedis.redis = redis;
+  globalForRedis.queueRedis = redis;
 }
 
 /**

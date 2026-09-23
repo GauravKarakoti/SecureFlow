@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SUPPRESSED_STATUSES } from "@/lib/triage/queries";
 import { SEVERITY_ORDER, STORED_SEVERITIES } from "@/lib/severity";
 import {
+  typesMatchingSearch,
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
   DISMISSED_STATUSES,
@@ -20,11 +21,13 @@ import {
   parseSeverityFilter,
   parseSort,
   parseStatusFilter,
+  parseTypeFilter,
   planSeverityPage,
   requiresSeverityPlan,
   resolvePage,
   toSearchParams,
   totalPagesFor,
+  VALID_FINDING_TYPES,
 } from "./query";
 
 const CONTEXT = {
@@ -133,6 +136,28 @@ describe("parseStatusFilter", () => {
   });
 });
 
+describe("parseTypeFilter", () => {
+  it("keeps only recognised finding types", () => {
+    expect(parseTypeFilter(["SECRET", "BOGUS", "MISCONFIG"])).toEqual(["SECRET", "MISCONFIG"]);
+  });
+
+  it("normalises case and trims whitespace", () => {
+    expect(parseTypeFilter(["secret", " vulnerability ", "misconfig"])).toEqual([
+      "SECRET",
+      "VULNERABILITY",
+      "MISCONFIG",
+    ]);
+  });
+
+  it("de-duplicates", () => {
+    expect(parseTypeFilter(["SECRET", "secret"])).toEqual(["SECRET"]);
+  });
+
+  it("returns canonical order regardless of input order", () => {
+    expect(parseTypeFilter(["MISCONFIG", "SECRET"])).toEqual(["SECRET", "MISCONFIG"]);
+  });
+});
+
 describe("parseSort", () => {
   it.each(FINDING_SORTS)("accepts %s", (sort) => {
     expect(parseSort(sort)).toBe(sort);
@@ -179,6 +204,7 @@ describe("normalizeFindingsQuery", () => {
       page: -3,
       pageSize: 999999,
       severity: ["nonsense"],
+      type: ["nonsense"],
       status: ["nonsense"],
       sort: "nonsense",
       search: "   ",
@@ -187,6 +213,7 @@ describe("normalizeFindingsQuery", () => {
     expect(normalized.page).toBe(1);
     expect(normalized.pageSize).toBe(MAX_PAGE_SIZE);
     expect(normalized.severity).toEqual([]);
+    expect(normalized.type).toEqual([]);
     expect(normalized.status).toEqual([]);
     expect(normalized.sort).toBe(DEFAULT_SORT);
     expect(normalized.search).toBeNull();
@@ -297,20 +324,38 @@ describe("buildFindingsWhere", () => {
     ) as any;
 
     expect(where.severity).toEqual({ in: ["CRITICAL"] });
-    expect(where.type).toEqual({ in: ["Secret"] });
+    expect(where.type).toEqual({ in: ["SECRET"] });
     expect(where.scanResult.pullRequest.repository.id).toBe("repo-9");
   });
 
-  it("searches across type, file, explanation and remediation, case-insensitively", () => {
+  it("searches file, explanation and remediation case-insensitively", () => {
     const where = buildFindingsWhere(CONTEXT, normalizeFindingsQuery({ search: "aws" })) as any;
 
     const clause = where.AND.find((entry: any) => Array.isArray(entry.OR));
     expect(clause.OR).toEqual([
-      { type: { contains: "aws", mode: "insensitive" } },
       { fileLocation: { contains: "aws", mode: "insensitive" } },
       { explanation: { contains: "aws", mode: "insensitive" } },
       { remediation: { contains: "aws", mode: "insensitive" } },
     ]);
+  });
+
+  it("matches the type column with an enum `in`, never `contains`", () => {
+    // `type` is the FindingType enum. Prisma rejects `contains` on an enum at
+    // runtime ("Unknown argument `contains`"), which failed every search.
+    const where = buildFindingsWhere(CONTEXT, normalizeFindingsQuery({ search: "secr" })) as any;
+
+    const clause = where.AND.find((entry: any) => Array.isArray(entry.OR));
+    expect(clause.OR[0]).toEqual({ type: { in: ["SECRET"] } });
+    expect(JSON.stringify(clause.OR.filter((c: any) => "type" in c))).not.toContain("contains");
+  });
+
+  it("resolves a type search to the enum members whose name contains it", () => {
+    expect(typesMatchingSearch("secret")).toEqual(["SECRET"]);
+    expect(typesMatchingSearch("  Vuln ")).toEqual(["VULNERABILITY"]);
+    expect(typesMatchingSearch("config")).toEqual(["MISCONFIG"]);
+    expect(typesMatchingSearch("e")).toEqual(["SECRET", "VULNERABILITY"]);
+    expect(typesMatchingSearch("aws")).toEqual([]);
+    expect(typesMatchingSearch("   ")).toEqual([]);
   });
 
   it("keeps both the status filter and the search when they are combined", () => {
@@ -324,7 +369,9 @@ describe("buildFindingsWhere", () => {
 
     expect(where.AND).toHaveLength(2);
     expect(where.AND[0]).toEqual({ fingerprint: { in: ["fp-resolved"] } });
-    expect(where.AND[1].OR).toHaveLength(4);
+    // File, explanation and remediation; "aws" names no finding type, so there
+    // is no type clause.
+    expect(where.AND[1].OR).toHaveLength(3);
   });
 
   it("omits the dismissal clause when the user has dismissed nothing", () => {
@@ -484,7 +531,7 @@ describe("searchParams round-trip", () => {
     expect(params).toContain("sort=severity");
     expect(params).toContain("severity=CRITICAL");
     expect(params).toContain("severity=HIGH");
-    expect(params).toContain("type=Secret");
+    expect(params).toContain("type=SECRET");
     expect(params).toContain("status=OPEN");
     expect(params).toContain("repo=repo-1");
     expect(params).toContain("q=aws+key");

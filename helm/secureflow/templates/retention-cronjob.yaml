@@ -1,0 +1,43 @@
+{{- if .Values.retention.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "secureflow.fullname" . }}-retention
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retention
+spec:
+  schedule: {{ .Values.retention.schedule | quote }}
+  successfulJobsHistoryLimit: {{ .Values.retention.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.retention.failedJobsHistoryLimit }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "secureflow.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: retention
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "secureflow.serviceAccountName" . }}
+          containers:
+            - name: retention-cleanup
+              image: {{ include "secureflow.appImage" . | quote }}
+              imagePullPolicy: {{ .Values.retention.image.pullPolicy }}
+              {{- if .Values.retention.command }}
+              command:
+                {{- toYaml .Values.retention.command | nindent 16 }}
+              {{- end }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "secureflow.configMapName" . }}
+                - secretRef:
+                    name: {{ include "secureflow.secretName" . }}
+              resources:
+                {{- toYaml .Values.retention.resources | nindent 16 }}
+{{- end }}

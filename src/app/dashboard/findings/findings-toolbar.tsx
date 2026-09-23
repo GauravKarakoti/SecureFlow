@@ -79,9 +79,13 @@ export default function FindingsToolbar({
   // effect renders once with the stale value and then again with the fresh one,
   // which is both a visible flash and the cascading-render pattern the lint
   // rule flags. React re-runs this component immediately instead.
+  //
+  // The URL holds the trimmed term, so when the change is only the debounce below
+  // applying this draft, the draft is kept as typed. Replacing it dropped a trailing
+  // space: pause after "api " and the box snapped back to "api" before the next word.
   if (currentSearch !== syncedSearch) {
     setSyncedSearch(currentSearch);
-    setSearchDraft(currentSearch);
+    if (searchDraft.trim() !== currentSearch) setSearchDraft(currentSearch);
   }
 
   const apply = useCallback(
@@ -112,7 +116,7 @@ export default function FindingsToolbar({
 
   // Debounced so a search term does not push one history entry per keystroke.
   useEffect(() => {
-    if (searchDraft === currentSearch) return;
+    if (searchDraft.trim() === currentSearch) return;
 
     const timer = setTimeout(() => {
       apply((params) => {
@@ -224,15 +228,22 @@ export default function FindingsToolbar({
         </Select>
 
         {onToggleBulkMode && canBulkSelect && (
-          <Button
-            variant={bulkMode ? "secondary" : "outline"}
-            onClick={onToggleBulkMode}
-            aria-pressed={bulkMode}
-            className="gap-2"
-          >
-            <ListChecks className="h-4 w-4" aria-hidden="true" />
-            {bulkMode ? "Cancel bulk select" : "Bulk select"}
-          </Button>
+          <>
+            <Button
+              variant={bulkMode ? "secondary" : "outline"}
+              size="sm"
+              onClick={onToggleBulkMode}
+              className="gap-2"
+            >
+              <ListChecks className="h-4 w-4" aria-hidden="true" />
+              {bulkMode ? "Cancel bulk select" : "Bulk select"}
+            </Button>
+            {bulkMode && (
+              <Button variant="outline" size="sm" className="gap-2 text-red-500 hover:text-red-600">
+                Rollback Patches
+              </Button>
+            )}
+          </>
         )}
       </div>
 

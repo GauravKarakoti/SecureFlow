@@ -44,3 +44,16 @@ next-env.d.ts
 playwright-report
 test-results/
 .vitest-cache/
+
+# eslint
+.eslintcache
+
+# Next.js cache and env variations
+.swc/
+.env.*.local
+
+# Playwright blob reports (for sharded tests)
+blob-report/
+
+# OS specific files
+Thumbs.db

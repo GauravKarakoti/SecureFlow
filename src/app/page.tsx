@@ -20,6 +20,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import InteractiveDemo from "@/components/landing/InteractiveDemo";
 import { getLandingStats } from "@/lib/metrics/landing-stats";
 import { ScrollToTop } from "@/components/scroll-to-top/ScrollToTop";
+import { Footer } from "@/components/footer";
 
 export const dynamic = "force-dynamic";
 export default async function LandingPage() {
@@ -88,11 +89,7 @@ export default async function LandingPage() {
             The Vault.
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto mb-16">
-            <Link
-              href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <Link href="/docs">
               <Button
                 size="lg"
                 className="h-14 px-8 text-lg bg-primary text-background hover:bg-primary/90 hover:scale-105 transition-all duration-300 glow-primary font-bold uppercase rounded-sm cursor-pointer"
@@ -214,40 +211,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-white/5 px-6 py-12 bg-background">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary glow-primary">
-              <Image
-                src="/logo.png"
-                alt="SecureFlow Logo"
-                width={64}
-                height={64}
-                className="object-contain"
-              />
-            </div>
-            <span className="font-headline font-bold text-lg tracking-tight">SecureFlow</span>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} SecureFlow Inc. All rights reserved.
-          </div>
-          <div className="flex items-center gap-6">
-            <Link
-              href="https://x.com/GauravKara_Koti"
-              className="text-muted-foreground hover:text-white transition-colors"
-            >
-              Twitter
-            </Link>
-            <Link
-              href="https://github.com/GauravKarakoti/SecureFlow"
-              className="text-muted-foreground hover:text-white transition-colors"
-            >
-              GitHub
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <Footer />
       <ScrollToTop />
     </div>
   );

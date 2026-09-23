@@ -57,6 +57,11 @@ export default {
         return token;
       }
 
+      // If there is no valid refresh token (e.g., standard non-expiring GitHub OAuth), avoid unnecessary requests
+      if (!token.refreshToken || typeof token.refreshToken !== "string") {
+        return token;
+      }
+
       // Access token has expired, try to update it
       try {
         const response = await fetch("https://github.com/login/oauth/access_token", {
@@ -68,26 +73,40 @@ export default {
             client_id: process.env.GITHUB_CLIENT_ID!,
             client_secret: process.env.GITHUB_CLIENT_SECRET!,
             grant_type: "refresh_token",
-            refresh_token: token.refreshToken as string,
+            refresh_token: token.refreshToken,
           }),
           method: "POST",
         });
 
         const refreshedTokens = await response.json();
 
-        if (!response.ok) {
-          throw refreshedTokens;
+        // GitHub can return 200 OK with error in the body
+        if (!response.ok || refreshedTokens.error) {
+          throw new Error(
+            refreshedTokens.error_description || refreshedTokens.error || "Token refresh failed",
+          );
         }
 
+        // Verify required fields are present before using them
+        if (!refreshedTokens.access_token || !refreshedTokens.expires_in) {
+          throw new Error("Invalid token response: missing access_token or expires_in");
+        }
+
+        const { error: _error, ...restToken } = token;
         return {
-          ...token,
+          ...restToken,
           accessToken: refreshedTokens.access_token,
-          accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
+          accessTokenExpires: Date.now() + Number(refreshedTokens.expires_in) * 1000,
           refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
         };
       } catch (error) {
         console.error("Token refresh failed:", error);
-        return { ...token, error: "RefreshAccessTokenError" };
+        return {
+          ...token,
+          error: "RefreshAccessTokenError",
+          // Backoff for 60 seconds to prevent hammering GitHub OAuth endpoint on every request
+          accessTokenExpires: Date.now() + 60 * 1000,
+        };
       }
     },
     async session({ session, token }: any) {
@@ -98,7 +117,7 @@ export default {
 
       // ⭐ Check both session.user AND token before destructuring
       if (session?.user && token) {
-        session.user.id = token.userId || "";
+        session.user.id = token.userId || token.sub || "";
         (session.user as any).codename = token.codename || "";
         (session.user as any).roles = token.roles || [];
       }

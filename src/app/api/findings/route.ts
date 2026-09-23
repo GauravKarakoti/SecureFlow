@@ -86,7 +86,8 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 export const POST = withRateLimit(handler, {
   limit: 10,
   windowSeconds: 60,
-  keyPrefix: "findings:scan",
+  keyPrefix: "findings:create",
+  fallbackStrategy: "fail-closed",
 });
 
 export const dynamic = "force-dynamic";

@@ -20,7 +20,10 @@ export default function StreamingExplanation({
   const { isStreaming, explanation, isError, error, retry, start } =
     useStreamingExplanation(findingId);
 
-  const displayText = isStreaming || explanation ? explanation : storedExplanation;
+  // A failed stream leaves whatever arrived before the failure in `explanation`. That
+  // fragment is not an analysis, and the error below says the stored one is shown, so
+  // fall back to it.
+  const displayText = !isError && (isStreaming || explanation) ? explanation : storedExplanation;
 
   return (
     <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 relative overflow-hidden group">

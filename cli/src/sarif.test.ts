@@ -1,6 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { generateSarifReport, formatSarifJson } from "./sarif.js";
-import { FileScanResult, formatScanResults } from "./scanner.js";
+import {
+  generateSarifReport,
+  formatSarifJson,
+  validateSarifDocument,
+  assertValidSarifDocument,
+  SarifValidationError,
+  SarifDocument,
+} from "./sarif.js";
+import {
+  filterBySeverity,
+  type FileScanResult,
+  formatScanResults,
+  type Severity,
+} from "./scanner.js";
 
 describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
   const sampleScanResults: FileScanResult[] = [
@@ -101,6 +113,190 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
     });
   });
 
+  describe("SARIF Schema Validation (validateSarifDocument & assertValidSarifDocument)", () => {
+    it("should successfully validate valid generated SARIF documents", () => {
+      const validSarif = generateSarifReport(sampleScanResults);
+      const validation = validateSarifDocument(validSarif);
+
+      expect(validation.valid).toBe(true);
+      expect(validation.errors).toHaveLength(0);
+      expect(() => assertValidSarifDocument(validSarif)).not.toThrow();
+    });
+
+    it("should fail validation for non-object root documents", () => {
+      expect(validateSarifDocument(null).valid).toBe(false);
+      expect(validateSarifDocument(undefined).valid).toBe(false);
+      expect(validateSarifDocument("not-an-object").valid).toBe(false);
+      expect(validateSarifDocument([1, 2, 3]).valid).toBe(false);
+    });
+
+    it("should fail validation when $schema or version is invalid", () => {
+      const invalidSchema = {
+        $schema: "https://example.com/invalid.json",
+        version: "2.1.0",
+        runs: [],
+      };
+      const res1 = validateSarifDocument(invalidSchema);
+      expect(res1.valid).toBe(false);
+      expect(res1.errors.some((e) => e.includes("$schema"))).toBe(true);
+
+      const invalidVersion = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.0.0",
+        runs: [],
+      };
+      const res2 = validateSarifDocument(invalidVersion);
+      expect(res2.valid).toBe(false);
+      expect(res2.errors.some((e) => e.includes("version"))).toBe(true);
+    });
+
+    it("should fail validation when runs is empty or missing", () => {
+      const noRuns = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [],
+      };
+      const res = validateSarifDocument(noRuns);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("runs"))).toBe(true);
+    });
+
+    it("should validate tool driver metadata and rule definitions", () => {
+      const invalidDriver = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: {
+              driver: {
+                name: "",
+                rules: [
+                  {
+                    id: "",
+                    shortDescription: { text: "" },
+                    defaultConfiguration: { level: "invalid-level" },
+                  },
+                ],
+              },
+            },
+            results: [],
+          },
+        ],
+      };
+
+      const res = validateSarifDocument(invalidDriver);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("tool.driver.name"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("rules[0].id"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("shortDescription.text"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("defaultConfiguration.level"))).toBe(true);
+    });
+
+    it("should validate results, ruleIndex bounds, and ruleId matching", () => {
+      const invalidResultSarif = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: {
+              driver: {
+                name: "SecureFlow CLI",
+                rules: [
+                  {
+                    id: "SECUREFLOW-001",
+                    shortDescription: { text: "Rule 1" },
+                  },
+                ],
+              },
+            },
+            results: [
+              {
+                ruleId: "SECUREFLOW-002",
+                ruleIndex: 0, // points to rule 0 which has ID SECUREFLOW-001 != SECUREFLOW-002
+                level: "invalid-level",
+                message: { text: "" },
+              },
+              {
+                ruleId: "SECUREFLOW-001",
+                ruleIndex: 5, // out of bounds
+                level: "error",
+                message: { text: "Some finding" },
+              },
+            ],
+          },
+        ],
+      };
+
+      const res = validateSarifDocument(invalidResultSarif);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("does not match result ruleId"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("out of bounds"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("level must be one of"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("message.text must be a non-empty string"))).toBe(
+        true,
+      );
+    });
+
+    it("should validate physicalLocation, URI normalization, and line numbering", () => {
+      const invalidLocationSarif = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: {
+              driver: {
+                name: "SecureFlow CLI",
+                rules: [{ id: "SECUREFLOW-001", shortDescription: { text: "Rule 1" } }],
+              },
+            },
+            results: [
+              {
+                ruleId: "SECUREFLOW-001",
+                ruleIndex: 0,
+                level: "error",
+                message: { text: "Secret detected" },
+                locations: [
+                  {
+                    physicalLocation: {
+                      artifactLocation: { uri: "src\\windows\\path.ts" }, // unescaped backslash
+                      region: {
+                        startLine: 0, // must be >= 1
+                        endLine: -5,
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const res = validateSarifDocument(invalidLocationSarif);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("forward slashes"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("startLine must be an integer >= 1"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("endLine must be an integer >= startLine"))).toBe(
+        true,
+      );
+    });
+
+    it("should throw SarifValidationError with error details when assertValidSarifDocument fails", () => {
+      const badDoc = { $schema: "", version: "1.0", runs: [] };
+      expect(() => assertValidSarifDocument(badDoc)).toThrow(SarifValidationError);
+
+      try {
+        assertValidSarifDocument(badDoc);
+      } catch (err) {
+        expect(err).toBeInstanceOf(SarifValidationError);
+        const sarifErr = err as SarifValidationError;
+        expect(sarifErr.name).toBe("SarifValidationError");
+        expect(sarifErr.errors.length).toBeGreaterThan(0);
+        expect(sarifErr.message).toContain("SARIF schema validation failed");
+      }
+    });
+  });
+
   describe("formatSarifJson & formatScanResults", () => {
     it("should return pretty JSON formatted SARIF string", () => {
       const jsonString = formatSarifJson(sampleScanResults);
@@ -127,6 +323,76 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       const textOutput = formatScanResults(sampleScanResults, "text");
       expect(textOutput).toContain("🚨 [SecureFlow] Secret logging detected");
       expect(textOutput).toContain("src/config/db.ts:15");
+    });
+
+    it("should output CSV format via formatScanResults", () => {
+      const csvOutput = formatScanResults(sampleScanResults, "csv");
+      expect(csvOutput).toContain("File,Line,Violation,Reason");
+      expect(csvOutput).toContain("src/config/db.ts");
+      expect(csvOutput).toContain("environment variable");
+      const lines = csvOutput.trimEnd().split("\n");
+      // 1 header + 3 violations
+      expect(lines).toHaveLength(4);
+    });
+
+    it("should output HTML format via formatScanResults", () => {
+      const htmlOutput = formatScanResults(sampleScanResults, "html");
+      expect(htmlOutput).toContain("<!DOCTYPE html>");
+      expect(htmlOutput).toContain("SecureFlow Scan Report");
+      expect(htmlOutput).toContain("src/config/db.ts");
+      expect(htmlOutput).toContain("3 violations found.");
+    });
+  });
+
+  describe("severity filtering with SARIF output", () => {
+    it("should pass through all unlabeled violations regardless of filter", () => {
+      const filtered = filterBySeverity(sampleScanResults, new Set(["CRITICAL" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(3);
+    });
+
+    it("should filter labeled violations before SARIF generation", () => {
+      const labeledResults: FileScanResult[] = [
+        {
+          path: "src/a.ts",
+          violations: [
+            {
+              line: 1,
+              text: "console.log(process.env.X)",
+              reason: "environment variable",
+              severity: "CRITICAL",
+            },
+            {
+              line: 5,
+              text: "console.log(token)",
+              reason: "secret-named identifier",
+              severity: "HIGH",
+            },
+          ],
+        },
+      ];
+      const filtered = filterBySeverity(labeledResults, new Set(["CRITICAL" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(1);
+    });
+
+    it("should produce empty SARIF results when all labeled violations are filtered out", () => {
+      const labeledResults: FileScanResult[] = [
+        {
+          path: "src/a.ts",
+          violations: [
+            {
+              line: 1,
+              text: "console.log(token)",
+              reason: "secret-named identifier",
+              severity: "HIGH",
+            },
+          ],
+        },
+      ];
+      const filtered = filterBySeverity(labeledResults, new Set(["LOW" as Severity]));
+      const sarif = generateSarifReport(filtered);
+      expect(sarif.runs[0].results).toHaveLength(0);
     });
   });
 });

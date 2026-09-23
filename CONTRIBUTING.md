@@ -55,6 +55,7 @@ Before diving in, please ensure you're familiar with our core stack:
 - **Language**: TypeScript
 - **Database & ORM**: PostgreSQL with Prisma
 - **Styling**: Tailwind CSS & Radix UI
+- **Testing**: Vitest & Playwright
 - **Authentication**: NextAuth.js v5
 - **AI/LLM**: Groq SDK & Genkit
 - **GitHub Integration**: Octokit
@@ -194,10 +195,10 @@ cp .env.example .env
 
 ```bash
 # Generate Prisma Client
-npx prisma generate
+npm run db:gen
 
 # Apply migrations
-npx prisma migrate dev
+npm run db:migrate
 
 # Seed default data
 npm run db:seed
@@ -232,6 +233,8 @@ Open [http://localhost:9002](http://localhost:9002) with your browser to see the
 - [ ] Fork the repository and create your branch
 - [ ] Run `npm run lint` and fix any issues
 - [ ] Run `npm run typecheck` and ensure no TypeScript errors
+- [ ] Run `npm run format:check` to verify code adheres to Prettier formatting
+- [ ] Run `npm test` and ensure all test suites pass
 - [ ] Run `npm run build` and confirm it builds
 - [ ] Test your changes thoroughly
 - [ ] Update documentation if needed
@@ -373,11 +376,23 @@ In the summary, mention new features, Prisma migration folder names, and AI flow
 ### Unit Tests
 
 - Write unit tests for critical functionality
-- Use Jest for testing
+- Use Vitest for testing
 - Aim for >80% coverage
 
+```bash
+# Run unit and integration tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run tests in watch mode
+npx vitest
+```
+
 ```typescript
-// Example unit test
+// Example unit test (Vitest)
+import { describe, it, expect } from "vitest";
 import { scanForSecrets } from "@/lib/armor/scanner";
 
 describe("scanForSecrets", () => {

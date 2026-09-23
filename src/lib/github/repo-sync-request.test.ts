@@ -178,6 +178,7 @@ describe("singleRepositorySyncResponse", () => {
       synced: 2,
       skipped: 1,
       failed: 3,
+      hasInstallation: true, // Added missing required property
     });
 
     expect(response.skipped).toBe(1);

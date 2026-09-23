@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 
 let mockIpAllowed = true;
 let mockUserAllowed = true;
@@ -33,6 +34,15 @@ vi.mock("@/lib/middleware/rate-limit", () => ({
 
 vi.mock("@/lib/redis", () => ({
   checkRateLimit: vi.fn(async () => mockUserAllowed),
+  redis: null,
+}));
+
+let mockCachedExplanation: Record<string, unknown> | null = null;
+
+vi.mock("@/lib/explanation-cache", () => ({
+  createExplanationCacheKey: vi.fn(() => "ai-explanation:test-key"),
+  getCachedExplanation: vi.fn(async () => mockCachedExplanation),
+  setCachedExplanation: vi.fn(async () => {}),
 }));
 
 const mockFinding = {
@@ -41,10 +51,11 @@ const mockFinding = {
   severity: "HIGH",
   fileLocation: "src/db.ts",
   codeSnippet: 'const q = "SELECT * FROM x WHERE id=" + id;',
+  scanResult: { pullRequest: { repository: { userId: "user-1" } } },
 };
 
 let mockSession: { user?: { id: string } } | null = { user: { id: "user-1" } };
-let mockFindFirstResult: typeof mockFinding | null = mockFinding;
+let mockFindUniqueResult: typeof mockFinding | null = mockFinding;
 let mockEvents: Array<Record<string, unknown>> = [];
 
 vi.mock("@/auth", () => ({
@@ -54,8 +65,7 @@ vi.mock("@/auth", () => ({
 vi.mock("@/lib/prisma", () => ({
   default: {
     finding: {
-      findUnique: vi.fn(async () => mockFindFirstResult),
-      findFirst: vi.fn(async () => mockFindFirstResult),
+      findUnique: vi.fn(async () => mockFindUniqueResult),
       update: vi.fn(async () => ({})),
     },
   },
@@ -94,9 +104,10 @@ async function readSSE(response: Response): Promise<Array<Record<string, unknown
 describe("GET /api/findings/[id]/explain-stream", () => {
   beforeEach(() => {
     mockSession = { user: { id: "user-1" } };
-    mockFindFirstResult = mockFinding;
+    mockFindUniqueResult = mockFinding;
     mockIpAllowed = true;
     mockUserAllowed = true;
+    mockCachedExplanation = null;
     mockEvents = [
       { type: "chunk", explanation: "Partial" },
       {
@@ -119,12 +130,26 @@ describe("GET /api/findings/[id]/explain-stream", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 404 when the finding does not belong to the user (or does not exist)", async () => {
-    mockFindFirstResult = null;
+  it("returns 404 when the finding does not exist", async () => {
+    mockFindUniqueResult = null;
 
     const res = await GET({} as any, { params: Promise.resolve({ id: "missing" }) });
 
     expect(res.status).toBe(404);
+  });
+
+  it("returns 403 without streaming when the finding belongs to another user", async () => {
+    mockFindUniqueResult = {
+      ...mockFinding,
+      scanResult: { pullRequest: { repository: { userId: "user-2" } } },
+    };
+    const { streamDeveloperSecurityExplanations } =
+      await import("@/ai/flows/security-explanation-stream");
+
+    const res = await GET({} as any, { params: Promise.resolve({ id: "finding-1" }) });
+
+    expect(res.status).toBe(403);
+    expect(streamDeveloperSecurityExplanations).not.toHaveBeenCalled();
   });
 
   it("streams chunk and done events as Server-Sent Events", async () => {
@@ -159,15 +184,30 @@ describe("GET /api/findings/[id]/explain-stream", () => {
     expect(events).toEqual(mockEvents);
   });
 
-  it("scopes the finding lookup to the signed-in user via the ownership chain", async () => {
+  it("loads the owner through the ownership chain in the same query", async () => {
     await GET({} as any, { params: Promise.resolve({ id: "finding-1" }) });
 
-    expect(prisma.finding.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: "finding-1",
-        scanResult: { pullRequest: { repository: { userId: "user-1" } } },
-      },
-    });
+    expect(prisma.finding.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.finding.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "finding-1" },
+        select: expect.objectContaining({
+          scanResult: {
+            select: { pullRequest: { select: { repository: { select: { userId: true } } } } },
+          },
+        }),
+      }),
+    );
+  });
+
+  it("selects only fields that exist on the Finding model", async () => {
+    // The Prisma mock accepts any select, but the real client throws
+    // PrismaClientValidationError for an unknown field, which turned every request into a 500.
+    await GET({} as any, { params: Promise.resolve({ id: "finding-1" }) });
+
+    const [{ select }] = (prisma.finding.findUnique as any).mock.calls[0];
+    const known = new Set<string>([...Object.values(Prisma.FindingScalarFieldEnum), "scanResult"]);
+    expect(Object.keys(select).filter((field) => !known.has(field))).toEqual([]);
   });
 
   it("returns 429 when the IP-based rate limit is exceeded", async () => {
@@ -198,6 +238,43 @@ describe("GET /api/findings/[id]/explain-stream", () => {
     expect(checkRateLimit).toHaveBeenCalledWith("rate-limit:explain-stream:user:user-1", 10, 60, {
       fallbackStrategy: "fail-closed",
       timeoutMs: 1000,
+    });
+  });
+
+  describe("explanation cache", () => {
+    const cached = {
+      explanation: "Cached explanation.",
+      remediationSuggestions: "Cached fix.",
+      promptInjectionSuspected: false,
+    };
+
+    it("streams a cached explanation as SSE without regenerating it", async () => {
+      mockCachedExplanation = cached;
+      const { streamDeveloperSecurityExplanations } =
+        await import("@/ai/flows/security-explanation-stream");
+
+      const res = await GET({} as any, { params: Promise.resolve({ id: "finding-1" }) });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+      expect(await readSSE(res)).toEqual([
+        { type: "chunk", explanation: "Cached explanation." },
+        { type: "done", result: cached },
+      ]);
+      expect(streamDeveloperSecurityExplanations).not.toHaveBeenCalled();
+    });
+
+    it("caches the generated result when there is no cached explanation", async () => {
+      const { setCachedExplanation } = await import("@/lib/explanation-cache");
+
+      const res = await GET({} as any, { params: Promise.resolve({ id: "finding-1" }) });
+      await readSSE(res);
+
+      expect(setCachedExplanation).toHaveBeenCalledWith("ai-explanation:test-key", {
+        explanation: "Full explanation.",
+        remediationSuggestions: "Fix it.",
+        promptInjectionSuspected: false,
+      });
     });
   });
 });

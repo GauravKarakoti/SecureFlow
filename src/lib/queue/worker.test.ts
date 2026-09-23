@@ -30,6 +30,9 @@ vi.mock("bullmq", () => {
 vi.mock("./redis", () => ({ redis: {} }));
 vi.mock("@/lib/prisma", () => ({ default: {} }));
 vi.mock("@/lib/armor/scanner", () => ({ scanner: {}, parseSecureFlowIgnore: vi.fn() }));
+vi.mock("@/lib/sbom/pull-request-manifests", () => ({
+  handlePullRequestSynchronize: vi.fn(),
+}));
 vi.mock("@/ai/flows/developer-receives-ai-security-explanations", () => ({
   developerReceivesAISecurityExplanations: vi.fn(),
 }));
@@ -41,9 +44,28 @@ import {
   assertPullRequestContext,
   getCommentableLines,
   getGitHubAppCredentials,
+  repositoryIdentity,
   selectRepositoryList,
+  shouldScanPullRequestManifests,
   truncateForError,
 } from "./worker";
+
+describe("shouldScanPullRequestManifests", () => {
+  it("runs the manifest (SBOM) scan for new commits on a pull request", () => {
+    expect(shouldScanPullRequestManifests("pull_request", "synchronize")).toBe(true);
+  });
+
+  it.each([
+    ["pull_request", "closed"],
+    ["pull_request", "labeled"],
+    ["pull_request", undefined],
+    ["installation", "created"],
+    ["branch_protection_rule", "edited"],
+    [null, "synchronize"],
+  ])("skips %s / %s", (event, action) => {
+    expect(shouldScanPullRequestManifests(event, action)).toBe(false);
+  });
+});
 
 describe("Webhook Worker DLQ Routing", () => {
   beforeEach(() => {
@@ -78,6 +100,38 @@ describe("Webhook Worker DLQ Routing", () => {
       }),
       { attempts: 1 },
     );
+  });
+
+  it("writes the auto-retry count back onto the DLQ entry for a requeued job", async () => {
+    const mockJob = {
+      id: "delivery-abc",
+      name: "process-webhook",
+      data: { event: "pull_request", deliveryId: "abc", dlqAutoRetryCount: 2 },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+
+    await handlers.failed!(mockJob, new Error("still failing"));
+
+    const [, entry] = mockDLQAdd.mock.calls[0];
+    expect(entry).toMatchObject({ autoRetryCount: 2, nextRetryAt: expect.any(String) });
+  });
+
+  it("leaves a first-time DLQ entry without auto-retry state", async () => {
+    await handlers.failed!(
+      {
+        id: "job-1",
+        name: "process-webhook",
+        data: { event: "pull_request" },
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+      },
+      new Error("boom"),
+    );
+
+    const [, entry] = mockDLQAdd.mock.calls[0];
+    expect(entry).not.toHaveProperty("autoRetryCount");
+    expect(entry).not.toHaveProperty("nextRetryAt");
   });
 
   it("does NOT route to DLQ when job fails temporarily (attempts remaining)", async () => {
@@ -177,6 +231,34 @@ describe("getCommentableLines (diff-position guard)", () => {
   });
 });
 
+describe("repositoryIdentity", () => {
+  it("takes the current name and owner from the delivery", () => {
+    // A rename or transfer keeps the numeric id, so the row is found by githubId
+    // and must pick up the new name rather than keep the one it was created with.
+    expect(
+      repositoryIdentity({ full_name: "new-org/renamed", owner: { login: "new-org" } }),
+    ).toEqual({ fullName: "new-org/renamed", owner: "new-org" });
+  });
+
+  it("falls back to the owner segment of full_name when owner.login is missing", () => {
+    expect(repositoryIdentity({ full_name: "acme/api" })).toEqual({
+      fullName: "acme/api",
+      owner: "acme",
+    });
+    expect(repositoryIdentity({ full_name: "acme/api", owner: { login: "" } }).owner).toBe("acme");
+    expect(repositoryIdentity({ full_name: "acme/api", owner: "not-an-object" }).owner).toBe(
+      "acme",
+    );
+  });
+
+  it("never includes userId", () => {
+    expect(Object.keys(repositoryIdentity({ full_name: "acme/api" }))).toEqual([
+      "fullName",
+      "owner",
+    ]);
+  });
+});
+
 describe("selectRepositoryList", () => {
   const repo = (id: number, fullName: string) => ({ id, full_name: fullName });
 
@@ -224,8 +306,32 @@ describe("selectRepositoryList", () => {
 
   it("ignores unrelated events and actions", () => {
     expect(selectRepositoryList("pull_request", "opened", {}).intent).toBe("ignore");
-    expect(selectRepositoryList("installation", "deleted", {}).intent).toBe("ignore");
     expect(selectRepositoryList("installation_repositories", "weird", {}).intent).toBe("ignore");
+  });
+
+  it("deactivates an uninstalled or suspended installation's repositories", () => {
+    // Ignored before, so uninstalling the App left every repository active.
+    for (const action of ["deleted", "suspend"]) {
+      const result = selectRepositoryList("installation", action, {
+        repositories: [repo(5, "acme/api"), repo(6, "acme/web")],
+      });
+      expect(result.intent).toBe("remove");
+      expect(result.repositories.map((r) => r.full_name)).toEqual(["acme/api", "acme/web"]);
+    }
+  });
+
+  it("reactivates an unsuspended installation's repositories", () => {
+    const result = selectRepositoryList("installation", "unsuspend", {
+      repositories: [repo(5, "acme/api")],
+    });
+    expect(result.intent).toBe("add");
+    expect(result.repositories).toHaveLength(1);
+  });
+
+  it("ignores installation actions that do not change repository access", () => {
+    expect(selectRepositoryList("installation", "new_permissions_accepted", {}).intent).toBe(
+      "ignore",
+    );
   });
 
   it("drops malformed entries rather than passing them to BigInt()", () => {

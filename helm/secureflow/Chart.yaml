@@ -1,0 +1,19 @@
+apiVersion: v2
+name: secureflow
+description: Enterprise Helm chart for SecureFlow - Next.js App, BullMQ Workers, and PostgreSQL/Redis dependencies.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - security
+  - secret-detection
+  - vulnerability-scanner
+  - devsecops
+  - nextjs
+  - bullmq
+home: https://github.com/GauravKarakoti/SecureFlow
+sources:
+  - https://github.com/GauravKarakoti/SecureFlow
+maintainers:
+  - name: Gaurav Karakoti
+    url: https://github.com/GauravKarakoti

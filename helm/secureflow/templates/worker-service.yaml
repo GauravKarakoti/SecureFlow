@@ -1,0 +1,18 @@
+{{- if and .Values.worker.enabled .Values.worker.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "secureflow.fullname" . }}-worker
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.worker.service.port }}
+      targetPort: health
+      protocol: TCP
+      name: health
+  selector:
+    {{- include "secureflow.workerSelectorLabels" . | nindent 4 }}
+{{- end }}

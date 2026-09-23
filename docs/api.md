@@ -20,6 +20,16 @@ This document describes every HTTP route exposed under `src/app/api/`, including
 
 ---
 
+## Interactive playground
+
+Prefer to try a route rather than read about it? `/docs/api-playground` renders every operation from [`openapi.yaml`](../openapi.yaml) with Swagger UI, so you can send real requests from the browser. Run `npm run dev` and open <http://localhost:9002/docs/api-playground>.
+
+The spec is served by `GET /api/openapi`, which reads the committed `openapi.yaml` directly — the playground therefore cannot drift from the specification the way a hand-maintained page can.
+
+Two caveats. Session-authenticated routes work once you are signed in, because the browser sends the session cookie with same-origin requests. Webhook routes verify an HMAC signature that the browser cannot compute, so send those with `curl` using the examples below.
+
+---
+
 ## Conventions
 
 - **Base URL**: All routes are relative to the deployed origin (e.g. `https://secure-flow-six.vercel.app`). When testing locally, use `http://localhost:9002` (the port configured in `package.json`'s `dev` script).

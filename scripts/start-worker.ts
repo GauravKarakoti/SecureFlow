@@ -1,8 +1,10 @@
 import { worker } from "../src/lib/queue/worker";
 import { outboundWorker } from "../src/lib/queue/outboundWorker";
+import { sbomWorker } from "../src/lib/queue/sbomWorker";
 import { scanWorkerPool } from "../src/lib/queue/workerPool";
 import { setupWorkerSignalHandlers } from "../src/lib/queue/shutdown";
 import { describeWorkerStartup, planWorkerStartup } from "../src/lib/queue/scan-worker-bootstrap";
+import { createDlqAutoRetryWorker } from "../src/lib/queue/dlq-auto-retry";
 import express from "express";
 
 const app = express();
@@ -27,13 +29,25 @@ outboundWorker.on("error", (err) => {
   console.error("❌ BullMQ Worker (Outbound) Error:", err);
 });
 
+sbomWorker.on("ready", () => {
+  console.log("🚀 BullMQ Worker (SBOM) successfully initialized and waiting for jobs...");
+});
+
+sbomWorker.on("error", (err) => {
+  console.error("❌ BullMQ Worker (SBOM) Error:", err);
+});
+
 // The `vulnerability-scans` queue had a producer — `POST /api/findings` via
 // `enqueueScan` — and no consumer, so every job it enqueued sat in Redis while
 // its ScanJob row stayed PENDING forever (#750).
 if (plan.scanWorkerEnabled) {
-  scanWorkerPool.start();
+  scanWorkerPool.start(plan.scanConcurrency ?? undefined);
   console.log(`🚀 BullMQ Worker (Scans) started with concurrency=${plan.scanConcurrency}`);
 }
+
+const dlqAutoRetryWorker = createDlqAutoRetryWorker();
+dlqAutoRetryWorker.start();
+console.log("🔁 DLQ Auto-Retry Worker started");
 
 const server = app.listen(3000, () => {
   console.log("Worker running on 3000");
@@ -44,10 +58,13 @@ const server = app.listen(3000, () => {
 });
 
 setupWorkerSignalHandlers({
-  workers: [worker, outboundWorker],
+  workers: [worker, outboundWorker, sbomWorker],
   // `scanWorkerPool` is not a BullMQ `Worker`, so it cannot go in `workers`.
   // Without this a SIGTERM exits with a scan mid-flight still holding its lock.
-  drain: plan.scanWorkerEnabled ? [() => scanWorkerPool.stop()] : [],
+  drain: [
+    ...(plan.scanWorkerEnabled ? [() => scanWorkerPool.stop()] : []),
+    () => dlqAutoRetryWorker.stop(),
+  ],
   timeoutMs: 10000,
   onShutdownComplete: () => {
     server.close();

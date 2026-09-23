@@ -69,7 +69,6 @@ export const scanDLQ = new Queue(SCAN_DLQ_NAME, {
 export interface EnqueueScanOptions {
   jobId?: string;
 }
-
 /**
  * Enqueue a vulnerability scan job.
  *
@@ -92,6 +91,9 @@ export async function enqueueScan(
   });
 
   const jobId = options.jobId ?? `scan-${scanJob.id}`;
+
+  // FIX: Assign the real database scanJob.id to the job data before adding to queue
+  data.scanJobId = scanJob.id;
 
   await scanQueue.add("scan-repository", data, {
     jobId,

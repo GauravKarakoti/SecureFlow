@@ -59,6 +59,26 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || "dummy-key-for-build",
 });
 
+/**
+ * Model used when `GROQ_MODEL` is not set, the same default as the other Groq callers.
+ *
+ * `openai/gpt-oss-20b` is the value `.env.example` sets and Groq's replacement
+ * for `llama-3.1-8b-instant`, which was the default here until Groq shut it down
+ * on 2026-08-16 (https://console.groq.com/docs/deprecations).
+ */
+export const DEFAULT_SCAN_MODEL = "openai/gpt-oss-20b";
+
+/**
+ * Groq model id for the PR scan.
+ *
+ * `GROQ_MODEL` is optional (`src/lib/env.ts`, README), so it cannot be asserted non-null:
+ * an unset value sent a request with no `model`, and Groq rejects that, failing every scan.
+ * Read per call rather than at import so a changed environment is picked up.
+ */
+export function resolveScanModel(configured: string | undefined = process.env.GROQ_MODEL): string {
+  return configured?.trim() || DEFAULT_SCAN_MODEL;
+}
+
 // --- Timeout / deadline guards -------------------------------------------------------------
 // A single malformed or maliciously-crafted diff (e.g. one engineered to make the LLM hang,
 // or a PR large enough to spawn many batches) must never be able to hang the scan indefinitely
@@ -129,6 +149,51 @@ export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
   return { ignoredPaths, placeholders };
 }
 
+/**
+ * Translate one glob into a regular-expression source, reading it left to right.
+ *
+ * This was a chain of `replace` calls over the already-escaped string, and two
+ * of the steps misread text an earlier step had produced:
+ *
+ *  - The single-`*` step skipped any `*` next to a `.`, to leave alone the `.*`
+ *    that `**` had become. An escaped literal dot looks the same, so the `*` in
+ *    `config.*` (escaped to `config\.*`) survived as a regex quantifier — "zero
+ *    or more dots" — and `config.*` never matched `config.json`, nor
+ *    `*.test.*` `src/a.test.ts`.
+ *  - The trailing-`/**` step was written `/\*\**`, whose second `*` is
+ *    optional, so it also rewrote a plain `/*`: `src/*.ts` matched
+ *    `src/a/b.ts` and even `src.ts`.
+ *
+ * A single pass over the glob leaves nothing for a later step to misread.
+ */
+export function globToRegexSource(glob: string): string {
+  let out = "";
+
+  for (let i = 0; i < glob.length;) {
+    if (glob.startsWith("/**", i) && i + 3 === glob.length) {
+      out += "(?:/.*)?"; // trailing `/**`: the directory itself or anything below it
+      i += 3;
+    } else if (glob.startsWith("**/", i)) {
+      out += "(?:.*/)?"; // any number of directories, including none
+      i += 3;
+    } else if (glob.startsWith("**", i)) {
+      out += ".*";
+      i += 2;
+    } else if (glob[i] === "*") {
+      out += "[^/]*";
+      i += 1;
+    } else if (glob[i] === "?") {
+      out += "[^/]";
+      i += 1;
+    } else {
+      out += glob[i]!.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      i += 1;
+    }
+  }
+
+  return out;
+}
+
 export function compileIgnorePatterns(patterns: string[]): RegExp[] {
   return patterns
     .map((p) => p.trim())
@@ -147,20 +212,7 @@ export function compileIgnorePatterns(patterns: string[]): RegExp[] {
         glob += "**";
       }
 
-      // Escape regex characters except *, ?
-      let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-
-      // Handle question marks first (before introducing any group (?) syntax)
-      regexStr = regexStr.replace(/\?/g, "[^/]");
-
-      // Handle double asterisks
-      regexStr = regexStr.replace(/\/\*\*\//g, "/(?:.*/)?");
-      regexStr = regexStr.replace(/\*\*\//g, "(?:.*/)?");
-      regexStr = regexStr.replace(/\/\*\**/g, "(?:/.*)?");
-      regexStr = regexStr.replace(/\*\*/g, ".*");
-
-      // Handle single asterisks
-      regexStr = regexStr.replace(/(?<!\.)\*(?!\.)/g, "[^/]*");
+      const regexStr = globToRegexSource(glob);
 
       if (isRootRelative) {
         return new RegExp(`^${regexStr}$`, "i");
@@ -530,7 +582,17 @@ export class ArmorIQScanner {
         lowerFile.endsWith(".rs")
       ) {
         fileContext =
-          "THIS IS A SMART CONTRACT OR PRIVACY-PRESERVING ZERO-KNOWLEDGE CIRCUIT. Analyze it with decentralized architecture patterns in mind and reduce false positives for decentralized logic.";
+          "THIS IS A SMART CONTRACT OR PRIVACY-PRESERVING ZERO-KNOWLEDGE CIRCUIT. " +
+          "For Solidity (.sol): check for reentrancy (state change after external call), tx.origin auth bypass, unchecked arithmetic, and delegatecall storage collision. " +
+          "For Rust (.rs) Soroban/Solana: check for unchecked arithmetic, missing CPI signer verification, and account ownership validation. " +
+          "For Aleo Leo (.leo) or Circom: check for under-constrained signals, missing range checks on field elements, and soundness bugs. " +
+          "Reduce false positives for decentralized architecture patterns (e.g., public state is intentional in contracts).";
+      } else if (lowerFile.endsWith(".circom")) {
+        fileContext =
+          "THIS IS A CIRCOM ZERO-KNOWLEDGE CIRCUIT. " +
+          "Check for under-constrained signals (signals used in witness but not constrained), " +
+          "missing binary range checks (signal * (signal - 1) === 0 for binary signals), " +
+          "and soundness bugs where a malicious prover could satisfy constraints with an invalid witness.";
       }
       const sanitizedLines = sanitizeRecursively(addedLines);
       const maskedLines = maskIngressFileContent(sanitizedLines);
@@ -640,7 +702,7 @@ CRITICAL RULES:
                   content: `${prompt}\n\nPlease provide the raw JSON output now, starting immediately with '{':`,
                 },
               ],
-              model: process.env.GROQ_MODEL!,
+              model: resolveScanModel(),
               temperature: 0.1,
               max_tokens: 3000,
             },

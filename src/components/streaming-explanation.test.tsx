@@ -93,4 +93,35 @@ describe("StreamingExplanation", () => {
 
     expect(retryMock).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the stored explanation, not the partial stream, after a failure", () => {
+    mockUseStreamingExplanation.mockReturnValue({
+      ...baseMock,
+      isStreaming: false,
+      explanation: "This hardcoded key lets anyone who",
+      error: "Connection closed before the explanation completed.",
+      isError: true,
+      start: vi.fn(),
+    });
+
+    render(<StreamingExplanation findingId="123" storedExplanation="Stored analysis." />);
+
+    expect(screen.getByText(/Showing last known analysis/)).toBeInTheDocument();
+    expect(screen.getByText(/"Stored analysis."/)).toBeInTheDocument();
+    expect(screen.queryByText(/This hardcoded key lets anyone who/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a completed live analysis on screen", () => {
+    mockUseStreamingExplanation.mockReturnValue({
+      ...baseMock,
+      isStreaming: false,
+      explanation: "Fresh analysis.",
+      error: null,
+      start: vi.fn(),
+    });
+
+    render(<StreamingExplanation findingId="123" storedExplanation="Stored analysis." />);
+
+    expect(screen.getByText(/"Fresh analysis."/)).toBeInTheDocument();
+  });
 });

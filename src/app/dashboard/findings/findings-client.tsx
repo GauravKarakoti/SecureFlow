@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal } from "lucide-react";
+import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import {
   Accordion,
   AccordionContent,
@@ -15,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
+import BulkRemediationBar from "./bulk-remediation-bar";
 import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
 import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW] Import SBOM Card
@@ -60,6 +63,18 @@ export default function FindingsClient({
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // Export every finding matching the current filters, not just this page:
+  // `/api/findings/export` reads the same query string as this page and streams
+  // the full result. Paging parameters are dropped because the export has none.
+  const searchParams = useSearchParams();
+  const exportHref = useMemo(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete("page");
+    params.delete("pageSize");
+    const query = params.toString();
+    return `/api/findings/export${query ? `?${query}` : ""}`;
+  }, [searchParams]);
+
   // Only findings that carry both a repositoryId and a fingerprint can be
   // triaged, so those are the only ones selectable.
   const selectableIds = useMemo(
@@ -95,6 +110,11 @@ export default function FindingsClient({
       findings
         .filter((f) => selected.has(f.id) && f.repositoryId && f.fingerprint)
         .map((f) => ({ repositoryId: f.repositoryId!, fingerprint: f.fingerprint! })),
+    [findings, selected],
+  );
+
+  const selectedFindings = useMemo(
+    () => findings.filter((f) => selected.has(f.id)),
     [findings, selected],
   );
 
@@ -162,11 +182,29 @@ export default function FindingsClient({
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Recent Findings</CardTitle>
 
-          <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-            {/* The filtered total, not findings.length -- which was the page size and
-                read "50 Findings" on every account with more than fifty. */}
-            {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
-          </Badge>
+          <div className="flex items-center gap-3">
+            {total === 0 ? (
+              <Button variant="outline" size="sm" disabled className="gap-2">
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                {/* A link, not an onClick over `findings`: that is only the loaded
+                    page, while the export should cover the `total` beside it. */}
+                <a href={exportHref} download>
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </a>
+              </Button>
+            )}
+
+            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+              {/* The filtered total, not findings.length -- which was the page size and
+                  read "50 Findings" on every account with more than fifty. */}
+              {total.toLocaleString()} {total === 1 ? "Finding" : "Findings"}
+            </Badge>
+          </div>
         </CardHeader>
 
         <CardContent className="min-h-[520px]">
@@ -203,7 +241,13 @@ export default function FindingsClient({
                     <span>{allSelected ? "Deselect all" : "Select all on this page"}</span>
                   </div>
                   {bulkTargets.length > 0 && (
-                    <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+                    <div className="space-y-4">
+                      <BulkTriageBar targets={bulkTargets} onDone={clearSelection} />
+                      <BulkRemediationBar
+                        selectedFindings={selectedFindings}
+                        onClearSelection={clearSelection}
+                      />
+                    </div>
                   )}
                 </div>
               )}

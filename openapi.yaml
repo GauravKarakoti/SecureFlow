@@ -1,0 +1,980 @@
+openapi: 3.1.0
+info:
+  title: SecureFlow API
+  description: |
+    SecureFlow is a GitHub App that provides automated security scanning for pull requests.
+    This API enables programmatic access to findings, repositories, SBOM scanning, and more.
+  version: 1.0.0
+  contact:
+    name: SecureFlow Team
+    url: https://github.com/GauravKarakoti/SecureFlow
+  license:
+    name: MIT
+    url: https://github.com/GauravKarakoti/SecureFlow/blob/main/LICENSE
+
+servers:
+  - url: https://secure-flow-six.vercel.app
+    description: Production server
+  - url: http://localhost:9002
+    description: Local development server
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: next-auth.session-token
+      description: |
+        NextAuth.js JWT session cookie. Obtained via GitHub OAuth flow.
+        Sessions have a 1-year maxAge. The session contains user ID, codename, and roles.
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - BAD_REQUEST
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - CONFLICT
+            - UNPROCESSABLE_ENTITY
+            - TOO_MANY_REQUESTS
+            - INTERNAL_SERVER_ERROR
+            - DATABASE_ERROR
+        message:
+          type: string
+          description: Human-readable error message (sensitive data scrubbed)
+        success:
+          type: boolean
+          enum: [false]
+
+    SbomDependency:
+      type: object
+      required:
+        - name
+        - version
+        - manifestFile
+        - ecosystem
+      properties:
+        name:
+          type: string
+          description: Package name
+          example: express
+        version:
+          type: string
+          description: Package version
+          example: 4.18.0
+        manifestFile:
+          type: string
+          description: Source manifest file
+          example: package.json
+        ecosystem:
+          type: string
+          enum: [npm, pypi, maven, gem]
+          description: Package ecosystem
+
+    VulnerabilityMatch:
+      type: object
+      required:
+        - dependency
+        - cveId
+        - severity
+        - description
+      properties:
+        dependency:
+          $ref: "#/components/schemas/SbomDependency"
+        cveId:
+          type: string
+          description: CVE identifier
+          example: CVE-2021-44228
+        severity:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        description:
+          type: string
+          description: Vulnerability description
+        patchedVersion:
+          type: string
+          nullable: true
+          description: Version that fixes the vulnerability
+
+    SbomScanResult:
+      type: object
+      required:
+        - scanId
+        - timestamp
+        - totalDependencies
+        - vulnerabilities
+        - status
+      properties:
+        scanId:
+          type: string
+          format: uuid
+          description: Unique scan identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC timestamp
+        totalDependencies:
+          type: integer
+          minimum: 0
+          description: Total number of dependencies found
+        vulnerabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/VulnerabilityMatch"
+        status:
+          type: string
+          enum: [CLEAN, WARNING, VULNERABLE, ERROR]
+          description: Overall scan status
+
+    RemediationPatch:
+      type: object
+      required:
+        - findingId
+        - patchDiff
+        - status
+      properties:
+        id:
+          type: string
+          description: Patch ID (CUID)
+        findingId:
+          type: string
+          description: Associated finding ID
+        patchDiff:
+          type: string
+          description: Unified diff format patch
+        status:
+          type: string
+          enum: [GENERATED, APPLIED, REJECTED]
+        createdAt:
+          type: string
+          format: date-time
+
+    Finding:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Finding ID (CUID)
+        scanResultId:
+          type: string
+        type:
+          type: string
+          enum: [Secret, Vulnerability, Misconfig, CodeQuality, Security]
+        severity:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW]
+        filePath:
+          type: string
+          description: File path where finding was detected
+        fileLocation:
+          type: string
+          description: Deprecated - use filePath
+        codeSnippet:
+          type: string
+          nullable: true
+        description:
+          type: string
+        explanation:
+          type: string
+          nullable: true
+        remediation:
+          type: string
+          nullable: true
+        promptInjectionSuspected:
+          type: boolean
+          default: false
+        createdAt:
+          type: string
+          format: date-time
+
+    ScanJobRequest:
+      type: object
+      required:
+        - repositoryId
+      properties:
+        repositoryId:
+          type: string
+          description: SecureFlow repository ID (CUID)
+        prNumber:
+          type: integer
+          description: Pull request number (optional)
+
+    LeaderboardContributor:
+      type: object
+      properties:
+        id:
+          type: string
+        codename:
+          type: string
+          description: Heist-themed codename
+        totalPRs:
+          type: integer
+        securityScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        rank:
+          type: integer
+        tier:
+          type: string
+          enum: [S, A, B, C, D]
+
+    Repository:
+      type: object
+      properties:
+        id:
+          type: string
+          description: SecureFlow repository ID (CUID)
+        githubId:
+          type: string
+          description: GitHub repository ID
+        fullName:
+          type: string
+          description: Owner/name format
+          example: facebook/react
+        owner:
+          type: string
+        name:
+          type: string
+        isActive:
+          type: boolean
+        userId:
+          type: string
+          description: SecureFlow user ID of owner
+
+paths:
+  /api/sbom/scan:
+    post:
+      summary: Scan SBOM for vulnerabilities
+      description: |
+        Analyzes a manifest file (package.json, requirements.txt, etc.) for known vulnerabilities
+        in dependencies. Returns a list of vulnerable packages with CVE details.
+      operationId: scanSbom
+      security:
+        - sessionAuth: []
+      tags:
+        - SBOM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fileName
+                - content
+              properties:
+                fileName:
+                  type: string
+                  description: Name of the manifest file
+                  example: package.json
+                content:
+                  type: string
+                  description: Raw content of the manifest file
+            examples:
+              npm:
+                summary: NPM package.json
+                value:
+                  fileName: package.json
+                  content: |
+                    {
+                      "dependencies": {
+                        "express": "4.17.1",
+                        "lodash": "4.17.19"
+                      }
+                    }
+      responses:
+        "200":
+          description: Scan completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - result
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  result:
+                    $ref: "#/components/schemas/SbomScanResult"
+        "400":
+          description: Invalid request - missing fileName or content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized - session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/findings/{id}/remediate:
+    post:
+      summary: Generate remediation patch for a finding
+      description: |
+        Triggers AI-powered patch generation for a specific security finding.
+        Creates a unified diff that can be applied to fix the vulnerability.
+      operationId: remediateFinding
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Finding ID (CUID)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Patch generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - patch
+                  - explanation
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  patch:
+                    $ref: "#/components/schemas/RemediationPatch"
+                  explanation:
+                    type: string
+                    description: AI-generated explanation of the fix
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Finding not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Patch generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/findings/bulk-remediate:
+    post:
+      summary: Generate remediation patches for multiple findings
+      description: |
+        Triggers AI-powered patch generation for multiple security findings at once.
+        Requires all findings to be of the same vulnerability type.
+        Creates a combined unified diff that can be applied to fix all vulnerabilities.
+      operationId: bulkRemediateFindings
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - findingIds
+              properties:
+                findingIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                  description: Array of finding IDs (CUIDs) to remediate
+                  example: ["cld1a2b3c4", "cld5e6f7g8"]
+      responses:
+        "200":
+          description: Bulk patches generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - patch
+                  - explanation
+                  - count
+                  - type
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  patch:
+                    type: object
+                    properties:
+                      patchDiff:
+                        type: string
+                        description: Combined unified diff for all findings
+                      status:
+                        type: string
+                        enum: [GENERATED]
+                  explanation:
+                    type: string
+                    description: Combined explanation for all patches
+                  count:
+                    type: integer
+                    description: Number of findings remediated
+                  type:
+                    type: string
+                    description: Vulnerability type of all findings
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      types:
+                        type: array
+                        items:
+                          type: string
+                    description: When findings have mixed types
+              examples:
+                emptyArray:
+                  summary: Empty finding IDs
+                  value:
+                    error: findingIds must be a non-empty array of strings
+                mixedTypes:
+                  summary: Mixed vulnerability types
+                  value:
+                    error: Bulk remediation requires all selected findings to be of the same vulnerability type
+                    details:
+                      types: ["Secret", "Vulnerability"]
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Access denied to one or more findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: One or more findings could not be found or access is denied
+        "404":
+          description: No matching findings found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Bulk patch generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/findings:
+    post:
+      summary: Enqueue vulnerability scan
+      description: |
+        Enqueues an asynchronous vulnerability scan for a repository.
+        Returns immediately with a job ID for status polling.
+      operationId: enqueueScan
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanJobRequest"
+      responses:
+        "202":
+          description: Scan job enqueued
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                default: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued]
+                  jobId:
+                    type: string
+                    description: BullMQ job ID
+                  scanJobId:
+                    type: string
+                    description: Scan job ID for status polling
+                  message:
+                    type: string
+                  pollingUrl:
+                    type: string
+                    description: URL to poll for status
+                    example: /api/findings/status/job_123
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Repository not found or not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded (10 req/60s)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/findings/{id}/explain-stream:
+    get:
+      summary: Stream AI explanation for finding
+      description: |
+        Server-Sent Events stream that regenerates an AI explanation for a finding.
+        Text appears token-by-token. Finding must belong to a repository owned by the user.
+      operationId: explainFindingStream
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Finding ID (CUID)
+          schema:
+            type: string
+        - name: Accept
+          in: header
+          required: false
+          schema:
+            type: string
+            default: text/event-stream
+      responses:
+        "200":
+          description: SSE stream of explanation chunks
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                default: text/event-stream
+            Cache-Control:
+              schema:
+                type: string
+                default: no-cache, no-transform
+            Connection:
+              schema:
+                type: string
+                default: keep-alive
+            X-Accel-Buffering:
+              schema:
+                type: string
+                default: "no"
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE frames with JSON data:
+                  - {"type": "chunk", "text": "..."}
+                  - {"type": "done", "result": {...}}
+                  - {"type": "error", "message": "..."}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Finding not found or not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/repositories/sync:
+    post:
+      summary: Sync GitHub repositories
+      description: |
+        Triggers repository synchronization for the authenticated user.
+        Fetches repositories from GitHub App installation and updates local database.
+        This is an expensive operation with strict rate limiting.
+      operationId: syncRepositories
+      security:
+        - sessionAuth: []
+      tags:
+        - Repositories
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repositoryId:
+                  type: string
+                  description: Sync specific repository by ID (optional)
+      responses:
+        "200":
+          description: Sync completed
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                default: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  synced:
+                    type: integer
+                    description: Number of repositories synced
+                  skipped:
+                    type: integer
+                    description: Number of repositories skipped
+                  failed:
+                    type: integer
+                    description: Number of repositories that failed to sync
+                  hasInstallation:
+                    type: boolean
+                    description: Whether user has GitHub App installed
+                  error:
+                    type: string
+                    description: Partial failure message (scrubbed)
+                  repository:
+                    $ref: "#/components/schemas/Repository"
+                    description: Only present when repositoryId was specified
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Repository not found (when repositoryId specified)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "408":
+          description: Request timeout or aborted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Sync failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/leaderboard:
+    get:
+      summary: Get security leaderboard
+      description: |
+        Returns top contributors ranked by security score.
+        Supports both single JSON response and SSE streaming for real-time updates.
+      operationId: getLeaderboard
+      tags:
+        - Leaderboard
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          description: Enable SSE streaming mode
+          schema:
+            type: boolean
+            default: false
+        - name: Accept
+          in: header
+          required: false
+          description: Alternative way to request SSE stream
+          schema:
+            type: string
+            enum: [text/event-stream, application/json]
+      responses:
+        "200":
+          description: Leaderboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contributors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LeaderboardContributor"
+                    description: Top 50 contributors
+                  timestamp:
+                    type: integer
+                    description: Unix timestamp
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream with 15-second updates.
+                  Each event is JSON with contributors array and timestamp.
+        "500":
+          description: Failed to load leaderboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/admin/export:
+    get:
+      summary: Export audit logs as CSV
+      description: |
+        Admin-only endpoint that exports all audit log entries as a CSV file.
+        Requires ADMIN role in addition to authentication.
+      operationId: exportAuditLogs
+      security:
+        - sessionAuth: []
+      tags:
+        - Admin
+      responses:
+        "200":
+          description: CSV file with audit logs
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                default: text/csv
+            Content-Disposition:
+              schema:
+                type: string
+                default: attachment; filename="audit_logs_export.csv"
+          content:
+            text/csv:
+              schema:
+                type: string
+                description: |
+                  CSV with columns: id,userId,action,resource,decision,metadata,timestamp
+                  Follows RFC 4180 formatting rules
+        "401":
+          description: Unauthorized - no session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized access
+        "403":
+          description: Forbidden - requires ADMIN role
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized access
+        "404":
+          description: No audit logs exist
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: No data available
+        "500":
+          description: Export failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Internal Server Error
+
+  /api/webhooks/github:
+    post:
+      summary: GitHub webhook receiver
+      description: |
+        Receives GitHub App webhook events. Handles pull_request, installation,
+        and installation_repositories events. Runs security scans on PRs.
+      operationId: handleGitHubWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: X-GitHub-Event
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [pull_request, installation, installation_repositories]
+        - name: X-GitHub-Delivery
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Hub-Signature-256
+          in: header
+          required: true
+          schema:
+            type: string
+            description: HMAC-SHA256 signature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: GitHub webhook payload (varies by event type)
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  decision:
+                    type: string
+                    enum: [PASS, REVIEW REQUIRED, BLOCKED]
+                  findingCount:
+                    type: integer
+                  error:
+                    type: string
+                  fallback:
+                    type: boolean
+        "202":
+          description: Duplicate delivery or rate limited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  success:
+                    type: boolean
+        "400":
+          description: Invalid payload or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded (50 req/60s)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Webhook processing failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+tags:
+  - name: SBOM
+    description: Software Bill of Materials scanning
+  - name: Findings
+    description: Security findings and vulnerability scanning
+  - name: Repositories
+    description: GitHub repository management
+  - name: Leaderboard
+    description: Security contributor rankings
+  - name: Admin
+    description: Administrative operations (requires ADMIN role)
+  - name: Webhooks
+    description: External webhook receivers

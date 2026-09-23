@@ -77,6 +77,7 @@ describe("classifyApiPath", () => {
     expect(classifyApiPath("/api/heist-transmission")).toBe("stream");
     expect(classifyApiPath("/api/og/heist")).toBe("stream");
     expect(classifyApiPath("/api/findings/abc123/explain-stream")).toBe("stream");
+    expect(classifyApiPath("/api/cli/scan")).toBe("stream");
   });
 
   it("falls back to standard for everything else under /api", () => {
@@ -123,6 +124,7 @@ describe("tierForPath", () => {
     expect(tierForPath("/api/auth/session")).toBe(API_RATE_LIMIT_TIERS.auth);
     expect(tierForPath("/api/leaderboard")).toBe(API_RATE_LIMIT_TIERS.standard);
     expect(tierForPath("/api/heist-transmission")).toBe(API_RATE_LIMIT_TIERS.stream);
+    expect(tierForPath("/api/cli/scan")).toBe(API_RATE_LIMIT_TIERS.stream);
   });
 });
 
