@@ -44,6 +44,7 @@ import {
   assertPullRequestContext,
   getCommentableLines,
   getGitHubAppCredentials,
+  repositoryIdentity,
   selectRepositoryList,
   shouldScanPullRequestManifests,
   truncateForError,
@@ -230,6 +231,34 @@ describe("getCommentableLines (diff-position guard)", () => {
   });
 });
 
+describe("repositoryIdentity", () => {
+  it("takes the current name and owner from the delivery", () => {
+    // A rename or transfer keeps the numeric id, so the row is found by githubId
+    // and must pick up the new name rather than keep the one it was created with.
+    expect(
+      repositoryIdentity({ full_name: "new-org/renamed", owner: { login: "new-org" } }),
+    ).toEqual({ fullName: "new-org/renamed", owner: "new-org" });
+  });
+
+  it("falls back to the owner segment of full_name when owner.login is missing", () => {
+    expect(repositoryIdentity({ full_name: "acme/api" })).toEqual({
+      fullName: "acme/api",
+      owner: "acme",
+    });
+    expect(repositoryIdentity({ full_name: "acme/api", owner: { login: "" } }).owner).toBe("acme");
+    expect(repositoryIdentity({ full_name: "acme/api", owner: "not-an-object" }).owner).toBe(
+      "acme",
+    );
+  });
+
+  it("never includes userId", () => {
+    expect(Object.keys(repositoryIdentity({ full_name: "acme/api" }))).toEqual([
+      "fullName",
+      "owner",
+    ]);
+  });
+});
+
 describe("selectRepositoryList", () => {
   const repo = (id: number, fullName: string) => ({ id, full_name: fullName });
 
@@ -277,8 +306,32 @@ describe("selectRepositoryList", () => {
 
   it("ignores unrelated events and actions", () => {
     expect(selectRepositoryList("pull_request", "opened", {}).intent).toBe("ignore");
-    expect(selectRepositoryList("installation", "deleted", {}).intent).toBe("ignore");
     expect(selectRepositoryList("installation_repositories", "weird", {}).intent).toBe("ignore");
+  });
+
+  it("deactivates an uninstalled or suspended installation's repositories", () => {
+    // Ignored before, so uninstalling the App left every repository active.
+    for (const action of ["deleted", "suspend"]) {
+      const result = selectRepositoryList("installation", action, {
+        repositories: [repo(5, "acme/api"), repo(6, "acme/web")],
+      });
+      expect(result.intent).toBe("remove");
+      expect(result.repositories.map((r) => r.full_name)).toEqual(["acme/api", "acme/web"]);
+    }
+  });
+
+  it("reactivates an unsuspended installation's repositories", () => {
+    const result = selectRepositoryList("installation", "unsuspend", {
+      repositories: [repo(5, "acme/api")],
+    });
+    expect(result.intent).toBe("add");
+    expect(result.repositories).toHaveLength(1);
+  });
+
+  it("ignores installation actions that do not change repository access", () => {
+    expect(selectRepositoryList("installation", "new_permissions_accepted", {}).intent).toBe(
+      "ignore",
+    );
   });
 
   it("drops malformed entries rather than passing them to BigInt()", () => {

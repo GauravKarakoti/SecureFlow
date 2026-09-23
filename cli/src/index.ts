@@ -22,6 +22,12 @@ import {
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
 import { hostedAiScanSkipReason, localModeEnv } from "./lib/local-mode.js";
+import {
+  CliUsageError,
+  parseIgnoreFilePath,
+  parseOutputFormat,
+  parseOutputPath,
+} from "./lib/output-args.js";
 
 const VERBOSE = process.argv.includes("--verbose");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -37,57 +43,6 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
  */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
-
-function parseFormatArg(): OutputFormat {
-  const formatIndex = process.argv.findIndex((arg) => arg === "--format");
-  if (formatIndex !== -1) {
-    const valStr = process.argv[formatIndex + 1];
-    if (valStr) {
-      const val = valStr.toLowerCase();
-      if (
-        val === "sarif" ||
-        val === "json" ||
-        val === "text" ||
-        val === "csv" ||
-        val === "html" ||
-        val === "markdown"
-      ) {
-        return val as OutputFormat;
-      }
-      if (val === "md") {
-        return "markdown";
-      }
-    }
-  }
-  return "text";
-}
-
-function parseOutputArg(): string | null {
-  const outIndex = process.argv.findIndex((arg) => arg === "-o" || arg === "--output");
-  if (outIndex !== -1) {
-    const valStr = process.argv[outIndex + 1];
-    if (valStr) {
-      return valStr;
-    }
-  }
-  return null;
-}
-
-function parseIgnoreFileArg(): string | undefined {
-  const idx = process.argv.findIndex((arg) => arg === "--ignore-file" || arg === "--ignore");
-  if (idx !== -1) {
-    const val = process.argv[idx + 1];
-    if (val && !val.startsWith("-")) {
-      return val;
-    }
-  }
-  for (const arg of process.argv) {
-    if (arg.startsWith("--ignore-file=")) {
-      return arg.split("=")[1];
-    }
-  }
-  return undefined;
-}
 
 function parseSeverityArg(): Set<Severity> | null {
   const idx = process.argv.findIndex(
@@ -166,8 +121,18 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
-  const format = parseFormatArg();
-  const outputPath = parseOutputArg();
+  let format: OutputFormat;
+  let outputPath: string | null;
+  let customIgnorePath: string | undefined;
+  try {
+    format = parseOutputFormat(process.argv);
+    outputPath = parseOutputPath(process.argv);
+    customIgnorePath = parseIgnoreFilePath(process.argv);
+  } catch (error) {
+    if (!(error instanceof CliUsageError)) throw error;
+    console.error(`❌ [SecureFlow] ${error.message}`);
+    return 1;
+  }
   const severityFilter = parseSeverityArg();
   let staged: string[];
 
@@ -182,7 +147,6 @@ async function main(): Promise<number> {
   const unreadable: string[] = [];
   const stagedForAi: StagedFileForAiScan[] = [];
 
-  const customIgnorePath = parseIgnoreFileArg();
   const ignoreData = loadSecureFlowIgnore(customIgnorePath);
   const customIgnores = ignoreData?.compiledPatterns ?? [];
 

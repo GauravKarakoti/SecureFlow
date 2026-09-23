@@ -57,21 +57,55 @@ const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace", "tabl
 const CONSOLE_CALL = new RegExp(`console\\s*\\.\\s*(?:${CONSOLE_METHODS.join("|")})\\s*\\(`, "g");
 
 /**
+ * Words that make an identifier secret-bearing, matched with `_` and `-`
+ * removed so `private_key`, `privateKey` and `PRIVATE-KEY` read the same.
+ *
+ * This was a regex over the raw text that listed `privatekey` without a
+ * separator, so `console.log(private_key)` — the spelling most config loaders
+ * use — was never flagged, and nothing matched `passphrase` at all.
+ */
+const SECRET_WORDS =
+  /password|passwd|passphrase|secret|token|credential|apikey|privatekey|signingkey|encryptionkey/;
+
+/**
+ * Token *counts* and *tokenizers*, which LLM code logs constantly
+ * (`console.log(maxTokens)`, `console.log(usage.totalTokens)`). `token` as a
+ * bare substring flagged every one of them as a leaked credential. Removed from
+ * the normalized name before `SECRET_WORDS` is applied, so a name that is only
+ * a count or a tokenizer passes while `tokens`, `authToken` or `passwordLength`
+ * still read as secret-bearing.
+ */
+const TOKEN_COUNT_FORMS =
+  /tokeni[sz](?:er|ers|ed|es|ing|ation)?|(?:max|min|total|prompt|completion|input|output|num|remaining|used|reasoning|cached)tokens?|tokens?(?:count|counts|usage|limit|limits|length|budget|estimate|cost)/g;
+
+/** Whether an identifier reads as holding a credential. */
+export function isSecretIdentifier(name: string): boolean {
+  const normalized = name.replace(/[_-]/g, "").toLowerCase();
+  return SECRET_WORDS.test(normalized.replace(TOKEN_COUNT_FORMS, ""));
+}
+
+/** Anything with a `test(text)` method: a RegExp or a custom matcher. */
+interface IndicatorMatcher {
+  test(text: string): boolean;
+}
+
+const SECRET_IDENTIFIER: IndicatorMatcher = {
+  test: (text) => (text.match(/[A-Za-z_$][\w$]*/g) ?? []).some(isSecretIdentifier),
+};
+
+/**
  * What makes an argument list suspicious.
  *
  * Checked against the *masked* source, so a string literal that merely contains
  * the word "password" does not match — only an identifier or a member
  * expression does.
  */
-const INDICATORS: ReadonlyArray<readonly [string, RegExp]> = [
+const INDICATORS: ReadonlyArray<readonly [string, IndicatorMatcher]> = [
   [
     "environment variable",
     /\b(?:process\s*\.\s*env|import\s*\.\s*meta\s*\.\s*env|Deno\s*\.\s*env|os\s*\.\s*environ)\b/,
   ],
-  [
-    "secret-named identifier",
-    /\b\w*(?:password|passwd|secret|token|credential|apikey|privatekey)\w*\b/i,
-  ],
+  ["secret-named identifier", SECRET_IDENTIFIER],
   // `key` and `auth` on their own are common enough in ordinary code
   // (`keyof`, `authorised`, `keys`) that they are only flagged when they read
   // as a whole word or as an obvious compound.

@@ -149,6 +149,51 @@ export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
   return { ignoredPaths, placeholders };
 }
 
+/**
+ * Translate one glob into a regular-expression source, reading it left to right.
+ *
+ * This was a chain of `replace` calls over the already-escaped string, and two
+ * of the steps misread text an earlier step had produced:
+ *
+ *  - The single-`*` step skipped any `*` next to a `.`, to leave alone the `.*`
+ *    that `**` had become. An escaped literal dot looks the same, so the `*` in
+ *    `config.*` (escaped to `config\.*`) survived as a regex quantifier — "zero
+ *    or more dots" — and `config.*` never matched `config.json`, nor
+ *    `*.test.*` `src/a.test.ts`.
+ *  - The trailing-`/**` step was written `/\*\**`, whose second `*` is
+ *    optional, so it also rewrote a plain `/*`: `src/*.ts` matched
+ *    `src/a/b.ts` and even `src.ts`.
+ *
+ * A single pass over the glob leaves nothing for a later step to misread.
+ */
+export function globToRegexSource(glob: string): string {
+  let out = "";
+
+  for (let i = 0; i < glob.length;) {
+    if (glob.startsWith("/**", i) && i + 3 === glob.length) {
+      out += "(?:/.*)?"; // trailing `/**`: the directory itself or anything below it
+      i += 3;
+    } else if (glob.startsWith("**/", i)) {
+      out += "(?:.*/)?"; // any number of directories, including none
+      i += 3;
+    } else if (glob.startsWith("**", i)) {
+      out += ".*";
+      i += 2;
+    } else if (glob[i] === "*") {
+      out += "[^/]*";
+      i += 1;
+    } else if (glob[i] === "?") {
+      out += "[^/]";
+      i += 1;
+    } else {
+      out += glob[i]!.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      i += 1;
+    }
+  }
+
+  return out;
+}
+
 export function compileIgnorePatterns(patterns: string[]): RegExp[] {
   return patterns
     .map((p) => p.trim())
@@ -167,20 +212,7 @@ export function compileIgnorePatterns(patterns: string[]): RegExp[] {
         glob += "**";
       }
 
-      // Escape regex characters except *, ?
-      let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-
-      // Handle question marks first (before introducing any group (?) syntax)
-      regexStr = regexStr.replace(/\?/g, "[^/]");
-
-      // Handle double asterisks
-      regexStr = regexStr.replace(/\/\*\*\//g, "/(?:.*/)?");
-      regexStr = regexStr.replace(/\*\*\//g, "(?:.*/)?");
-      regexStr = regexStr.replace(/\/\*\**/g, "(?:/.*)?");
-      regexStr = regexStr.replace(/\*\*/g, ".*");
-
-      // Handle single asterisks
-      regexStr = regexStr.replace(/(?<!\.)\*(?!\.)/g, "[^/]*");
+      const regexStr = globToRegexSource(glob);
 
       if (isRootRelative) {
         return new RegExp(`^${regexStr}$`, "i");

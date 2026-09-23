@@ -13,6 +13,7 @@ import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
+import { renderScanReportSummary } from "@/lib/github/scan-report";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/finding-taxonomy";
 import { sanitizeLogValue } from "@/lib/logger";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -152,7 +154,12 @@ export interface RepositoryListSelection {
  *    some selected-repository flows;
  *  - `installation_repositories` / 'added' carries `repositories_added`;
  *  - `installation_repositories` / 'removed' carries `repositories_removed`,
- *    which the old code did not handle at all.
+ *    which the old code did not handle at all;
+ *  - `installation` / 'deleted' (the App was uninstalled) and 'suspend' carry
+ *    the installation's `repositories`, which must stop being treated as
+ *    active; 'unsuspend' carries the same list back. These were ignored, so an
+ *    uninstalled App left every repository `isActive` on the dashboard and in
+ *    analytics indefinitely.
  *
  * Returning an empty list rather than throwing means a delivery with nothing to
  * do is a no-op, not three retries and a DLQ entry.
@@ -173,8 +180,13 @@ export function selectRepositoryList(
         ) as RepoLike[])
       : [];
 
-  if (event === "installation" && action === "created") {
-    return { intent: "add", repositories: asList(payload.repositories) };
+  if (event === "installation") {
+    if (action === "created" || action === "unsuspend") {
+      return { intent: "add", repositories: asList(payload.repositories) };
+    }
+    if (action === "deleted" || action === "suspend") {
+      return { intent: "remove", repositories: asList(payload.repositories) };
+    }
   }
 
   if (event === "installation_repositories") {
@@ -187,6 +199,32 @@ export function selectRepositoryList(
   }
 
   return { intent: "ignore", repositories: [] };
+}
+
+/**
+ * The name and owner a repository row should carry, from a webhook's repository.
+ *
+ * GitHub keeps a repository's numeric id across a rename or a transfer, so the
+ * row is found by `githubId` either way — but the webhook paths only ever wrote
+ * the name on create. Their upserts updated `isActive` alone and the PR path
+ * never updated the row at all, so a renamed or transferred repository kept its
+ * old `fullName` on the dashboard, in analytics, in audit rows and in every
+ * scan's `repositoryFullName` until someone happened to run a manual sync
+ * (`sync-user-repos.ts` already refreshes both fields). `userId` is
+ * deliberately not part of this, for the reason given there (#657).
+ */
+export function repositoryIdentity(repo: { full_name: string; owner?: unknown }): {
+  fullName: string;
+  owner: string;
+} {
+  const login =
+    repo.owner && typeof repo.owner === "object"
+      ? (repo.owner as { login?: unknown }).login
+      : undefined;
+  return {
+    fullName: repo.full_name,
+    owner: typeof login === "string" && login !== "" ? login : repo.full_name.split("/")[0]!,
+  };
 }
 
 export interface PullRequestContext {
@@ -287,6 +325,18 @@ export function assertPullRequestContext(payload: {
  * the same walk in `@/lib/armor/diff`, which makes the disagreement structurally
  * impossible rather than fixed-for-now.
  */
+/**
+ * AI explanations requested at once for one pull request.
+ *
+ * Enrichment used `Promise.all(activeFindings.map(...))`, so a PR with forty
+ * findings opened forty simultaneous completions against Groq. That is the
+ * burst its per-minute limits reject; `withRetry` backs off, but every call is
+ * retrying against the same limit at the same moment, and once the retries run
+ * out the finding is stored — and posted on the PR — with the canned
+ * "Groq API rate limit reached (429)" text in place of an explanation.
+ */
+export const AI_EXPLANATION_CONCURRENCY = 3;
+
 export function getCommentableLines(patch: string): Set<number> {
   return commentableLineNumbers(parseUnifiedPatch(patch));
 }
@@ -383,11 +433,10 @@ export const worker = new Worker<WebhookJobData>(
           ...repoSelection.repositories.map((repo) =>
             prisma.repository.upsert({
               where: { githubId: BigInt(repo.id) },
-              update: { isActive: true },
+              update: { isActive: true, ...repositoryIdentity(repo) },
               create: {
                 githubId: BigInt(repo.id),
-                fullName: repo.full_name,
-                owner: repo.full_name.split("/")[0],
+                ...repositoryIdentity(repo),
                 userId: account.userId,
               },
             }),
@@ -406,8 +455,9 @@ export const worker = new Worker<WebhookJobData>(
         );
       }
     } else if (
-      event === "installation_repositories" &&
-      (action === "added" || action === "removed")
+      (event === "installation_repositories" && (action === "added" || action === "removed")) ||
+      (event === "installation" &&
+        (action === "deleted" || action === "suspend" || action === "unsuspend"))
     ) {
       const senderId = payload.sender?.id?.toString();
       const account = await prisma.account.findFirst({
@@ -438,7 +488,7 @@ export const worker = new Worker<WebhookJobData>(
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
                 count: repoSelection.repositories.length,
-                event: "installation_repositories",
+                event,
               },
             }),
           }),
@@ -448,11 +498,10 @@ export const worker = new Worker<WebhookJobData>(
           ...repoSelection.repositories.map((repo) =>
             prisma.repository.upsert({
               where: { githubId: BigInt(repo.id) },
-              update: { isActive: true },
+              update: { isActive: true, ...repositoryIdentity(repo) },
               create: {
                 githubId: BigInt(repo.id),
-                fullName: repo.full_name,
-                owner: repo.full_name.split("/")[0],
+                ...repositoryIdentity(repo),
                 userId: account.userId,
               },
             }),
@@ -464,7 +513,7 @@ export const worker = new Worker<WebhookJobData>(
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
                 count: repoSelection.repositories.length,
-                event: "installation_repositories",
+                event,
               },
             }),
           }),
@@ -547,6 +596,16 @@ export const worker = new Worker<WebhookJobData>(
             console.log(
               `[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`,
             );
+          }
+        }
+
+        if (dbRepo) {
+          const identity = repositoryIdentity(repository);
+          if (dbRepo.fullName !== identity.fullName || dbRepo.owner !== identity.owner) {
+            dbRepo = await prisma.repository.update({
+              where: { id: dbRepo.id },
+              data: identity,
+            });
           }
         }
 
@@ -709,8 +768,10 @@ export const worker = new Worker<WebhookJobData>(
         // Enrich and post ONLY the active findings: a finding the user dismissed
         // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
         // spend) nor re-posted as a PR comment on every re-scan.
-        const enrichedFindings = await Promise.all(
-          activeFindings.map(async (finding: any) => {
+        const enrichedFindings = await mapWithConcurrency(
+          activeFindings,
+          AI_EXPLANATION_CONCURRENCY,
+          async (finding: any) => {
             const aiResponse = await developerReceivesAISecurityExplanations({
               findingType: finding.type,
               severity: finding.severity,
@@ -733,7 +794,7 @@ export const worker = new Worker<WebhookJobData>(
               // and dashboard so reviewers are warned when the AI narrative may be unreliable.
               promptInjectionSuspected: aiResponse.promptInjectionSuspected,
             };
-          }),
+          },
         );
 
         // The full list is still persisted (active + dismissed) so the dashboard
@@ -864,29 +925,13 @@ export const worker = new Worker<WebhookJobData>(
             }
           });
 
-          const renderSummary = (findingsToRender: any[]) => {
-            let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
-            body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies. Please review them before merging.\n\n`;
-            if (coverageNotice) {
-              body += `${coverageNotice}\n\n`;
-            }
-            if (inlineComments.length > 0 && findingsToRender.length < enrichedFindings.length) {
-              body += `📍 **${inlineComments.length}** finding(s) are annotated inline on the exact changed lines below.\n\n`;
-            }
-            findingsToRender.forEach((f: any) => {
-              body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
-              // Layer 4: surface injection warning in the summary body when the flag is set.
-              if (f.promptInjectionSuspected) {
-                body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`;
-              }
-              body += `> ${f.explanation}\n\n`;
-              body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
-              body += `${f.remediation}\n\n`;
-              body += `</details>\n\n`;
-              body += `---\n\n`;
+          const renderSummary = (findingsToRender: any[]) =>
+            renderScanReportSummary({
+              findings: findingsToRender,
+              totalFindings: enrichedFindings.length,
+              inlineCount: inlineComments.length,
+              coverageNotice,
             });
-            return body;
-          };
 
           // Try to post the anchored findings as an inline review. If that fails
           // (e.g. a line slipped past the guard), fall back to a summary comment

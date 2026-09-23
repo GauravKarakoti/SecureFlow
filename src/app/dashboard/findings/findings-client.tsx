@@ -5,8 +5,8 @@ import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { downloadCSV } from "@/lib/utils/exportCsv";
 import {
   Accordion,
   AccordionContent,
@@ -63,24 +63,17 @@ export default function FindingsClient({
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Export the currently loaded findings as CSV, reusing the same
-  // formula-injection-safe serializer the audit log uses.
-  const handleExportCsv = () => {
-    const rows = findings.map((f) => ({
-      severity: f.severity,
-      type: f.type,
-      file: f.fileLocation,
-      lineStart: f.lineStart ?? "",
-      lineEnd: f.lineEnd ?? "",
-      repository: f.repositoryFullName,
-      pullRequest: f.pullRequestNumber,
-      status: f.triageStatus,
-      remediation: f.remediation ?? "",
-      createdAt: new Date(f.createdAt).toISOString(),
-    }));
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    downloadCSV(rows, `secureflow-findings-${dateStamp}.csv`);
-  };
+  // Export every finding matching the current filters, not just this page:
+  // `/api/findings/export` reads the same query string as this page and streams
+  // the full result. Paging parameters are dropped because the export has none.
+  const searchParams = useSearchParams();
+  const exportHref = useMemo(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete("page");
+    params.delete("pageSize");
+    const query = params.toString();
+    return `/api/findings/export${query ? `?${query}` : ""}`;
+  }, [searchParams]);
 
   // Only findings that carry both a repositoryId and a fingerprint can be
   // triaged, so those are the only ones selectable.
@@ -190,16 +183,21 @@ export default function FindingsClient({
           <CardTitle className="text-lg">Recent Findings</CardTitle>
 
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportCsv}
-              disabled={findings.length === 0}
-              className="gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
+            {total === 0 ? (
+              <Button variant="outline" size="sm" disabled className="gap-2">
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                {/* A link, not an onClick over `findings`: that is only the loaded
+                    page, while the export should cover the `total` beside it. */}
+                <a href={exportHref} download>
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </a>
+              </Button>
+            )}
 
             <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
               {/* The filtered total, not findings.length -- which was the page size and

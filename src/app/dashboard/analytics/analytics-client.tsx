@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
+import Link from "next/link";
 import CountUp from "react-countup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import { ANALYTICS_RANGES, DEFAULT_ANALYTICS_RANGE } from "@/lib/analytics/range";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -88,6 +90,8 @@ interface AnalyticsSummary {
 }
 
 interface AnalyticsClientProps {
+  /** The window the charts cover, from `?range=` (see `parseAnalyticsRange`). */
+  rangeDays?: number;
   dailyMetrics: DailyScanMetric[];
   severityTrend: SeverityTrendPoint[];
   repoSummaries: RepoScanSummary[];
@@ -133,6 +137,7 @@ const TREND_LABELS: Record<string, string> = {
 // ─── Client Component ────────────────────────────────────────────────────────
 
 export default function AnalyticsClient({
+  rangeDays = DEFAULT_ANALYTICS_RANGE,
   dailyMetrics,
   severityTrend,
   repoSummaries,
@@ -197,6 +202,7 @@ export default function AnalyticsClient({
     try {
       const exportData = {
         exportedAt: new Date().toISOString(),
+        rangeDays,
         summary,
         dailyMetrics,
         severityTrend,
@@ -210,13 +216,13 @@ export default function AnalyticsClient({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `secureflow-analytics-${new Date().toISOString().split("T")[0]}.json`;
+      link.download = `secureflow-analytics-${rangeDays}d-${new Date().toISOString().split("T")[0]}.json`;
       link.click();
       URL.revokeObjectURL(url);
     } finally {
       setExporting(false);
     }
-  }, [summary, dailyMetrics, severityTrend, repoSummaries, topFindingTypes]);
+  }, [rangeDays, summary, dailyMetrics, severityTrend, repoSummaries, topFindingTypes]);
 
   const pieData = useMemo(
     () =>
@@ -248,6 +254,29 @@ export default function AnalyticsClient({
                 {TREND_LABELS[summary.trendDirection]}
               </span>
             </div>
+            <nav
+              aria-label="Time range"
+              className="flex items-center rounded-md border border-white/10 bg-white/5 p-0.5"
+            >
+              {ANALYTICS_RANGES.map((range) => {
+                const active = range === rangeDays;
+                return (
+                  <Link
+                    key={range}
+                    href={`?range=${range}`}
+                    scroll={false}
+                    aria-current={active ? "page" : undefined}
+                    className={`rounded px-2.5 py-1 font-mono text-xs transition-colors ${
+                      active
+                        ? "bg-primary/20 text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {range}d
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
         </div>
 
@@ -310,7 +339,7 @@ export default function AnalyticsClient({
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-bold">Scan Activity & Findings</CardTitle>
             <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-              Last 30 Days
+              Last {rangeDays} Days
             </Badge>
           </CardHeader>
           <CardContent className="h-[320px]">

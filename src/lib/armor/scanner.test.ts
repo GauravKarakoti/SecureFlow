@@ -158,6 +158,37 @@ describe("shouldIgnore", () => {
     expect(shouldIgnore("custom-dir/some-file.ts", customPatterns)).toBe(true);
   });
 
+  const matches = (glob: string, path: string) =>
+    compileIgnorePatterns([glob]).some((re) => re.test(path));
+
+  it.each([
+    ["config.*", "config.json"],
+    ["secrets.*", "src/secrets.yaml"],
+    ["*.test.*", "src/a.test.ts"],
+    ["fixtures/*.*", "fixtures/a.json"],
+    ["src/*.ts", "src/a.ts"],
+    ["docs/**", "docs/a/b.md"],
+    ["**/generated/*.ts", "a/b/generated/x.ts"],
+    ["a/**/b.ts", "a/b.ts"],
+    ["*.log", "logs/app.log"],
+    ["file?.txt", "file1.txt"],
+  ])("%s matches %s", (glob, path) => {
+    expect(matches(glob, path)).toBe(true);
+  });
+
+  it.each([
+    // A glob dot is a literal dot, not "zero or more dots".
+    ["config.*", "config"],
+    // A single * stays within one path segment.
+    ["src/*.ts", "src/a/b.ts"],
+    ["src/*.ts", "src.ts"],
+    ["fixtures/*.*", "fixtures/a/b.json"],
+    ["file?.txt", "file10.txt"],
+    ["*.log", "app.log.gz"],
+  ])("%s does not match %s", (glob, path) => {
+    expect(matches(glob, path)).toBe(false);
+  });
+
   it("does not ignore regular source files", () => {
     expect(shouldIgnore("src/app.ts")).toBe(false);
     expect(shouldIgnore("src/components/Button.tsx")).toBe(false);
