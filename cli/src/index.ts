@@ -44,11 +44,63 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
 
+function printHelp(): void {
+  console.log(`
+SecureFlow CLI - Security analysis tool for staged git files
+
+Usage:
+  secureflow [options]
+
+Options:
+  --verbose              Enable verbose logging
+  --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
+  -o, --output <path>    Write output to specified file path
+  --ignore-file <path>   Path to custom ignore configuration file
+  --fail-on <level>      Fail scan threshold (low, medium, high, critical)
+  --local                Run scan locally without uploading files externally
+  --local-model <tag>    Specify local AI model tag (default: llama3)
+  --dry-run              Simulate scan execution without writing files
+  -h, --help             Show this help message
+
+Examples:
+  $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow --format json -o res.json           # Scan and export results to JSON file
+  $ secureflow --fail-on high                      # Fail commit only on high/critical findings
+  $ secureflow --local --local-model llama3        # Run completely local scan
+`);
+}
+
+function parseFormatArg(): OutputFormat {
+  const formatIndex = process.argv.findIndex((arg) => arg === "--format");
+  if (formatIndex !== -1) {
+    const valStr = process.argv[formatIndex + 1];
+    if (valStr) {
+      const val = valStr.toLowerCase();
+      if (
+        val === "sarif" ||
+        val === "json" ||
+        val === "text" ||
+        val === "csv" ||
+        val === "html" ||
+        val === "markdown"
+      ) {
+        return val as OutputFormat;
+      }
+      if (val === "md") {
+        return "markdown";
+      }
+    }
+  }
+  return "text";
+}
+
 function parseSeverityArg(): Set<Severity> | null {
   const idx = process.argv.findIndex(
     (arg) => arg === "--severity" || arg.startsWith("--severity="),
   );
   if (idx === -1) return null;
+  // (baaki ka parsing logic jo main branch mein hai wahi rahega)
+}
 
   const arg = process.argv[idx]!;
   const valStr = arg.startsWith("--severity=")
@@ -121,6 +173,11 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printHelp();
+    return 0;
+  }
+
   let format: OutputFormat;
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
