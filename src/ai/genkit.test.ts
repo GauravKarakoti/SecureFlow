@@ -18,12 +18,12 @@ vi.mock("@/lib/queue/redis", () => ({
 vi.stubGlobal(
   "fetch",
   vi.fn(() =>
-    Promise.resolve({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ data: [], models: [] }),
-      text: () => Promise.resolve("OK"),
-    }),
+    Promise.resolve(
+      new Response(JSON.stringify({ data: [], models: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
   ),
 );
 
