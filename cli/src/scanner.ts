@@ -8,6 +8,7 @@
  */
 
 import { formatSarifJson } from "./sarif.js";
+import { getExporter } from "./exporters.js";
 
 /** One flagged call site. */
 export interface Violation {
@@ -329,11 +330,8 @@ export function scanFile(path: string, content: string): FileScanResult {
   return { path, violations: findSecretLogging(content) };
 }
 
-export type OutputFormat = "text" | "json" | "sarif";
+export type OutputFormat = "text" | "json" | "sarif" | "csv" | "markdown" | "md";
 
-/**
- * Format scan results based on the chosen output format ('text' | 'json' | 'sarif').
- */
 export function formatScanResults(
   results: FileScanResult[],
   format: OutputFormat = "text",
@@ -342,18 +340,24 @@ export function formatScanResults(
     return JSON.stringify(results, null, 2);
   }
 
-  if (format === "sarif") {
-    return formatSarifJson(results);
+  if (format === "text") {
+    // Default text summary
+    let text = "";
+    for (const r of results) {
+      for (const v of r.violations) {
+        text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
+        text += `   -> ${v.text}\n`;
+        text += `   why: ${v.reason} passed to a console call\n`;
+      }
+    }
+    return text;
   }
 
-  // Default text summary
-  let text = "";
-  for (const r of results) {
-    for (const v of r.violations) {
-      text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
-      text += `   -> ${v.text}\n`;
-      text += `   why: ${v.reason} passed to a console call\n`;
-    }
+  // Unified Exporters for SARIF, CSV, and Markdown (#1095)
+  try {
+    const exporter = getExporter(format);
+    return exporter.export(results);
+  } catch (err) {
+    throw new Error(`Unsupported output format: ${format}`);
   }
-  return text;
 }
