@@ -99,8 +99,6 @@ function parseSeverityArg(): Set<Severity> | null {
     (arg) => arg === "--severity" || arg.startsWith("--severity="),
   );
   if (idx === -1) return null;
-  // (baaki ka parsing logic jo main branch mein hai wahi rahega)
-}
 
   const arg = process.argv[idx]!;
   const valStr = arg.startsWith("--severity=")
@@ -173,7 +171,7 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
-if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;
   }

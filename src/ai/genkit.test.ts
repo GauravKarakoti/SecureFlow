@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-// genkit.ts builds the Genkit instance at import time. Both packages are mocked so the
+// builds the Genkit instance at import time. Both packages are mocked so the
 // test only exercises how GROQ_MODEL is turned into model references.
 vi.mock("genkit", () => ({ genkit: vi.fn(() => ({})) }));
 vi.mock("genkitx-groq", () => ({
@@ -15,17 +15,15 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/queue/redis", () => ({
   redis: { get: vi.fn(), set: vi.fn(), on: vi.fn(), status: "ready" },
 }));
-vi.stubGlobal(
-  "fetch",
-  vi.fn(() =>
-    Promise.resolve(
-      new Response(JSON.stringify({ data: [], models: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  ),
-);
+
+// Prevent local-model.ts from executing its top-level network pings
+// which otherwise cause an infinite retry loop during module initialization.
+vi.mock("./local-model", () => ({
+  resolveLocalModelConfig: vi.fn(() => null),
+  isLocalModelEnabled: false,
+  createLocalAiInstance: vi.fn(),
+  localModelRef: vi.fn(),
+}));
 
 async function loadGenkit() {
   vi.resetModules();
