@@ -58,14 +58,20 @@ Usage:
 
 Options:
   --verbose              Enable verbose logging
-  --format <format>      Output format: text, json, sarif (default: text)
+  --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
+  --ignore-file <path>   Path to custom ignore configuration file
+  --fail-on <level>      Fail scan threshold (low, medium, high, critical)
+  --local                Run scan locally without uploading files externally
+  --local-model <tag>    Specify local AI model tag (default: llama3)
+  --dry-run              Simulate scan execution without writing files
   -h, --help             Show this help message
 
 Examples:
-  $ secureflow                          # Run standard security scan on staged files
-  $ secureflow --format json -o res.json # Scan and export results to JSON file
-  $ secureflow --verbose                 # Run scan with detailed verbose logging
+  $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow --format json -o res.json           # Scan and export results to JSON file
+  $ secureflow --fail-on high                      # Fail commit only on high/critical findings
+  $ secureflow --local --local-model llama3        # Run completely local scan
 `);
 }
 
