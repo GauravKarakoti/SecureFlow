@@ -146,13 +146,15 @@ worker:
     # maxUnavailable: 1
 
   livenessProbe:
-    tcpSocket:
+    httpGet:
+      path: /health
       port: 3000
     initialDelaySeconds: 15
     periodSeconds: 20
 
   readinessProbe:
-    tcpSocket:
+    httpGet:
+      path: /health
       port: 3000
     initialDelaySeconds: 10
     periodSeconds: 10

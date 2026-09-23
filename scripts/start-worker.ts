@@ -9,6 +9,8 @@ import express from "express";
 
 const app = express();
 
+app.get("/health", (req, res) => res.status(200).send("OK"));
+
 // Resolved before anything is started, so a bad SCAN_WORKER_CONCURRENCY fails
 // here with a message rather than reaching BullMQ as NaN.
 const plan = planWorkerStartup();
