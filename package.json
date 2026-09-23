@@ -37,7 +37,8 @@
     "changeset:version": "changeset version",
     "prepare": "husky",
     "ngrok": "ngrok http 9002",
-    "secureflow": "npx secureflow"
+    "secureflow": "npx secureflow",
+    "verify:openapi": "tsx scripts/verify-openapi.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.6.10",

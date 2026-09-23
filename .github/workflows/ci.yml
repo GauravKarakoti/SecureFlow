@@ -77,6 +77,9 @@ jobs:
       - name: Build Application
         run: npm run build
 
+      - name: Verify OpenAPI Spec Synchronization
+        run: npm run verify:openapi
+
   cli:
     name: CLI Build & Test
     runs-on: ubuntu-latest
