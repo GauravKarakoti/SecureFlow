@@ -142,11 +142,12 @@ describe("streamSecurityExplanation — chunk delivery", () => {
     expect(received).toEqual(["real chunk"]);
   });
 
-  it("includes vulnerability metadata in the prompt when available", async () => {
+  it("includes vulnerability metadata in the prompt when available with CVSS", async () => {
     vi.mocked(getVulnerabilityMetadata).mockResolvedValue({
+      id: "CVE-2024-001",
       description: "Remote code execution via eval",
-      cvss: "9.8",
-    } as any);
+      cvss: 9.8,
+    });
 
     await streamSecurityExplanation({
       vulnerabilityId: "CVE-2024-001",
@@ -155,8 +156,38 @@ describe("streamSecurityExplanation — chunk delivery", () => {
     });
 
     const callArgs = mockGenerateStream.mock.calls[0][0];
-    expect(callArgs.prompt).toContain("Remote code execution via eval");
-    expect(callArgs.prompt).toContain("9.8");
+    expect(callArgs.prompt).toContain("Remote code execution via eval (CVSS: 9.8)");
+  });
+
+  it("includes vulnerability metadata in the prompt without CVSS when CVSS is null (no fabricated score)", async () => {
+    vi.mocked(getVulnerabilityMetadata).mockResolvedValue({
+      id: "CVE-2024-002",
+      description: "Information disclosure vulnerability",
+      cvss: null,
+    });
+
+    await streamSecurityExplanation({
+      vulnerabilityId: "CVE-2024-002",
+      sourceCode: "eval(input);",
+      onChunk: () => {},
+    });
+
+    const callArgs = mockGenerateStream.mock.calls[0][0];
+    expect(callArgs.prompt).toContain("Contextual Details: Information disclosure vulnerability");
+    expect(callArgs.prompt).not.toContain("CVSS");
+  });
+
+  it("does not include Contextual Details in the prompt when metadata is null", async () => {
+    vi.mocked(getVulnerabilityMetadata).mockResolvedValue(null);
+
+    await streamSecurityExplanation({
+      vulnerabilityId: "UNKNOWN-VULN",
+      sourceCode: "eval(input);",
+      onChunk: () => {},
+    });
+
+    const callArgs = mockGenerateStream.mock.calls[0][0];
+    expect(callArgs.prompt).not.toContain("Contextual Details:");
   });
 });
 

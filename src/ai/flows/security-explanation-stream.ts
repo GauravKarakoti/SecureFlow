@@ -49,8 +49,10 @@ Provide a concise explanation, architectural impact, and immediate remediation s
     const userPrompt = `Vulnerability ID: ${vulnerabilityId}\nSource Code:\n\`\`\`\n${sourceCode}\n\`\`\``;
 
     const metadata = await metadataPromise;
+    const cvssText =
+      metadata?.cvss !== null && metadata?.cvss !== undefined ? ` (CVSS: ${metadata.cvss})` : "";
     const contextualPrompt = metadata
-      ? `${userPrompt}\nContextual Details: ${metadata.description} (CVSS: ${metadata.cvss})`
+      ? `${userPrompt}\nContextual Details: ${metadata.description}${cvssText}`
       : userPrompt;
 
     const activeAi = getAiInstance();

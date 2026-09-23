@@ -97,6 +97,24 @@ export function cvssSeverity(score: number): SeverityLevel {
 }
 
 /**
+ * The highest CVSS v3 base score (0.0–10.0) among OSV `severity` entries,
+ * or `null` when none of them is a valid v3 vector that can be scored.
+ */
+export function cvssScoreFromEntries(
+  entries: ReadonlyArray<{ type?: string; score?: string }> | undefined,
+): number | null {
+  let best: number | null = null;
+
+  for (const entry of entries ?? []) {
+    if (entry?.type !== "CVSS_V3" || typeof entry.score !== "string") continue;
+    const score = cvss3BaseScore(entry.score);
+    if (score !== null && (best === null || score > best)) best = score;
+  }
+
+  return best;
+}
+
+/**
  * The severity of the highest-scoring CVSS v3 vector among OSV `severity`
  * entries, or `null` when none of them is a v3 vector that can be scored.
  *
@@ -106,13 +124,6 @@ export function cvssSeverity(score: number): SeverityLevel {
 export function severityFromCvssEntries(
   entries: ReadonlyArray<{ type?: string; score?: string }> | undefined,
 ): SeverityLevel | null {
-  let best: number | null = null;
-
-  for (const entry of entries ?? []) {
-    if (entry?.type !== "CVSS_V3" || typeof entry.score !== "string") continue;
-    const score = cvss3BaseScore(entry.score);
-    if (score !== null && (best === null || score > best)) best = score;
-  }
-
+  const best = cvssScoreFromEntries(entries);
   return best === null ? null : cvssSeverity(best);
 }
