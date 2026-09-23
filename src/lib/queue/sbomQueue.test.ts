@@ -511,6 +511,66 @@ describe("sbomQueue", () => {
       expect(status!.result).not.toBeNull();
       expect(status!.result?.status).toBe("VULNERABLE");
     });
+
+    it("only reads the SBOM worker's dependency findings, not the PR code scan's", async () => {
+      // The newest ScanResult on a PR is usually the code scan. The fallback
+      // used to take it whole, reporting its secrets as this job's
+      // vulnerabilities and its policy decision as this job's status.
+      mockPrisma.scanJob.findUnique.mockResolvedValue({
+        id: "sj-scoped",
+        status: "COMPLETED",
+        totalFiles: 1,
+        scannedFiles: 1,
+        vulnerabilitiesFound: 1,
+        pullRequestId: "pr-scoped",
+        error: null,
+        queuedAt: new Date(),
+        startedAt: new Date(),
+        completedAt: new Date(),
+      });
+      mockRedis.get.mockResolvedValue(null);
+      mockQueueInstance.getJob.mockResolvedValue(null);
+      mockPrisma.auditLog.findFirst.mockResolvedValue(null);
+      mockPrisma.scanResult.findFirst.mockResolvedValue({
+        id: "sr-sbom",
+        pullRequestId: "pr-scoped",
+        policyDecision: "PASS",
+        createdAt: new Date("2026-09-14T12:00:00Z"),
+        findings: [
+          {
+            id: "f-scoped",
+            type: "VULNERABILITY",
+            severity: "CRITICAL",
+            fileLocation: "package.json",
+            codeSnippet: "Dependency: @babel/traverse@7.22.0\nPatched: 7.23.2",
+            explanation: "CVE-2023-45133",
+          },
+        ],
+      });
+
+      const status = await getSbomJobStatus("sj-scoped");
+
+      const query = mockPrisma.scanResult.findFirst.mock.calls.at(-1)![0];
+      const dependencyOnly = {
+        type: "VULNERABILITY",
+        codeSnippet: { startsWith: "Dependency: " },
+      };
+      expect(query.where).toEqual({
+        pullRequestId: "pr-scoped",
+        findings: { some: dependencyOnly },
+      });
+      expect(query.include).toEqual({ findings: { where: dependencyOnly } });
+
+      // A scoped package survives, and the status follows the findings rather
+      // than whichever scan's policy decision happened to be newest.
+      expect(status!.result?.vulnerabilities[0].dependency).toMatchObject({
+        name: "@babel/traverse",
+        version: "7.22.0",
+        manifestFile: "package.json",
+      });
+      expect(status!.result?.vulnerabilities[0].patchedVersion).toBe("7.23.2");
+      expect(status!.result?.status).toBe("VULNERABLE");
+    });
   });
 
   describe("getSbomQueueMetrics", () => {

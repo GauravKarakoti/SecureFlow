@@ -85,6 +85,8 @@ async function handler(req: NextRequest): Promise<Response> {
         if (closed) return;
         closed = true;
 
+        req.signal.removeEventListener("abort", teardown);
+
         unsubscribe?.();
         unsubscribe = null;
 
@@ -105,6 +107,7 @@ async function handler(req: NextRequest): Promise<Response> {
 
       const write = (chunk: string): boolean => {
         if (closed) return false;
+
         try {
           controller.enqueue(encoder.encode(chunk));
           return true;
@@ -119,8 +122,12 @@ async function handler(req: NextRequest): Promise<Response> {
       const send = (event: LeaderboardEvent) => {
         const payload =
           event.type === "update"
-            ? { contributors: event.contributors, timestamp: event.timestamp }
+            ? {
+                contributors: event.contributors,
+                timestamp: event.timestamp,
+              }
             : { error: LOAD_FAILURE_MESSAGE };
+
         write(`data: ${JSON.stringify(payload)}\n\n`);
       };
 
@@ -138,15 +145,23 @@ async function handler(req: NextRequest): Promise<Response> {
       // Serve the cached snapshot immediately when one exists, so a client
       // joining mid-cycle does not stare at an empty board for a full interval.
       const cached = broadcaster.cachedEvent;
+
       if (cached) {
         send(cached);
       } else {
         await broadcaster.refreshNow();
       }
 
+      // IMPORTANT:
+      // The client may disconnect while refreshNow() is pending.
+      // In that case teardown() sets `closed` to true. Do not create a
+      // heartbeat interval for a connection that has already been closed.
+      if (closed) return;
+
       heartbeat = setInterval(() => {
         write(": keep-alive\n\n");
       }, HEARTBEAT_INTERVAL_MS);
+
       (heartbeat as unknown as { unref?: () => void }).unref?.();
     },
 
@@ -167,4 +182,7 @@ async function handler(req: NextRequest): Promise<Response> {
   });
 }
 
-export const GET = withRateLimit(handler as any, { ...TIERS.STANDARD, keyPrefix: "leaderboard" });
+export const GET = withRateLimit(handler as any, {
+  ...TIERS.STANDARD,
+  keyPrefix: "leaderboard",
+});

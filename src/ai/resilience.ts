@@ -1,4 +1,17 @@
 /**
+ * AI Execution Resilience Engine (#729)
+ *
+ * Implements exponential backoff, jitter, rate-limit (429)/timeout recovery,
+ * and secondary/tertiary model fallback routing for Genkit & Groq AI security workflows.
+ */
+
+/**
+ * Default per-attempt timeout. Long enough for a cloud completion, short
+ * enough that a wedged local model does not pin a worker indefinitely.
+ */
+export const DEFAULT_ATTEMPT_TIMEOUT_MS = 15_000;
+
+/**
  * Wraps an async operation with a timeout to prevent hanging on stalled local models (#988).
  */
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
@@ -6,8 +19,10 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      const err = new Error("Local model inference timed out after " + timeoutMs + "ms");
-      (err as any).name = "TimeoutError";
+      const err = new Error(`Model inference timed out after ${timeoutMs}ms`);
+      // `isTimeoutError` keys off both the name and the message, so this error
+      // is retried and falls back like any transport-level timeout.
+      err.name = "TimeoutError";
       reject(err);
     }, timeoutMs);
   });
@@ -17,12 +32,6 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
     clearTimeout(timer!);
   }
 }
-/**
- * AI Execution Resilience Engine (#729)
- *
- * Implements exponential backoff, jitter, rate-limit (429)/timeout recovery,
- * and secondary/tertiary model fallback routing for Genkit & Groq AI security workflows.
- */
 
 export interface RetryConfig {
   maxRetriesPerModel?: number;
@@ -31,6 +40,16 @@ export interface RetryConfig {
   backoffFactor?: number;
   jitter?: boolean;
   retryableErrors?: Array<(error: unknown) => boolean>;
+  /**
+   * Per-attempt wall-clock budget in milliseconds (#988).
+   *
+   * Each individual call to `operation` is raced against this budget, so a
+   * stalled local inference server surfaces a `TimeoutError` that the retry
+   * and fallback logic can act on instead of hanging the caller forever.
+   * Defaults to {@link DEFAULT_ATTEMPT_TIMEOUT_MS}; set it to `0` to disable
+   * the timeout for a long-running operation such as a streamed generation.
+   */
+  timeoutMs?: number;
 }
 
 export interface ModelFallbackConfig<TModel = string> {
@@ -140,7 +159,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
       totalAttempts++;
 
       try {
-        const timeoutMs = config.retryConfig?.timeoutMs ?? 15000;
+        const timeoutMs = config.retryConfig?.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
         const result = await withTimeout(() => operation(currentModel, attempt), timeoutMs);
         return {
           result,

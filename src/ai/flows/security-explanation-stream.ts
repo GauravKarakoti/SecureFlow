@@ -126,15 +126,23 @@ export async function* streamDeveloperSecurityExplanations(
 
   try {
     const modelChain = getSecurityExplanationModelChain();
-    let streamResult: any = null;
+    let streamResult: {
+      iterator: AsyncIterator<any>;
+      first: IteratorResult<any>;
+      response: Promise<any>;
+    } | null = null;
     let activeModel = modelChain[0];
 
     for (let i = 0; i < modelChain.length; i++) {
       activeModel = modelChain[i];
       try {
         streamResult = await withRetry(
-          async () =>
-            ai.generateStream({
+          async () => {
+            // Genkit's generateStream() returns synchronously and only reports provider
+            // failures (429, timeouts) through the stream and `response`. Pull the first
+            // chunk here so those failures reach withRetry and the model fallback chain
+            // instead of escaping them.
+            const { stream, response } = ai.generateStream({
               model: activeModel as any,
               system: SYSTEM_PROMPT,
               prompt,
@@ -147,7 +155,14 @@ export async function* streamDeveloperSecurityExplanations(
                 maxOutputTokens: 3000,
                 temperature: 0.1,
               },
-            }),
+            });
+            // Observed below; without this a failed attempt that we retry leaves an
+            // unhandled rejection behind.
+            response.catch(() => {});
+            const iterator = stream[Symbol.asyncIterator]();
+            const first = await iterator.next();
+            return { iterator, first, response };
+          },
           {
             initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
           },
@@ -164,13 +179,13 @@ export async function* streamDeveloperSecurityExplanations(
       }
     }
 
-    const { stream, response } = streamResult;
+    const { iterator, response } = streamResult!;
 
     let lastExplanation = "";
-    for await (const chunk of stream) {
+    for (let next = streamResult!.first; !next.done; next = await iterator.next()) {
       // Stop pulling from the model as soon as the caller has disconnected.
       if (signal?.aborted) return;
-      const partial = chunk.output as Partial<AISecurityExplanationOutput> | undefined;
+      const partial = next.value.output as Partial<AISecurityExplanationOutput> | undefined;
       if (partial?.explanation && partial.explanation !== lastExplanation) {
         lastExplanation = partial.explanation;
         yield { type: "chunk", explanation: lastExplanation };

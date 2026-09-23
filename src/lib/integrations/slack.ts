@@ -18,7 +18,13 @@
  * persisted (the plan's "handle asynchronously to prevent blocking" note).
  */
 
-import { isAtLeast, severityBadge, type Severity } from "@/lib/severity";
+import {
+  SEVERITY_ORDER,
+  countBySeverity,
+  isAtLeast,
+  severityBadge,
+  type Severity,
+} from "@/lib/severity";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 
 /** The severity floor that triggers a Slack alert. */
@@ -29,6 +35,17 @@ const MAX_SUMMARY_LENGTH = 300;
 
 /** Cap on how many findings are itemised in the message body. */
 const MAX_LISTED_FINDINGS = 10;
+
+/**
+ * Slack's own limit on a `section` block's `text.text` (Block Kit reference).
+ *
+ * Exceeding it is not a truncation — the API answers 400 `invalid_blocks` and
+ * drops the whole message, so the alert simply never arrives.
+ */
+export const SLACK_SECTION_TEXT_LIMIT = 3000;
+
+/** Separator between two itemised findings inside one section. */
+const FINDING_SEPARATOR = "\n\n";
 
 /** The minimal finding shape the alert needs. */
 export interface AlertFinding {
@@ -76,6 +93,20 @@ export function pullRequestUrl(repositoryFullName: string, prNumber: number): st
 }
 
 /**
+ * Escape text for a Slack `mrkdwn` field.
+ *
+ * Slack parses `<…>` as a control sequence: links (`<https://x|label>`),
+ * channel-wide mentions (`<!channel>`, `<!here>`) and user mentions
+ * (`<@U123>`). Its formatting reference requires `&`, `<` and `>` to be
+ * escaped wherever text is meant to be shown literally. Finding text comes from
+ * the pull request under review, so without this the PR author decides what the
+ * alert pings and links to.
+ */
+export function escapeSlackText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
  * One masked, length-bounded summary line for a finding.
  *
  * The masked explanation is used when the enrichment step produced one; the raw
@@ -87,7 +118,67 @@ function summariseFinding(finding: AlertFinding): string {
   const masked = maskFindingText(raw).replace(/\s+/g, " ").trim();
   const clipped =
     masked.length > MAX_SUMMARY_LENGTH ? `${masked.slice(0, MAX_SUMMARY_LENGTH - 1)}…` : masked;
-  return clipped || "No description provided.";
+  return clipped ? escapeSlackText(clipped) : "No description provided.";
+}
+
+/**
+ * Pack `lines` into as few section bodies as possible, none over the limit.
+ *
+ * The findings used to be joined into one string and handed to a single
+ * section. Ten findings at the 300-character summary cap, with a type and a
+ * file path each, comes to roughly 4,000 characters — so the message Slack
+ * rejected was the one reporting the most findings, which is exactly the one
+ * worth delivering.
+ *
+ * A line that is over the limit on its own is clipped rather than dropped: it
+ * cannot be packed with anything else, and losing the finding entirely is
+ * worse than losing its tail.
+ */
+export function packSectionBodies(
+  lines: readonly string[],
+  limit: number = SLACK_SECTION_TEXT_LIMIT,
+): string[] {
+  const bodies: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    const clipped = line.length > limit ? `${line.slice(0, Math.max(0, limit - 1))}…` : line;
+
+    if (!current) {
+      current = clipped;
+      continue;
+    }
+
+    if (current.length + FINDING_SEPARATOR.length + clipped.length <= limit) {
+      current += FINDING_SEPARATOR + clipped;
+    } else {
+      bodies.push(current);
+      current = clipped;
+    }
+  }
+
+  if (current) bodies.push(current);
+  return bodies;
+}
+
+/**
+ * The alert heading, labelled with the severities actually present.
+ *
+ * It used to use the *threshold's* name for every finding, so a scan with two
+ * CRITICALs was announced as "2 high-severity findings": understating exactly
+ * the alert that most needs attention.
+ */
+export function describeFlaggedFindings(flagged: readonly AlertFinding[]): string {
+  const counts = countBySeverity(flagged);
+  const present = SEVERITY_ORDER.filter((level) => counts[level] > 0);
+  const noun = flagged.length === 1 ? "finding" : "findings";
+
+  if (present.length === 1) {
+    return `${flagged.length} ${present[0]!.toLowerCase()}-severity ${noun}`;
+  }
+
+  const breakdown = present.map((level) => `${counts[level]} ${level.toLowerCase()}`).join(", ");
+  return `${flagged.length} ${noun} (${breakdown})`;
 }
 
 /**
@@ -101,24 +192,20 @@ export function buildSlackAlert(args: BuildSlackAlertArgs): SlackMessage | null 
   if (flagged.length === 0) return null;
 
   const url = pullRequestUrl(args.repositoryFullName, args.prNumber);
-  const severityLabel = threshold.toLowerCase();
-  const heading =
-    flagged.length === 1
-      ? `1 ${severityLabel}-severity finding`
-      : `${flagged.length} ${severityLabel}-severity findings`;
+  const heading = describeFlaggedFindings(flagged);
 
   const fallback = `🛡️ SecureFlow: ${heading} in ${args.repositoryFullName}#${args.prNumber}`;
 
   const listed = flagged.slice(0, MAX_LISTED_FINDINGS);
-  const findingLines = listed
-    .map(
-      (f) =>
-        `${severityBadge(f.severity)} *${f.type}* in \`${f.fileLocation}\`\n${summariseFinding(f)}`,
-    )
-    .join("\n\n");
+  const findingLines = listed.map(
+    (f) =>
+      `${severityBadge(f.severity)} *${escapeSlackText(f.type)}* in \`${escapeSlackText(f.fileLocation)}\`\n${summariseFinding(f)}`,
+  );
 
   const overflow = flagged.length - listed.length;
-  const overflowNote = overflow > 0 ? `\n\n_…and ${overflow} more._` : "";
+  if (overflow > 0) {
+    findingLines.push(`_…and ${overflow} more._`);
+  }
 
   const blocks: unknown[] = [
     {
@@ -136,13 +223,12 @@ export function buildSlackAlert(args: BuildSlackAlertArgs): SlackMessage | null 
         text: `*${heading}* detected in <${url}|${args.repositoryFullName}#${args.prNumber}>`,
       },
     },
-    {
+    // One section per chunk: a body over SLACK_SECTION_TEXT_LIMIT makes Slack
+    // reject the entire message, not just that block.
+    ...packSectionBodies(findingLines).map((text) => ({
       type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `${findingLines}${overflowNote}`,
-      },
-    },
+      text: { type: "mrkdwn", text },
+    })),
     {
       type: "actions",
       elements: [

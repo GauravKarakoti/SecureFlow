@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
-import { Octokit } from "octokit";
+import { App, Octokit } from "octokit";
+import { getGitHubAppCredentials } from "@/lib/github/app-auth";
 import { enqueueSbomScan } from "@/lib/queue/sbomQueue";
 import { fetchPullRequestFiles } from "@/lib/github/pull-request-files";
 
@@ -88,7 +89,16 @@ export async function handlePullRequestSynchronize(
       },
     });
 
-    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    // Authenticate as the App installation that sent this delivery, the way
+    // every other GitHub call in the app does. GITHUB_TOKEN is not in the env
+    // schema and is set nowhere, so `new Octokit({ auth: undefined })` built an
+    // anonymous client: every manifest in a private repository came back 404,
+    // and public ones shared the 60-request-per-hour unauthenticated IP budget.
+    // Both fetch helpers below swallow their errors, so the scan simply found
+    // no manifests and said nothing.
+    const { appId, privateKey } = getGitHubAppCredentials();
+    const appClient = new App({ appId, privateKey });
+    const octokit = await appClient.getInstallationOctokit(Number(installation.id));
     const owner = repository.owner.login;
     const repo = repository.name;
 

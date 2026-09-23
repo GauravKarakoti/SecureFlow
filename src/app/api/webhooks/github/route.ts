@@ -11,7 +11,7 @@ export const config = {
 };
 
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
-import { withRateLimit } from "@/lib/middleware/rate-limit";
+import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import {
   isPayloadTooLarge,
   isTrackedEvent,
@@ -186,7 +186,6 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 });
 
 export const POST = withRateLimit(handler, {
-  limit: 50,
-  windowSeconds: 60,
+  ...TIERS.WEBHOOK,
   keyPrefix: "webhook:github",
 });

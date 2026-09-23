@@ -1,0 +1,20 @@
+# Prettier reads the repository-root .gitignore but not nested ones, so
+# cli/.gitignore does not keep the compiled CLI out of `npm run format:check`.
+#
+# That matters because .husky/pre-commit runs both `format:check` and
+# `npm run secureflow`: the latter needs cli/dist to exist, the former failed on
+# it. Anyone who has installed the CLI's dependencies has cli/dist, because
+# cli/package.json builds it from its `prepare` script — so the hook could not
+# pass at all.
+cli/dist/
+
+# Generated output and reports. The root .gitignore already keeps these out of
+# git; list them here so a build in a nested workspace cannot break the hook the
+# same way.
+**/.next/
+**/out/
+**/build/
+**/coverage/
+**/dist/
+*.tsbuildinfo
+helm/

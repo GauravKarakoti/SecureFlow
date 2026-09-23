@@ -13,8 +13,25 @@ vi.mock("@/lib/prisma", () => ({
     user: { findUnique: vi.fn() },
   },
 }));
+// Prevent Redis connection hangs
+vi.mock("@/lib/queue/redis", () => ({
+  redis: { get: vi.fn(), set: vi.fn(), on: vi.fn(), status: "ready" },
+}));
+vi.stubGlobal(
+  "fetch",
+  vi.fn(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ data: [], models: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  ),
+);
 
 async function loadGenkit() {
+  vi.resetModules();
+  vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }
 

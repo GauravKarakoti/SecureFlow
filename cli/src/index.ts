@@ -7,8 +7,13 @@ import {
   parseFailOnArg,
   shouldFailScan,
   loadSecureFlowIgnore,
+  blockingAiFindings,
+  describeFailThreshold,
+  filterBySeverity,
+  parseSeverityFilter,
   type FileScanResult,
   type OutputFormat,
+  type Severity,
 } from "./scanner.js";
 import {
   NetworkUnavailableError,
@@ -16,38 +21,28 @@ import {
   type AiFinding,
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
-import { hostedAiScanSkipReason } from "./lib/local-mode.js";
+import { hostedAiScanSkipReason, localModeEnv } from "./lib/local-mode.js";
+import {
+  CliUsageError,
+  parseIgnoreFilePath,
+  parseOutputFormat,
+  parseOutputPath,
+} from "./lib/output-args.js";
 
 const VERBOSE = process.argv.includes("--verbose");
 const DRY_RUN = process.argv.includes("--dry-run");
 const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
 
 /**
- * --local flag: keep staged code on this machine (#892).
+ * --local / --ollama / --vllm flags: keep staged code on this machine (#892).
  *
  * The hosted AI pass is skipped (see hostedAiScanSkipReason), because it
  * uploads file contents to the SecureFlow API whatever LOCAL_AI_URL says.
- * LOCAL_AI_URL / LOCAL_AI_MODEL are still set for any in-process AI module
+ * LOCAL_AI_URL / LOCAL_AI_MODEL / LOCAL_AI_PROVIDER are still set for any in-process AI module
  * that reads them via resolveLocalModelConfig().
- * The model can be overridden with --local-model <tag> (default: llama3).
+ * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
  */
-const LOCAL_FLAG = process.argv.includes("--local");
-if (LOCAL_FLAG) {
-  const localFlagIndex = process.argv.findIndex((a) => a === "--local");
-  const nextArg = process.argv[localFlagIndex + 1];
-
-  // Check if the argument after --local is a URL (starts with http:// or https://)
-  const customUrl =
-    nextArg && (nextArg.startsWith("http://") || nextArg.startsWith("https://"))
-      ? nextArg
-      : undefined;
-
-  const modelIdx = process.argv.findIndex((a) => a === "--local-model");
-  const localModel = modelIdx !== -1 ? process.argv[modelIdx + 1] : undefined;
-
-  process.env.LOCAL_AI_URL = customUrl || process.env.LOCAL_AI_URL || "http://localhost:11434/v1";
-  if (localModel) process.env.LOCAL_AI_MODEL = localModel;
-}
+Object.assign(process.env, localModeEnv(process.argv, process.env));
 
 function printHelp(): void {
   console.log(`
@@ -99,31 +94,31 @@ function parseFormatArg(): OutputFormat {
   return "text";
 }
 
-function parseOutputArg(): string | null {
-  const outIndex = process.argv.findIndex((arg) => arg === "-o" || arg === "--output");
-  if (outIndex !== -1) {
-    const valStr = process.argv[outIndex + 1];
-    if (valStr) {
-      return valStr;
-    }
-  }
-  return null;
+function parseSeverityArg(): Set<Severity> | null {
+  const idx = process.argv.findIndex(
+    (arg) => arg === "--severity" || arg.startsWith("--severity="),
+  );
+  if (idx === -1) return null;
+  // (baaki ka parsing logic jo main branch mein hai wahi rahega)
 }
 
-function parseIgnoreFileArg(): string | undefined {
-  const idx = process.argv.findIndex((arg) => arg === "--ignore-file" || arg === "--ignore");
-  if (idx !== -1) {
-    const val = process.argv[idx + 1];
-    if (val && !val.startsWith("-")) {
-      return val;
-    }
+  const arg = process.argv[idx]!;
+  const valStr = arg.startsWith("--severity=")
+    ? arg.slice("--severity=".length)
+    : process.argv[idx + 1];
+  if (!valStr) {
+    console.error(
+      "❌ [SecureFlow] --severity requires a comma-separated list (e.g. --severity high,critical)",
+    );
+    process.exit(1);
   }
-  for (const arg of process.argv) {
-    if (arg.startsWith("--ignore-file=")) {
-      return arg.split("=")[1];
-    }
+
+  try {
+    return parseSeverityFilter(valStr);
+  } catch (err) {
+    console.error(`❌ [SecureFlow] ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   }
-  return undefined;
 }
 
 function reportSkipped(result: FileScanResult): void {
@@ -178,13 +173,24 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;
   }
 
-  const format = parseFormatArg();
-  const outputPath = parseOutputArg();
+  let format: OutputFormat;
+  let outputPath: string | null;
+  let customIgnorePath: string | undefined;
+  try {
+    format = parseOutputFormat(process.argv);
+    outputPath = parseOutputPath(process.argv);
+    customIgnorePath = parseIgnoreFilePath(process.argv);
+  } catch (error) {
+    if (!(error instanceof CliUsageError)) throw error;
+    console.error(`❌ [SecureFlow] ${error.message}`);
+    return 1;
+  }
+  const severityFilter = parseSeverityArg();
   let staged: string[];
 
   try {
@@ -197,9 +203,7 @@ async function main(): Promise<number> {
   const fileResults: FileScanResult[] = [];
   const unreadable: string[] = [];
   const stagedForAi: StagedFileForAiScan[] = [];
-  let violationCount = 0;
 
-  const customIgnorePath = parseIgnoreFileArg();
   const ignoreData = loadSecureFlowIgnore(customIgnorePath);
   const customIgnores = ignoreData?.compiledPatterns ?? [];
 
@@ -208,6 +212,8 @@ async function main(): Promise<number> {
       `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
     );
   }
+
+  let violationCount = 0;
 
   if (staged.length > 0) {
     for (const path of staged) {
@@ -232,20 +238,23 @@ async function main(): Promise<number> {
     }
   }
 
+  const filteredResults = severityFilter
+    ? filterBySeverity(fileResults, severityFilter)
+    : fileResults;
+
   // AI-powered pass, additive on top of the local scan above. Only
   // affects the text output/exit code today -- JSON/SARIF export stays
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
   const aiFindings = await runAiScanIfAvailable(stagedForAi);
+  const filteredAiFindings = severityFilter
+    ? aiFindings.filter((f) => severityFilter.has(f.severity))
+    : aiFindings;
   if (format === "text") {
-    for (const finding of aiFindings) {
+    for (const finding of filteredAiFindings) {
       reportAiFinding(finding);
     }
   }
-  const aiViolationCount = aiFindings.filter(
-    (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-  ).length;
-
   if (
     format === "sarif" ||
     format === "json" ||
@@ -253,7 +262,7 @@ async function main(): Promise<number> {
     format === "html" ||
     format === "markdown"
   ) {
-    const outputString = formatScanResults(fileResults, format);
+    const outputString = formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:
@@ -268,7 +277,7 @@ ${outputString}`);
       console.log(outputString);
     }
   } else if (outputPath) {
-    const textOutput = formatScanResults(fileResults, "text");
+    const textOutput = formatScanResults(filteredResults, "text");
     if (DRY_RUN) {
       console.log(`[DRY RUN] Would write to ${outputPath}:
 ${textOutput}`);
@@ -287,29 +296,37 @@ ${textOutput}`);
   }
 
   const failOnThreshold = parseFailOnArg();
+  // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
+  // filter, not a security gate bypass. --fail-on must see every finding.
   const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
+  const blockingAi = blockingAiFindings(aiFindings, failOnThreshold);
 
   if (shouldFail) {
     if (format === "text") {
+      const parts: string[] = [];
+      if (violationCount > 0) {
+        parts.push(`${violationCount} secret-logging violation${violationCount === 1 ? "" : "s"}`);
+      }
+      if (blockingAi.length > 0) {
+        parts.push(`${blockingAi.length} AI-detected finding${blockingAi.length === 1 ? "" : "s"}`);
+      }
+      const subject = parts.length > 0 ? parts.join(" and ") : "findings";
       console.error(
-        `\n❌ SecureFlow blocked this commit: ${violationCount} secret-logging violation${
-          violationCount === 1 ? "" : "s"
-        }${
-          aiViolationCount > 0
-            ? ` and ${aiViolationCount} AI-detected finding${aiViolationCount === 1 ? "" : "s"}`
-            : ""
-        }${
-          failOnThreshold ? ` (cleared --fail-on=${failOnThreshold})` : ""
-        }. Remove the exposed secrets/env variables, then re-stage.`,
+        `\n❌ SecureFlow blocked this commit: ${subject} at or above ${describeFailThreshold(
+          failOnThreshold,
+        )}. Remove the exposed secrets/env variables, then re-stage.`,
       );
     }
     return 1;
   }
 
   if (format === "text") {
-    if (violationCount > 0 || aiFindings.length > 0) {
+    const advisoryCount = violationCount + aiFindings.length;
+    if (advisoryCount > 0) {
       console.log(
-        `⚠️  SecureFlow advisory warning: findings detected below --fail-on=${failOnThreshold} threshold. Scan passing.`,
+        `⚠️  SecureFlow advisory warning: ${advisoryCount} finding${
+          advisoryCount === 1 ? "" : "s"
+        } below ${describeFailThreshold(failOnThreshold)}. Scan passing.`,
       );
     } else {
       console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);

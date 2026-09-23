@@ -12,8 +12,24 @@ vi.mock("@/lib/prisma", () => ({
     user: { findUnique: vi.fn() },
   },
 }));
+vi.mock("@/lib/queue/redis", () => ({
+  redis: { get: vi.fn(), set: vi.fn(), on: vi.fn(), status: "ready" },
+}));
+vi.stubGlobal(
+  "fetch",
+  vi.fn(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ data: [], models: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  ),
+);
 
 async function loadGenkit() {
+  vi.resetModules();
+  vi.stubEnv("LOCAL_AI_URL", "");
   return import("./genkit");
 }
 
@@ -35,6 +51,7 @@ describe("model defaults", () => {
   async function loadWith(groqModel: string | undefined) {
     vi.resetModules();
     vi.stubEnv("GROQ_MODEL", groqModel as string);
+    vi.stubEnv("LOCAL_AI_URL", "");
     if (groqModel === undefined) delete process.env.GROQ_MODEL;
     try {
       return await import("./genkit");

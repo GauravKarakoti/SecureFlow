@@ -6,8 +6,16 @@ import {
   formatCsv,
   formatHtml,
   formatMarkdown,
+  toMarkdownCodeSpan,
 } from "./exporters.js";
-import type { FileScanResult } from "./scanner.js";
+import {
+  blockingAiFindings,
+  filterBySeverity,
+  parseSeverityFilter,
+  shouldFailScan,
+  type FileScanResult,
+  type Severity,
+} from "./scanner.js";
 
 const sampleResults: FileScanResult[] = [
   {
@@ -355,5 +363,310 @@ describe("formatMarkdown", () => {
     ];
     const md = formatMarkdown(pipeResults);
     expect(md).toContain('`console.log("a\\|b");`');
+  });
+});
+
+describe("toMarkdownCodeSpan", () => {
+  it("keeps a backtick inside the span instead of closing it early", () => {
+    const source = "console.log(`token: ${t}`)";
+    const span = toMarkdownCodeSpan(source);
+
+    expect(span).toBe("``console.log(`token: ${t}`)``");
+    const fence = span.slice(0, span.length - span.replace(/^`+/, "").length);
+    expect(fence.length).toBeGreaterThan(
+      Math.max(...[...source.matchAll(/`+/g)].map((r) => r[0].length)),
+    );
+  });
+
+  it("lengthens the fence past the longest run, not just past one backtick", () => {
+    const source = "a```b";
+    expect(toMarkdownCodeSpan(source)).toBe("````a```b````");
+  });
+
+  it("pads a value that starts or ends with a backtick", () => {
+    expect(toMarkdownCodeSpan("`x")).toBe("`` `x ``");
+  });
+
+  it("leaves backslashes alone, because a code span is literal", () => {
+    expect(toMarkdownCodeSpan("C:\\temp")).toContain("C:\\temp");
+    expect(toMarkdownCodeSpan("C:\\temp")).not.toContain("C:\\\\temp");
+  });
+
+  it("still escapes the pipe, which GFM resolves before code spans", () => {
+    expect(toMarkdownCodeSpan("a | b")).toContain("\\|");
+  });
+
+  it("collapses newlines rather than emitting a <br> that would render literally", () => {
+    const span = toMarkdownCodeSpan("first\nsecond");
+    expect(span).not.toContain("<br>");
+    expect(span).not.toContain("\n");
+    expect(span).toContain("first second");
+  });
+});
+
+describe("formatMarkdown code spans", () => {
+  it("emits a row whose code span is closed by its own fence", () => {
+    const results = [
+      {
+        path: "src/auth.ts",
+        violations: [
+          {
+            line: 3,
+            text: "console.log(`key: ${k}`)",
+            reason: "logs a secret",
+          },
+        ],
+      },
+    ] as never;
+
+    const row = formatMarkdown(results)
+      .split("\n")
+      .find((l) => l.includes("src/auth.ts"));
+
+    expect(row).toBeDefined();
+    expect(row).toContain("``console.log(`key: ${k}`)``");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseSeverityFilter
+// ---------------------------------------------------------------------------
+
+describe("parseSeverityFilter", () => {
+  it("should parse a single severity level", () => {
+    const result = parseSeverityFilter("high");
+    expect(result).toEqual(new Set(["HIGH"]));
+  });
+
+  it("should parse multiple comma-separated severity levels", () => {
+    const result = parseSeverityFilter("high,critical");
+    expect(result).toEqual(new Set(["HIGH", "CRITICAL"]));
+  });
+
+  it("should be case-insensitive", () => {
+    expect(parseSeverityFilter("High")).toEqual(new Set(["HIGH"]));
+    expect(parseSeverityFilter("CRITICAL,low")).toEqual(new Set(["CRITICAL", "LOW"]));
+    expect(parseSeverityFilter("Medium")).toEqual(new Set(["MEDIUM"]));
+  });
+
+  it("should throw on invalid severity levels", () => {
+    expect(() => parseSeverityFilter("invalid")).toThrow("Invalid severity level(s): INVALID");
+  });
+
+  it("should throw listing all invalid levels when multiple are bad", () => {
+    expect(() => parseSeverityFilter("high,bogus,fake")).toThrow("BOGUS, FAKE");
+  });
+
+  it("should handle whitespace around values", () => {
+    const result = parseSeverityFilter(" high , critical ");
+    expect(result).toEqual(new Set(["HIGH", "CRITICAL"]));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// filterBySeverity
+// ---------------------------------------------------------------------------
+
+describe("filterBySeverity", () => {
+  const labeledResults: FileScanResult[] = [
+    {
+      path: "src/a.ts",
+      violations: [
+        {
+          line: 1,
+          text: "console.log(process.env.X)",
+          reason: "environment variable",
+          severity: "CRITICAL",
+        },
+        {
+          line: 5,
+          text: "console.log(token)",
+          reason: "secret-named identifier",
+          severity: "HIGH",
+        },
+      ],
+    },
+  ];
+
+  it("should pass through violations without severity regardless of filter", () => {
+    const filtered = filterBySeverity(sampleResults, new Set(["CRITICAL" as Severity]));
+    const allViolations = filtered.flatMap((f) => f.violations);
+    expect(allViolations).toHaveLength(3);
+  });
+
+  it("should filter labeled violations to a single severity", () => {
+    const filtered = filterBySeverity(labeledResults, new Set(["CRITICAL" as Severity]));
+    const allViolations = filtered.flatMap((f) => f.violations);
+    expect(allViolations).toHaveLength(1);
+    expect(allViolations[0]!.severity).toBe("CRITICAL");
+  });
+
+  it("should filter labeled violations to multiple severities", () => {
+    const filtered = filterBySeverity(
+      labeledResults,
+      new Set(["HIGH" as Severity, "CRITICAL" as Severity]),
+    );
+    const allViolations = filtered.flatMap((f) => f.violations);
+    expect(allViolations).toHaveLength(2);
+  });
+
+  it("should exclude labeled violations that do not match the filter", () => {
+    const filtered = filterBySeverity(labeledResults, new Set(["LOW" as Severity]));
+    const allViolations = filtered.flatMap((f) => f.violations);
+    expect(allViolations).toHaveLength(0);
+  });
+
+  it("should handle a mix of labeled and unlabeled violations", () => {
+    const mixed: FileScanResult[] = [
+      {
+        path: "src/mix.ts",
+        violations: [
+          { line: 1, text: "console.log(secret)", reason: "secret-named identifier" },
+          {
+            line: 2,
+            text: "console.log(token)",
+            reason: "secret-named identifier",
+            severity: "HIGH",
+          },
+          {
+            line: 3,
+            text: "console.log(process.env.X)",
+            reason: "environment variable",
+            severity: "CRITICAL",
+          },
+        ],
+      },
+    ];
+    const filtered = filterBySeverity(mixed, new Set(["CRITICAL" as Severity]));
+    const allViolations = filtered.flatMap((f) => f.violations);
+    // unlabeled (line 1) passes through + CRITICAL (line 3) matches
+    expect(allViolations).toHaveLength(2);
+    expect(allViolations.map((v) => v.line)).toEqual([1, 3]);
+  });
+
+  it("should preserve file entries even when all labeled violations are filtered out", () => {
+    const filtered = filterBySeverity(labeledResults, new Set(["LOW" as Severity]));
+    expect(filtered).toHaveLength(labeledResults.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI finding severity filtering (mirrors index.ts wiring)
+// ---------------------------------------------------------------------------
+
+describe("AI finding severity filtering", () => {
+  const aiFindings = [
+    {
+      type: "secret-exposure",
+      severity: "CRITICAL" as const,
+      description: "API key in log",
+      fileLocation: "src/a.ts",
+      lineStart: 1,
+    },
+    {
+      type: "secret-exposure",
+      severity: "HIGH" as const,
+      description: "Token in log",
+      fileLocation: "src/b.ts",
+      lineStart: 5,
+    },
+    {
+      type: "info-leak",
+      severity: "MEDIUM" as const,
+      description: "Debug info",
+      fileLocation: "src/c.ts",
+      lineStart: 10,
+    },
+    {
+      type: "info-leak",
+      severity: "LOW" as const,
+      description: "Verbose log",
+      fileLocation: "src/d.ts",
+      lineStart: 20,
+    },
+  ];
+
+  it("--severity=critical should keep only CRITICAL AI findings", () => {
+    const filter = parseSeverityFilter("critical");
+    const filtered = aiFindings.filter((f) => filter.has(f.severity));
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]!.severity).toBe("CRITICAL");
+  });
+
+  it("--severity=high,critical should keep HIGH and CRITICAL AI findings", () => {
+    const filter = parseSeverityFilter("high,critical");
+    const filtered = aiFindings.filter((f) => filter.has(f.severity));
+    expect(filtered).toHaveLength(2);
+    expect(filtered.map((f) => f.severity)).toEqual(["CRITICAL", "HIGH"]);
+  });
+
+  it("--severity filters display but does not affect exit-code input", () => {
+    const filter = parseSeverityFilter("low");
+    const displayed = aiFindings.filter((f) => filter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+    expect(displayed[0]!.severity).toBe("LOW");
+
+    // Exit-code logic uses unfiltered findings — shouldFailScan sees all 4
+    expect(shouldFailScan(0, aiFindings, null)).toBe(true);
+  });
+
+  it("no filter should preserve all AI findings", () => {
+    expect(aiFindings).toHaveLength(4);
+    expect(shouldFailScan(0, aiFindings, null)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --severity + --fail-on combined interaction
+// ---------------------------------------------------------------------------
+
+describe("--severity and --fail-on combined", () => {
+  const aiFindings: {
+    severity: Severity;
+    type: string;
+    description: string;
+    fileLocation: string;
+    lineStart: number;
+  }[] = [
+    { severity: "CRITICAL", type: "a", description: "a", fileLocation: "a.ts", lineStart: 1 },
+    { severity: "HIGH", type: "b", description: "b", fileLocation: "b.ts", lineStart: 2 },
+    { severity: "MEDIUM", type: "c", description: "c", fileLocation: "c.ts", lineStart: 3 },
+    { severity: "LOW", type: "d", description: "d", fileLocation: "d.ts", lineStart: 4 },
+  ];
+
+  it("--severity=critical does NOT hide HIGH findings from --fail-on=high", () => {
+    // --severity=critical means the user only SEES critical in output
+    const severityFilter = parseSeverityFilter("critical");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+
+    // But --fail-on=high must still see ALL findings, including the HIGH one
+    // that was filtered from display. Otherwise CI silently passes.
+    expect(shouldFailScan(0, aiFindings, "HIGH")).toBe(true);
+    expect(blockingAiFindings(aiFindings, "HIGH")).toHaveLength(2);
+  });
+
+  it("--severity=low --fail-on=high still blocks on the unseen HIGH finding", () => {
+    const severityFilter = parseSeverityFilter("low");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+    expect(displayed[0]!.severity).toBe("LOW");
+
+    // The HIGH and CRITICAL findings are hidden from output but still block
+    expect(shouldFailScan(0, aiFindings, "HIGH")).toBe(true);
+  });
+
+  it("--fail-on=NONE makes scan advisory regardless of --severity filter", () => {
+    expect(shouldFailScan(0, aiFindings, "NONE")).toBe(false);
+    expect(blockingAiFindings(aiFindings, "NONE")).toHaveLength(0);
+  });
+
+  it("--severity=critical --fail-on=critical blocks on the CRITICAL finding", () => {
+    const severityFilter = parseSeverityFilter("critical");
+    const displayed = aiFindings.filter((f) => severityFilter.has(f.severity));
+    expect(displayed).toHaveLength(1);
+
+    expect(shouldFailScan(0, aiFindings, "CRITICAL")).toBe(true);
+    expect(blockingAiFindings(aiFindings, "CRITICAL")).toHaveLength(1);
   });
 });

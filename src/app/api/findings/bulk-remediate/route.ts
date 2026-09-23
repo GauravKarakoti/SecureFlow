@@ -23,14 +23,15 @@ const handler = async function POST(req: NextRequest) {
     }
     const userId = session.user.id;
 
-    let body: { findingIds?: unknown };
+    let body: { action?: string; findingIds?: unknown };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const findingIds = body?.findingIds;
+    const { action, findingIds } = body;
+
     if (
       !Array.isArray(findingIds) ||
       findingIds.length === 0 ||
@@ -54,7 +55,7 @@ const handler = async function POST(req: NextRequest) {
       );
     }
 
-    // Load findings owned by the authenticated user
+    // Load findings owned by the authenticated user to verify authorization
     const findings: any[] = await prisma.finding.findMany({
       where: {
         id: { in: uniqueIds },
@@ -82,6 +83,23 @@ const handler = async function POST(req: NextRequest) {
       );
     }
 
+    // Process Apply or Rollback actions
+    if (action === "apply" || action === "rollback") {
+      const newStatus = action === "rollback" ? "PENDING" : "APPLIED";
+
+      await prisma.remediationPatch.updateMany({
+        where: { findingId: { in: uniqueIds } },
+        data: { status: newStatus },
+      });
+
+      return NextResponse.json({
+        success: true,
+        updatedCount: uniqueIds.length,
+        status: newStatus,
+      });
+    }
+
+    // Process Generate action (Default AI Flow)
     // Enforce type homogeneity: bulk remediation requires findings of the same vulnerability type
     const types = Array.from(new Set(findings.map((f: any) => f.type)));
     if (types.length > 1) {

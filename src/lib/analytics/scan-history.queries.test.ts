@@ -10,6 +10,7 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({ default: prismaMock }));
 
 import {
+  bucketScansByUtcDay,
   fetchAnalyticsSummary,
   fetchDailyScanMetrics,
   fetchRepoSummaries,
@@ -252,6 +253,38 @@ describe("fetchScanVelocity", () => {
   it("returns nothing for an empty range", async () => {
     expect(await fetchScanVelocity("user-1", 0)).toEqual([]);
   });
+
+  it.each(["UTC", "Asia/Kolkata", "America/Los_Angeles"])(
+    "buckets the dashboard's 7-day chart by UTC day when the server runs in %s",
+    (tz) => {
+      useTimeZone(tz);
+
+      const chart = bucketScansByUtcDay(
+        [
+          // 20:00 UTC on the 18th is already the 19th in India and still the
+          // 18th in Los Angeles; the chart must say the 18th everywhere.
+          new Date("2026-09-18T20:00:00Z"),
+          new Date("2026-09-19T00:30:00Z"),
+          new Date("2026-09-19T02:59:59Z"),
+          // Outside the window, either side.
+          new Date("2026-09-12T23:59:59Z"),
+          new Date("2026-09-20T00:00:00Z"),
+        ],
+        7,
+      );
+
+      expect(chart.map((d) => d.name)).toEqual([
+        "Sep 13",
+        "Sep 14",
+        "Sep 15",
+        "Sep 16",
+        "Sep 17",
+        "Sep 18",
+        "Sep 19",
+      ]);
+      expect(chart.map((d) => d.scans)).toEqual([0, 0, 0, 0, 0, 1, 2]);
+    },
+  );
 });
 
 describe("fetchAnalyticsSummary and getAnalyticsPayload", () => {
@@ -283,6 +316,16 @@ describe("fetchAnalyticsSummary and getAnalyticsPayload", () => {
     stubAggregates(null);
 
     expect((await fetchAnalyticsSummary("user-1")).avgRiskScore).toBe(0);
+  });
+
+  it("computes the trend over the requested window, not a fixed 30 days", async () => {
+    stubAggregates(10);
+
+    await fetchAnalyticsSummary("user-1", 7);
+
+    const { where } = prismaMock.scanResult.findMany.mock.calls[0][0];
+    expect(where.createdAt.gte.toISOString()).toBe("2026-09-13T00:00:00.000Z");
+    expect(where.createdAt.lte.toISOString()).toBe("2026-09-19T23:59:59.999Z");
   });
 
   it("assembles every section of the payload", async () => {

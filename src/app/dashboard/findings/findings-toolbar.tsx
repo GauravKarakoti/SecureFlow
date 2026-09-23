@@ -228,15 +228,22 @@ export default function FindingsToolbar({
         </Select>
 
         {onToggleBulkMode && canBulkSelect && (
-          <Button
-            variant={bulkMode ? "secondary" : "outline"}
-            onClick={onToggleBulkMode}
-            aria-pressed={bulkMode}
-            className="gap-2"
-          >
-            <ListChecks className="h-4 w-4" aria-hidden="true" />
-            {bulkMode ? "Cancel bulk select" : "Bulk select"}
-          </Button>
+          <>
+            <Button
+              variant={bulkMode ? "secondary" : "outline"}
+              size="sm"
+              onClick={onToggleBulkMode}
+              className="gap-2"
+            >
+              <ListChecks className="h-4 w-4" aria-hidden="true" />
+              {bulkMode ? "Cancel bulk select" : "Bulk select"}
+            </Button>
+            {bulkMode && (
+              <Button variant="outline" size="sm" className="gap-2 text-red-500 hover:text-red-600">
+                Rollback Patches
+              </Button>
+            )}
+          </>
         )}
       </div>
 

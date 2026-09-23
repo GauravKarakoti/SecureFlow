@@ -27,6 +27,15 @@ export {
   type SecureFlowIgnoreConfig,
 };
 
+export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export const VALID_SEVERITIES: ReadonlySet<Severity> = new Set([
+  "CRITICAL",
+  "HIGH",
+  "MEDIUM",
+  "LOW",
+]);
+
 /** One flagged call site. */
 export interface Violation {
   /** 1-based line of the `console.*` call. */
@@ -35,6 +44,7 @@ export interface Violation {
   text: string;
   /** Which indicator matched, so the message can say why. */
   reason: string;
+  severity?: Severity;
 }
 
 /** Console methods that put their arguments somewhere durable. */
@@ -47,21 +57,55 @@ const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace", "tabl
 const CONSOLE_CALL = new RegExp(`console\\s*\\.\\s*(?:${CONSOLE_METHODS.join("|")})\\s*\\(`, "g");
 
 /**
+ * Words that make an identifier secret-bearing, matched with `_` and `-`
+ * removed so `private_key`, `privateKey` and `PRIVATE-KEY` read the same.
+ *
+ * This was a regex over the raw text that listed `privatekey` without a
+ * separator, so `console.log(private_key)` — the spelling most config loaders
+ * use — was never flagged, and nothing matched `passphrase` at all.
+ */
+const SECRET_WORDS =
+  /password|passwd|passphrase|secret|token|credential|apikey|privatekey|signingkey|encryptionkey/;
+
+/**
+ * Token *counts* and *tokenizers*, which LLM code logs constantly
+ * (`console.log(maxTokens)`, `console.log(usage.totalTokens)`). `token` as a
+ * bare substring flagged every one of them as a leaked credential. Removed from
+ * the normalized name before `SECRET_WORDS` is applied, so a name that is only
+ * a count or a tokenizer passes while `tokens`, `authToken` or `passwordLength`
+ * still read as secret-bearing.
+ */
+const TOKEN_COUNT_FORMS =
+  /tokeni[sz](?:er|ers|ed|es|ing|ation)?|(?:max|min|total|prompt|completion|input|output|num|remaining|used|reasoning|cached)tokens?|tokens?(?:count|counts|usage|limit|limits|length|budget|estimate|cost)/g;
+
+/** Whether an identifier reads as holding a credential. */
+export function isSecretIdentifier(name: string): boolean {
+  const normalized = name.replace(/[_-]/g, "").toLowerCase();
+  return SECRET_WORDS.test(normalized.replace(TOKEN_COUNT_FORMS, ""));
+}
+
+/** Anything with a `test(text)` method: a RegExp or a custom matcher. */
+interface IndicatorMatcher {
+  test(text: string): boolean;
+}
+
+const SECRET_IDENTIFIER: IndicatorMatcher = {
+  test: (text) => (text.match(/[A-Za-z_$][\w$]*/g) ?? []).some(isSecretIdentifier),
+};
+
+/**
  * What makes an argument list suspicious.
  *
  * Checked against the *masked* source, so a string literal that merely contains
  * the word "password" does not match — only an identifier or a member
  * expression does.
  */
-const INDICATORS: ReadonlyArray<readonly [string, RegExp]> = [
+const INDICATORS: ReadonlyArray<readonly [string, IndicatorMatcher]> = [
   [
     "environment variable",
     /\b(?:process\s*\.\s*env|import\s*\.\s*meta\s*\.\s*env|Deno\s*\.\s*env|os\s*\.\s*environ)\b/,
   ],
-  [
-    "secret-named identifier",
-    /\b\w*(?:password|passwd|secret|token|credential|apikey|privatekey)\w*\b/i,
-  ],
+  ["secret-named identifier", SECRET_IDENTIFIER],
   // `key` and `auth` on their own are common enough in ordinary code
   // (`keyof`, `authorised`, `keys`) that they are only flagged when they read
   // as a whole word or as an obvious compound.
@@ -341,11 +385,7 @@ export interface FileScanResult {
 }
 
 /** Scan one staged blob. */
-export function scanFile(
-  path: string,
-  content: string,
-  customIgnores?: RegExp[],
-): FileScanResult {
+export function scanFile(path: string, content: string, customIgnores?: RegExp[]): FileScanResult {
   if (customIgnores && shouldIgnorePath(path, customIgnores)) {
     return { path, violations: [], skipped: "matched .secureflowignore" };
   }
@@ -442,15 +482,56 @@ export function parseFailOnArg(args: string[] = process.argv): FailOnSeverity | 
 }
 
 /**
+ * The AI findings that clear `failOnThreshold` — the ones actually responsible
+ * for a non-zero exit.
+ *
+ * With no threshold set this is the default HIGH/CRITICAL set, matching
+ * {@link shouldFailScan}. `NONE` is advisory mode, so nothing blocks.
+ */
+export function blockingAiFindings<T extends { severity: string }>(
+  aiFindings: T[],
+  failOnThreshold: FailOnSeverity | null = null,
+): T[] {
+  if (failOnThreshold === "NONE") return [];
+
+  if (failOnThreshold === null) {
+    return aiFindings.filter((f) => f.severity === "HIGH" || f.severity === "CRITICAL");
+  }
+
+  const thresholdRank = SEVERITY_RANK[failOnThreshold];
+  return aiFindings.filter((f) => {
+    const findingSev = (f.severity?.toUpperCase() as FailOnSeverity) || "LOW";
+    return (SEVERITY_RANK[findingSev] ?? 1) >= thresholdRank;
+  });
+}
+
+/**
+ * How to refer to the active threshold in a message, so the default case does
+ * not name a flag the user never passed.
+ */
+export function describeFailThreshold(failOnThreshold: FailOnSeverity | null): string {
+  return failOnThreshold === null
+    ? "the default HIGH/CRITICAL threshold"
+    : `the --fail-on=${failOnThreshold} threshold`;
+}
+
+/**
  * Determines whether a scan should return non-zero exit code based on the failOnThreshold.
  *
  * Local secret logging violations are treated as HIGH severity (rank 3).
+ *
+ * `NONE` is advisory mode: findings are still reported, but nothing blocks the
+ * commit. It is deliberately handled before the rank comparison, because its
+ * rank of 0 is below every real severity and would otherwise make *every*
+ * finding clear the bar.
  */
 export function shouldFailScan(
   localViolationCount: number,
   aiFindings: { severity: string }[],
   failOnThreshold: FailOnSeverity | null = null,
 ): boolean {
+  if (failOnThreshold === "NONE") return false;
+
   if (failOnThreshold === null) {
     const aiHighOrCritical = aiFindings.filter(
       (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
@@ -474,4 +555,29 @@ export function shouldFailScan(
   }
 
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Severity filter helpers (--severity flag)
+// ---------------------------------------------------------------------------
+
+export function parseSeverityFilter(value: string): Set<Severity> {
+  const levels = value.split(",").map((s) => s.trim().toUpperCase());
+  const invalid = levels.filter((l) => !VALID_SEVERITIES.has(l as Severity));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Invalid severity level(s): ${invalid.join(", ")}. Valid levels: CRITICAL, HIGH, MEDIUM, LOW`,
+    );
+  }
+  return new Set(levels as Severity[]);
+}
+
+export function filterBySeverity(
+  results: FileScanResult[],
+  severities: ReadonlySet<Severity>,
+): FileScanResult[] {
+  return results.map((file) => ({
+    ...file,
+    violations: file.violations.filter((v) => !v.severity || severities.has(v.severity)),
+  }));
 }

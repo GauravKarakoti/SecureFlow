@@ -20,6 +20,7 @@ export class CircuitBreaker {
   private state: CircuitState = CircuitState.CLOSED;
   private failureCount: number = 0;
   private nextAttemptTimestamp: number = 0;
+  private halfOpenProbeInFlight: boolean = false;
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
 
@@ -42,6 +43,21 @@ export class CircuitBreaker {
       throw new CircuitBreakerError("Circuit breaker is OPEN");
     }
 
+    // HALF_OPEN admits one probe, not every caller that arrives while it runs.
+    //
+    // getState() flips OPEN to HALF_OPEN the moment resetTimeoutMs elapses and
+    // leaves it there, so without this gate every request in flight at that
+    // instant was let through together. Against a dependency that is still
+    // down, each one waits out its own timeout — the breaker stopped shielding
+    // the caller exactly when the dependency was least able to answer.
+    const isProbe = currentState === CircuitState.HALF_OPEN;
+    if (isProbe) {
+      if (this.halfOpenProbeInFlight) {
+        throw new CircuitBreakerError("Circuit breaker is HALF_OPEN: a probe is already in flight");
+      }
+      this.halfOpenProbeInFlight = true;
+    }
+
     try {
       const result = await action();
       this.onSuccess();
@@ -49,6 +65,12 @@ export class CircuitBreaker {
     } catch (error) {
       this.onFailure();
       throw error;
+    } finally {
+      // Released on both paths: onSuccess has closed the circuit, onFailure has
+      // reopened it with a fresh deadline, and either way the slot is free.
+      if (isProbe) {
+        this.halfOpenProbeInFlight = false;
+      }
     }
   }
 

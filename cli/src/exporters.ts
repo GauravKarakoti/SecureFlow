@@ -64,6 +64,37 @@ export function escapeMarkdownTable(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
 }
 
+/**
+ * Wraps a value in a Markdown code span that survives the content it holds.
+ *
+ * Two things went wrong with a fixed pair of backticks around scanned source:
+ *
+ * - A backtick in the value closes the span early. Template literals are the
+ *   common case, and a line that logs an interpolated token is exactly what
+ *   this scanner flags, so the tail of the line rendered as prose.
+ * - Backslashes must not be doubled. A code span's contents are literal, so
+ *   the escaping used for plain cells shows up on the page: a Windows path
+ *   came out with two backslashes where the source had one.
+ *
+ * The fence is therefore one backtick longer than the longest run inside the
+ * value (CommonMark 6.1), the value is padded when it would otherwise start or
+ * end with a backtick, and only the pipe is escaped: GFM resolves it while
+ * splitting cells, before code spans are parsed, so it is the one escape that
+ * still works in here.
+ */
+export function toMarkdownCodeSpan(value: string): string {
+  // A newline cannot appear in a table cell, and a code span renders one as a
+  // space in any case, so collapse it rather than emitting a <br> that would
+  // show up literally.
+  const text = value.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+
+  const runs = [...text.matchAll(/`+/g)].map((m) => m[0].length);
+  const fence = "`".repeat(Math.max(0, ...runs) + 1);
+  const padding = text.startsWith("`") || text.endsWith("`") ? " " : "";
+
+  return `${fence}${padding}${text}${padding}${fence}`;
+}
+
 // ---------------------------------------------------------------------------
 // CSV formatter
 // ---------------------------------------------------------------------------
@@ -247,7 +278,7 @@ export function formatMarkdown(results: FileScanResult[]): string {
   for (const v of violations) {
     const file = escapeMarkdownTable(v.path);
     const line = v.line;
-    const text = `\`${escapeMarkdownTable(v.text)}\``;
+    const text = toMarkdownCodeSpan(v.text);
     const reason = escapeMarkdownTable(v.reason);
     lines.push(`| ${file} | ${line} | ${text} | ${reason} |`);
   }

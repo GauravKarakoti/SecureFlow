@@ -4,6 +4,7 @@ import {
   isRateLimitError,
   isTimeoutError,
   computeBackoffDelay,
+  DEFAULT_ATTEMPT_TIMEOUT_MS,
 } from "../../src/ai/resilience";
 
 describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
@@ -129,6 +130,50 @@ describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
         expect.anything(),
         2,
       );
+    });
+
+    it("gives up on an attempt that outruns the configured timeout and falls back", async () => {
+      // The primary never settles — the shape of a wedged local inference
+      // server. Without a per-attempt budget the whole call hangs.
+      const operation = vi.fn().mockImplementation((model: string) => {
+        if (model === "groq/primary-model") return new Promise(() => {});
+        return Promise.resolve("FALLBACK_SUCCESS");
+      });
+
+      const { result, stats } = await executeWithFallbackAndRetry(operation, {
+        primaryModel: "groq/primary-model",
+        fallbackModels: ["groq/fallback-1"],
+        retryConfig: {
+          maxRetriesPerModel: 1,
+          initialDelayMs: 5,
+          jitter: false,
+          timeoutMs: 20,
+        },
+      });
+
+      expect(result).toBe("FALLBACK_SUCCESS");
+      expect(stats.modelUsed).toBe("groq/fallback-1");
+      expect(stats.fallbackSwitches).toBe(1);
+    });
+
+    it('honours timeoutMs: 0 as "no timeout" for long-running operations', async () => {
+      const operation = vi
+        .fn()
+        .mockImplementation(
+          () => new Promise((resolve) => setTimeout(() => resolve("SLOW_SUCCESS"), 30)),
+        );
+
+      const { result } = await executeWithFallbackAndRetry(operation, {
+        primaryModel: "groq/primary-model",
+        fallbackModels: [],
+        retryConfig: { maxRetriesPerModel: 1, initialDelayMs: 5, jitter: false, timeoutMs: 0 },
+      });
+
+      expect(result).toBe("SLOW_SUCCESS");
+    });
+
+    it("exposes the default per-attempt timeout so callers can reason about it", () => {
+      expect(DEFAULT_ATTEMPT_TIMEOUT_MS).toBeGreaterThan(0);
     });
 
     it("should throw final error if all models in fallback chain fail", async () => {

@@ -108,6 +108,45 @@ describe("osv-client", () => {
       };
       expect(extractSeverity(vuln)).toBe("MEDIUM");
     });
+
+    it("rates an advisory that only carries a CVSS v3 vector from its score", () => {
+      // The shape of a PyPA (PYSEC) record: no database_specific severity label.
+      const vuln: OsvVulnerability = {
+        id: "PYSEC-2021-0001",
+        severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }],
+      };
+      expect(extractSeverity(vuln)).toBe("CRITICAL");
+    });
+
+    it("scores per-package CVSS vectors when the advisory has none", () => {
+      const vuln: OsvVulnerability = {
+        id: "OSV-2",
+        affected: [
+          {
+            package: { name: "pkg", ecosystem: "PyPI" },
+            severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" }],
+          },
+        ],
+      };
+      expect(extractSeverity(vuln)).toBe("HIGH");
+    });
+
+    it("keeps a curated database_specific label ahead of the vector", () => {
+      const vuln: OsvVulnerability = {
+        id: "GHSA-6",
+        database_specific: { severity: "MODERATE" },
+        severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }],
+      };
+      expect(extractSeverity(vuln)).toBe("MEDIUM");
+    });
+
+    it("still defaults to MEDIUM when only an unscorable vector is present", () => {
+      const vuln: OsvVulnerability = {
+        id: "OSV-3",
+        severity: [{ type: "CVSS_V2", score: "AV:N/AC:L/Au:N/C:P/I:P/A:P" }],
+      };
+      expect(extractSeverity(vuln)).toBe("MEDIUM");
+    });
   });
 
   describe("extractFixedVersion", () => {
