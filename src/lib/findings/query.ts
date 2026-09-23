@@ -335,6 +335,16 @@ export function planSeverityPage(
   return slices;
 }
 
+/**
+ * The finding types whose name contains `search`, case-insensitively — what a
+ * `contains` on the column would have matched had it been a string.
+ */
+export function typesMatchingSearch(search: string): ValidFindingType[] {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return [];
+  return VALID_FINDING_TYPES.filter((type) => type.toLowerCase().includes(needle));
+}
+
 export interface FindingsWhereContext {
   /** Owner of the repositories whose findings are in scope. */
   userId: string;
@@ -462,9 +472,16 @@ export function buildFindingsWhere(
   }
 
   if (query.search) {
+    // `Finding.type` is the `FindingType` enum, and Prisma's enum filter has no
+    // `contains`: `{ type: { contains: … } }` is rejected at runtime ("Unknown
+    // argument `contains`") before the query is sent, so every search on the
+    // page failed. The enum has three members, so "type contains the search"
+    // is resolved here to the members that match and sent as an `in`.
+    const matchingTypes = typesMatchingSearch(query.search);
+
     andClauses.push({
       OR: [
-        { type: { contains: query.search, mode: "insensitive" } },
+        ...(matchingTypes.length > 0 ? [{ type: { in: matchingTypes } }] : []),
         { fileLocation: { contains: query.search, mode: "insensitive" } },
         { explanation: { contains: query.search, mode: "insensitive" } },
         { remediation: { contains: query.search, mode: "insensitive" } },
