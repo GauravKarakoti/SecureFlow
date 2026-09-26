@@ -133,6 +133,101 @@ export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+//
+// A per-model in-process circuit breaker that supplements the retry/fallback
+// logic already in `executeWithFallbackAndRetry`.
+//
+// State machine:
+//   CLOSED   → normal operation; failures are counted
+//   OPEN     → model is assumed down; calls are rejected immediately
+//   HALF_OPEN → probe phase; one test call is allowed through
+//
+// When the circuit opens, it stays open for `resetAfterMs` then moves to
+// HALF_OPEN.  A successful probe closes it; a failed probe re-opens it.
+//
+// This prevents wasting quota and latency retrying a model whose service
+// endpoint is clearly unhealthy for an extended period.
+
+export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+
+export interface CircuitBreakerConfig {
+  /** Consecutive failures before the circuit opens. Default: 5 */
+  failureThreshold?: number;
+  /** Ms to keep the circuit open before probing. Default: 30_000 */
+  resetAfterMs?: number;
+}
+
+export interface CircuitBreaker {
+  readonly model: string;
+  readonly state: CircuitState;
+  recordSuccess(): void;
+  recordFailure(): void;
+  isAllowed(): boolean;
+}
+
+export function createCircuitBreaker(
+  model: string,
+  config: CircuitBreakerConfig = {},
+): CircuitBreaker {
+  const threshold = config.failureThreshold ?? 5;
+  const resetMs = config.resetAfterMs ?? 30_000;
+
+  let state: CircuitState = "CLOSED";
+  let failures = 0;
+  let openedAt: number | null = null;
+
+  return {
+    get model() {
+      return model;
+    },
+    get state() {
+      return state;
+    },
+    isAllowed(): boolean {
+      if (state === "CLOSED") return true;
+      if (state === "HALF_OPEN") return true;
+      // OPEN — check if reset window has elapsed
+      if (openedAt !== null && Date.now() - openedAt >= resetMs) {
+        state = "HALF_OPEN";
+        return true;
+      }
+      return false;
+    },
+    recordSuccess(): void {
+      failures = 0;
+      state = "CLOSED";
+      openedAt = null;
+    },
+    recordFailure(): void {
+      failures++;
+      if (state === "HALF_OPEN" || failures >= threshold) {
+        state = "OPEN";
+        openedAt = Date.now();
+        failures = 0;
+      }
+    },
+  };
+}
+
+/** Process-scoped registry so all callers share the same breaker per model. */
+const _breakers = new Map<string, CircuitBreaker>();
+
+export function getCircuitBreaker(
+  model: string,
+  config?: CircuitBreakerConfig,
+): CircuitBreaker {
+  if (!_breakers.has(model)) {
+    _breakers.set(model, createCircuitBreaker(model, config));
+  }
+  return _breakers.get(model)!;
+}
+
+/** Reset all breakers — useful in tests. */
+export function resetAllCircuitBreakers(): void {
+  _breakers.clear();
+}
+
 /**
  * Executes an AI operation across a chain of fallback models with exponential backoff and retries.
  */
