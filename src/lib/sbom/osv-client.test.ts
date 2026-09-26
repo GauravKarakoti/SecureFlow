@@ -6,6 +6,7 @@ import {
   extractSeverity,
   extractFixedVersion,
   queryOsvForDependency,
+  fetchOsvVulnerabilityById,
   mapOsvVulns,
   type OsvVulnerability,
 } from "./osv-client";
@@ -515,6 +516,88 @@ describe("osv-client", () => {
 
       const matches = mapOsvVulns(dep, vulns);
       expect(matches[0].description).toBe("Known vulnerability in express");
+    });
+  });
+
+  describe("fetchOsvVulnerabilityById", () => {
+    const originalFetch = globalThis.fetch;
+
+    beforeEach(() => {
+      globalThis.fetch = vi.fn();
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it("returns null for empty or non-string inputs", async () => {
+      const fetchSpy = vi.mocked(globalThis.fetch);
+      expect(await fetchOsvVulnerabilityById("")).toBeNull();
+      expect(await fetchOsvVulnerabilityById("   ")).toBeNull();
+      expect(await fetchOsvVulnerabilityById(null as any)).toBeNull();
+      expect(await fetchOsvVulnerabilityById(undefined as any)).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("fetches vulnerability data from OSV endpoint for valid ID", async () => {
+      const mockAdvisory: OsvVulnerability = {
+        id: "GHSA-j8xg-fqg3-53r8",
+        summary: "Log4Shell RCE",
+        aliases: ["CVE-2021-44228"],
+        severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H" }],
+      };
+
+      vi.mocked(globalThis.fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => mockAdvisory,
+      } as Response);
+
+      const result = await fetchOsvVulnerabilityById("GHSA-j8xg-fqg3-53r8");
+
+      expect(result).toEqual(mockAdvisory);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://api.osv.dev/v1/vulns/GHSA-j8xg-fqg3-53r8",
+        expect.objectContaining({
+          method: "GET",
+          headers: { Accept: "application/json" },
+        }),
+      );
+    });
+
+    it("returns null when OSV returns 404", async () => {
+      vi.mocked(globalThis.fetch).mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      } as Response);
+
+      const result = await fetchOsvVulnerabilityById("CVE-9999-99999");
+      expect(result).toBeNull();
+    });
+
+    it("returns null and logs warning on non-404 API errors (e.g. 500)", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch).mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      } as Response);
+
+      const result = await fetchOsvVulnerabilityById("CVE-2024-1234");
+      expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("returns null on network/timeout failure", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch).mockRejectedValue(new Error("Timeout"));
+
+      const result = await fetchOsvVulnerabilityById("CVE-2024-1234");
+      expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
   });
 });

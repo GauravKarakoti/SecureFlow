@@ -13,6 +13,7 @@ import type { Dependency, SeverityLevel, VulnerabilityMatch } from "@/types/sbom
 import { severityFromCvssEntries } from "./cvss";
 
 const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
+const OSV_VULN_URL = "https://api.osv.dev/v1/vulns";
 const OSV_TIMEOUT_MS = 15_000;
 
 const ECOSYSTEM_MAP: Record<string, string> = {
@@ -156,4 +157,46 @@ export function mapOsvVulns(dep: Dependency, vulns: OsvVulnerability[]): Vulnera
       vuln.summary ?? vuln.details?.slice(0, 200) ?? `Known vulnerability in ${dep.name}`,
     patchedVersion: extractFixedVersion(vuln, dep.name),
   }));
+}
+
+// ── Query by vulnerability ID ──────────────────────────────────────────
+
+/**
+ * Fetches an authoritative vulnerability record from OSV.dev by vulnerability ID (CVE, GHSA, OSV, etc.).
+ * Returns `null` if the vulnerability is not found (404) or on invalid input/error.
+ */
+export async function fetchOsvVulnerabilityById(
+  vulnerabilityId: string,
+): Promise<OsvVulnerability | null> {
+  if (!vulnerabilityId || typeof vulnerabilityId !== "string") return null;
+  const cleanId = vulnerabilityId.trim();
+  if (!cleanId) return null;
+
+  try {
+    const res = await fetch(`${OSV_VULN_URL}/${encodeURIComponent(cleanId)}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+    });
+
+    if (res.status === 404) {
+      return null;
+    }
+
+    if (!res.ok) {
+      console.warn(
+        `[OSV] Failed to fetch vulnerability ${cleanId}: ${res.status} ${res.statusText}`,
+      );
+      return null;
+    }
+
+    const data: OsvVulnerability = await res.json();
+    return data && data.id ? data : null;
+  } catch (err) {
+    console.warn(
+      `[OSV] Error fetching vulnerability ${cleanId}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
 }
