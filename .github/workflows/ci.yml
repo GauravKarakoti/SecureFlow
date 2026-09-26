@@ -94,6 +94,9 @@ jobs:
           AUTH_URL: http://localhost:3000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
 
+      - name: Verify OpenAPI Spec Synchronization
+        run: npm run verify:openapi
+
   cli:
     name: CLI Build & Test
     runs-on: ubuntu-latest
