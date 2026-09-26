@@ -403,30 +403,6 @@ export function scanFile(path: string, content: string, customIgnores?: RegExp[]
 
 export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
 
-/**
- * Format scan results based on the chosen output format ('text' | 'json' | 'sarif' | 'csv' | 'html' | 'markdown').
- */
-export function formatScanResults(
-  results: FileScanResult[],
-  format: OutputFormat = "text",
-): string {
-  if (format === "json") {
-    return JSON.stringify(results, null, 2);
-  }
-
-  if (format === "text") {
-    // Default text summary
-    let text = "";
-    for (const r of results) {
-      for (const v of r.violations) {
-        text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
-        text += `   -> ${v.text}\n`;
-        text += `   why: ${v.reason} passed to a console call\n`;
-      }
-    }
-    return text;
-  }
-
 export function formatScanResults(
   results: FileScanResult[],
   format: OutputFormat = "text",

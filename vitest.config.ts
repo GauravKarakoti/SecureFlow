@@ -2,6 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    server: {
+      deps: {
+        inline: ["genkitx-groq"],
+      },
+    },
     globals: true,
     environment: "node",
     // cli/** is included so the pre-commit hook's detector is covered by the
