@@ -8,7 +8,7 @@
  */
 
 import { formatSarifJson } from "./sarif.js";
-import { formatCsv, formatHtml, formatMarkdown } from "./exporters.js";
+import { getExporter } from "./exporters.js";
 import {
   shouldIgnorePath,
   parseSecureFlowIgnore,
@@ -401,7 +401,7 @@ export function scanFile(path: string, content: string, customIgnores?: RegExp[]
   return { path, violations: findSecretLogging(content) };
 }
 
-export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown";
+export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
 
 /**
  * Format scan results based on the chosen output format ('text' | 'json' | 'sarif' | 'csv' | 'html' | 'markdown').
@@ -414,32 +414,47 @@ export function formatScanResults(
     return JSON.stringify(results, null, 2);
   }
 
-  if (format === "sarif") {
-    return formatSarifJson(results);
-  }
-
-  if (format === "csv") {
-    return formatCsv(results);
-  }
-
-  if (format === "html") {
-    return formatHtml(results);
-  }
-
-  if (format === "markdown") {
-    return formatMarkdown(results);
-  }
-
-  // Default text summary
-  let text = "";
-  for (const r of results) {
-    for (const v of r.violations) {
-      text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
-      text += `   -> ${v.text}\n`;
-      text += `   why: ${v.reason} passed to a console call\n`;
+  if (format === "text") {
+    // Default text summary
+    let text = "";
+    for (const r of results) {
+      for (const v of r.violations) {
+        text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
+        text += `   -> ${v.text}\n`;
+        text += `   why: ${v.reason} passed to a console call\n`;
+      }
     }
+    return text;
   }
-  return text;
+
+export function formatScanResults(
+  results: FileScanResult[],
+  format: OutputFormat = "text",
+): string {
+  if (format === "json") {
+    return JSON.stringify(results, null, 2);
+  }
+
+  if (format === "text") {
+    // Default text summary
+    let text = "";
+    for (const r of results) {
+      for (const v of r.violations) {
+        text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
+        text += `   -> ${v.text}\n`;
+        text += `   why: ${v.reason} passed to a console call\n`;
+      }
+    }
+    return text;
+  }
+
+  // Unified Exporters for SARIF, CSV, Markdown, and HTML (#1095)
+  try {
+    const exporter = getExporter(format);
+    return exporter.export(results);
+  } catch (err) {
+    throw new Error(`Unsupported output format: ${format}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

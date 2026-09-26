@@ -1,40 +1,21 @@
 /**
- * Alternative Export Formatters for SecureFlow CLI (#811)
+ * Unified Exporters for SecureFlow CLI (#1095)
  *
- * Provides CSV and HTML report generation for stakeholders who do not use
- * SARIF viewers. Both formatters are zero-dependency, using pure string
- * templates to keep the CLI lightweight.
- *
- * PDF generation was intentionally not added because it would introduce a
- * heavyweight PDF-generation dependency (e.g. pdfkit, puppeteer). HTML
- * provides a portable report that users can directly print/save as PDF
- * from any browser.
+ * Provides a common Exporter interface and formatters for CSV, Markdown,
+ * HTML, and SARIF formats with robust security escaping and formula injection prevention.
  */
 
-// Added `type` prefix for verbatimModuleSyntax compliance
 import type { FileScanResult } from "./scanner.js";
+import { formatSarifJson } from "./sarif.js";
 
 // ---------------------------------------------------------------------------
-// Escape helpers
+// Escape helpers (from main branch)
 // ---------------------------------------------------------------------------
 
-/**
- * Leading characters that make a spreadsheet evaluate a cell as a formula.
- *
- * Same set as the server-side exporter (`src/lib/utils/csv.ts`). A leading TAB or CR is
- * stripped by some importers, exposing the character after it.
- */
 const FORMULA_TRIGGERS = ["=", "+", "-", "@", "\t", "\r"];
 
 /**
- * Escapes a value for safe embedding in a CSV cell per RFC 4180.
- *
- * - A value starting with a formula trigger is prefixed with `'`, so Excel, LibreOffice and
- *   Google Sheets show it as text instead of running it (CWE-1236). The cells hold file paths
- *   and source lines from the scanned commit, which anyone who can open a PR controls.
- * - If the value contains a comma, double-quote, or newline, the entire value
- *   is wrapped in double-quotes.
- * - Any internal double-quotes are doubled (`"` → `""`).
+ * Escapes a value for safe embedding in a CSV cell per RFC 4180 and CWE-1236.
  */
 export function escapeCsv(value: string): string {
   const text = FORMULA_TRIGGERS.some((trigger) => value.startsWith(trigger)) ? `'${value}` : value;
@@ -45,8 +26,7 @@ export function escapeCsv(value: string): string {
 }
 
 /**
- * Escapes special HTML characters to prevent XSS when embedding untrusted
- * content (e.g. source code snippets) in generated HTML reports.
+ * Escapes special HTML characters to prevent XSS.
  */
 export function escapeHtml(value: string): string {
   return value
@@ -58,109 +38,109 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Escapes characters that break Markdown table syntax (pipes, backslashes, and line breaks).
+ * Escapes characters that break Markdown table syntax.
  */
 export function escapeMarkdownTable(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
 }
 
 /**
- * Wraps a value in a Markdown code span that survives the content it holds.
- *
- * Two things went wrong with a fixed pair of backticks around scanned source:
- *
- * - A backtick in the value closes the span early. Template literals are the
- *   common case, and a line that logs an interpolated token is exactly what
- *   this scanner flags, so the tail of the line rendered as prose.
- * - Backslashes must not be doubled. A code span's contents are literal, so
- *   the escaping used for plain cells shows up on the page: a Windows path
- *   came out with two backslashes where the source had one.
- *
- * The fence is therefore one backtick longer than the longest run inside the
- * value (CommonMark 6.1), the value is padded when it would otherwise start or
- * end with a backtick, and only the pipe is escaped: GFM resolves it while
- * splitting cells, before code spans are parsed, so it is the one escape that
- * still works in here.
+ * Wraps a value in a Markdown code span.
  */
 export function toMarkdownCodeSpan(value: string): string {
-  // A newline cannot appear in a table cell, and a code span renders one as a
-  // space in any case, so collapse it rather than emitting a <br> that would
-  // show up literally.
   const text = value.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
-
   const runs = [...text.matchAll(/`+/g)].map((m) => m[0].length);
   const fence = "`".repeat(Math.max(0, ...runs) + 1);
   const padding = text.startsWith("`") || text.endsWith("`") ? " " : "";
-
   return `${fence}${padding}${text}${padding}${fence}`;
 }
 
 // ---------------------------------------------------------------------------
-// CSV formatter
+// Exporter Interface & Implementations (#1095)
 // ---------------------------------------------------------------------------
 
-const CSV_HEADERS = "File,Line,Violation,Reason";
-
-/**
- * Formats scan results as a CSV string.
- *
- * Columns: `File`, `Line`, `Violation`, `Reason`
- *
- * All cell values are escaped per RFC 4180 so embedded commas, quotes, and
- * newlines do not corrupt the output.
- */
-export function formatCsv(results: FileScanResult[]): string {
-  const rows: string[] = [CSV_HEADERS];
-
-  for (const file of results) {
-    for (const v of file.violations) {
-      rows.push(
-        [escapeCsv(file.path), String(v.line), escapeCsv(v.text), escapeCsv(v.reason)].join(","),
-      );
-    }
-  }
-
-  return rows.join("\n") + "\n";
+export interface Exporter {
+  export(results: FileScanResult[]): string;
 }
 
-// ---------------------------------------------------------------------------
-// HTML formatter
-// ---------------------------------------------------------------------------
+export class CsvExporter implements Exporter {
+  export(results: FileScanResult[]): string {
+    const CSV_HEADERS = "File,Line,Violation,Reason";
+    const rows: string[] = [CSV_HEADERS];
 
-/**
- * Generates a self-contained, styled HTML report of scan results.
- *
- * The document includes inline CSS so it can be opened directly in a browser
- * or printed / saved as PDF without any external assets.
- *
- * All untrusted content (file paths, source snippets, reasons) is
- * HTML-escaped to prevent XSS.
- */
-export function formatHtml(results: FileScanResult[]): string {
-  const violations: { path: string; line: number; text: string; reason: string }[] = [];
-
-  for (const file of results) {
-    for (const v of file.violations) {
-      violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+    for (const file of results) {
+      for (const v of file.violations) {
+        rows.push(
+          [escapeCsv(file.path), String(v.line), escapeCsv(v.text), escapeCsv(v.reason)].join(","),
+        );
+      }
     }
+    return rows.join("\n") + "\n";
   }
+}
 
-  const tableRows =
-    violations.length > 0
-      ? violations
-          .map(
-            (v) =>
-              `        <tr>
+export class MarkdownExporter implements Exporter {
+  export(results: FileScanResult[]): string {
+    const violations: { path: string; line: number; text: string; reason: string }[] = [];
+
+    for (const file of results) {
+      for (const v of file.violations) {
+        violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+      }
+    }
+
+    const lines: string[] = ["# 🛡️ SecureFlow Scan Report", ""];
+
+    if (violations.length === 0) {
+      lines.push("✅ **No violations detected.**");
+      lines.push("");
+      return lines.join("\n");
+    }
+
+    lines.push(`Found **${violations.length}** violation${violations.length === 1 ? "" : "s"}.`);
+    lines.push("");
+    lines.push("| File | Line | Violation | Reason |");
+    lines.push("| --- | --- | --- | --- |");
+
+    for (const v of violations) {
+      const file = escapeMarkdownTable(v.path);
+      const line = v.line;
+      const text = toMarkdownCodeSpan(v.text);
+      const reason = escapeMarkdownTable(v.reason);
+      lines.push(`| ${file} | ${line} | ${text} | ${reason} |`);
+    }
+
+    lines.push("");
+    return lines.join("\n");
+  }
+}
+
+export class HtmlExporter implements Exporter {
+  export(results: FileScanResult[]): string {
+    const violations: { path: string; line: number; text: string; reason: string }[] = [];
+
+    for (const file of results) {
+      for (const v of file.violations) {
+        violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+      }
+    }
+
+    const tableRows =
+      violations.length > 0
+        ? violations
+            .map(
+              (v) =>
+                `        <tr>
           <td>${escapeHtml(v.path)}</td>
           <td>${v.line}</td>
           <td><code>${escapeHtml(v.text)}</code></td>
           <td>${escapeHtml(v.reason)}</td>
         </tr>`,
-          )
-          .join("\n")
-      : `        <tr><td colspan="4" class="empty">No violations detected.</td></tr>`;
+            )
+            .join("\n")
+        : `        <tr><td colspan="4" class="empty">No violations detected.</td></tr>`;
 
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -175,15 +155,8 @@ export function formatHtml(results: FileScanResult[]): string {
       padding: 2rem;
       line-height: 1.5;
     }
-    h1 {
-      font-size: 1.5rem;
-      margin-bottom: 0.25rem;
-    }
-    .meta {
-      color: #57606a;
-      font-size: 0.875rem;
-      margin-bottom: 1.5rem;
-    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .meta { color: #57606a; font-size: 0.875rem; margin-bottom: 1.5rem; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -192,36 +165,13 @@ export function formatHtml(results: FileScanResult[]): string {
       border-radius: 6px;
       overflow: hidden;
     }
-    th, td {
-      text-align: left;
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid #d0d7de;
-    }
-    th {
-      background: #f6f8fa;
-      font-weight: 600;
-      font-size: 0.875rem;
-    }
-    td code {
-      background: #f0f3f6;
-      padding: 0.125rem 0.375rem;
-      border-radius: 3px;
-      font-size: 0.8125rem;
-    }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #d0d7de; }
+    th { background: #f6f8fa; font-weight: 600; font-size: 0.875rem; }
+    td code { background: #f0f3f6; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.8125rem; }
     tr:last-child td { border-bottom: none; }
-    .empty {
-      text-align: center;
-      color: #57606a;
-      padding: 1.5rem;
-    }
-    .summary {
-      margin-top: 1rem;
-      font-size: 0.875rem;
-      color: #57606a;
-    }
-    @media print {
-      body { background: #fff; padding: 0; }
-    }
+    .empty { text-align: center; color: #57606a; padding: 1.5rem; }
+    .summary { margin-top: 1rem; font-size: 0.875rem; color: #57606a; }
+    @media print { body { background: #fff; padding: 0; } }
   </style>
 </head>
 <body>
@@ -244,45 +194,30 @@ ${tableRows}
 </body>
 </html>
 `;
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Markdown formatter
-// ---------------------------------------------------------------------------
+export class SarifExporter implements Exporter {
+  export(results: FileScanResult[]): string {
+    return formatSarifJson(results);
+  }
+}
 
 /**
- * Formats scan results as a GitHub-flavored Markdown report.
+ * Factory function to get the appropriate exporter instance (#1095).
  */
-export function formatMarkdown(results: FileScanResult[]): string {
-  const violations: { path: string; line: number; text: string; reason: string }[] = [];
-
-  for (const file of results) {
-    for (const v of file.violations) {
-      violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
-    }
+export function getExporter(format: string): Exporter {
+  switch (format.toLowerCase()) {
+    case "csv":
+      return new CsvExporter();
+    case "markdown":
+    case "md":
+      return new MarkdownExporter();
+    case "html":
+      return new HtmlExporter();
+    case "sarif":
+      return new SarifExporter();
+    default:
+      throw new Error(`Unsupported export format: ${format}`);
   }
-
-  const lines: string[] = ["# 🛡️ SecureFlow Scan Report", ""];
-
-  if (violations.length === 0) {
-    lines.push("✅ **No violations detected.**");
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  lines.push(`Found **${violations.length}** violation${violations.length === 1 ? "" : "s"}.`);
-  lines.push("");
-  lines.push("| File | Line | Violation | Reason |");
-  lines.push("| --- | --- | --- | --- |");
-
-  for (const v of violations) {
-    const file = escapeMarkdownTable(v.path);
-    const line = v.line;
-    const text = toMarkdownCodeSpan(v.text);
-    const reason = escapeMarkdownTable(v.reason);
-    lines.push(`| ${file} | ${line} | ${text} | ${reason} |`);
-  }
-
-  lines.push("");
-  return lines.join("\n");
 }
