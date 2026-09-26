@@ -1,9 +1,12 @@
-import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
-// builds the Genkit instance at import time. Both packages are mocked so the
-// test only exercises how GROQ_MODEL is turned into model references.
-vi.mock("genkit", () => ({ genkit: vi.fn(() => ({})) }));
+vi.mock("genkit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("genkit")>();
+  return {
+    ...actual,
+    genkit: vi.fn(() => ({})),
+  };
+});
 vi.mock("genkitx-groq", () => ({
   groq: vi.fn(() => ({})),
   gptOssx20b: { name: "groq/openai/gpt-oss-20b" },
@@ -53,14 +56,15 @@ describe("security explanation fallback chain", () => {
   });
 
   it("only names models the genkitx-groq plugin defines", async () => {
-    // The CommonJS build: the package's ESM entry has an extensionless import
-    // that Vitest cannot resolve.
-    const real = createRequire(import.meta.url)("genkitx-groq") as Record<string, unknown>;
+    // Replace the createRequire line with vi.importActual:
+    const real = await vi.importActual<Record<string, unknown>>("genkitx-groq");
+
     const defined = new Set(
       Object.values(real)
         .map((value) => (value as { name?: unknown })?.name)
         .filter((name): name is string => typeof name === "string"),
     );
+
     const { securityExplanationFallbackModels } = await loadGenkit();
 
     for (const model of securityExplanationFallbackModels) {

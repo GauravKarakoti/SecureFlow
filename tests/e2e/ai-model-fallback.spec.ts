@@ -99,13 +99,14 @@ class FallbackTestHelper {
 // Test Suite Group: AI Model Fallback & Resilience (#1096)
 // ----------------------------------------------------------------------------
 test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#1096)", () => {
-
   test.beforeEach(async ({ page }) => {
     // Navigate to base URL before each test case
     await page.goto(DASHBOARD_URL);
   });
 
-  test("1. should gracefully degrade to local model plugin on upstream gateway timeout (504)", async ({ page }) => {
+  test("1. should gracefully degrade to local model plugin on upstream gateway timeout (504)", async ({
+    page,
+  }) => {
     const helper = new FallbackTestHelper(page);
 
     // Simulate primary API timeout
@@ -127,7 +128,11 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     });
 
     // Trigger AI Scan or Patch generation action from UI
-    const triggerBtn = page.locator("button:has-text('Generate AI Patch'), button:has-text('Run Scan'), [data-testid='ai-scan-btn']").first();
+    const triggerBtn = page
+      .locator(
+        "button:has-text('Generate AI Patch'), button:has-text('Run Scan'), [data-testid='ai-scan-btn']",
+      )
+      .first();
     if (await triggerBtn.isVisible()) {
       await triggerBtn.click();
     } else {
@@ -138,18 +143,24 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     }
 
     // Verify UI renders results container without dropping request
-    const resultsContainer = page.locator("[data-testid='scan-results'], .dashboard-results, pre, .ai-output-area").first();
+    const resultsContainer = page
+      .locator("[data-testid='scan-results'], .dashboard-results, pre, .ai-output-area")
+      .first();
     await expect(resultsContainer).toBeVisible({ timeout: TIMEOUT_THRESHOLD_MS });
 
     // Assert fallback banner or notification is visible on UI
-    const fallbackBanner = page.locator("text=/fallback|local model|resilience active|degraded/i").first();
+    const fallbackBanner = page
+      .locator("text=/fallback|local model|resilience active|degraded/i")
+      .first();
     await expect(fallbackBanner).toBeVisible();
 
     // Confirm resilience mechanism was invoked
     expect(localPluginHit).toBe(true);
   });
 
-  test("2. should handle upstream rate-limiting (429) and recover via resilience wrapper", async ({ page }) => {
+  test("2. should handle upstream rate-limiting (429) and recover via resilience wrapper", async ({
+    page,
+  }) => {
     const helper = new FallbackTestHelper(page);
 
     // Simulate 429 Too Many Requests
@@ -172,7 +183,9 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     }
 
     // Verify system displays rate-limit warning and automated recovery indicator
-    const recoveryIndicator = page.locator("text=/rate limit|retrying|resilience|recovered/i").first();
+    const recoveryIndicator = page
+      .locator("text=/rate limit|retrying|resilience|recovered/i")
+      .first();
     await expect(recoveryIndicator).toBeVisible({ timeout: 10000 });
   });
 
@@ -183,13 +196,17 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     await helper.interceptMalformedResponse("**/api/ai/stream");
 
     // Click trigger button
-    const actionBtn = page.locator("button:has-text('AI Patch'), [data-testid='patch-btn']").first();
+    const actionBtn = page
+      .locator("button:has-text('AI Patch'), [data-testid='patch-btn']")
+      .first();
     if (await actionBtn.isVisible()) {
       await actionBtn.click();
     }
 
     // Verify application does not crash and displays graceful error recovery message
-    const errorNotice = page.locator("text=/fallback|error parsing|degraded mode|recovering/i").first();
+    const errorNotice = page
+      .locator("text=/fallback|error parsing|degraded mode|recovering/i")
+      .first();
     await expect(errorNotice).toBeVisible({ timeout: 8000 });
   });
 
@@ -199,7 +216,11 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     // Listen to console logs or custom telemetry events emitted by resilience engine
     page.on("console", (msg) => {
       const text = msg.text();
-      if (text.includes("RESILIENCE_FALLBACK") || text.includes("fallback") || text.includes("local-model")) {
+      if (
+        text.includes("RESILIENCE_FALLBACK") ||
+        text.includes("fallback") ||
+        text.includes("local-model")
+      ) {
         telemetryLogs.push({
           timestamp: Date.now(),
           event: text,
@@ -212,7 +233,7 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
 
     // Force upstream error
     await page.route("**/api/ai/**", (route) =>
-      route.fulfill({ status: 502, body: JSON.stringify({ error: "Bad Gateway" }) })
+      route.fulfill({ status: 502, body: JSON.stringify({ error: "Bad Gateway" }) }),
     );
 
     // Trigger page interaction
@@ -242,7 +263,9 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     // Trigger multiple parallel requests programmatically
     await page.evaluate(async () => {
       const requests = Array.from({ length: 5 }, (_, i) =>
-        fetch(`/api/ai/batch/${i}`, { method: "POST", body: JSON.stringify({ scanId: i }) }).catch(() => {})
+        fetch(`/api/ai/batch/${i}`, { method: "POST", body: JSON.stringify({ scanId: i }) }).catch(
+          () => {},
+        ),
       );
       await Promise.all(requests);
     });
@@ -251,7 +274,9 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     expect(concurrentFallbackCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("6. should display visual badge or status indicator for active local model plugin", async ({ page }) => {
+  test("6. should display visual badge or status indicator for active local model plugin", async ({
+    page,
+  }) => {
     // Mock health check or status endpoint returning degraded/fallback state
     await page.route("**/api/ai/status", async (route) => {
       await route.fulfill({
@@ -269,13 +294,19 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     await page.reload();
 
     // Look for status badge in DOM
-    const statusBadge = page.locator("[data-testid='ai-status-badge'], .badge-fallback, text=/local model|fallback active/i").first();
+    const statusBadge = page
+      .locator(
+        "[data-testid='ai-status-badge'], .badge-fallback, text=/local model|fallback active/i",
+      )
+      .first();
     // Ensure test gracefully passes if badge element selector is customized in UI
     const isBadgePresent = (await statusBadge.count()) > 0;
     expect(typeof isBadgePresent).toBe("boolean");
   });
 
-  test("7. should ensure fallback request preserves user payload and metadata", async ({ page }) => {
+  test("7. should ensure fallback request preserves user payload and metadata", async ({
+    page,
+  }) => {
     let capturedPayload: any = null;
 
     await page.route("**/api/ai/local-fallback/**", async (route) => {
@@ -304,5 +335,4 @@ test.describe("SecureFlow E2E - AI Model Fallback & Resilience Verification (#10
     // If request was routed through fallback, capturedPayload should match or be processed correctly
     expect(true).toBe(true);
   });
-
 });

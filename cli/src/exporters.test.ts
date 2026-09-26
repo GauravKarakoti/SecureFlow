@@ -3,10 +3,11 @@ import {
   escapeCsv,
   escapeHtml,
   escapeMarkdownTable,
-  formatCsv,
-  formatHtml,
-  formatMarkdown,
   toMarkdownCodeSpan,
+  CsvExporter,
+  HtmlExporter,
+  MarkdownExporter,
+  getExporter,
 } from "./exporters.js";
 import {
   blockingAiFindings,
@@ -132,12 +133,12 @@ describe("escapeHtml", () => {
 });
 
 // ---------------------------------------------------------------------------
-// formatCsv
+// CsvExporter
 // ---------------------------------------------------------------------------
 
-describe("formatCsv", () => {
+describe("CsvExporter", () => {
   it("should neutralise formula payloads in file paths and violation text", () => {
-    const csv = formatCsv([
+    const csv = new CsvExporter().export([
       {
         path: "=cmd|' /C calc'!A0.ts",
         violations: [{ line: 1, text: "@SUM(1+1)*cmd", reason: "environment variable" }],
@@ -148,20 +149,20 @@ describe("formatCsv", () => {
   });
 
   it("should output correct CSV headers", () => {
-    const csv = formatCsv(sampleResults);
+    const csv = new CsvExporter().export(sampleResults);
     const firstLine = csv.split("\n")[0];
     expect(firstLine).toBe("File,Line,Violation,Reason");
   });
 
   it("should output correct rows for multiple violations", () => {
-    const csv = formatCsv(sampleResults);
+    const csv = new CsvExporter().export(sampleResults);
     const lines = csv.trimEnd().split("\n");
     // 1 header + 3 violations (clean file has 0)
     expect(lines).toHaveLength(4);
   });
 
   it("should include file path, line number, and reason in each row", () => {
-    const csv = formatCsv(sampleResults);
+    const csv = new CsvExporter().export(sampleResults);
     expect(csv).toContain("src/config/db.ts");
     expect(csv).toContain(",15,");
     expect(csv).toContain("environment variable");
@@ -170,7 +171,7 @@ describe("formatCsv", () => {
   });
 
   it("should produce headers only for empty results", () => {
-    const csv = formatCsv(emptyResults);
+    const csv = new CsvExporter().export(emptyResults);
     const lines = csv.trimEnd().split("\n");
     expect(lines).toHaveLength(1);
     expect(lines[0]).toBe("File,Line,Violation,Reason");
@@ -183,7 +184,7 @@ describe("formatCsv", () => {
         violations: [{ line: 1, text: "console.log(a, b);", reason: "secret-named identifier" }],
       },
     ];
-    const csv = formatCsv(results);
+    const csv = new CsvExporter().export(results);
     // The violation text contains a comma, so it must be quoted
     expect(csv).toContain('"console.log(a, b);"');
   });
@@ -197,7 +198,7 @@ describe("formatCsv", () => {
         ],
       },
     ];
-    const csv = formatCsv(results);
+    const csv = new CsvExporter().export(results);
     // Internal quotes must be doubled and value wrapped
     expect(csv).toContain('"console.log(""secret"");"');
   });
@@ -209,18 +210,18 @@ describe("formatCsv", () => {
         violations: [{ line: 3, text: "line1\nline2", reason: "environment variable" }],
       },
     ];
-    const csv = formatCsv(results);
+    const csv = new CsvExporter().export(results);
     expect(csv).toContain('"line1\nline2"');
   });
 });
 
 // ---------------------------------------------------------------------------
-// formatHtml
+// HtmlExporter
 // ---------------------------------------------------------------------------
 
-describe("formatHtml", () => {
+describe("HtmlExporter", () => {
   it("should output a valid HTML document structure", () => {
-    const html = formatHtml(sampleResults);
+    const html = new HtmlExporter().export(sampleResults);
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("<html");
     expect(html).toContain("<head>");
@@ -229,12 +230,12 @@ describe("formatHtml", () => {
   });
 
   it("should contain the report title", () => {
-    const html = formatHtml(sampleResults);
+    const html = new HtmlExporter().export(sampleResults);
     expect(html).toContain("<title>SecureFlow Scan Report</title>");
   });
 
   it("should contain file paths, line numbers, and reasons", () => {
-    const html = formatHtml(sampleResults);
+    const html = new HtmlExporter().export(sampleResults);
     expect(html).toContain("src/config/db.ts");
     expect(html).toContain("15");
     expect(html).toContain("environment variable");
@@ -244,12 +245,12 @@ describe("formatHtml", () => {
   });
 
   it("should contain violation count in summary", () => {
-    const html = formatHtml(sampleResults);
+    const html = new HtmlExporter().export(sampleResults);
     expect(html).toContain("3 violations found.");
   });
 
   it("should show 'No violations detected' for empty results", () => {
-    const html = formatHtml(emptyResults);
+    const html = new HtmlExporter().export(emptyResults);
     expect(html).toContain("No violations detected.");
     expect(html).toContain("0 violations found.");
   });
@@ -267,7 +268,7 @@ describe("formatHtml", () => {
         ],
       },
     ];
-    const html = formatHtml(xssResults);
+    const html = new HtmlExporter().export(xssResults);
     expect(html).not.toContain("<script>alert");
     expect(html).toContain("&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;");
   });
@@ -279,13 +280,13 @@ describe("formatHtml", () => {
         violations: [{ line: 1, text: "console.log(secret)", reason: "secret-named identifier" }],
       },
     ];
-    const html = formatHtml(results);
+    const html = new HtmlExporter().export(results);
     expect(html).toContain("src/&lt;inject&gt;/config.ts");
     expect(html).not.toContain("src/<inject>/config.ts");
   });
 
   it("should render multiple violations correctly", () => {
-    const html = formatHtml(sampleResults);
+    const html = new HtmlExporter().export(sampleResults);
     // Count the number of <tr> elements in tbody (excluding the header row)
     const dataRowMatches = html.match(/<tr>\s*\n\s*<td>/g);
     expect(dataRowMatches).toHaveLength(3);
@@ -316,19 +317,19 @@ describe("escapeMarkdownTable", () => {
 });
 
 // ---------------------------------------------------------------------------
-// formatMarkdown
+// MarkdownExporter
 // ---------------------------------------------------------------------------
 
-describe("formatMarkdown", () => {
+describe("MarkdownExporter", () => {
   it("should render report title and table headers", () => {
-    const md = formatMarkdown(sampleResults);
+    const md = new MarkdownExporter().export(sampleResults);
     expect(md).toContain("# 🛡️ SecureFlow Scan Report");
     expect(md).toContain("| File | Line | Violation | Reason |");
     expect(md).toContain("| --- | --- | --- | --- |");
   });
 
   it("should contain violation details in markdown table format", () => {
-    const md = formatMarkdown(sampleResults);
+    const md = new MarkdownExporter().export(sampleResults);
     expect(md).toContain(
       '| src/config/db.ts | 15 | `console.log("DB Password:", process.env.DB_PASSWORD);` | environment variable |',
     );
@@ -338,12 +339,12 @@ describe("formatMarkdown", () => {
   });
 
   it("should render total violation count summary", () => {
-    const md = formatMarkdown(sampleResults);
+    const md = new MarkdownExporter().export(sampleResults);
     expect(md).toContain("Found **3** violations.");
   });
 
   it("should render clean state when no violations are found", () => {
-    const md = formatMarkdown(emptyResults);
+    const md = new MarkdownExporter().export(emptyResults);
     expect(md).toContain("✅ **No violations detected.**");
     expect(md).not.toContain("| File | Line | Violation | Reason |");
   });
@@ -361,7 +362,7 @@ describe("formatMarkdown", () => {
         ],
       },
     ];
-    const md = formatMarkdown(pipeResults);
+    const md = new MarkdownExporter().export(pipeResults);
     expect(md).toContain('`console.log("a\\|b");`');
   });
 });
@@ -404,7 +405,7 @@ describe("toMarkdownCodeSpan", () => {
   });
 });
 
-describe("formatMarkdown code spans", () => {
+describe("MarkdownExporter code spans", () => {
   it("emits a row whose code span is closed by its own fence", () => {
     const results = [
       {
@@ -419,12 +420,36 @@ describe("formatMarkdown code spans", () => {
       },
     ] as never;
 
-    const row = formatMarkdown(results)
+    const row = new MarkdownExporter()
+      .export(results)
       .split("\n")
       .find((l) => l.includes("src/auth.ts"));
 
     expect(row).toBeDefined();
     expect(row).toContain("``console.log(`key: ${k}`)``");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getExporter Factory
+// ---------------------------------------------------------------------------
+
+describe("getExporter", () => {
+  it("should return CsvExporter for 'csv'", () => {
+    expect(getExporter("csv")).toBeInstanceOf(CsvExporter);
+  });
+
+  it("should return MarkdownExporter for 'markdown' or 'md'", () => {
+    expect(getExporter("markdown")).toBeInstanceOf(MarkdownExporter);
+    expect(getExporter("md")).toBeInstanceOf(MarkdownExporter);
+  });
+
+  it("should return HtmlExporter for 'html'", () => {
+    expect(getExporter("html")).toBeInstanceOf(HtmlExporter);
+  });
+
+  it("should throw an error for unsupported formats", () => {
+    expect(() => getExporter("pdf")).toThrow("Unsupported export format: pdf");
   });
 });
 
