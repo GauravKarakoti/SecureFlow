@@ -51,7 +51,7 @@
 
 ---
 
-SecureFlow integrates directly with GitHub via a GitHub App and webhooks. Every time a Pull Request is opened or updated, **The Professor** — SecureFlow's AI mastermind — extracts the code diff, runs it through Groq's LLM (Llama 3.1), and returns actionable security findings with AI-written explanations and remediation steps, all visible on a centralized Mission Control dashboard.
+SecureFlow integrates directly with GitHub via a GitHub App and webhooks. Every time a Pull Request is opened or updated, **The Professor** — SecureFlow's AI mastermind — extracts the code diff, runs it through Groq's LLM (GPT-OSS-20B), and returns actionable security findings with AI-written explanations and remediation steps, all visible on a centralized Mission Control dashboard.
 
 Think of every Pull Request as a member of the crew trying to get into **The Vault** (your codebase). The Professor checks their credentials at the door — no leaked keys, no sloppy code, no breaches on his watch.
 
@@ -59,7 +59,7 @@ Think of every Pull Request as a member of the crew trying to get into **The Vau
 
 ### 🤖 AI-Powered Detection
 
-Uses Groq's Llama 3.1 to detect hardcoded secrets, vulnerabilities, and misconfigurations in your code.
+Uses Groq's GPT-OSS-20B to detect hardcoded secrets, vulnerabilities, and misconfigurations in your code.
 
 ### ⚡ Real-time Scanning
 
@@ -431,7 +431,7 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 
 - **Frontend**: Next.js App Router with Tailwind CSS for the Mission Control dashboard
 - **Backend**: API routes handle authentication, webhooks, and business logic
-- **AI Layer**: Groq SDK processes code diffs through Llama 3.1 model — The Professor's brain
+- AI Layer: Groq SDK processes code diffs through GPT-OSS-20B model — The Professor's brain
 - **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
 - **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
 
