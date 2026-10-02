@@ -6,6 +6,7 @@ import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { checkRateLimit } from "@/lib/redis";
 import { ratelimit } from "@/lib/rate-limit";
 import { streamManager } from "@/lib/sse/streamManager";
+import { scrubSensitiveData } from "@/lib/redaction";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,9 @@ export const dynamic = "force-dynamic";
  * (`{"type":"chunk",...}`, `{"type":"done",...}`, or `{"type":"error",...}`), so the client can
  * render the explanation as it arrives instead of waiting for the full response - this is the
  * whole point of the endpoint (cut perceived latency for the AI explanation UI).
+ *
+ * Response caching (Redis) lives inside streamDeveloperSecurityExplanations, so a cache hit is
+ * replayed through the same chunk/done events and this handler needs no cache logic of its own.
  *
  * Ownership is checked the same way the findings dashboard page checks it: the finding must
  * belong to a scan result, on a pull request, on a repository owned by the signed-in user.
@@ -65,31 +69,37 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
 
-  // FIX: First, check if the finding exists at all to prevent BOLA/IDOR masking
-  const existingFinding = await prisma.finding.findUnique({
+  // One query answers both questions: does the finding exist (404 if not), and does it
+  // belong to the signed-in user (403 if not). Only fields that exist on `Finding` may be
+  // selected — Prisma rejects an unknown field at runtime, not at compile time.
+  const finding = await prisma.finding.findUnique({
     where: { id },
-  });
-
-  if (!existingFinding) {
-    return NextResponse.json({ error: "Finding not found" }, { status: 404 });
-  }
-
-  // Next, verify that the authenticated user actually owns this finding
-  const finding = await prisma.finding.findFirst({
-    where: {
-      id,
-      scanResult: { pullRequest: { repository: { userId } } },
+    select: {
+      id: true,
+      type: true,
+      severity: true,
+      fileLocation: true,
+      codeSnippet: true,
+      scanResult: {
+        select: { pullRequest: { select: { repository: { select: { userId: true } } } } },
+      },
     },
   });
 
   if (!finding) {
+    return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+  }
+
+  if (finding.scanResult.pullRequest.repository.userId !== userId) {
     return NextResponse.json(
       { error: "Forbidden: You do not have access to this finding" },
       { status: 403 },
     );
   }
 
+  // Used to encode the SSE frames of the live stream.
   const encoder = new TextEncoder();
+
   const { signal: abortSignal, release } = streamManager.register(request.signal, "explain-stream");
 
   let closed = false;
@@ -172,7 +182,8 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
         if (!abortSignal.aborted) {
           send({
             type: "error",
-            message: err instanceof Error ? err.message : "AI generation failed.",
+            message:
+              err instanceof Error ? scrubSensitiveData(err.message) : "AI generation failed.",
           });
         }
       } finally {

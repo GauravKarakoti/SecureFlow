@@ -139,6 +139,9 @@ describe("Next.js RBAC Middleware Guarding", () => {
   describe("Mock Auth Environment (NEXT_PUBLIC_MOCK_AUTH=true)", () => {
     beforeEach(() => {
       process.env.NEXT_PUBLIC_MOCK_AUTH = "true";
+      // The seam requires a second, server-only opt-in so that leaking the
+      // public flag alone cannot enable it. See src/lib/mock-auth.ts.
+      process.env.ALLOW_MOCK_AUTH = "true";
     });
 
     it('allows access to /admin/* when mock-session cookie is "admin"', async () => {
@@ -203,6 +206,43 @@ describe("Next.js RBAC Middleware Guarding", () => {
       expect(res).toBeDefined();
       expect(res?.status).toBe(307);
       expect(res?.headers.get("location")).toBe("http://localhost/dashboard");
+    });
+  });
+
+  describe("Mock Auth backdoor is closed without the server-only opt-in", () => {
+    beforeEach(() => {
+      // Simulate the dangerous misconfiguration: the public flag has leaked
+      // into the environment, but the server-only ALLOW_MOCK_AUTH is not set.
+      process.env.NEXT_PUBLIC_MOCK_AUTH = "true";
+      delete process.env.ALLOW_MOCK_AUTH;
+    });
+
+    it("does NOT grant /admin access from a mock-session=admin cookie", async () => {
+      const req = new NextRequest("http://localhost/admin/queue", {
+        headers: { cookie: "mock-session=admin" },
+      }) as MockAuthRequest;
+      // No real session — the mock cookie is the only thing the caller supplied.
+      req.auth = null;
+
+      const res = await middleware(req);
+
+      // Falls through to the real RBAC guard, which redirects the
+      // unauthenticated caller to /login instead of honouring the cookie.
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(307);
+      expect(res?.headers.get("location")).toBe("http://localhost/login");
+    });
+
+    it("does NOT grant /api/admin access from a mock-session=admin cookie", async () => {
+      const req = new NextRequest("http://localhost/api/admin/export", {
+        headers: { cookie: "mock-session=admin" },
+      }) as MockAuthRequest;
+      req.auth = null;
+
+      const res = await middleware(req);
+
+      expect(res).toBeDefined();
+      expect(res?.status).toBe(401);
     });
   });
 

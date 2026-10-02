@@ -28,10 +28,10 @@
 /** Set to a falsey word to run a webhook-only worker process. */
 export const SCAN_WORKER_ENABLED_VAR = "SCAN_WORKER_ENABLED";
 
-/** Concurrency for the scan worker, read by `workerPool`. */
+/** Concurrency for the scan worker, validated here and passed to `scanWorkerPool.start()`. */
 export const SCAN_WORKER_CONCURRENCY_VAR = "SCAN_WORKER_CONCURRENCY";
 
-/** What `workerPool` falls back to when the variable is unset. */
+/** What the scan worker uses when the variable is unset or empty. */
 export const DEFAULT_SCAN_WORKER_CONCURRENCY = 3;
 
 /**
@@ -77,14 +77,10 @@ export class ScanWorkerConfigError extends Error {
 /**
  * The configured concurrency, validated.
  *
- * `workerPool` builds its singleton with
- * `parseInt(process.env.SCAN_WORKER_CONCURRENCY ?? '3', 10)`, and `parseInt`
- * answers `NaN` for `''` or `'three'`. A `NaN` concurrency is not a loud
- * failure — BullMQ takes it and the worker processes nothing — so a typo in a
- * deployment variable would reproduce exactly the symptom this issue is about,
- * with no error anywhere to explain it.
- *
- * Validated here and thrown at startup, where it is attributable.
+ * `parseInt` answers `NaN` for `''` or `'three'`, and a `NaN` concurrency never
+ * reaches a working worker. Validated here and thrown at startup, where it is
+ * attributable; `scripts/start-worker.ts` passes the result to
+ * `scanWorkerPool.start()`, so this is the only place the variable is read.
  */
 export function resolveScanWorkerConcurrency(
   env: Record<string, string | undefined> = process.env,

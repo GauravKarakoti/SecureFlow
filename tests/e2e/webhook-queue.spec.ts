@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createHmac } from "crypto";
 
-const SECRET = "e2e-webhook-secret";
+const SECRET = process.env.GITHUB_WEBHOOK_SECRET || "e2e-webhook-secret";
 
 function sign(body: string, secret: string) {
   return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
@@ -115,6 +115,6 @@ test.describe("Webhook Queue Worker E2E Lifecycle", () => {
     expect(prResponse.status()).toBe(200);
     const csvContent = await prResponse.text();
     expect(csvContent).toContain("id,userId,action,resource,decision,metadata,timestamp");
-    expect(csvContent).toContain("mock-admin-id");
+    expect(csvContent).toContain("UPDATE_ROLE");
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   API_RATE_LIMIT_TIERS,
+  API_USER_RATE_LIMIT_TIERS,
   AUTH_PREFIX,
   EXEMPT_PREFIXES,
   classifyApiPath,
@@ -77,6 +78,10 @@ describe("classifyApiPath", () => {
     expect(classifyApiPath("/api/heist-transmission")).toBe("stream");
     expect(classifyApiPath("/api/og/heist")).toBe("stream");
     expect(classifyApiPath("/api/findings/abc123/explain-stream")).toBe("stream");
+    expect(classifyApiPath("/api/findings/abc123/remediate")).toBe("stream");
+    expect(classifyApiPath("/api/findings/bulk-remediate")).toBe("stream");
+    expect(classifyApiPath("/api/cli/scan")).toBe("stream");
+    expect(classifyApiPath("/api/sbom/scan")).toBe("stream");
   });
 
   it("falls back to standard for everything else under /api", () => {
@@ -94,7 +99,7 @@ describe("classifyApiPath", () => {
   });
 });
 
-describe("API_RATE_LIMIT_TIERS", () => {
+describe("API_RATE_LIMIT_TIERS and API_USER_RATE_LIMIT_TIERS", () => {
   it("gives every class its own key prefix", () => {
     // Sharing a prefix would put the classes back in one bucket, which is the
     // bug the classes exist to fix.
@@ -111,6 +116,11 @@ describe("API_RATE_LIMIT_TIERS", () => {
     // behind the same egress address.
     expect(API_RATE_LIMIT_TIERS.auth.limit).toBeGreaterThan(API_RATE_LIMIT_TIERS.standard.limit);
   });
+
+  it("provides stricter per-user rate limit tiers", () => {
+    expect(API_USER_RATE_LIMIT_TIERS.stream.limit).toBe(10);
+    expect(API_USER_RATE_LIMIT_TIERS.stream.limit).toBeLessThan(API_RATE_LIMIT_TIERS.stream.limit);
+  });
 });
 
 describe("tierForPath", () => {
@@ -123,6 +133,7 @@ describe("tierForPath", () => {
     expect(tierForPath("/api/auth/session")).toBe(API_RATE_LIMIT_TIERS.auth);
     expect(tierForPath("/api/leaderboard")).toBe(API_RATE_LIMIT_TIERS.standard);
     expect(tierForPath("/api/heist-transmission")).toBe(API_RATE_LIMIT_TIERS.stream);
+    expect(tierForPath("/api/cli/scan")).toBe(API_RATE_LIMIT_TIERS.stream);
   });
 });
 

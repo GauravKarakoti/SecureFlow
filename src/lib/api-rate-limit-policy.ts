@@ -67,6 +67,20 @@ export const API_RATE_LIMIT_TIERS: Readonly<Record<LimitedApiRateLimitClass, Api
 };
 
 /**
+ * Strict per-user budgets for authenticated API callers.
+ *
+ * Inner guard applied alongside IP-based limiting on all `/api/*` routes to
+ * prevent distributed cost-exhaustion and LLM denial-of-wallet attacks.
+ */
+export const API_USER_RATE_LIMIT_TIERS: Readonly<
+  Record<LimitedApiRateLimitClass, ApiRateLimitTier>
+> = {
+  auth: { limit: 30, windowSeconds: 60, keyPrefix: "api:user:auth" },
+  stream: { limit: 10, windowSeconds: 60, keyPrefix: "api:user:stream" },
+  standard: { limit: 20, windowSeconds: 60, keyPrefix: "api:user:standard" },
+};
+
+/**
  * Paths with their own authentication or their own limiter.
  *
  * Matched as a prefix on a normalised pathname.
@@ -84,16 +98,21 @@ export const EXEMPT_PREFIXES: readonly string[] = [
 export const AUTH_PREFIX = "/api/auth";
 
 /**
- * Routes that hold a connection open and cost a model completion.
+ * Routes that hold a connection open, cost model completions, or perform heavy scanning.
  *
- * These already carry a route-level `withRateLimit` from `TIERS.AI_STREAM`. The
- * class exists so the middleware's decision matches rather than silently
- * overriding it with whichever number happens to be stricter.
+ * These carry a strict budget (`TIERS.AI_STREAM` / `stream` class) fail-closed to protect
+ * against LLM denial-of-wallet attacks and scanning exhaustion.
  */
-export const STREAM_PREFIXES: readonly string[] = ["/api/heist-transmission", "/api/og/heist"];
+export const STREAM_PREFIXES: readonly string[] = [
+  "/api/heist-transmission",
+  "/api/og/heist",
+  "/api/cli/scan",
+  "/api/sbom/scan",
+  "/api/findings/bulk-remediate",
+];
 
-/** Suffix of an AI streaming route under `/api/findings/[id]/`. */
-const FINDINGS_STREAM_SUFFIX = "/explain-stream";
+/** Suffixes of AI-heavy routes under `/api/findings/[id]/`. */
+export const FINDINGS_STREAM_SUFFIXES: readonly string[] = ["/explain-stream", "/remediate"];
 
 /**
  * Normalise a pathname before matching.
@@ -139,7 +158,7 @@ export function classifyApiPath(pathname: string): ApiRateLimitClass {
 
   if (
     STREAM_PREFIXES.some((prefix) => matchesPrefix(normalized, prefix)) ||
-    normalized.endsWith(FINDINGS_STREAM_SUFFIX)
+    FINDINGS_STREAM_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
   ) {
     return "stream";
   }
