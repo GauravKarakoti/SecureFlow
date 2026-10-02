@@ -1,25 +1,41 @@
-﻿name: Nightly AI Fuzzing & Red-Teaming
+name: Nightly Prompt Injection Fuzzing
 
 on:
   schedule:
-    - cron: '0 2 * * *'
-  workflow_dispatch:
+    # Run every night at 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
-  fuzzing:
+  redteam-fuzzing:
+    name: Red-Team Fuzzing Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
 
-      - name: Install Dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
 
-      - name: Run Red-Team Fuzzing Tests
-        run: npx vitest run src/ai/flows/heist-prompt-guard.redteam.test.ts --run
+      - name: Run prompt injection fuzzing suite
+        run: npx vitest run src/ai/flows/heist-prompt-guard.test.ts
+        env:
+          NODE_ENV: test
+          GROQ_API_KEY: dummy-key-for-build
+          VITEST: "true"
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzzing-results
+          path: test-results/
+          retention-days: 7
