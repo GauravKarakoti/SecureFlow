@@ -2,14 +2,51 @@
  * AI Execution Resilience Engine (#729)
  *
  * Implements exponential backoff, jitter, rate-limit (429)/timeout recovery,
- * and secondary/tertiary model fallback routing for Genkit & Groq AI security workflows.
+ * globally applied circuit-breaker state, and secondary/tertiary model fallback routing
+ * for Genkit & Groq AI security workflows.
  */
+
+import {
+  CircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+  type CircuitBreakerOptions,
+} from "@/lib/utils/circuit-breaker";
+
+export { CircuitBreaker, CircuitBreakerError, CircuitState, type CircuitBreakerOptions };
 
 /**
  * Default per-attempt timeout. Long enough for a cloud completion, short
  * enough that a wedged local model does not pin a worker indefinitely.
  */
 export const DEFAULT_ATTEMPT_TIMEOUT_MS = 15_000;
+
+/**
+ * Global registry of circuit breakers per AI model.
+ */
+const modelCircuitBreakers = new Map<string, CircuitBreaker>();
+
+export function getModelCircuitBreaker(
+  modelName: string,
+  options?: CircuitBreakerOptions,
+): CircuitBreaker {
+  const key = String(modelName).trim();
+  let breaker = modelCircuitBreakers.get(key);
+  if (!breaker) {
+    breaker = new CircuitBreaker(
+      options ?? {
+        failureThreshold: 3,
+        resetTimeoutMs: 30_000,
+      },
+    );
+    modelCircuitBreakers.set(key, breaker);
+  }
+  return breaker;
+}
+
+export function resetModelCircuitBreakers(): void {
+  modelCircuitBreakers.clear();
+}
 
 /**
  * Wraps an async operation with a timeout to prevent hanging on stalled local models (#988).
@@ -56,6 +93,7 @@ export interface ModelFallbackConfig<TModel = string> {
   primaryModel: TModel;
   fallbackModels: TModel[];
   retryConfig?: RetryConfig;
+  circuitBreakerOptions?: CircuitBreakerOptions;
   onModelSwitch?: (fromModel: TModel, toModel: TModel, error: unknown, attempt: number) => void;
 }
 
@@ -134,7 +172,8 @@ export function delay(ms: number): Promise<void> {
 }
 
 /**
- * Executes an AI operation across a chain of fallback models with exponential backoff and retries.
+ * Executes an AI operation across a chain of fallback models with exponential backoff,
+ * retries, and per-model circuit breaker shielding.
  */
 export async function executeWithFallbackAndRetry<T, TModel extends string = string>(
   operation: (model: TModel, attempt: number) => Promise<T>,
@@ -154,13 +193,35 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
 
   for (let mIdx = 0; mIdx < models.length; mIdx++) {
     const currentModel = models[mIdx];
+    const breaker = getModelCircuitBreaker(String(currentModel), config.circuitBreakerOptions);
+
+    // If the model's circuit breaker is currently OPEN and fallback models are available,
+    // fast-fail immediately to the next model without burning time on doomed retries.
+    if (breaker.getState() === CircuitState.OPEN && mIdx < models.length - 1) {
+      fallbackSwitches++;
+      const nextModel = models[mIdx + 1];
+      const openError = new CircuitBreakerError(
+        `Circuit breaker is OPEN for model ${String(currentModel)}`,
+      );
+      lastError = openError;
+      console.warn(
+        `[AI_RESILIENCE] Circuit breaker is OPEN for model ${String(currentModel)}. Fast-failing to fallback model: ${String(nextModel)}`,
+      );
+      if (config.onModelSwitch) {
+        config.onModelSwitch(currentModel, nextModel, openError, 0);
+      }
+      continue;
+    }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       totalAttempts++;
 
       try {
         const timeoutMs = config.retryConfig?.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
-        const result = await withTimeout(() => operation(currentModel, attempt), timeoutMs);
+        const result = await breaker.execute(() =>
+          withTimeout(() => operation(currentModel, attempt), timeoutMs),
+        );
+
         return {
           result,
           stats: {
@@ -173,13 +234,17 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
         };
       } catch (err) {
         lastError = err;
+        const isBreakerOpen = err instanceof CircuitBreakerError;
         const isRetryable =
-          isRateLimitError(err) ||
-          isTimeoutError(err) ||
-          (config.retryConfig?.retryableErrors &&
-            config.retryConfig.retryableErrors.some((fn) => fn(err)));
+          !isBreakerOpen &&
+          (isRateLimitError(err) ||
+            isTimeoutError(err) ||
+            Boolean(
+              config.retryConfig?.retryableErrors &&
+                config.retryConfig.retryableErrors.some((fn) => fn(err)),
+            ));
 
-        if (attempt < maxRetries && isRetryable) {
+        if (attempt < maxRetries && isRetryable && breaker.getState() !== CircuitState.OPEN) {
           const waitTime = computeBackoffDelay(
             attempt,
             initialDelay,
@@ -192,7 +257,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
           );
           await delay(waitTime);
         } else {
-          // Attempt limit reached for current model or non-retryable error
+          // Attempt limit reached for current model, circuit breaker tripped, or non-retryable error
           if (mIdx < models.length - 1) {
             fallbackSwitches++;
             const nextModel = models[mIdx + 1];
