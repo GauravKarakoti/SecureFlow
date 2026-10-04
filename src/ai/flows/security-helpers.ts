@@ -119,6 +119,19 @@ const INJECTION_PATTERNS: RegExp[] = [
   /safety subroutines? (are |is )?(inactive|disabled|off)/i,
   /operating in (safe|debug|unrestricted) mode/i,
   /unhinged (hacker|assistant|mode)/i,
+  /(?:system|critical)\s+(?:override|update|reset)\b.{0,160}\b(?:reveal|ignore|approve|return|disable|bypass|output)\b/i,
+  /\b(?:reveal|output|print|list|repeat)\b.{0,100}\b(?:internal prompt structure|developer prompts?|boot sequence|initialized rules|security policies|token limits)\b/i,
+  /\bdecode\b.{0,100}\b(?:base64|hex(?:adecimal)?|encoded).{0,80}\b(?:instructions?|prompt|developer)\b/i,
+  /\b(?:output|encode|print).{0,80}\b(?:instructions?|system prompt).{0,80}\b(?:hex|hexadecimal|0x)\b/i,
+  /\b(?:switch persona|hypothetical universe|actor in a movie script|lead security auditor|superuser clearance|trained to test other AIs)\b.{0,160}\b(?:disable|bypass|approve|ignore|safety|security filters?|restrictions?|vulnerability scans?|code reviews?)\b/i,
+  /\bignore all prior constraints\b/i,
+  /\bignore all previous security\b/i,
+  /\b(?:ignore that|forget that)\b.{0,80}\b(?:approve|bypass|disable)\b/i,
+  /\bignore all previous security warnings?\b/i,
+  /\bignore all rules\b.{0,100}\b(?:passwords?|secrets?|credentials?)\b/i,
+  /\bsystemanweisung ignorieren\b|\bdieses update sofort genehmigen\b/i,
+  /\bswitch persona\b.{0,80}\b(?:disable|bypass|approve)\b/i,
+  /\b(?:hypothetical universe|movie script|superuser clearance)\b.{0,140}\b(?:approve|bypass|disable)\b/i,
 ];
 
 function detectPromptInjection(text: string): boolean {
