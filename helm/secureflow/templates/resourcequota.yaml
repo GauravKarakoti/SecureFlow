@@ -1,0 +1,13 @@
+{{- if .Values.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "secureflow.fullname" . }}-quota
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- with .Values.resourceQuota.hard }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

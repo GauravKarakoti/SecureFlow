@@ -1,15 +1,23 @@
 import Redis from "ioredis";
+import { CircuitBreaker } from "./utils/circuit-breaker";
 
+// Not the same key as the queue client in `src/lib/queue/redis.ts`, which is
+// configured for BullMQ (see the note there).
 const globalForRedis = globalThis as unknown as {
-  redis: Redis | undefined;
+  rateLimitRedis: Redis | undefined;
 };
+
+export const redisCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 5,
+  resetTimeoutMs: 10000, // 10 seconds
+});
 
 // Use an in-memory fallback if REDIS_URL is not provided (useful for local dev without Docker)
 let redisInstance: Redis | null = null;
 
 if (process.env.REDIS_URL && process.env.REDIS_URL.trim() !== "") {
   redisInstance =
-    globalForRedis.redis ??
+    globalForRedis.rateLimitRedis ??
     new Redis(process.env.REDIS_URL, {
       retryStrategy(times) {
         const delay = Math.min(times * 50, 2000);
@@ -18,7 +26,7 @@ if (process.env.REDIS_URL && process.env.REDIS_URL.trim() !== "") {
       maxRetriesPerRequest: 3,
     });
 
-  if (process.env.NODE_ENV !== "production") globalForRedis.redis = redisInstance;
+  if (process.env.NODE_ENV !== "production") globalForRedis.rateLimitRedis = redisInstance;
 } else {
   console.warn(
     "⚠️ REDIS_URL is not set. Rate limiting will fall back to an in-memory Map (not suitable for production multi-instance).",
@@ -194,23 +202,31 @@ export async function checkRateLimitDetailed(
   }
 
   try {
-    const incrementTask = (async (): Promise<RateLimitResult> => {
-      const current = await redis.incr(key);
+    const incrementTask = async (): Promise<RateLimitResult> => {
+      const pipeline = redis.pipeline();
+      pipeline.incr(key);
+      pipeline.expire(key, windowSeconds, "NX"); // Only set expiry if key has no TTL
+      const results = await pipeline.exec();
 
-      // A fresh counter always gets a TTL. Without this the key would live
-      // forever in Redis and the client would be permanently blocked once it
-      // first crossed the limit.
+      if (!results) {
+        throw new Error("Redis pipeline execution returned null");
+      }
+
+      if (results[0]?.[0]) {
+        throw results[0][0];
+      }
+
+      const current = (results[0][1] as number) ?? 1;
+
+      // Retrieve the remaining TTL to maintain accurate X-RateLimit-Reset calculations
       let ttlMs = windowSeconds * 1000;
-      if (current === 1) {
-        await redis.expire(key, windowSeconds);
-      } else if (typeof redis.pttl === "function") {
+      if (typeof redis.pttl === "function") {
         const pttl = await redis.pttl(key);
         if (typeof pttl === "number" && pttl > 0) {
           ttlMs = pttl;
         } else if (typeof pttl === "number" && pttl < 0) {
-          // -1 means the key exists with no expiry, which can happen if a
-          // previous process died between INCR and EXPIRE. Re-arm it rather
-          // than leaving a counter that never resets.
+          // -1 means the key exists with no expiry. Re-arm it rather than leaving
+          // a counter that never resets.
           await redis.expire(key, windowSeconds);
         }
       }
@@ -222,11 +238,13 @@ export async function checkRateLimitDetailed(
         resetAt: now + ttlMs,
         degraded: false,
       };
-    })();
+    };
 
-    return await withTimeout(incrementTask, timeoutMs);
-  } catch (error) {
-    console.error("Redis error or timeout during rate limiting:", error);
+    return await redisCircuitBreaker.execute(() => withTimeout(incrementTask(), timeoutMs));
+  } catch (error: any) {
+    if (error?.name !== "CircuitBreakerError") {
+      console.error("Redis error or timeout during rate limiting:", error);
+    }
 
     // The counter is unknown, so the reported window is a best guess. `degraded`
     // tells the caller not to advertise it as authoritative.

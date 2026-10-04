@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: "Security vulnerability"
-    url: "https://github.com/GauravKarakoti/SecureFlow/security"
+    url: "https://github.com/GauravKarakoti/SecureFlow/security/advisories/new"
     about: "If you believe you found a security vulnerability, please use the GitHub security advisories workflow."
   - name: "GitHub Discussions"
     url: "https://github.com/GauravKarakoti/SecureFlow/discussions"

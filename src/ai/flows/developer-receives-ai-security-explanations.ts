@@ -8,7 +8,13 @@ import {
   isTimeoutError,
   withRetry,
 } from "./security-helpers";
-import { ai, defaultModel, securityExplanationModel } from "@/ai/genkit";
+import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
+import {
+  InsufficientVRAMError,
+  insufficientVramMessage,
+  isInsufficientMemoryError,
+  isLocalModelEnabled,
+} from "@/ai/local-model";
 import {
   AISecurityExplanationInputSchema,
   AISecurityExplanationOutputSchema,
@@ -16,13 +22,65 @@ import {
   type AISecurityExplanationInput,
   type AISecurityExplanationOutput,
 } from "./security-explanation-schemas";
+import { detectWeb3Ecosystem, web3SecurityExplanation } from "./web3-security-explanations";
+import {
+  createExplanationCacheKey,
+  getCachedExplanation,
+  getModelId,
+  setCachedExplanation,
+} from "@/lib/explanation-cache";
 
 const { contradictsSeverity, buildPrompt } = __internal;
+
+/**
+ * Returns true when the finding originates from a Web3 / ZK-circuit file.
+ *
+ * Used by the dispatcher below to route to the ecosystem-specific prompt
+ * templates in web3-security-explanations.ts instead of the generic flow.
+ */
+function isWeb3Finding(input: AISecurityExplanationInput): boolean {
+  const ecosystem = detectWeb3Ecosystem(input.fileLocation, input.findingType);
+  return ecosystem !== "generic-web3";
+}
 
 export async function developerReceivesAISecurityExplanations(
   input: AISecurityExplanationInput,
 ): Promise<AISecurityExplanationOutput> {
   const validatedInput = AISecurityExplanationInputSchema.parse(input);
+
+  // Route Web3 / ZK-circuit findings to the ecosystem-specific flow.
+  // detectWeb3Ecosystem() identifies .sol, .rs, .circom, .leo files and
+  // Web3-specific finding types (reentrancy, underconstrained, CPI, etc.).
+  // The web3 flow runs the same injection pre-filter and consistency checks
+  // but uses domain-specific system prompts and prompt templates.
+  if (isWeb3Finding(validatedInput)) {
+    return web3SecurityExplanation(validatedInput);
+  }
+
+  // Cache lookup. The key includes the active model and prompt version, so switching
+  // models (or LOCAL_AI_URL) or editing the prompt never serves stale explanations.
+  // A hit skips the injection checks and the LLM call entirely.
+  const activeAi = getAiInstance();
+  const activeModel = getDefaultModelRef();
+  const cacheKey = createExplanationCacheKey({
+    findingType: validatedInput.findingType,
+    severity: validatedInput.severity,
+    fileLocation: validatedInput.fileLocation,
+    codeSnippet: validatedInput.codeSnippet,
+    description: validatedInput.description,
+    model: getModelId(activeModel),
+  });
+
+  const cached = await getCachedExplanation(cacheKey);
+  if (cached) {
+    return AISecurityExplanationOutputSchema.parse(cached);
+  }
+
+  // Set to true only when the model returned a real, parseable explanation.
+  // Error/fallback text ("Signal lost", rate limit, timeout) must never be cached.
+  let cacheable = false;
+  // A smaller fallback model's answer is never cached under the primary model's key.
+  let usedFallbackModel = false;
 
   // Two-layer injection check runs on the raw, attacker-controlled fields BEFORE anything is
   // sent to the main Genkit engine:
@@ -42,25 +100,59 @@ export async function developerReceivesAISecurityExplanations(
   let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
   try {
-    // Explicitly route to the fastest Groq model with retry logic for rate limits and timeouts.
-    const res = await withRetry(
-      () =>
-        ai.generate({
-          model: securityExplanationModel,
-          system: SYSTEM_PROMPT,
-          prompt,
-          config: {
-            maxOutputTokens: 3000,
-            temperature: 0.1,
+    // Route to local model when LOCAL_AI_URL is set, otherwise use the pinned
+    // fast Groq model. Local mode never falls back to a cloud provider, but if
+    // the active local model does not fit in GPU memory it tries the smaller
+    // models in LOCAL_AI_FALLBACK_MODELS before giving up (#1140).
+    const modelsToTry: unknown[] = isLocalModelEnabled()
+      ? getSecurityExplanationModelChain()
+      : [activeModel];
+    let res: { text: string } | undefined;
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const candidate = modelsToTry[i];
+      try {
+        res = await withRetry(
+          () =>
+            activeAi.generate({
+              model: candidate as any,
+              system: SYSTEM_PROMPT,
+              prompt,
+              config: {
+                maxOutputTokens: 3000,
+                temperature: 0.1,
+              },
+            }),
+          {
+            initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
           },
-        }),
-      {
-        initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
-      },
-    );
+        );
+        usedFallbackModel = i > 0;
+        break;
+      } catch (modelErr) {
+        if (!isInsufficientMemoryError(modelErr)) throw modelErr;
+        if (i < modelsToTry.length - 1) {
+          console.warn(
+            `[LOCAL_AI] Model ${getModelId(candidate)} does not fit in GPU memory. Trying smaller model: ${getModelId(modelsToTry[i + 1])}`,
+          );
+        }
+      }
+    }
+    if (!res) throw new InsufficientVRAMError(modelsToTry.map((m) => getModelId(m)));
     responseText = res.text;
   } catch (genError) {
-    if (isRateLimitError(genError)) {
+    if (isInsufficientMemoryError(genError)) {
+      const message =
+        genError instanceof InsufficientVRAMError
+          ? genError.message
+          : insufficientVramMessage([getModelId(activeModel)]);
+      // One actionable line, deliberately without the stack trace.
+      console.warn(`[LOCAL_AI] ${message}`);
+      parsedContent = {
+        explanation: message,
+        remediationSuggestions:
+          "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
+      };
+    } else if (isRateLimitError(genError)) {
       console.warn("Groq API rate limit reached after retries:", genError);
       parsedContent = {
         explanation:
@@ -95,6 +187,7 @@ export async function developerReceivesAISecurityExplanations(
       }
 
       parsedContent = JSON.parse(jsonMatch[0]);
+      cacheable = !usedFallbackModel;
     } catch (error) {
       console.error("Failed to parse explanation JSON:", error);
       console.error("RAW OUTPUT WAS:\n", responseText);
@@ -113,10 +206,16 @@ export async function developerReceivesAISecurityExplanations(
   // where the model's explanation ended up contradicting the finding's known severity.
   const consistencyFlagged = contradictsSeverity(validatedInput.severity, explanation);
 
-  return AISecurityExplanationOutputSchema.parse({
+  const output = AISecurityExplanationOutputSchema.parse({
     explanation,
     remediationSuggestions:
       parsedContent?.remediationSuggestions || "No remediation suggestions provided.",
     promptInjectionSuspected: injectionPreFilterFlagged || consistencyFlagged,
   });
+
+  if (cacheable && parsedContent?.explanation) {
+    await setCachedExplanation(cacheKey, output);
+  }
+
+  return output;
 }

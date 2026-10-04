@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { LimitedApiRateLimitClass } from "@/lib/api-rate-limit-policy";
 
 type MockAuthRequest = NextRequest & {
-  auth?: { user?: { roles?: string[]; codename?: string } } | null;
+  auth?: { user?: { id?: string; roles?: string[]; codename?: string } } | null;
 };
 
 vi.mock("next-auth", () => ({
@@ -173,5 +173,19 @@ describe("middleware rate limiting — the 429", () => {
     expect(first?.status).toBe(429);
     expect(second?.status).toBe(200);
     expect(requestedClasses).toEqual(["standard", "auth"]);
+  });
+
+  it("blocks an authenticated user when user rate limit is exceeded", async () => {
+    // First call (IP limiter) allows, second call (user limiter) blocks
+    limitMock.mockResolvedValueOnce(allowed()).mockResolvedValueOnce(blocked());
+
+    const req = request("/api/leaderboard");
+    req.auth = { user: { id: "user-456" } };
+
+    const res = await middleware(req);
+
+    expect(res?.status).toBe(429);
+    expect(limitMock).toHaveBeenCalledWith("203.0.113.9");
+    expect(limitMock).toHaveBeenCalledWith("user-456");
   });
 });

@@ -1,0 +1,89 @@
+name: Publish CLI to NPM
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "cli-v[0-9]+.[0-9]+.[0-9]+"
+      - "cli-v[0-9]+.[0-9]+.[0-9]+-*"
+      - "cli-*[0-9]+.[0-9]+.[0-9]+"
+      - "cli@[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "NPM distribution tag (e.g., latest, next, beta)"
+        required: false
+        default: "latest"
+      dry_run:
+        description: "Dry run (verify build & package without publishing)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-cli:
+    name: Build, Test & Publish SecureFlow CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck CLI workspace
+        run: npm run cli:typecheck
+
+      - name: Run CLI unit tests
+        run: npm run cli:test
+
+      - name: Build CLI package
+        run: npm run cli:build
+
+      - name: Verify CLI binary executable & help output
+        run: |
+          test -f cli/dist/index.js || { echo "❌ CLI build failed: cli/dist/index.js not found"; exit 1; }
+          node cli/dist/index.js --help
+
+      - name: Extract CLI version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./cli/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 SecureFlow CLI version to publish: $VERSION"
+
+      - name: Publish to NPM Registry (Dry Run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        working-directory: cli
+        run: |
+          echo "🔍 Running npm publish --dry-run..."
+          npm publish --dry-run --access public --tag ${{ github.event.inputs.dist_tag || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NPM_AUTH_TOKEN }}
+
+      - name: Publish to NPM Registry
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: cli
+        run: |
+          echo "🚀 Publishing secureflow-cli@${{ steps.pkg.outputs.version }} to NPM..."
+          npm publish --access public --tag ${{ github.event.inputs.dist_tag || 'latest' }} --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NPM_AUTH_TOKEN }}

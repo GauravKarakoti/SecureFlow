@@ -111,11 +111,11 @@ async function main() {
         rules: { conditions: ["docker/user/root", "k8s/security_context/run_as_root"] },
       },
 
-      // --- 6. Web3 & Smart Contracts (Optional Context) ---
+      // --- 6. Web3 & Smart Contracts ---
       {
         name: "Enforce Smart Contract Reentrancy Guards",
         description:
-          "Requires manual review for Solidity state changes occurring after external contract calls to prevent reentrancy attacks.",
+          "Requires manual review for Solidity state changes occurring after external contract calls to prevent reentrancy attacks (SWC-107). Enforces the Checks-Effects-Interactions pattern.",
         severity: "CRITICAL",
         action: "REVIEW REQUIRED",
         isDefault: false,
@@ -123,6 +123,79 @@ async function main() {
           conditions: [
             "web3/solidity/reentrancy_pattern",
             "web3/external_call_before_state_change",
+            "web3/solidity/missing_reentrancy_guard",
+          ],
+        },
+      },
+      {
+        name: "Block tx.origin Authentication in Solidity",
+        description:
+          "Blocks Solidity contracts that use tx.origin for authentication instead of msg.sender, which allows phishing contracts to bypass access controls (SWC-115).",
+        severity: "HIGH",
+        action: "DENY",
+        isDefault: false,
+        rules: {
+          conditions: ["web3/solidity/tx_origin_auth", "web3/solidity/tx_origin_access_control"],
+        },
+      },
+      {
+        name: "Flag Unchecked Arithmetic in Smart Contracts",
+        description:
+          "Flags Solidity unchecked{} blocks and Rust arithmetic operations that bypass overflow protection, which can lead to integer overflow/underflow vulnerabilities.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: {
+          conditions: [
+            "web3/solidity/unchecked_arithmetic",
+            "web3/rust/unchecked_add_sub_mul",
+            "web3/solidity/integer_overflow",
+          ],
+        },
+      },
+      {
+        name: "Enforce Soroban/Solana CPI Signer Verification",
+        description:
+          "Flags Rust smart contract Cross-Program Invocations (CPI) that do not verify signer seeds or account ownership, allowing unauthorized program invocations on Soroban and Solana.",
+        severity: "CRITICAL",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: {
+          conditions: [
+            "web3/rust/cpi_missing_signer_check",
+            "web3/solana/account_owner_not_validated",
+            "web3/soroban/missing_auth_check",
+          ],
+        },
+      },
+      {
+        name: "Flag Under-Constrained ZK Circuit Signals",
+        description:
+          "Flags Circom and Aleo Leo circuits where output signals are not fully constrained by the circuit constraints, creating soundness bugs that allow a malicious prover to generate valid proofs for invalid witnesses.",
+        severity: "CRITICAL",
+        action: "DENY",
+        isDefault: false,
+        rules: {
+          conditions: [
+            "web3/zk/underconstrained_signal",
+            "web3/circom/missing_constraint",
+            "web3/aleo/unconstrained_output",
+            "web3/zk/soundness_bug",
+          ],
+        },
+      },
+      {
+        name: "Require Range Checks on ZK Circuit Field Elements",
+        description:
+          "Flags ZK circuits (Circom, Aleo Leo) that use field elements as binary or bounded values without explicit range constraints, which can allow a prover to use out-of-range witnesses that satisfy the circuit but violate the intended semantics.",
+        severity: "HIGH",
+        action: "REVIEW REQUIRED",
+        isDefault: false,
+        rules: {
+          conditions: [
+            "web3/zk/missing_range_check",
+            "web3/circom/binary_signal_not_constrained",
+            "web3/aleo/field_element_range",
           ],
         },
       },

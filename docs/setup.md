@@ -43,11 +43,11 @@ npm run db:seed
 1. Sign up at [console.groq.com](https://console.groq.com).
 2. Go to **API Keys → Create API Key**.
 3. Copy the key → `GROQ_API_KEY`.
-4. `GROQ_MODEL` defaults to `llama-3.1-8b-instant`. Change only if you want a different supported model.
+4. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Change only if you want a different supported model (Groq's [deprecation page](https://console.groq.com/docs/deprecations) lists the ones that have been shut down).
 
 ```env
 GROQ_API_KEY="gsk_..."
-GROQ_MODEL="llama-3.1-8b-instant"
+GROQ_MODEL="openai/gpt-oss-20b"
 ```
 
 ---
@@ -62,7 +62,9 @@ GROQ_MODEL="llama-3.1-8b-instant"
      ngrok http 9002   # copy the https:// forwarding URL
      ```
    - **Webhook Secret**: any random string (e.g. `openssl rand -hex 20`) → `GITHUB_WEBHOOK_SECRET`
-3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`.
+3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`, Code scanning alerts `Read & Write`.
+   - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab. Without it the scan still runs and still posts its check run; only the upload is skipped.
+   - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow logs and moves past.
 4. Subscribe to events: `Pull request`, `Installation`, `Installation repositories`.
 5. Click **Create GitHub App**, then:
    - Copy **App ID** → `GITHUB_APP_ID`

@@ -7,15 +7,35 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let mockChunks: string[] = [];
 let mockFinalText = "Bella ciao, accomplice. The vault is sealed.";
 let mockGenerateStreamThrows = false;
+// Errors thrown when the stream is first pulled, one per call, like a real
+// provider failure surfacing through Genkit's stream rather than the call.
+let mockPullErrors: Error[] = [];
+let mockGenerateStreamCalls = 0;
+// Local-model mode (LOCAL_AI_URL set) and the instance/model each call used.
+let mockLocalMode = false;
+let mockLastCall: { instance: "cloud" | "local"; model: unknown } | null = null;
 
-vi.mock("@/ai/genkit", () => ({
-  ai: {
-    generateStream: () => {
+vi.mock("@/ai/genkit", () => {
+  const ai = {
+    generateStream: (options: { model?: unknown }) => {
+      mockGenerateStreamCalls++;
+      mockLastCall = { instance: "cloud", model: options?.model };
       if (mockGenerateStreamThrows) {
         throw new Error("simulated model failure");
       }
+      const pullError = mockPullErrors.shift();
+      if (pullError) {
+        const response = Promise.reject(pullError);
+        response.catch(() => {});
+        return {
+          stream: (async function* () {
+            yield* [];
+            throw pullError;
+          })(),
+          response,
+        };
+      }
       return {
-        // Each chunk yields `{ text: delta }` — plain text, no JSON schema.
         stream: (async function* () {
           for (const delta of mockChunks) {
             yield { text: delta };
@@ -24,9 +44,27 @@ vi.mock("@/ai/genkit", () => ({
         response: Promise.resolve({ text: mockFinalText }),
       };
     },
-  },
-  defaultModel: "mock-model",
-}));
+  };
+  const localAi = {
+    generateStream: (options: { model?: unknown }) => {
+      mockGenerateStreamCalls++;
+      mockLastCall = { instance: "local", model: options?.model };
+      return {
+        stream: (async function* () {
+          yield { text: "Local transmission." };
+        })(),
+        response: Promise.resolve({ text: "Local transmission." }),
+      };
+    },
+  };
+  return {
+    ai,
+    getAiInstance: () => (mockLocalMode ? localAi : ai),
+    isLocalModelEnabled: () => mockLocalMode,
+    getDefaultModelRef: () => (mockLocalMode ? "openai/llama3.1" : "groq-pinned-ref"),
+    DEFAULT_SECURITY_CONFIG: { modelName: "mock-model" },
+  };
+});
 
 vi.mock("dotenv/config", () => ({}));
 
@@ -62,6 +100,33 @@ describe("streamHeistMessage", () => {
     mockChunks = [];
     mockFinalText = "Bella ciao, accomplice. The vault is sealed.";
     mockGenerateStreamThrows = false;
+    mockPullErrors = [];
+    mockGenerateStreamCalls = 0;
+    mockLocalMode = false;
+    mockLastCall = null;
+  });
+
+  // ── Model routing ───────────────────────────────────────────────────────────
+
+  it("uses the Groq instance and GROQ_MODEL-derived model in cloud mode", async () => {
+    mockChunks = ["Bella ciao."];
+    await collectEvents(baseInput);
+    expect(mockLastCall).toEqual({ instance: "cloud", model: "mock-model" });
+  });
+
+  it("routes to the local model when LOCAL_AI_URL is configured", async () => {
+    // It used to call the Groq-backed `ai` unconditionally, so a local-model
+    // deployment failed every transmission and always served the fallback.
+    mockLocalMode = true;
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockLastCall).toEqual({ instance: "local", model: "openai/llama3.1" });
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      message: "Local transmission.",
+      guarded: false,
+    });
   });
 
   // ── Streaming chunks ────────────────────────────────────────────────────────
@@ -145,6 +210,41 @@ describe("streamHeistMessage", () => {
     if (events[0].type === "error") {
       expect(events[0].message).toContain("simulated model failure");
     }
+  });
+
+  it("retries when the provider rate-limits the stream before the first chunk", async () => {
+    mockPullErrors = [Object.assign(new Error("429 Too Many Requests"), { status: 429 })];
+    mockChunks = ["Bella ", "ciao."];
+    mockFinalText = "Bella ciao.";
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "done", message: "Bella ciao." });
+  });
+
+  it("reports the rate limit once retries are exhausted", async () => {
+    const rateLimited = () => Object.assign(new Error("429 Too Many Requests"), { status: 429 });
+    mockPullErrors = [rateLimited(), rateLimited(), rateLimited(), rateLimited()];
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(4);
+    expect(events).toEqual([
+      {
+        type: "error",
+        message: "Groq API rate limit reached (429). Falling back to default heist transmission.",
+      },
+    ]);
+  });
+
+  it("does not retry a non-retryable stream failure", async () => {
+    mockPullErrors = [new Error("invalid api key")];
+
+    const events = await collectEvents(baseInput);
+
+    expect(mockGenerateStreamCalls).toBe(1);
+    expect(events).toEqual([{ type: "error", message: "invalid api key" }]);
   });
 
   it("yields an error event for invalid input (missing projectName)", async () => {

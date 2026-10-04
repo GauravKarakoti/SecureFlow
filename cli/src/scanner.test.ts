@@ -8,13 +8,19 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  isSecretIdentifier,
   MAX_SCANNED_BYTES,
+  blockingAiFindings,
+  describeFailThreshold,
   findSecretLogging,
+  formatScanResults,
   lineOf,
   looksBinary,
   maskStringLiterals,
+  parseFailOnArg,
   readArgumentList,
   scanFile,
+  shouldFailScan,
   shouldScanFile,
 } from "./scanner.js";
 
@@ -265,5 +271,167 @@ describe("scanFile", () => {
     const result = scanFile("src/data.ts", "console.log(process.env.S);\u0000\u0000");
 
     expect(result.skipped).toBe("binary content");
+  });
+});
+
+describe("formatScanResults", () => {
+  it("formats results as markdown when format is 'markdown'", () => {
+    const result = scanFile("src/debug.ts", "console.log(process.env.SECRET);");
+    const output = formatScanResults([result], "markdown");
+
+    expect(output).toContain("# 🛡️ SecureFlow Scan Report");
+    expect(output).toContain("| File | Line | Violation | Reason |");
+    expect(output).toContain("src/debug.ts");
+    expect(output).toContain("environment variable");
+  });
+});
+
+describe("parseFailOnArg", () => {
+  it("parses --fail-on=SEVERITY syntax", () => {
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=HIGH"])).toBe("HIGH");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=CRITICAL"])).toBe("CRITICAL");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=medium"])).toBe("MEDIUM");
+  });
+
+  it("parses --fail-on SEVERITY separate argument syntax", () => {
+    expect(parseFailOnArg(["node", "index.js", "--fail-on", "CRITICAL"])).toBe("CRITICAL");
+    expect(parseFailOnArg(["node", "index.js", "--fail-on", "low"])).toBe("LOW");
+  });
+
+  it("returns null when --fail-on is not specified or invalid", () => {
+    expect(parseFailOnArg(["node", "index.js"])).toBeNull();
+    expect(parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toBeNull();
+  });
+});
+
+describe("shouldFailScan", () => {
+  it("defaults to failing on local violations or HIGH/CRITICAL AI findings when failOnThreshold is null", () => {
+    expect(shouldFailScan(1, [], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "HIGH" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "LOW" }], null)).toBe(false);
+  });
+
+  it("fails when local violations (HIGH) meet or exceed threshold", () => {
+    expect(shouldFailScan(1, [], "HIGH")).toBe(true);
+    expect(shouldFailScan(1, [], "LOW")).toBe(true);
+    expect(shouldFailScan(1, [], "CRITICAL")).toBe(false);
+  });
+
+  it("never fails the scan when the threshold is NONE", () => {
+    // NONE is in the accepted set for --fail-on, so it has to mean "report but
+    // do not block" — advisory mode. Ranking it at 0 made every finding clear
+    // the bar instead, which is the exact inverse.
+    expect(shouldFailScan(0, [{ severity: "CRITICAL" }], "NONE")).toBe(false);
+    expect(shouldFailScan(0, [{ severity: "LOW" }], "NONE")).toBe(false);
+    expect(shouldFailScan(5, [], "NONE")).toBe(false);
+    expect(shouldFailScan(5, [{ severity: "CRITICAL" }], "NONE")).toBe(false);
+  });
+
+  it("does not fail a clean scan at any threshold", () => {
+    for (const threshold of ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"] as const) {
+      expect(shouldFailScan(0, [], threshold)).toBe(false);
+    }
+  });
+
+  it("fails when AI findings meet or exceed threshold", () => {
+    expect(shouldFailScan(0, [{ severity: "CRITICAL" }], "CRITICAL")).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "HIGH" }], "CRITICAL")).toBe(false);
+    expect(shouldFailScan(0, [{ severity: "MEDIUM" }], "MEDIUM")).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "LOW" }], "MEDIUM")).toBe(false);
+  });
+});
+
+describe("blockingAiFindings", () => {
+  const findings = [
+    { severity: "CRITICAL" },
+    { severity: "HIGH" },
+    { severity: "MEDIUM" },
+    { severity: "LOW" },
+  ];
+
+  it("returns the HIGH/CRITICAL findings when no threshold is set", () => {
+    expect(blockingAiFindings(findings, null)).toEqual([
+      { severity: "CRITICAL" },
+      { severity: "HIGH" },
+    ]);
+  });
+
+  it("returns every finding at or above an explicit threshold", () => {
+    expect(blockingAiFindings(findings, "MEDIUM")).toHaveLength(3);
+    // A single LOW finding is what blocks under --fail-on=LOW, so the message
+    // has something to report other than "0 secret-logging violations".
+    expect(blockingAiFindings([{ severity: "LOW" }], "LOW")).toHaveLength(1);
+    expect(blockingAiFindings(findings, "CRITICAL")).toEqual([{ severity: "CRITICAL" }]);
+  });
+
+  it("blocks on nothing under NONE", () => {
+    expect(blockingAiFindings(findings, "NONE")).toEqual([]);
+  });
+
+  it("agrees with shouldFailScan about the AI findings", () => {
+    for (const threshold of [null, "CRITICAL", "HIGH", "MEDIUM", "LOW"] as const) {
+      expect(blockingAiFindings(findings, threshold).length > 0).toBe(
+        shouldFailScan(0, findings, threshold),
+      );
+    }
+  });
+
+  it("treats an unrecognised severity as LOW rather than dropping it", () => {
+    expect(blockingAiFindings([{ severity: "" }], "LOW")).toHaveLength(1);
+    expect(blockingAiFindings([{ severity: "critical" }], "CRITICAL")).toHaveLength(1);
+  });
+});
+
+describe("describeFailThreshold", () => {
+  it("names the flag only when the user passed it", () => {
+    expect(describeFailThreshold("LOW")).toBe("the --fail-on=LOW threshold");
+    // Previously this interpolated a null threshold straight into the summary,
+    // which read "below --fail-on=null threshold".
+    expect(describeFailThreshold(null)).toBe("the default HIGH/CRITICAL threshold");
+    expect(describeFailThreshold(null)).not.toContain("null");
+  });
+});
+
+describe("secret-named identifiers", () => {
+  const flagged = (code: string) => scanFile("a.ts", code + "\n", []).violations.length > 0;
+
+  it.each([
+    "console.log(private_key);",
+    "console.log(PRIVATE_KEY);",
+    "console.log(privateKey);",
+    "console.log(passphrase);",
+    "console.log(gpg_passphrase);",
+    "console.log(signing_key);",
+    "console.log(encryptionKey);",
+    "console.log(password);",
+    "console.log(authToken);",
+    "console.log(tokens);",
+    "console.log(passwordLength);",
+  ])("flags %s", (code) => {
+    expect(flagged(code)).toBe(true);
+  });
+
+  it.each([
+    "console.log(tokenizer);",
+    "console.log(maxTokens);",
+    "console.log(usage.totalTokens, usage.promptTokens);",
+    "console.log(completion_tokens);",
+    "console.log(tokenCount);",
+    "console.log(tokenUsage);",
+    "console.log(tokenized);",
+  ])("does not flag token counts or tokenizers: %s", (code) => {
+    // `token` as a bare substring used to flag every one of these.
+    expect(flagged(code)).toBe(false);
+  });
+
+  it("still flags a secret logged alongside a token count", () => {
+    expect(flagged("console.log(maxTokens, apiToken);")).toBe(true);
+  });
+
+  it("normalizes separators and case", () => {
+    expect(isSecretIdentifier("PRIVATE-KEY")).toBe(true);
+    expect(isSecretIdentifier("private_key")).toBe(true);
+    expect(isSecretIdentifier("MAX_TOKENS")).toBe(false);
+    expect(isSecretIdentifier("authorName")).toBe(false);
   });
 });

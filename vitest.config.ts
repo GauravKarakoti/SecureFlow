@@ -2,6 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    server: {
+      deps: {
+        inline: ["genkitx-groq"],
+      },
+    },
     globals: true,
     environment: "node",
     // cli/** is included so the pre-commit hook's detector is covered by the
@@ -32,6 +37,7 @@ export default defineConfig({
     alias: {
       "@": import.meta.dirname + "/src",
       __mocks__: import.meta.dirname + "/__mocks__",
+      zod: import.meta.dirname + "/node_modules/@genkit-ai/core/node_modules/zod/index.js",
     },
   },
 });

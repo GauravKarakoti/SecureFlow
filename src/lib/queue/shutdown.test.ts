@@ -110,6 +110,40 @@ describe("Graceful Shutdown for Redis Queue Workers (#453)", () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("does not leave the timeout pending, or warn about it, after a shutdown that finished in time", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(queueRedis, "closeQueueRedis").mockResolvedValue(undefined);
+
+    try {
+      await gracefulShutdown("SIGTERM", { timeoutMs: 10_000 });
+      expect(vi.getTimerCount()).toBe(0);
+
+      vi.advanceTimersByTime(10_000);
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("still gives up after timeoutMs when a worker hangs", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const hanging = { close: vi.fn(() => new Promise<void>(() => {})) };
+
+    try {
+      const done = gracefulShutdown("SIGTERM", { workers: [hanging as any], timeoutMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await done;
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("timed out after 5000ms"));
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("registers SIGINT and SIGTERM event listeners", () => {
     const onceSpy = vi.spyOn(process, "once");
 

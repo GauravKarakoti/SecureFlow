@@ -16,10 +16,10 @@ test("reflects query params in the transmission", async ({ page }) => {
   await page.goto(`${BASE}?project=TestVault&alias=Berlin&score=85&rank=A&findingsCount=3`);
 
   // Data lines derived from query params
-  await expect(page.getByText(/TestVault/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/85\/100/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/RANK A/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/Findings logged: 3/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/TestVault/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/85\/100/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/RANK A/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Findings logged: 3/i).first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("skip decryption button reveals payload immediately", async ({ page }) => {
@@ -59,7 +59,7 @@ test("score below 40 resolves to rank D tagline", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(`${BASE}?project=LowScore&score=20`);
 
-  await expect(page.getByText(/Blown cover/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Blown cover/i).first()).toBeVisible({ timeout: 10_000 });
 });
 
 test("footer branding is present", async ({ page }) => {

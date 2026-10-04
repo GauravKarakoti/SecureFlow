@@ -249,7 +249,7 @@ export function admitWebhook(options: {
     return { ok: false, status: 413, message: "Webhook payload exceeds the configured size limit" };
   }
 
-  if (!options.secret) {
+  if (!options.secret || !options.secret.trim()) {
     // A deployment fault, not a caller fault. `isOperational: false` at the call
     // site keeps the detail out of the response.
     return { ok: false, status: 500, message: "GITHUB_WEBHOOK_SECRET is not set" };
