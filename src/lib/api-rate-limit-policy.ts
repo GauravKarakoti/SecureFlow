@@ -92,8 +92,12 @@ export const AUTH_PREFIX = "/api/auth";
  */
 export const STREAM_PREFIXES: readonly string[] = ["/api/heist-transmission", "/api/og/heist"];
 
-/** Suffix of an AI streaming route under `/api/findings/[id]/`. */
-const FINDINGS_STREAM_SUFFIX = "/explain-stream";
+/** Suffixes of AI-heavy routes under `/api/findings/[id]/`. */
+const FINDINGS_STREAM_SUFFIXES: readonly string[] = [
+  "/explain-stream",
+  "/remediate",
+  "/remediate/apply",
+];
 
 /**
  * Normalise a pathname before matching.
@@ -139,7 +143,7 @@ export function classifyApiPath(pathname: string): ApiRateLimitClass {
 
   if (
     STREAM_PREFIXES.some((prefix) => matchesPrefix(normalized, prefix)) ||
-    normalized.endsWith(FINDINGS_STREAM_SUFFIX)
+    FINDINGS_STREAM_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
   ) {
     return "stream";
   }

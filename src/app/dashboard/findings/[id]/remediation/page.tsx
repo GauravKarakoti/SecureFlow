@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { PatchDiffViewer } from "@/components/findings/patch-diff-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, GitPullRequest } from "lucide-react";
 import { toast } from "sonner";
 
 export default function RemediationPage() {
@@ -13,6 +13,8 @@ export default function RemediationPage() {
   const findingId = params.id as string;
 
   const [loading, setLoading] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
   const [patchData, setPatchData] = useState<{ patchDiff: string; explanation: string } | null>(
     null,
   );
@@ -30,6 +32,28 @@ export default function RemediationPage() {
       toast.error("Failed to generate remediation patch");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const approveAndOpenPullRequest = async () => {
+    if (!window.confirm("Approve this patch and create a draft pull request?")) return;
+
+    setApproving(true);
+    try {
+      const response = await fetch(`/api/findings/${findingId}/remediate/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to create pull request");
+
+      setPullRequestUrl(data.pullRequest);
+      toast.success("Approved fix committed and draft pull request opened");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create pull request");
+    } finally {
+      setApproving(false);
     }
   };
 
@@ -54,7 +78,29 @@ export default function RemediationPage() {
           </CardContent>
         </Card>
       ) : (
-        <PatchDiffViewer patchDiff={patchData.patchDiff} explanation={patchData.explanation} />
+        <div className="space-y-4">
+          <PatchDiffViewer patchDiff={patchData.patchDiff} explanation={patchData.explanation} />
+          {pullRequestUrl ? (
+            <a
+              className="inline-flex items-center gap-2 text-sm font-medium text-primary underline"
+              href={pullRequestUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <GitPullRequest className="h-4 w-4" aria-hidden="true" />
+              Open draft pull request
+            </a>
+          ) : (
+            <Button onClick={approveAndOpenPullRequest} disabled={approving}>
+              {approving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <GitPullRequest className="mr-2 h-4 w-4" aria-hidden="true" />
+              )}
+              {approving ? "Creating draft PR..." : "Approve & create draft PR"}
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

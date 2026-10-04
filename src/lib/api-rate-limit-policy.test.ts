@@ -77,6 +77,8 @@ describe("classifyApiPath", () => {
     expect(classifyApiPath("/api/heist-transmission")).toBe("stream");
     expect(classifyApiPath("/api/og/heist")).toBe("stream");
     expect(classifyApiPath("/api/findings/abc123/explain-stream")).toBe("stream");
+    expect(classifyApiPath("/api/findings/abc123/remediate")).toBe("stream");
+    expect(classifyApiPath("/api/findings/abc123/remediate/apply")).toBe("stream");
   });
 
   it("falls back to standard for everything else under /api", () => {
