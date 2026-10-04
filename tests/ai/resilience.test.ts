@@ -1,14 +1,21 @@
-```ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   executeWithFallbackAndRetry,
   isRateLimitError,
   isTimeoutError,
   computeBackoffDelay,
   DEFAULT_ATTEMPT_TIMEOUT_MS,
+  getModelCircuitBreaker,
+  resetModelCircuitBreakers,
+  CircuitState,
+  CircuitBreakerError,
 } from "../../src/ai/resilience";
 
 describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
+  beforeEach(() => {
+    resetModelCircuitBreakers();
+  });
+
   describe("Error Detection Helpers", () => {
     it("should detect rate limit errors by HTTP status 429", () => {
       expect(isRateLimitError({ status: 429 })).toBe(true);
@@ -48,6 +55,58 @@ describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
     });
   });
 
+  describe("Circuit Breaker Registry & Global Pattern", () => {
+    it("should provide cached circuit breakers per model name", () => {
+      const breaker1 = getModelCircuitBreaker("groq/model-a");
+      const breaker2 = getModelCircuitBreaker("groq/model-a");
+      const breakerB = getModelCircuitBreaker("groq/model-b");
+
+      expect(breaker1).toBe(breaker2);
+      expect(breaker1).not.toBe(breakerB);
+      expect(breaker1.getState()).toBe(CircuitState.CLOSED);
+    });
+
+    it("should clear cached circuit breakers on reset", () => {
+      const breaker1 = getModelCircuitBreaker("groq/model-a");
+      resetModelCircuitBreakers();
+      const breaker2 = getModelCircuitBreaker("groq/model-a");
+
+      expect(breaker1).not.toBe(breaker2);
+    });
+
+    it("should fast-fail directly to fallback model when primary model circuit is OPEN", async () => {
+      const breaker = getModelCircuitBreaker("groq/flaky-primary", {
+        failureThreshold: 1,
+        resetTimeoutMs: 60_000,
+      });
+
+      // Force primary model circuit into OPEN state
+      await expect(
+        breaker.execute(() => Promise.reject(new Error("Downstream service unreachable"))),
+      ).rejects.toThrow();
+      expect(breaker.getState()).toBe(CircuitState.OPEN);
+
+      const operation = vi.fn().mockImplementation((model: string) => {
+        if (model === "groq/flaky-primary") {
+          throw new Error("Should not be called while circuit is OPEN");
+        }
+        return Promise.resolve("FALLBACK_RECOVERED");
+      });
+
+      const { result, stats } = await executeWithFallbackAndRetry(operation, {
+        primaryModel: "groq/flaky-primary",
+        fallbackModels: ["groq/reliable-fallback"],
+        circuitBreakerOptions: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      });
+
+      expect(result).toBe("FALLBACK_RECOVERED");
+      expect(stats.modelUsed).toBe("groq/reliable-fallback");
+      expect(stats.fallbackSwitches).toBe(1);
+      expect(operation).toHaveBeenCalledTimes(1);
+      expect(operation).toHaveBeenCalledWith("groq/reliable-fallback", 1);
+    });
+  });
+
   describe("Model Chain Configuration & Fallbacks", () => {
     it("should iterate through primary and fallback model chain in order", async () => {
       const attemptedModels: string[] = [];
@@ -83,11 +142,7 @@ describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
       });
 
       expect(result).toBe("SUCCESS_ON_FALLBACK_2");
-      expect(attemptedModels).toEqual([
-        "primary-model",
-        "fallback-1",
-        "fallback-2",
-      ]);
+      expect(attemptedModels).toEqual(["primary-model", "fallback-1", "fallback-2"]);
       expect(stats.fallbackSwitches).toBe(2);
     });
   });
@@ -252,4 +307,3 @@ describe("AI Model Resilience, Fallback & Retry Logic (#729)", () => {
     });
   });
 });
-```
