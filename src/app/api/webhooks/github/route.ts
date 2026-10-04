@@ -16,6 +16,7 @@ import {
   webhookJobId,
 } from "@/lib/github/webhook-verification";
 import { env } from "@/lib/env";
+import prisma from "@/lib/prisma";
 
 /**
  * GitHub webhook ingest (#562).
