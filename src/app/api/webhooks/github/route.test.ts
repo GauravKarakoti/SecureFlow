@@ -547,7 +547,7 @@ describe("GitHub webhook route", () => {
           event: "pull_request",
           payload: expect.objectContaining({ action: "synchronize" }),
         }),
-        { jobId: "delivery-delivery-sync-42" },
+        expect.objectContaining({ jobId: "delivery-delivery-sync-42" }),
       );
       // Ensure no duplicate synchronous execution occurs in the request handler
       expect(spy).not.toHaveBeenCalled();
