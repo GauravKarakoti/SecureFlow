@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import prisma from "@/lib/prisma";
 import { syncUserRepositories } from "./sync-user-repos";
-import { App } from "octokit";
+import { App, Octokit } from "octokit";
 
 vi.mock("@/lib/prisma", () => ({
   default: {
@@ -130,6 +130,42 @@ describe("Repository Synchronization Engine (#634)", () => {
       expect(result.hasInstallation).toBe(false);
       expect(result.synced).toBe(0);
       expect(mockGetUserInstallation).toHaveBeenCalledWith({ username: "alice_developer" });
+    });
+  });
+
+  describe("Installation lookup through the user's OAuth token", () => {
+    /** Installations of other apps, as GitHub lists them for a user in many organisations. */
+    const otherInstallations = (count: number, offset = 0) =>
+      Array.from({ length: count }, (_, i) => ({ id: 9000 + offset + i, app_id: 777 }));
+
+    it("finds this app's installation beyond the first page of installations", async () => {
+      const pages = [
+        otherInstallations(100),
+        [...otherInstallations(3, 100), { id: 4242, app_id: 12345 }],
+      ];
+      const iterator = vi.fn(async function* () {
+        for (const data of pages) yield { data };
+      });
+      const firstPageOnly = vi
+        .fn()
+        .mockResolvedValue({ data: { total_count: 104, installations: pages[0].slice(0, 10) } });
+      vi.mocked(Octokit).mockImplementation(function () {
+        return {
+          paginate: { iterator },
+          rest: { apps: { listInstallationsForAuthenticatedUser: firstPageOnly } },
+        } as any;
+      } as any);
+
+      const app = appWithInstallation(0, octokitReturning([apiRepo(1, "acme/api")]));
+      app.octokit.rest.apps.getUserInstallation = vi.fn().mockRejectedValue({ status: 404 });
+      mockApp(app);
+
+      const result = await syncUserRepositories("user-alice", "alice_developer", "gho_token");
+
+      expect(result.hasInstallation).toBe(true);
+      expect(result.installationId).toBe(4242);
+      expect(app.getInstallationOctokit).toHaveBeenCalledWith(4242);
+      expect(iterator).toHaveBeenCalledWith(firstPageOnly, { per_page: 100 });
     });
   });
 

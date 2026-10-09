@@ -5,6 +5,7 @@ import { getApiRateLimiter } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { classifyApiPath, rateLimitHeaders } from "@/lib/api-rate-limit-policy";
 import { applySecurityHeaders, securityHeaderOptionsFromEnv } from "@/lib/security-headers";
+import { isMockAuthEnabled } from "@/lib/mock-auth";
 
 const { auth } = NextAuth(authConfig);
 
@@ -28,7 +29,8 @@ function secured(response: NextResponse): NextResponse {
 export default auth(async function middleware(
   request: NextRequest & {
     auth?: {
-      user?: { roles?: string[] };
+      // Add `| null` to the codename property
+      user?: { id?: string; codename?: string | null; roles?: string[] };
       roles?: string[];
     } | null;
   },
@@ -67,6 +69,27 @@ export default auth(async function middleware(
           ),
         );
       }
+
+      // 1b. User-based rate limiting on /api/* routes for authenticated callers (#644)
+      const userId = token?.user?.id || (token as any)?.id || (token as any)?.sub;
+      if (userId) {
+        const userLimiter = getApiRateLimiter(rateLimitClass, "user");
+        if (userLimiter) {
+          const userDecision = await userLimiter.limit(userId);
+
+          if (!userDecision.success) {
+            return secured(
+              NextResponse.json(
+                { error: "Too Many Requests", message: "Rate limit exceeded" },
+                {
+                  status: 429,
+                  headers: rateLimitHeaders(userDecision),
+                },
+              ),
+            );
+          }
+        }
+      }
     }
   }
 
@@ -75,7 +98,7 @@ export default auth(async function middleware(
   const isAdminApiRoute = request.nextUrl.pathname.startsWith("/api/admin");
 
   if (isAdminWebRoute || isAdminApiRoute) {
-    if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+    if (isMockAuthEnabled()) {
       const mockSession = request.cookies.get("mock-session")?.value;
       if (mockSession === "admin") {
         return NextResponse.next();
@@ -125,7 +148,7 @@ export default auth(async function middleware(
   const isCodenameSetupRoute = request.nextUrl.pathname === "/setup/codename";
   const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
 
-  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+  if (isMockAuthEnabled()) {
     const mockSession = request.cookies.get("mock-session")?.value;
     if (isCodenameSetupRoute) {
       if (!mockSession || mockSession === "none") {

@@ -117,15 +117,19 @@ export async function syncUserRepositories(
     try {
       const { Octokit } = await import("octokit");
       const userOctokit = new Octokit({ auth: accessToken });
-      const installationsRes = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser({
-        per_page: 10,
-      });
       const targetAppId = Number(appId);
-      const matched = installationsRes.data.installations.find(
-        (inst: any) => inst.app_id === targetAppId,
-      );
-      if (matched?.id) {
-        installationId = matched.id;
+      // Every page, not the first ten: a user who belongs to several organisations
+      // can have this app's installation anywhere in the list, and stopping at ten
+      // reported "no installation" for an account that has one.
+      for await (const { data: installations } of userOctokit.paginate.iterator(
+        userOctokit.rest.apps.listInstallationsForAuthenticatedUser,
+        { per_page: 100 },
+      )) {
+        const matched = installations.find((inst: any) => inst.app_id === targetAppId);
+        if (matched?.id) {
+          installationId = matched.id;
+          break;
+        }
       }
     } catch (err: any) {
       console.warn("[RepoSync] Failed to check installations via user token:", err?.message);

@@ -24,16 +24,29 @@ export default defineConfig({
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      // ⭐ NEW: Auth.js configuration for E2E test server
+      DATABASE_URL: process.env.DATABASE_URL || "postgresql://ci:ci@localhost:5432/secureflow",
+      DATABASE_POOL_URL:
+        process.env.DATABASE_POOL_URL ||
+        process.env.DATABASE_URL ||
+        "postgresql://ci:ci@localhost:5432/secureflow",
+      GROQ_API_KEY: process.env.GROQ_API_KEY || "ci-build-placeholder",
+      GITHUB_APP_ID: process.env.GITHUB_APP_ID || "1",
+      GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || "e2e-webhook-secret",
+      GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY || "ci-build-placeholder",
+      GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "ci-build-placeholder",
+      GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "ci-build-placeholder",
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9002",
+      // ⭐ Auth.js configuration for E2E test server
       AUTH_TRUST_HOST: "true",
       NEXTAUTH_TRUST_HOST: "true",
       AUTH_URL: process.env.AUTH_URL || "http://localhost:9002",
       NEXTAUTH_URL: process.env.AUTH_URL || "http://localhost:9002",
-      AUTH_SECRET: "e2e-test-secret-key",
-      NEXTAUTH_SECRET: "e2e-test-secret-key",
+      AUTH_SECRET: process.env.AUTH_SECRET || "e2e-test-secret-key",
+      NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || "e2e-test-secret-key",
       NEXT_PUBLIC_MOCK_DB: "true",
       NEXT_PUBLIC_MOCK_AUTH: "true",
-      GITHUB_WEBHOOK_SECRET: "e2e-webhook-secret",
+      // Server-only opt-in required alongside NEXT_PUBLIC_MOCK_AUTH so the mock
+      ALLOW_MOCK_AUTH: "true",
     },
   },
 

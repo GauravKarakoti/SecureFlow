@@ -16,6 +16,7 @@ import {
   X,
   BarChart3,
   Activity,
+  Settings,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
   { name: "System Status", href: "/dashboard/status", icon: Activity },
+  { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 // ─── SidebarContent ───────────────────────────────────────────────────────────

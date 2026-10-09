@@ -202,6 +202,29 @@ describe("false positive prevention (#669)", () => {
     untouched('const apiKey = "INSERT_YOUR_API_KEY";');
   });
 
+  it("leaves whole-value literals untouched", () => {
+    untouched('password = "none"');
+    untouched('secret = "null"');
+    untouched("AUTH_ENABLED=true");
+    untouched("token_ttl=0");
+    untouched('db_password = "localhost:5432"');
+  });
+
+  it("redacts secrets that merely start with a literal like 0, 1, true or none", () => {
+    // Each of these used to match NON_SECRET_VALUE as a prefix and was left in
+    // the clear, by the assignment rules and the entropy pass alike.
+    const hexKey = "0f8e3b9a1c7d4e2f6a5b8c9d0e1f2a3b4c5d6e7f";
+
+    expect(maskSecrets('password = "1qaz2wsx!QAZ"')).toBe(`password = "${REDACTION_PLACEHOLDER}"`);
+    expect(maskSecrets(`const apiKey = "${hexKey}"`)).toBe(
+      `const apiKey = "${REDACTION_PLACEHOLDER}"`,
+    );
+    expect(maskSecrets('secret="nonesuchP4ssw0rd"')).toBe(`secret="${REDACTION_PLACEHOLDER}"`);
+    expect(maskSecrets("DB_PASSWORD=trueN0rth!2024")).toBe(`DB_PASSWORD=${REDACTION_PLACEHOLDER}`);
+    expect(looksLikeCredential(hexKey)).toBe(true);
+    expect(maskSecrets(`sha: 1${hexKey.slice(1)}`)).toBe(`sha: ${REDACTION_PLACEHOLDER}`);
+  });
+
   it("does not redact standard UUIDs or GUIDs via entropy check", () => {
     const uuidText = 'const userId = "c39a2b8e-7e9b-4d7a-8f3a-9e1b2c3d4e5f";';
     untouched(uuidText);

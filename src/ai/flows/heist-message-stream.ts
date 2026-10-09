@@ -1,6 +1,11 @@
 import "dotenv/config";
 import { z } from "zod";
-import { ai, defaultModel } from "@/ai/genkit";
+import {
+  DEFAULT_SECURITY_CONFIG,
+  getAiInstance,
+  getDefaultModelRef,
+  isLocalModelEnabled,
+} from "@/ai/genkit";
 import { isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
 import {
   DEFAULT_PROJECT_NAME,
@@ -152,18 +157,32 @@ export async function* streamHeistMessage(
 
   const prompt = buildPrompt(guardedInput);
 
+  // Resolved per request, like every other flow, so `LOCAL_AI_URL` is honoured.
+  // This flow imported the Groq-backed `ai` directly, so a local-model
+  // deployment (no Groq key, or no route to Groq at all) failed every
+  // transmission and always served the static fallback. The cloud path keeps
+  // `DEFAULT_SECURITY_CONFIG.modelName`, which follows `GROQ_MODEL`.
+  const activeAi = getAiInstance();
+  const model = isLocalModelEnabled() ? getDefaultModelRef() : DEFAULT_SECURITY_CONFIG.modelName;
+
   try {
-    // ── Stream from Groq via Genkit with retries ──────────────────────────────
-    // We ask for plain text output (no JSON schema) so the model doesn't wrap
-    // the monologue in JSON structure — the prompt explicitly says "plain prose".
-    const { stream, response } = await withRetry(
-      async () =>
-        ai.generateStream({
-          model: defaultModel,
+    const { iterator, first, response } = await withRetry(
+      async () => {
+        // Genkit's generateStream() returns synchronously and only reports
+        // provider failures (429, timeouts) through the stream and `response`.
+        // Pull the first chunk here so those failures reach withRetry.
+        const { stream, response } = activeAi.generateStream({
+          model: model as any,
           system: SYSTEM_PROMPT,
           prompt,
           ...(signal ? { abortSignal: signal } : {}),
-        }),
+        });
+        // Observed below; without this a failed attempt that we retry leaves
+        // an unhandled rejection behind.
+        response.catch(() => {});
+        const iterator = stream[Symbol.asyncIterator]();
+        return { iterator, first: await iterator.next(), response };
+      },
       {
         initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
       },
@@ -171,14 +190,13 @@ export async function* streamHeistMessage(
 
     let accumulatedText = "";
 
-    for await (const chunk of stream) {
-      // Stop pulling as soon as the caller is gone. Returning here finalises
-      // the generator, which closes the underlying stream.
+    for (let next = first; !next.done; next = await iterator.next()) {
+      // Stop pulling as soon as the caller is gone.
       if (signal?.aborted) return;
 
       // Genkit streams raw text chunks for non-JSON output.
       // chunk.text is the incremental delta; we accumulate it.
-      const delta: string = chunk.text ?? "";
+      const delta: string = next.value.text ?? "";
       if (delta) {
         accumulatedText += delta;
         yield { type: "chunk", text: accumulatedText };

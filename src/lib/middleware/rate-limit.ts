@@ -55,6 +55,19 @@ export const TIERS = {
     fallbackStrategy: "fail-closed" as FallbackStrategy,
     timeoutMs: 1000,
   },
+
+  SCAN: {
+    limit: 20,
+    windowSeconds: 60,
+    fallbackStrategy: "fail-closed" as FallbackStrategy,
+    timeoutMs: 1000,
+  },
+  SCAN_USER: {
+    limit: 10,
+    windowSeconds: 60,
+    fallbackStrategy: "fail-closed" as FallbackStrategy,
+    timeoutMs: 1000,
+  },
 } as const;
 
 /** Seconds remaining until the window rolls over, floored at 1 so we never say "retry in 0s". */
@@ -136,8 +149,12 @@ export function withRateLimit(
       response &&
       typeof (response as NextResponse).headers?.set === "function"
     ) {
-      for (const [header, value] of Object.entries(buildRateLimitHeaders(result))) {
-        response.headers.set(header, value);
+      try {
+        for (const [header, value] of Object.entries(buildRateLimitHeaders(result))) {
+          response.headers.set(header, value);
+        }
+      } catch {
+        // Headers may be immutable (e.g. standard Web API Response or Response.redirect)
       }
     }
 

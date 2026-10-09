@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { HeistTransmission } from "./heist-transmission";
+import { resolveShareHeistParams } from "./share-params";
 
 const TIER_QUOTES: Record<string, string> = {
   S: "Ghost protocol. Zero traces left behind.",
@@ -9,62 +10,26 @@ const TIER_QUOTES: Record<string, string> = {
   D: "Blown cover. Back to the drawing board.",
 };
 
-function getRankFromScore(score: number): string {
-  if (score >= 90) return "S";
-  if (score >= 75) return "A";
-  if (score >= 60) return "B";
-  if (score >= 40) return "C";
-  return "D";
-}
-
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : "https://secure-flow-six.vercel.app");
 
-type SearchParams = Promise<{
-  project?: string;
-  alias?: string;
-  score?: string;
-  timestamp?: string;
-  rank?: string;
-  findingsCount?: string;
-}>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export async function generateMetadata({
   searchParams,
 }: {
   searchParams: SearchParams;
 }): Promise<Metadata> {
-  const { project, alias, score, timestamp, rank, findingsCount } = await searchParams;
+  const { projectName, playerAlias, score, query } = resolveShareHeistParams(await searchParams);
 
-  const projectName = project || "The Royal Mint";
-  const playerAlias = alias || "The Professor";
-  const securityScore = score || "100";
-  const operationTimestamp = timestamp || "";
-
-  const params = new URLSearchParams({
-    project: projectName,
-    alias: playerAlias,
-    score: securityScore,
-  });
-
-  if (operationTimestamp) {
-    params.set("timestamp", operationTimestamp);
-  }
-  if (rank) {
-    params.set("rank", rank);
-  }
-  if (findingsCount !== undefined) {
-    params.set("findingsCount", String(findingsCount));
-  }
-
-  const imageUrl = `${APP_URL}/api/og/heist?${params.toString()}`;
+  const imageUrl = `${APP_URL}/api/og/heist?${query}`;
 
   const title = `Audit Passed: ${projectName} 🎭`;
 
-  const description = `${playerAlias} secured the vault with a security score of ${securityScore}.`;
+  const description = `${playerAlias} secured the vault with a security score of ${score ?? 100}.`;
 
   return {
     metadataBase: new URL(APP_URL),
@@ -73,7 +38,7 @@ export async function generateMetadata({
     openGraph: {
       title,
       description,
-      url: `${APP_URL}/share/heist?${params.toString()}`,
+      url: `${APP_URL}/share/heist?${query}`,
       siteName: "SecureFlow",
       images: [
         {
@@ -95,51 +60,11 @@ export async function generateMetadata({
 }
 
 export default async function HeistSharePage({ searchParams }: { searchParams: SearchParams }) {
-  const { project, alias, score, timestamp, rank, findingsCount } = await searchParams;
+  const { projectName, score, rank, findingsCount, query } = resolveShareHeistParams(
+    await searchParams,
+  );
 
-  const projectName = project || "The Royal Mint";
-  const playerAlias = alias || "The Professor";
-  const securityScore = score || "100";
-
-  // 1. Retain the URL param and image construction from `main`
-  const params = new URLSearchParams({
-    project: projectName,
-    alias: playerAlias,
-    score: securityScore,
-  });
-
-  if (timestamp) {
-    params.set("timestamp", timestamp);
-  }
-  if (rank) {
-    params.set("rank", rank);
-  }
-  if (findingsCount !== undefined) {
-    params.set("findingsCount", String(findingsCount));
-  }
-
-  const imageUrl = `/api/og/heist?${params.toString()}`;
-
-  // 2. Retain the score, rank, and tagline resolution from `#250-decode-heist`
-  const numericScore = score !== undefined ? Number(score) : undefined;
-  const cleanScore =
-    numericScore !== undefined && !Number.isNaN(numericScore) ? numericScore : undefined;
-
-  const resolvedRank =
-    rank?.toUpperCase() && TIER_QUOTES[rank.toUpperCase()]
-      ? rank.toUpperCase()
-      : cleanScore !== undefined
-        ? getRankFromScore(cleanScore)
-        : undefined;
-
-  const tagline = resolvedRank
-    ? TIER_QUOTES[resolvedRank]
-    : "The vault is empty. Zero traces left behind. 🎭";
-
-  const cleanFindings =
-    findingsCount !== undefined && !Number.isNaN(Number(findingsCount))
-      ? Number(findingsCount)
-      : undefined;
+  const tagline = rank ? TIER_QUOTES[rank] : "The vault is empty. Zero traces left behind. 🎭";
 
   // The page stays a server component (so generateMetadata + OG/Twitter
   // cards keep working) and hands the resolved data to the client
@@ -147,11 +72,11 @@ export default async function HeistSharePage({ searchParams }: { searchParams: S
   return (
     <HeistTransmission
       projectName={projectName}
-      score={cleanScore}
-      rank={resolvedRank}
-      findingsCount={cleanFindings}
+      score={score}
+      rank={rank}
+      findingsCount={findingsCount}
       tagline={tagline}
-      imageUrl={imageUrl}
+      imageUrl={`/api/og/heist?${query}`}
     />
   );
 }

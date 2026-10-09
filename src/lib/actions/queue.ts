@@ -92,6 +92,35 @@ async function recordDlqAudit(
 }
 
 /**
+ * Record the removal of a job from the main webhook queue.
+ *
+ * Removing a waiting or delayed job means that pull request is never scanned,
+ * which is at least as consequential as the DLQ operations above, yet it was the
+ * one destructive action on /admin/queue that left no trace. Non-fatal for the
+ * same reason as {@link recordDlqAudit}.
+ */
+async function recordQueueJobRemoval(
+  actorId: string | null,
+  jobId: string,
+  state: QueueJobState,
+  event: unknown,
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: sanitizeAuditLogInput({
+        userId: actorId,
+        action: "QUEUE_JOB_REMOVE",
+        resource: `webhook-job:${jobId}`,
+        decision: "OK",
+        metadata: { jobId, state, event: typeof event === "string" ? event : null },
+      }),
+    });
+  } catch (err) {
+    console.error("[Queue] Failed to write audit entry:", (err as Error)?.message);
+  }
+}
+
+/**
  * Read waiting DLQ entries, bounded.
  *
  * `getJobs(['waiting'])` with no range read the entire dead-letter queue into
@@ -230,7 +259,7 @@ export async function getQueueJobs(state: QueueJobState, limit = 200) {
 }
 
 export async function removeQueueJob(jobId: string, state: QueueJobState) {
-  await requireAdmin();
+  const session = await requireAdmin();
 
   if (state === "active") {
     throw new Error("Cannot remove a job that is currently being processed");
@@ -247,6 +276,7 @@ export async function removeQueueJob(jobId: string, state: QueueJobState) {
   }
 
   await job.remove();
+  await recordQueueJobRemoval(session?.user?.id ?? null, jobId, state, job.data?.event);
 
   revalidatePath("/admin/queue");
   return { success: true };

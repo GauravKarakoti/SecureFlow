@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "secureflow.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP
+      # Named port so the ServiceMonitor can reference it by name rather than
+      # number — a number reference breaks if the port ever changes.
+      name: {{ .Values.service.portName }}
+  selector:
+    {{- include "secureflow.selectorLabels" . | nindent 4 }}
