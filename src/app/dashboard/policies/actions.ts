@@ -9,6 +9,7 @@ import {
   normalizeToggleInput,
   type TogglePolicyResult,
 } from "@/lib/policies/toggle";
+import { invalidatePolicyCache } from "@/lib/policies/policy-cache";
 
 /**
  * Enable or disable one policy rule for the signed-in user.
@@ -98,6 +99,10 @@ export async function togglePolicy(input: unknown): Promise<TogglePolicyResult> 
 
   revalidatePath("/dashboard/policies");
   revalidatePath("/dashboard/audit");
+
+  // Invalidate the Redis policy cache so the next scan picks up the change
+  // immediately rather than waiting for the TTL to expire.
+  await invalidatePolicyCache(userId);
 
   return { ok: true, isActive };
 }

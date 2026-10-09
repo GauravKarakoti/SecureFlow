@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockContributors = [
@@ -29,6 +29,11 @@ vi.mock("@/app/leaderboard/aggregate", () => ({
 }));
 
 import { GET } from "./route";
+import { loadLeaderboard } from "@/app/leaderboard/aggregate";
+import { resetLeaderboardBroadcaster } from "@/lib/leaderboard/broadcaster";
+
+/** The shape of a Prisma connection failure: it names the database host. */
+const DB_ERROR = "Can't reach database server at `db.internal-prod.example:5432`";
 
 async function readSSE(response: Response): Promise<Array<Record<string, unknown>>> {
   const reader = response.body!.getReader();
@@ -57,6 +62,11 @@ async function readSSE(response: Response): Promise<Array<Record<string, unknown
 describe("GET /api/leaderboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    resetLeaderboardBroadcaster();
   });
 
   it("returns standard JSON data when stream query param is not set", async () => {
@@ -88,5 +98,77 @@ describe("GET /api/leaderboard", () => {
     const res = await GET(req);
 
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+  });
+
+  it("does not start a heartbeat if the client disconnects during the initial load", async () => {
+    vi.useFakeTimers();
+    resetLeaderboardBroadcaster();
+
+    type LeaderboardResult = Awaited<ReturnType<typeof loadLeaderboard>>;
+
+    let resolveLeaderboard!: (value: LeaderboardResult) => void;
+
+    const pendingLeaderboard = new Promise<LeaderboardResult>((resolve) => {
+      resolveLeaderboard = resolve;
+    });
+
+    vi.mocked(loadLeaderboard).mockReturnValue(pendingLeaderboard);
+
+    const abortController = new AbortController();
+
+    const req = new NextRequest("http://localhost:9002/api/leaderboard?stream=true", {
+      signal: abortController.signal,
+    });
+
+    const res = await GET(req);
+
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+
+    // Allow start() to begin the initial refresh.
+    await Promise.resolve();
+
+    // The broadcaster starts one shared polling timer.
+    expect(vi.getTimerCount()).toBe(1);
+
+    // Disconnect while the initial leaderboard load is still pending.
+    abortController.abort();
+
+    // Teardown should clear the broadcaster's polling timer.
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Resolve the initial load after the client has disconnected.
+    resolveLeaderboard([] as LeaderboardResult);
+
+    // Allow the pending refresh and stream start() to resume.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No heartbeat should be created after teardown.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  describe("when the leaderboard cannot be loaded", () => {
+    beforeEach(() => {
+      resetLeaderboardBroadcaster();
+      vi.mocked(loadLeaderboard).mockRejectedValue(new Error(DB_ERROR));
+    });
+
+    it("does not return the database error to the caller as JSON", async () => {
+      const res = await GET(new NextRequest("http://localhost:9002/api/leaderboard"));
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(JSON.stringify(body)).not.toContain("db.internal-prod.example");
+      expect(body.error).toBe("Failed to load leaderboard data");
+    });
+
+    it("does not stream the database error to SSE subscribers", async () => {
+      const res = await GET(new NextRequest("http://localhost:9002/api/leaderboard?stream=true"));
+
+      const events = await readSSE(res);
+
+      expect(events).toEqual([{ error: "Failed to load leaderboard data" }]);
+    });
   });
 });

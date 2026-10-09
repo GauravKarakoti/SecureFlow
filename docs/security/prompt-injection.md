@@ -143,8 +143,6 @@ Guarded transmissions are **not** cached — a guarded result is the static
 fallback rather than generated text, and caching it would pin the fallback to a
 key whose next caller may have supplied a perfectly good name.
 
-## Testing
-
 - `src/ai/flows/heist-prompt-guard.test.ts` — normalisation, input screening
   (including the zero-width-splitter bypass), output screening, and the
   false-positive cases that must _not_ be flagged (`prompt-injection-lab`,
@@ -154,3 +152,45 @@ key whose next caller may have supplied a perfectly good name.
 - `src/app/api/heist-transmission/route.test.ts` — the guard and the cache
   through the route, including that a guarded or errored transmission is not
   cached.
+- `src/ai/flows/heist-prompt-guard.redteam.test.ts` — automated red-team regression
+  suite testing prompt guard resilience across 12 distinct attack categories combining
+  static test corpora and dynamic threat feeds.
+
+---
+
+# Automated Red-Team Threat Feeds & Continuous Verification
+
+## Overview
+
+To protect against emerging jailbreaks and zero-day LLM evasion techniques, SecureFlow integrates an automated, regularly updated threat feed pipeline (`src/lib/security/threat-feed.ts` and `src/data/threat-feeds/threat-feed-payloads.json`).
+
+The pipeline continuously synchronizes and normalizes payloads from public threat intelligence archives (e.g., OWASP LLM01, JailbreakBench, PayloadsAllTheThings) and subjects the guardrails to continuous validation.
+
+## Supported Threat Categories
+
+1. **`instruction-override`**: Direct imperative overrides and system commands.
+2. **`role-play-jailbreak`**: DAN, fictional simulation, and unconstrained persona bypasses.
+3. **`system-prompt-exfiltration`**: Direct and indirect prompt extraction directives.
+4. **`encoding-obfuscation`**: Base64, base64url, ROT13, homoglyphs, and delimiter spacing evasion.
+5. **`indirect-injection`**: Injections buried inside docstrings, commit messages, and metadata.
+6. **`policy-bypass-social-engineering`**: Urgency, executive authority pretexts, and audit simulations.
+7. **`context-window-smuggling`**: Token buffer stuffing and delimiter flood techniques.
+8. **`output-format-hijack`**: Forced raw HTML/script execution or mock JSON pass envelopes.
+9. **`multilingual-bypass`**: Evasion directives framed in non-English languages (French, Spanish, German, Chinese, Russian).
+10. **`adversarial-suffix`**: ChatML/LLaMA instruction delimiter and special token escapes.
+11. **`recursive-simulation`**: Nested multi-stage kernel and multi-turn transcript simulations.
+12. **`math-logic-camouflage`**: Variable substitution and cipher puzzles.
+
+## Running Threat Feed Sync & Red-Team Tests
+
+To synchronize the latest threat feeds:
+
+```bash
+npm run threat-feed:sync
+```
+
+To run the complete red-team suite against all payloads:
+
+```bash
+npm run test:redteam
+```

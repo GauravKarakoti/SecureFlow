@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   // Trace Prisma client artifacts into the standalone output
   outputFileTracingIncludes: {
     "/*": ["./node_modules/.prisma/client/**/*"],
+    // `/api/openapi` reads the spec off disk at request time so the playground
+    // always serves the committed file. Without this the root-level YAML is not
+    // part of the deployment and the route 500s in production.
+    "/api/openapi": ["./openapi.yaml"],
   },
 
   // Never ignore TypeScript errors during production build

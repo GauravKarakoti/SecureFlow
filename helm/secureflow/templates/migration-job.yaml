@@ -1,0 +1,42 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "secureflow.fullname" . }}-migration-{{ randAlphaNum 5 | lower }}
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "secureflow.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "secureflow.serviceAccountName" . }}
+      containers:
+        - name: prisma-migration
+          image: {{ include "secureflow.appImage" . | quote }}
+          imagePullPolicy: {{ .Values.migration.image.pullPolicy }}
+          {{- if .Values.migration.command }}
+          command:
+            {{- toYaml .Values.migration.command | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "secureflow.configMapName" . }}
+            - secretRef:
+                name: {{ include "secureflow.secretName" . }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+{{- end }}

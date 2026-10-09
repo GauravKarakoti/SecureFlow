@@ -24,7 +24,7 @@ describe("SecureFlow CLI Workspace Integration (#636)", () => {
     const cliPkg = JSON.parse(fs.readFileSync(cliPackageJsonPath, "utf8"));
     expect(cliPkg.name).toBe("secureflow-cli");
     expect(cliPkg.bin).toBeDefined();
-    expect(cliPkg.bin.secureflow).toBe("./dist/index.js");
+    expect(cliPkg.bin.secureflow).toBe("dist/index.js");
   });
 
   it("validates that root package-lock.json manages cli dependencies without collisions", () => {

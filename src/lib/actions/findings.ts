@@ -6,6 +6,7 @@ import { getUserTriage, triageKey } from "@/lib/triage/queries";
 import {
   buildFindingsOrderBy,
   buildFindingsWhere,
+  groupFingerprintsByStatus,
   normalizeFindingsQuery,
   planSeverityPage,
   requiresSeverityPlan,
@@ -98,25 +99,6 @@ const SECRET_TYPES = ["SECRET"];
 const VULNERABILITY_TYPES = ["VULNERABILITY"];
 const MISCONFIG_TYPES = ["MISCONFIG"];
 const CATEGORISED_TYPES = [...SECRET_TYPES, ...VULNERABILITY_TYPES, ...MISCONFIG_TYPES];
-
-/**
- * Group triaged fingerprints by status so the status filter can resolve to a
- * fingerprint set. Triage keys off the fingerprint, not `Finding.id`, so this
- * cannot be a relational include.
- */
-function groupFingerprintsByStatus(
-  byKey: Map<string, { status: string; note: string | null }>,
-): Partial<Record<FindingStatus, string[]>> {
-  const grouped: Partial<Record<FindingStatus, string[]>> = {};
-
-  for (const [key, entry] of byKey) {
-    const fingerprint = key.slice(key.indexOf(":") + 1);
-    const status = entry.status as FindingStatus;
-    (grouped[status] ??= []).push(fingerprint);
-  }
-
-  return grouped;
-}
 
 /**
  * One page of findings, plus the stat tiles for the same filter.

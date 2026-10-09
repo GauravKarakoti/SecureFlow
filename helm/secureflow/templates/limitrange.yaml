@@ -1,0 +1,13 @@
+{{- if .Values.limitRange.enabled }}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "secureflow.fullname" . }}-limits
+  labels:
+    {{- include "secureflow.labels" . | nindent 4 }}
+spec:
+  limits:
+    {{- with .Values.limitRange.limits }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

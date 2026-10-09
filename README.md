@@ -51,7 +51,7 @@
 
 ---
 
-SecureFlow integrates directly with GitHub via a GitHub App and webhooks. Every time a Pull Request is opened or updated, **The Professor** — SecureFlow's AI mastermind — extracts the code diff, runs it through Groq's LLM (Llama 3.1), and returns actionable security findings with AI-written explanations and remediation steps, all visible on a centralized Mission Control dashboard.
+SecureFlow integrates directly with GitHub via a GitHub App and webhooks. Every time a Pull Request is opened or updated, **The Professor** — SecureFlow's AI mastermind — extracts the code diff, runs it through Groq's LLM (GPT-OSS-20B), and returns actionable security findings with AI-written explanations and remediation steps, all visible on a centralized Mission Control dashboard.
 
 Think of every Pull Request as a member of the crew trying to get into **The Vault** (your codebase). The Professor checks their credentials at the door — no leaked keys, no sloppy code, no breaches on his watch.
 
@@ -59,7 +59,7 @@ Think of every Pull Request as a member of the crew trying to get into **The Vau
 
 ### 🤖 AI-Powered Detection
 
-Uses Groq's Llama 3.1 to detect hardcoded secrets, vulnerabilities, and misconfigurations in your code.
+Uses Groq's GPT-OSS-20B to detect hardcoded secrets, vulnerabilities, and misconfigurations in your code.
 
 ### ⚡ Real-time Scanning
 
@@ -132,7 +132,7 @@ Everything visible on the SecureFlow Mission Control Dashboard
 | **Framework**          | [Next.js 15](https://nextjs.org/) - App Router + Turbopack                                                           |
 | **Database**           | PostgreSQL + [Prisma ORM](https://www.prisma.io/)                                                                    |
 | **Authentication**     | [NextAuth.js v5](https://authjs.dev/) with GitHub OAuth                                                              |
-| **AI / LLM**           | [Groq SDK](https://groq.com/) (`llama-3.1-8b-instant`) + [Genkit](https://firebase.google.com/docs/genkit)           |
+| **AI / LLM**           | [Groq SDK](https://groq.com/) (`openai/gpt-oss-20b`) + [Genkit](https://firebase.google.com/docs/genkit)             |
 | **GitHub Integration** | [Octokit](https://github.com/octokit/octokit.js)                                                                     |
 | **UI**                 | [Tailwind CSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) + [Recharts](https://recharts.org/) |
 
@@ -356,7 +356,7 @@ npm run genkit:dev
 | `ARMORIQ_API_KEY`         | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                       |
 | `USER_ID`                 | ⬜       | Optional — ArmorIQ user ID                                                                    |
 | `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
-| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `1`). Set `0` when exposed directly — see below |
+| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
 
 ### Trusted proxies and rate limiting
@@ -372,12 +372,15 @@ the app:
 
 | Deployment                              | Value             |
 | --------------------------------------- | ----------------- |
-| Vercel / Render / Fly / a single nginx  | `1` (the default) |
+| Vercel / Render / Fly / a single nginx  | `1`               |
 | Cloudflare in front of one of the above | `2`               |
-| App exposed directly, no proxy          | `0`               |
+| App exposed directly, no proxy          | `0` (the default) |
 
-With `0`, the forwarding headers are ignored entirely — nothing in front of the
-app is authoritative, so nothing in them is believed.
+With `0` (or when the variable is unset), the forwarding headers are ignored
+entirely — nothing in front of the app is authoritative, so nothing in them is
+believed. Every caller then shares one rate-limit bucket, so **behind a proxy
+you must set this**, or one busy client throttles everyone. The app logs a
+one-time warning when it sees forwarding headers with the variable unset.
 
 If the hop count varies (multiple ingress paths), set `TRUSTED_PROXY_IPS`
 instead — e.g. `TRUSTED_PROXY_IPS=10.0.0.0/8,192.168.1.1`. The chain is then
@@ -428,7 +431,7 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 
 - **Frontend**: Next.js App Router with Tailwind CSS for the Mission Control dashboard
 - **Backend**: API routes handle authentication, webhooks, and business logic
-- **AI Layer**: Groq SDK processes code diffs through Llama 3.1 model — The Professor's brain
+- AI Layer: Groq SDK processes code diffs through GPT-OSS-20B model — The Professor's brain
 - **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
 - **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
 

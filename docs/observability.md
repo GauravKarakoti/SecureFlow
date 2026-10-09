@@ -5,6 +5,53 @@ the same module has to run unchanged in the Next.js server runtime, inside the
 standalone Docker image, and in the plain `tsx` worker, and a transport that
 works in one of those and not the others is worse than `console`.
 
+## Prometheus Metrics (#1143)
+
+SecureFlow exposes application telemetry at `GET /api/metrics/landing`. The
+endpoint is public, rate-limited, and cached (30 s TTL) to protect the database
+from scrape storms.
+
+### Kubernetes — Prometheus Operator ServiceMonitor
+
+The Helm chart at `helm/secureflow/` ships a `ServiceMonitor` CRD that tells a
+Prometheus Operator to scrape this endpoint automatically.
+
+**Enable it:**
+
+```bash
+helm install secureflow ./helm/secureflow \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.additionalLabels.release=kube-prometheus-stack
+```
+
+The `additionalLabels.release` value must match the label your Prometheus
+Operator's `serviceMonitorSelector` looks for (commonly `release: kube-prometheus-stack`).
+
+**Key defaults** (override in `values.yaml` or with `--set`):
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `serviceMonitor.enabled` | `false` | Deploy the ServiceMonitor CRD |
+| `serviceMonitor.path` | `/api/metrics/landing` | Scrape path |
+| `serviceMonitor.interval` | `30s` | Scrape interval |
+| `serviceMonitor.scrapeTimeout` | `10s` | Per-scrape timeout |
+| `serviceMonitor.namespace` | release namespace | Where to deploy the CRD |
+
+**Verify scraping is working:**
+
+```bash
+# Check the ServiceMonitor was created
+kubectl get servicemonitor -n <namespace>
+
+# Check Prometheus has picked it up
+# Open Prometheus UI → Status → Targets → search for secureflow
+```
+
+`src/lib/logger.ts` is the application logger. It is dependency-free on purpose:
+the same module has to run unchanged in the Next.js server runtime, inside the
+standalone Docker image, and in the plain `tsx` worker, and a transport that
+works in one of those and not the others is worse than `console`.
+
 ## Using it
 
 ```ts

@@ -56,6 +56,21 @@ finished with is live work, and the snippet is the thing they are looking at.
 These are excluded from redaction by fingerprint until they are resolved or
 dismissed.
 
+### Queue job payloads (Redis)
+
+The table above covers Postgres. Redis holds a second copy of every webhook
+delivery for as long as BullMQ keeps its job, and a webhook job carries the full
+payload (pull request title, author login, repository details). BullMQ keeps
+finished jobs indefinitely unless told otherwise, so this was unbounded too.
+
+The `github-webhooks` queue now keeps **completed jobs for 24 hours** and
+**failed jobs for 48 hours**, the same windows the scan and SBOM queues use
+(constants in `src/lib/queue/webhookQueue.ts`). These are not the replay guard:
+a completed delivery is recorded in `WebhookEvent`, which the worker checks
+first, and a failed delivery is kept in the dead-letter queue for as long as an
+operator needs it. A failed job also no longer blocks GitHub's "Redeliver", which
+replaces it.
+
 ### Why these numbers
 
 - **Webhook events, 30 days.** The rows exist for delivery idempotency. GitHub

@@ -12,6 +12,7 @@ import {
   type TransmissionCache,
 } from "@/lib/heist/transmission-cache";
 import { streamManager } from "@/lib/sse/streamManager";
+import { scrubSensitiveData } from "@/lib/redaction";
 
 const MIN_SCORE = 0;
 const MAX_SCORE = 100;
@@ -177,7 +178,8 @@ export function createHeistStream(
           return;
         }
 
-        const message = err instanceof Error ? err.message : "Unknown streaming error.";
+        const message =
+          err instanceof Error ? scrubSensitiveData(err.message) : "Unknown streaming error.";
         send({ type: "error", message });
         finish();
       }
