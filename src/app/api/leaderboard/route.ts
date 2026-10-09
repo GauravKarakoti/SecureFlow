@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { loadLeaderboard } from "@/app/leaderboard/aggregate";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
+import { createLogger } from "@/lib/logger";
 import {
   DEFAULT_LEADERBOARD_LIMIT,
   getLeaderboardBroadcaster,
@@ -8,6 +9,18 @@ import {
 } from "@/lib/leaderboard/broadcaster";
 
 export const dynamic = "force-dynamic";
+
+const log = createLogger({ context: { component: "api-leaderboard" } });
+
+/**
+ * What an unauthenticated caller is told when the standings cannot be loaded.
+ *
+ * Constant on purpose. The underlying error comes from Prisma, and its message
+ * names the database host and port ("Can't reach database server at …") or
+ * quotes the failing query. The page never shows this text either way: the
+ * client ignores `error` frames and falls back to polling on a non-OK status.
+ */
+const LOAD_FAILURE_MESSAGE = "Failed to load leaderboard data";
 
 /**
  * SSE comment sent between updates.
@@ -36,9 +49,9 @@ async function handler(req: NextRequest): Promise<Response> {
     try {
       const contributors = await loadLeaderboard(DEFAULT_LEADERBOARD_LIMIT);
       return NextResponse.json({ contributors, timestamp: Date.now() });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load leaderboard data";
-      return NextResponse.json({ error: message }, { status: 500 });
+    } catch (error) {
+      log.error("Failed to load leaderboard", { error });
+      return NextResponse.json({ error: LOAD_FAILURE_MESSAGE }, { status: 500 });
     }
   }
 
@@ -72,6 +85,8 @@ async function handler(req: NextRequest): Promise<Response> {
         if (closed) return;
         closed = true;
 
+        req.signal.removeEventListener("abort", teardown);
+
         unsubscribe?.();
         unsubscribe = null;
 
@@ -92,6 +107,7 @@ async function handler(req: NextRequest): Promise<Response> {
 
       const write = (chunk: string): boolean => {
         if (closed) return false;
+
         try {
           controller.enqueue(encoder.encode(chunk));
           return true;
@@ -106,8 +122,12 @@ async function handler(req: NextRequest): Promise<Response> {
       const send = (event: LeaderboardEvent) => {
         const payload =
           event.type === "update"
-            ? { contributors: event.contributors, timestamp: event.timestamp }
-            : { error: event.message };
+            ? {
+                contributors: event.contributors,
+                timestamp: event.timestamp,
+              }
+            : { error: LOAD_FAILURE_MESSAGE };
+
         write(`data: ${JSON.stringify(payload)}\n\n`);
       };
 
@@ -125,15 +145,23 @@ async function handler(req: NextRequest): Promise<Response> {
       // Serve the cached snapshot immediately when one exists, so a client
       // joining mid-cycle does not stare at an empty board for a full interval.
       const cached = broadcaster.cachedEvent;
+
       if (cached) {
         send(cached);
       } else {
         await broadcaster.refreshNow();
       }
 
+      // IMPORTANT:
+      // The client may disconnect while refreshNow() is pending.
+      // In that case teardown() sets `closed` to true. Do not create a
+      // heartbeat interval for a connection that has already been closed.
+      if (closed) return;
+
       heartbeat = setInterval(() => {
         write(": keep-alive\n\n");
       }, HEARTBEAT_INTERVAL_MS);
+
       (heartbeat as unknown as { unref?: () => void }).unref?.();
     },
 
@@ -154,4 +182,7 @@ async function handler(req: NextRequest): Promise<Response> {
   });
 }
 
-export const GET = withRateLimit(handler as any, { ...TIERS.STANDARD, keyPrefix: "leaderboard" });
+export const GET = withRateLimit(handler as any, {
+  ...TIERS.STANDARD,
+  keyPrefix: "leaderboard",
+});

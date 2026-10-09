@@ -152,4 +152,29 @@ describe("AnalyticsClient", () => {
     expect(screen.getByText("73%")).toBeTruthy();
     expect(screen.getByText("90%")).toBeTruthy();
   });
+
+  it("offers a 7/30/90-day range selector and marks the active range", () => {
+    render(<AnalyticsClient {...mockProps} rangeDays={90} />);
+
+    const nav = screen.getByRole("navigation", { name: "Time range" });
+    const links = Array.from(nav.querySelectorAll("a"));
+    expect(links.map((a) => a.textContent)).toEqual(["7d", "30d", "90d"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "?range=7",
+      "?range=30",
+      "?range=90",
+    ]);
+    expect(links.map((a) => a.getAttribute("aria-current"))).toEqual([null, null, "page"]);
+  });
+
+  it("labels the activity chart with the selected window", () => {
+    render(<AnalyticsClient {...mockProps} rangeDays={7} />);
+    expect(screen.getByText("Last 7 Days")).toBeTruthy();
+    expect(screen.queryByText("Last 30 Days")).toBeNull();
+  });
+
+  it("defaults to 30 days", () => {
+    render(<AnalyticsClient {...mockProps} />);
+    expect(screen.getByText("Last 30 Days")).toBeTruthy();
+  });
 });

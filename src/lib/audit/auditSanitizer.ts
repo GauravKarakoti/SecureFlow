@@ -4,15 +4,21 @@ export class AuditSanitizer {
    * to prevent data stripping during database writes.
    */
   static serializePayload(payload: any): string {
-    return JSON.stringify(payload, (key, value) => {
+    // A `function`, not an arrow, so `this` is the object holding `key`.
+    // `JSON.stringify` calls `toJSON()` before the replacer runs, so for a Date
+    // `value` is already its ISO string (or null for an Invalid Date), so a
+    // `value instanceof Date` check never matched and Dates came back as plain
+    // strings. `this[key]` is the original, unconverted value.
+    return JSON.stringify(payload, function (this: any, key, value) {
+      const original = this[key];
+      if (original instanceof Date) {
+        return { _type: "Date", value };
+      }
       if (value instanceof Map) {
         return { _type: "Map", entries: Array.from(value.entries()) };
       }
       if (value instanceof Set) {
         return { _type: "Set", entries: Array.from(value.values()) };
-      }
-      if (value instanceof Date) {
-        return { _type: "Date", value: value.toISOString() };
       }
       return value;
     });
@@ -23,7 +29,7 @@ export class AuditSanitizer {
       if (value && typeof value === "object") {
         if (value._type === "Map") return new Map(value.entries);
         if (value._type === "Set") return new Set(value.entries);
-        if (value._type === "Date") return new Date(value.value);
+        if (value._type === "Date") return new Date(value.value ?? NaN);
       }
       return value;
     });

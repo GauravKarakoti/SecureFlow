@@ -1,9 +1,10 @@
 import Groq from "groq-sdk";
 import type { AISecurityExplanationInput } from "./security-explanation-schemas";
 import { isAtLeast } from "@/lib/severity";
+import { env } from "@/lib/env";
 
 const _groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY || "dummy-key-for-build",
+  apiKey: env.GROQ_API_KEY!,
 });
 
 /**
@@ -19,7 +20,8 @@ async function llmInjectionCheck(text: string): Promise<boolean> {
   try {
     const response = await _groq.chat.completions.create(
       {
-        model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+        // Same unset default as DEFAULT_SCAN_MODEL; llama-3.1-8b-instant is shut down.
+        model: env.GROQ_MODEL || "openai/gpt-oss-20b",
         temperature: 0,
         max_tokens: 5,
         messages: [
@@ -81,6 +83,7 @@ function sanitizeForPrompt(input: string): string {
  * extra manual look, not a suppressed finding.
  */
 const INJECTION_PATTERNS: RegExp[] = [
+  // ── Existing patterns ────────────────────────────────────────────────────
   /ignore (all )?(previous|prior|above) instructions/i,
   /disregard (all )?(previous|prior|above)? ?instructions/i,
   /you are now/i,
@@ -97,6 +100,38 @@ const INJECTION_PATTERNS: RegExp[] = [
   /respond only with/i,
   /<\|.*?\|>/,
   /\[\[.*?(system|instruction).*?\]\]/i,
+
+  // ── Category 1: System-prompt exfiltration (#1109) ────────────────────────
+  // Attempts to make the model reveal its system prompt or developer guidelines.
+  /reveal (the |your )?(hidden |initial |full )?(system|developer|startup) (instructions?|prompt|guidelines?)/i,
+  /print (out |verbatim )?(your )?(system|developer) (prompt|instructions?)/i,
+  /output (your |the )?(full |complete )?(system prompt|initial instructions?|developer guidelines?)/i,
+  /what (does |did )?(your|the) (system prompt|initial prompt) say/i,
+  /tell me (what |about )?(your )?(system|initial|startup) (prompt|instructions?)/i,
+
+  // ── Category 2: Persona hijacking — DAN / jailbreak framing (#1109) ──────
+  // Attempts to replace the model's identity with an unconstrained persona.
+  /\bDAN\b.*?(do anything now|no restrictions|bypass)/i,
+  /do anything now/i,
+  /no (ethical |safety |moral )?constraints/i,
+  /bypass (all )?(safety|security|ethical) (rules?|protocols?|constraints?|guidelines?)/i,
+  /you (are |have )?no longer an? (AI|assistant|language model)/i,
+  /safety subroutines? (are |is )?(inactive|disabled|off)/i,
+  /operating in (safe|debug|unrestricted) mode/i,
+  /unhinged (hacker|assistant|mode)/i,
+  /(?:system|critical)\s+(?:override|update|reset)\b.{0,160}\b(?:reveal|ignore|approve|return|disable|bypass|output)\b/i,
+  /\b(?:reveal|output|print|list|repeat)\b.{0,100}\b(?:internal prompt structure|developer prompts?|boot sequence|initialized rules|security policies|token limits)\b/i,
+  /\bdecode\b.{0,100}\b(?:base64|hex(?:adecimal)?|encoded).{0,80}\b(?:instructions?|prompt|developer)\b/i,
+  /\b(?:output|encode|print).{0,80}\b(?:instructions?|system prompt).{0,80}\b(?:hex|hexadecimal|0x)\b/i,
+  /\b(?:switch persona|hypothetical universe|actor in a movie script|lead security auditor|superuser clearance|trained to test other AIs)\b.{0,160}\b(?:disable|bypass|approve|ignore|safety|security filters?|restrictions?|vulnerability scans?|code reviews?)\b/i,
+  /\bignore all prior constraints\b/i,
+  /\bignore all previous security\b/i,
+  /\b(?:ignore that|forget that)\b.{0,80}\b(?:approve|bypass|disable)\b/i,
+  /\bignore all previous security warnings?\b/i,
+  /\bignore all rules\b.{0,100}\b(?:passwords?|secrets?|credentials?)\b/i,
+  /\bsystemanweisung ignorieren\b|\bdieses update sofort genehmigen\b/i,
+  /\bswitch persona\b.{0,80}\b(?:disable|bypass|approve)\b/i,
+  /\b(?:hypothetical universe|movie script|superuser clearance)\b.{0,140}\b(?:approve|bypass|disable)\b/i,
 ];
 
 function detectPromptInjection(text: string): boolean {

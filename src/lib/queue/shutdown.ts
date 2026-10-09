@@ -100,8 +100,9 @@ export async function gracefulShutdown(
     }
   })();
 
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<void>((resolve) => {
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       console.warn(
         `[Shutdown] Graceful shutdown timed out after ${timeoutMs}ms. Forcing shutdown.`,
       );
@@ -109,7 +110,14 @@ export async function gracefulShutdown(
     }, timeoutMs);
   });
 
-  await Promise.race([shutdownPromise, timeoutPromise]);
+  try {
+    await Promise.race([shutdownPromise, timeoutPromise]);
+  } finally {
+    // Otherwise a shutdown that finished in time still leaves this timer
+    // holding the event loop open, and it later logs a "timed out, forcing
+    // shutdown" warning for a shutdown that did not time out.
+    clearTimeout(timeoutHandle);
+  }
   console.log("[Shutdown] Graceful shutdown sequence completed.");
 }
 

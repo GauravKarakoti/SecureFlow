@@ -11,9 +11,18 @@ export const metadata = {
 // the underlying server action supports full pagination for larger datasets.
 const INITIAL_PAGE_SIZE = 200;
 
-export default async function AdminLogsPage() {
+export default async function AdminLogsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const params = await searchParams;
+  const currentPage = Math.max(1, Number(params.page) || 1);
   const [result, metrics, filters] = await Promise.all([
-    getAuditLogs({ page: 1, pageSize: INITIAL_PAGE_SIZE }),
+    getAuditLogs({
+      page: currentPage,
+      pageSize: INITIAL_PAGE_SIZE,
+    }),
     getAuditLogMetrics(),
     getAuditLogFilters(),
   ]);
@@ -40,7 +49,10 @@ export default async function AdminLogsPage() {
         <MetricsCard title="Top Action" value={topAction ? `${topAction.action}` : "—"} />
       </div>
 
-      <LogsTable logs={result.logs} actions={filters.actions} />
+      <LogsTable
+        logs={result.logs}
+        actions={filters.actions}
+      />
 
       {result.total > INITIAL_PAGE_SIZE && (
         <p className="text-xs text-muted-foreground text-center">

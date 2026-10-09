@@ -7,6 +7,8 @@ import { render, screen } from "@testing-library/react";
 import React from "react";
 import FindingsClient from "./findings-client";
 
+let currentParams = new URLSearchParams();
+
 // Mock Next.js app router hooks
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -15,7 +17,7 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
   }),
   usePathname: () => "/dashboard/findings",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => currentParams,
 }));
 
 // Mock react-countup
@@ -31,6 +33,12 @@ vi.mock("@/components/streaming-explanation", () => ({
 // Mock triage controls
 vi.mock("./finding-triage-controls", () => ({
   default: () => <div data-testid="triage-controls">Triage Controls</div>,
+}));
+
+// Mock BulkRemediationBar to avoid "Cannot read properties of undefined (reading 'length')"
+// when FindingsClient renders it without an active selection in standard tests.
+vi.mock("./bulk-remediation-bar", () => ({
+  default: () => <div data-testid="bulk-remediation-bar-mock" />,
 }));
 
 describe("FindingsClient Component (#633)", () => {
@@ -119,5 +127,24 @@ describe("FindingsClient Component (#633)", () => {
     expect(
       screen.getByText("Great news! Your repositories are currently secure."),
     ).toBeInTheDocument();
+  });
+
+  it("links Export CSV to the server export with the current filters, minus paging", () => {
+    // The export must cover the filtered total, not the page in the browser.
+    currentParams = new URLSearchParams("severity=CRITICAL&q=token&page=3&pageSize=100");
+    try {
+      render(<FindingsClient {...defaultProps} total={340} />);
+      const link = screen.getByRole("link", { name: /Export CSV/ });
+      expect(link).toHaveAttribute("href", "/api/findings/export?severity=CRITICAL&q=token");
+      expect(link).toHaveAttribute("download");
+    } finally {
+      currentParams = new URLSearchParams();
+    }
+  });
+
+  it("disables Export CSV when nothing matches", () => {
+    render(<FindingsClient {...defaultProps} findings={[]} total={0} />);
+    expect(screen.getByRole("button", { name: /Export CSV/ })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /Export CSV/ })).toBeNull();
   });
 });

@@ -32,3 +32,29 @@ export function downloadCSV(data: Array<Record<string, unknown>>, filename: stri
     URL.revokeObjectURL(url);
   }
 }
+
+/**
+ * Serialise `data` as formatted JSON and hand it to the browser as a file download.
+ */
+export function downloadJSON(data: unknown, filename: string) {
+  if (!data) return;
+
+  const jsonString = JSON.stringify(data, null, 2);
+  if (!jsonString) return;
+
+  const blob = new Blob([jsonString], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+
+  try {
+    link.click();
+  } finally {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+}

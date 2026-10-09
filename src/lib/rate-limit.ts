@@ -2,63 +2,105 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import {
   API_RATE_LIMIT_TIERS,
+  API_USER_RATE_LIMIT_TIERS,
   type ApiRateLimitTier,
   type LimitedApiRateLimitClass,
+  type RateLimitDecision,
 } from "./api-rate-limit-policy";
+import { checkRateLimitDetailed, type FallbackStrategy } from "./redis";
+
+export interface RateLimiterLike {
+  limit(identifier: string): Promise<RateLimitDecision>;
+}
+
+export type RateLimitScope = "ip" | "user";
 
 /**
- * Whether a distributed limiter is available at all.
- *
- * Without Upstash configured there is nothing to count against, and the
- * middleware skips limiting rather than failing every request.
+ * Whether Upstash REST client is configured.
  */
 function upstashConfigured(): boolean {
   return Boolean(process.env.UPSTASH_REDIS_REST_URL);
 }
 
 /**
- * The original single global limiter.
- *
- * Kept so anything importing `ratelimit` keeps working. New code should use
- * {@link getApiRateLimiter}, which gives each class of API traffic its own
- * budget instead of putting webhook deliveries, OAuth callbacks and dashboard
- * fetches in one bucket (#644).
+ * A rate limiter backed by the application's Redis infrastructure (src/lib/redis.ts)
+ * with bounded in-memory fallback.
  */
-export const ratelimit = upstashConfigured()
+export class RedisApiRateLimiter implements RateLimiterLike {
+  constructor(
+    private tier: ApiRateLimitTier,
+    private fallbackStrategy: FallbackStrategy = "fail-closed",
+  ) {}
+
+  async limit(identifier: string): Promise<RateLimitDecision> {
+    const key = `api-rate-limit:${this.tier.keyPrefix}:${identifier}`;
+    const result = await checkRateLimitDetailed(key, this.tier.limit, this.tier.windowSeconds, {
+      fallbackStrategy: this.fallbackStrategy,
+      timeoutMs: 1000,
+    });
+
+    return {
+      success: result.allowed,
+      limit: result.limit,
+      remaining: result.remaining,
+      reset: result.resetAt,
+    };
+  }
+}
+
+/**
+ * The single global limiter.
+ *
+ * Kept so legacy imports keep working. Utilizes Redis infrastructure when
+ * Upstash is not configured.
+ */
+export const ratelimit: RateLimiterLike = upstashConfigured()
   ? new Ratelimit({
       redis: Redis.fromEnv(),
       limiter: Ratelimit.slidingWindow(20, "60 s"),
     })
-  : null;
+  : new RedisApiRateLimiter({ limit: 20, windowSeconds: 60, keyPrefix: "global" }, "fail-closed");
 
 /**
- * One limiter per class, built on first use.
- *
- * Memoised because constructing a `Ratelimit` opens a REST client and the
- * middleware runs on every request. Keyed by class rather than by tier object,
- * so a config change cannot silently produce two limiters sharing a prefix.
+ * Limiters memoised per (class, scope).
  */
-const limiters = new Map<LimitedApiRateLimitClass, Ratelimit>();
+const limiters = new Map<string, RateLimiterLike>();
 
-function buildLimiter(tier: ApiRateLimitTier): Ratelimit {
+function buildUpstashLimiter(tier: ApiRateLimitTier): Ratelimit {
   return new Ratelimit({
     redis: Redis.fromEnv(),
     limiter: Ratelimit.slidingWindow(tier.limit, `${tier.windowSeconds} s`),
-    // A distinct prefix per class is the whole point: sharing one would put the
-    // classes straight back into a single bucket.
     prefix: tier.keyPrefix,
   });
 }
 
-/** Resolve the limiter for a class, or `null` when Upstash is not configured. */
-export function getApiRateLimiter(className: LimitedApiRateLimitClass): Ratelimit | null {
-  if (!upstashConfigured()) return null;
-
-  const existing = limiters.get(className);
+/**
+ * Resolve the limiter for an API class and scope (IP or user).
+ *
+ * Utilizes existing Redis infrastructure (helm/secureflow/templates/redis-statefulset.yaml)
+ * when Upstash REST is not configured, ensuring rate limiting is always enforced.
+ */
+export function getApiRateLimiter(
+  className: LimitedApiRateLimitClass,
+  scope: RateLimitScope = "ip",
+): RateLimiterLike {
+  const cacheKey = `${className}:${scope}`;
+  const existing = limiters.get(cacheKey);
   if (existing) return existing;
 
-  const limiter = buildLimiter(API_RATE_LIMIT_TIERS[className]);
-  limiters.set(className, limiter);
+  const tier =
+    scope === "user" ? API_USER_RATE_LIMIT_TIERS[className] : API_RATE_LIMIT_TIERS[className];
+
+  let limiter: RateLimiterLike;
+  if (upstashConfigured() && scope === "ip") {
+    limiter = buildUpstashLimiter(tier);
+  } else {
+    const fallbackStrategy: FallbackStrategy =
+      className === "standard" && scope === "ip" ? "fail-open" : "fail-closed";
+    limiter = new RedisApiRateLimiter(tier, fallbackStrategy);
+  }
+
+  limiters.set(cacheKey, limiter);
   return limiter;
 }
 

@@ -177,6 +177,17 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
   );
   const codenameByLogin = new Map<string, string>();
 
+  // A user's own GitHub login is registered before anyone's name or email alias.
+  // Aliases are first-come, so in one pass a user whose *name* lowercases to
+  // "alice" could claim the key before the user whose *login* is "alice" was
+  // reached — and the real alice's row then showed a stranger's codename.
+  for (const u of users as any[]) {
+    const login = typeof u.githubLogin === "string" ? u.githubLogin.trim().toLowerCase() : "";
+    if (u.codename && login && !codenameByLogin.has(login)) {
+      codenameByLogin.set(login, u.codename);
+    }
+  }
+
   for (const u of users as any[]) {
     if (!u.codename) continue;
 

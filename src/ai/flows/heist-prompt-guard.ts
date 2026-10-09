@@ -23,6 +23,7 @@
  */
 
 import { __internal } from "./security-helpers";
+import { logger } from "@/lib/logger";
 
 const { detectPromptInjection } = __internal;
 
@@ -114,6 +115,9 @@ export function screenProjectName(raw: string | null | undefined): ProjectNameSc
 
   const marker = DELIMITER_MARKERS.find((pattern) => pattern.test(normalized));
   if (marker) {
+    logger.warn("[PROMPT_TELEMETRY] Injection blocked: contains prompt structure markers", {
+      reason: "contains prompt structure markers",
+    });
     return {
       projectName: DEFAULT_PROJECT_NAME,
       rejected: true,
@@ -122,6 +126,9 @@ export function screenProjectName(raw: string | null | undefined): ProjectNameSc
   }
 
   if (detectPromptInjection(normalized)) {
+    logger.warn("[PROMPT_TELEMETRY] Injection blocked: matched a prompt-injection pattern", {
+      reason: "matched a prompt-injection pattern",
+    });
     return {
       projectName: DEFAULT_PROJECT_NAME,
       rejected: true,
@@ -342,6 +349,21 @@ export async function evaluatePromptSafety(
   // with single separators is still matched. The original payload is kept too —
   // the structural checks below care about the real layout.
   const deobfuscated = deobfuscateSpacing(payload);
+  const leetNormalized = payload.replace(/[01345@$]/g, (character) =>
+    ({ "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "@": "a", $: "s" })[
+      character
+    ] ?? character,
+  );
+  const compactPayload = payload.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  if (
+    detectPromptInjection(leetNormalized) ||
+    /(?:system|critical)override.{0,40}(?:approve|returnapproved|ignore|bypass|disable)/.test(
+      compactPayload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
+  }
 
   // 0. Separator-obfuscated injection keywords (`i g n o r e   a l l …`),
   // caught against a fully-stripped copy so the choice of separator is moot.
@@ -372,7 +394,9 @@ export async function evaluatePromptSafety(
     if (
       detectPromptInjection(decoded) ||
       detectPromptInjection(deobfuscateSpacing(decoded)) ||
-      /bypass|reveal|exfiltrat|vault|encryption key|private key|credential/i.test(decoded)
+      /bypass|reveal|exfiltrat|vault|encryption key|private key|credential|system\s+(?:override|reset)|approve\s+(?:all|this|everything)|return\s+approved/i.test(
+        decoded,
+      )
     ) {
       return { isSafe: false, flaggedReason: "obfuscation_high_entropy_injection" };
     }
@@ -384,7 +408,10 @@ export async function evaluatePromptSafety(
     /penetration test/i.test(payload) ||
     /no longer an AI/i.test(payload) ||
     /safety subroutines are inactive/i.test(payload) ||
-    /operating in safe mode/i.test(payload)
+    /operating in safe mode/i.test(payload) ||
+    /hypothetical scenario/i.test(payload) ||
+    /without (?:ethics|safety guidelines|content policies|restrictions)/i.test(payload) ||
+    /acting as ['"][^'"]+['"]/i.test(payload)
   ) {
     return { isSafe: false, flaggedReason: "role_reversal_simulation_bypass" };
   }
@@ -394,9 +421,46 @@ export async function evaluatePromptSafety(
     /={10,}/.test(payload) ||
     /-{10,}/.test(payload) ||
     /\u0000{3,}/.test(payload) ||
-    /\[NEW INSTRUCTION\]/i.test(payload)
+    /\[NEW INSTRUCTION\]/i.test(payload) ||
+    /END OF CONTEXT/i.test(payload)
   ) {
     return { isSafe: false, flaggedReason: "structural_anomaly_token_padding" };
+  }
+
+  // 5. Multilingual Injection Overrides
+  if (
+    /(?:ignorez\s+(?:toutes\s+)?les\s+instructions|ignora\s+(?:todas\s+)?las\s+instrucciones|ignoriere\s+alle\s+(?:vorherigen\s+)?anweisungen|忽略之前的所有指令|игнорируй\s+все\s+предыдущие\s+инструкции)/i.test(
+      payload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "multilingual_injection_override" };
+  }
+
+  // 6. Logic / Cipher Camouflage
+  if (
+    /(?:let\s+rule\s+[a-z]\s*=|substitution\s+cipher|execute\s+rule\s+[a-z]|let's\s+play\s+a\s+game\s+called\s+opposite\s+day)/i.test(
+      payload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "logic_camouflage_jailbreak" };
+  }
+
+  // 7. System Prompt Exfiltration & Extraction Directives
+  if (
+    /(?:output\s+(?:the\s+)?markdown\s+code\s+block\s+containing\s+your\s+initial\s+system\s+prompt|print\s+everything\s+written\s+before)/i.test(
+      payload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "system_prompt_exfiltration" };
+  }
+
+  // 8. Social Engineering & Escalation Directives
+  if (
+    /(?:urgent\s+override\s+from|security\s+auditor\s+drill|skip\s+all\s+security\s+checks\s+for\s+emergency)/i.test(
+      payload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "policy_bypass_social_engineering" };
   }
 
   // Standard screening check, on both the raw and de-obfuscated forms.

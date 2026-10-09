@@ -96,25 +96,44 @@ const MAX_FINDING_TYPES = 10;
 
 // ─── Pure Helpers (testable without DB) ──────────────────────────────────────
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Generate an array of date strings for the last `days` days.
  *
  * Returns ISO date strings (YYYY-MM-DD) ordered oldest-first so the chart
  * renders chronologically. The dashboard's area chart expects contiguous
  * entries even for days with zero activity, which is why this fills gaps.
+ *
+ * Days are UTC days, the same days rows are bucketed into (by the UTC date of
+ * `createdAt`). Building them from local midnight instead shifted the whole
+ * range back a day on any server east of UTC, so the range ended "yesterday"
+ * and today's scans were dropped.
  */
 export function generateDateRange(days: number = DEFAULT_DAYS): string[] {
   const dates: string[] = [];
   const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    d.setHours(0, 0, 0, 0);
-    dates.push(d.toISOString().split("T")[0]);
+    dates.push(new Date(todayUtc - i * DAY_MS).toISOString().split("T")[0]);
   }
 
   return dates;
+}
+
+/** The first and last instant of a date range, as UTC day boundaries. */
+export function utcRangeBounds(dates: string[]): { startDate: Date; endDate: Date } {
+  return {
+    startDate: new Date(dates[0] + "T00:00:00.000Z"),
+    endDate: new Date(dates[dates.length - 1] + "T23:59:59.999Z"),
+  };
+}
+
+/** UTC midnight `days` days before today. */
+function utcDaysAgo(days: number): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
 }
 
 /**
@@ -123,8 +142,8 @@ export function generateDateRange(days: number = DEFAULT_DAYS): string[] {
  * "2026-08-15" → "Aug 15"
  */
 export function formatDateLabel(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const d = new Date(isoDate + "T00:00:00Z");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 /**
@@ -134,6 +153,32 @@ export function buildDateIndex(dates: string[]): Map<string, number> {
   const map = new Map<string, number>();
   dates.forEach((d, i) => map.set(d, i));
   return map;
+}
+
+/**
+ * Count scans per UTC day over the last `days` days, oldest first, labelled the
+ * way every analytics chart is labelled.
+ *
+ * For the overview dashboard's 7-day chart, which used to bucket by the
+ * server's local day (`setHours(0, 0, 0, 0)` and `toLocaleDateString` with no
+ * time zone) while the analytics page buckets by UTC day. On any server not
+ * running in UTC the two charts put the same scan on different days, and the
+ * dashboard's window started at local midnight rather than UTC midnight.
+ */
+export function bucketScansByUtcDay(
+  createdAt: readonly Date[],
+  days: number,
+): Array<{ name: string; scans: number }> {
+  const dateRange = generateDateRange(days);
+  const dateIndex = buildDateIndex(dateRange);
+  const counts = dateRange.map((isoDate) => ({ name: formatDateLabel(isoDate), scans: 0 }));
+
+  for (const date of createdAt) {
+    const idx = dateIndex.get(date.toISOString().split("T")[0]);
+    if (idx !== undefined) counts[idx].scans += 1;
+  }
+
+  return counts;
 }
 
 /**
@@ -200,8 +245,7 @@ export async function fetchDailyScanMetrics(
 
   if (dateRange.length === 0) return [];
 
-  const startDate = new Date(dateRange[0] + "T00:00:00");
-  const endDate = new Date(dateRange[dateRange.length - 1] + "T23:59:59");
+  const { startDate, endDate } = utcRangeBounds(dateRange);
 
   // Fetch all scan results in the range with their finding counts
   const scanResults = await prisma.scanResult.findMany({
@@ -281,8 +325,7 @@ export async function fetchSeverityTrend(
 
   if (dateRange.length === 0) return [];
 
-  const startDate = new Date(dateRange[0] + "T00:00:00");
-  const endDate = new Date(dateRange[dateRange.length - 1] + "T23:59:59");
+  const { startDate, endDate } = utcRangeBounds(dateRange);
 
   const findings = await prisma.finding.findMany({
     where: {
@@ -449,9 +492,7 @@ export async function fetchTopFindingTypes(
   userId: string,
   days: number = DEFAULT_DAYS,
 ): Promise<TopFindingType[]> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-  startDate.setHours(0, 0, 0, 0);
+  const startDate = utcDaysAgo(days);
 
   const findings = await prisma.finding.groupBy({
     by: ["type"],
@@ -497,8 +538,7 @@ export async function fetchScanVelocity(
 
   if (dateRange.length === 0) return [];
 
-  const startDate = new Date(dateRange[0] + "T00:00:00");
-  const endDate = new Date(dateRange[dateRange.length - 1] + "T23:59:59");
+  const { startDate, endDate } = utcRangeBounds(dateRange);
 
   const scans = await prisma.scanResult.findMany({
     where: {
@@ -529,11 +569,7 @@ export async function fetchScanVelocity(
 /**
  * Fetch aggregate summary statistics.
  */
-export async function fetchAnalyticsSummary(userId: string) {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
-
+export async function fetchAnalyticsSummary(userId: string, days: number = DEFAULT_DAYS) {
   const [totalScans, totalFindings, totalPRs, passCount, riskAgg] = await Promise.all([
     prisma.scanResult.count({
       where: {
@@ -567,7 +603,9 @@ export async function fetchAnalyticsSummary(userId: string) {
   ]);
 
   // Compute trend direction from recent scan finding counts
-  const recentMetrics = await fetchDailyScanMetrics(userId, 30);
+  // Over the same window as the charts, so the trend badge describes what is
+  // drawn below it rather than a fixed 30 days whatever range is selected.
+  const recentMetrics = await fetchDailyScanMetrics(userId, days);
   const findingCounts = recentMetrics.map((m) => m.findings);
   const trendDirection = computeTrendDirection(findingCounts);
 
@@ -598,7 +636,7 @@ export async function getAnalyticsPayload(
       fetchRepoSummaries(userId),
       fetchTopFindingTypes(userId, days),
       fetchScanVelocity(userId, days),
-      fetchAnalyticsSummary(userId),
+      fetchAnalyticsSummary(userId, days),
     ]);
 
   return {
