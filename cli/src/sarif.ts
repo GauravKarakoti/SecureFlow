@@ -559,7 +559,7 @@ export async function* streamSarifResults(
     const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
 
     for (let i = 0; i < str.length; i++) {
-      const char = str[i];
+      const char = str.charAt(i);
 
       if (state === State.SEARCHING_RESULTS) {
         if (inString) {
