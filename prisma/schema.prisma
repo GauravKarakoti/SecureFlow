@@ -69,6 +69,8 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc)])
 }
 
 model Account {
@@ -130,6 +132,8 @@ model Repository {
   scanJobs      ScanJob[]
 
   @@index([userId])
+  @@index([userId, isActive])
+  @@index([fullName])
 }
 
 model PolicyTemplate {
@@ -178,10 +182,13 @@ model PullRequest {
   createdAt     DateTime       @default(now())
   scanJobs      ScanJob[]
 
+  @@unique([repositoryId, prNumber])
   @@index([repositoryId])
   @@index([authorLogin])
   @@index([repositoryId, status])
+  @@index([repositoryId, state])
   @@index([repositoryId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
 }
 
 model ScanResult {
@@ -195,7 +202,10 @@ model ScanResult {
 
   @@index([pullRequestId])
   @@index([pullRequestId, createdAt(sort: Desc)])
+  @@index([policyDecision])
+  @@index([createdAt(sort: Desc)])
   @@index([pullRequestId, policyDecision])
+
 }
 
 model Finding {
@@ -207,9 +217,9 @@ model Finding {
   fileLocation             String
   lineStart                Int?
   lineEnd                  Int?
-  codeSnippet              String?
-  explanation              String?
-  remediation              String?
+  codeSnippet              String?           @db.Text
+  explanation              String?           @db.Text
+  remediation              String?           @db.Text
   promptInjectionSuspected Boolean           @default(false)
   fingerprint              String            @default("")
   createdAt                DateTime          @default(now())
@@ -221,6 +231,10 @@ model Finding {
   // walks one severity at a time within a scan's findings, so the list and its
   // per-bucket counts filter on (scanResultId, severity) together.
   @@index([scanResultId, severity])
+
+  @@index([severity])
+  @@index([type])
+  @@index([createdAt(sort: Desc)])
   @@index([scanResultId, type])
 }
 
@@ -233,6 +247,7 @@ model RemediationPatch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([status])
   @@map("remediation_patches")
 }
 
@@ -254,6 +269,8 @@ model FindingTriage {
   // filters a repository's rows by status; the plain (repositoryId) index still
   // scans and filters status, so pair them.
   @@index([repositoryId, status])
+  @@index([status])
+  @@index([resolvedById])
 }
 
 model AuditLog {
@@ -282,11 +299,13 @@ model WebhookEvent {
   repositoryId  String?
   repository    Repository?  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   pullRequestId String?
-  pullRequest   PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  pullRequest   PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
   createdAt     DateTime     @default(now())
 
   @@index([repositoryId])
   @@index([pullRequestId])
+  @@index([createdAt(sort: Desc)])
+  @@index([repositoryId, createdAt(sort: Desc)])
 }
 
 model Role {
@@ -365,6 +384,8 @@ model ScanJob {
   @@index([status])
   @@index([repositoryId])
   @@index([pullRequestId])
+  @@index([status, queuedAt])
+  @@index([repositoryId, status])
   @@index([createdAt(sort: Desc)])
 }
 
@@ -376,4 +397,7 @@ model AuditEventLedger {
   timestamp    DateTime @default(now())
   previousHash String
   currentHash  String   @unique
+
+  @@index([action])
+  @@index([timestamp(sort: Desc)])
 }
