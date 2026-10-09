@@ -105,7 +105,7 @@ RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 # --- Prisma CLI layer (for startup migrations) -----------------------------
-COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
+COPY --from=prisma-cli --chown=nextjs:nodejs /opt/prisma-cli /opt/prisma-cli
 
 # --- Standalone Next.js server ---------------------------------------------
 # `.next/standalone` is a self-contained bundle produced by `output: 'standalone'`
