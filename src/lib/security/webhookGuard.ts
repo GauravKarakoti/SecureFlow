@@ -164,9 +164,10 @@ export function signOutboundWebhook(
     throw new Error("Cannot sign an outbound webhook without a secret");
   }
 
+  const timestampSeconds = Math.floor(Date.now() / 1000);
   const headers = new Headers(extraHeaders);
-  headers.set(SIGNATURE_HEADER, signPayload(payload, secret));
-  headers.set(TIMESTAMP_HEADER, String(Math.floor(Date.now() / 1000)));
+  headers.set(SIGNATURE_HEADER, signPayload(payload, secret, timestampSeconds));
+  headers.set(TIMESTAMP_HEADER, String(timestampSeconds));
   headers.set("Content-Type", "application/json");
 
   return headers;

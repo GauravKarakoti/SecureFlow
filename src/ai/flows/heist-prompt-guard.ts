@@ -349,6 +349,21 @@ export async function evaluatePromptSafety(
   // with single separators is still matched. The original payload is kept too —
   // the structural checks below care about the real layout.
   const deobfuscated = deobfuscateSpacing(payload);
+  const leetNormalized = payload.replace(/[01345@$]/g, (character) =>
+    ({ "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "@": "a", $: "s" })[
+      character
+    ] ?? character,
+  );
+  const compactPayload = payload.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  if (
+    detectPromptInjection(leetNormalized) ||
+    /(?:system|critical)override.{0,40}(?:approve|returnapproved|ignore|bypass|disable)/.test(
+      compactPayload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
+  }
 
   // 0. Separator-obfuscated injection keywords (`i g n o r e   a l l …`),
   // caught against a fully-stripped copy so the choice of separator is moot.
@@ -379,7 +394,9 @@ export async function evaluatePromptSafety(
     if (
       detectPromptInjection(decoded) ||
       detectPromptInjection(deobfuscateSpacing(decoded)) ||
-      /bypass|reveal|exfiltrat|vault|encryption key|private key|credential/i.test(decoded)
+      /bypass|reveal|exfiltrat|vault|encryption key|private key|credential|system\s+(?:override|reset)|approve\s+(?:all|this|everything)|return\s+approved/i.test(
+        decoded,
+      )
     ) {
       return { isSafe: false, flaggedReason: "obfuscation_high_entropy_injection" };
     }

@@ -493,3 +493,94 @@ describe("cross-module contract with the outbound dispatcher (#716)", () => {
     expect(verifySignature(payload.replace("acme", "evil"), secret, header)).toBe(false);
   });
 });
+
+describe("webhook signature timestamp binding regression suite", () => {
+  const secret = "regression-test-secret";
+  const payload = JSON.stringify({ event: "security.alert", id: 42 });
+
+  it("admits valid legacy signature bound to timestamp", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = signPayload(payload, secret, ts);
+
+    const result = admitWebhookRequest(payload, secret, sig, String(ts));
+    expect(result).toEqual({ ok: true, scheme: "legacy" });
+  });
+
+  it("rejects legacy signature when payload is modified", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = signPayload(payload, secret, ts);
+    const modifiedPayload = JSON.stringify({ event: "security.alert", id: 99 });
+
+    const result = admitWebhookRequest(modifiedPayload, secret, sig, String(ts));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain("Invalid signature");
+    }
+  });
+
+  it("rejects legacy signature when timestamp is modified within allowed window", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = signPayload(payload, secret, ts);
+    const modifiedTimestamp = String(ts + 5);
+
+    const result = admitWebhookRequest(payload, secret, sig, modifiedTimestamp);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain("Invalid signature");
+    }
+  });
+
+  it("rejects legacy signature when timestamp is expired", () => {
+    const expiredTs = Math.floor(Date.now() / 1000) - 600;
+    const sig = signPayload(payload, secret, expiredTs);
+
+    const result = admitWebhookRequest(payload, secret, sig, String(expiredTs));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain("outside allowed window");
+    }
+  });
+
+  it("rejects legacy signature when timestamp is in the future", () => {
+    const futureTs = Math.floor(Date.now() / 1000) + 600;
+    const sig = signPayload(payload, secret, futureTs);
+
+    const result = admitWebhookRequest(payload, secret, sig, String(futureTs));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain("outside allowed window");
+    }
+  });
+
+  it("admits valid v1 signature", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const sigV1 = signPayloadV1(payload, secret, ts);
+
+    const result = admitWebhookRequest(payload, secret, sigV1, String(ts));
+    expect(result).toEqual({ ok: true, scheme: "v1" });
+  });
+
+  it("rejects invalid v1 signature", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const invalidSigV1 = `t=${ts},v1=${"0".repeat(64)}`;
+
+    const result = admitWebhookRequest(payload, secret, invalidSigV1, String(ts));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain("Invalid signature");
+    }
+  });
+
+  it("preserves backward compatibility for legacy un-bound bare payload senders", () => {
+    const ts = Math.floor(Date.now() / 1000);
+    const bareSig = signPayload(payload, secret); // no timestamp parameter
+
+    const result = admitWebhookRequest(payload, secret, bareSig, String(ts));
+    expect(result).toEqual({ ok: true, scheme: "legacy" });
+  });
+});
