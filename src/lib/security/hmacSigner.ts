@@ -101,8 +101,18 @@ export function signPayloadV1(
  * @param secret - The shared secret key.
  * @returns The signature in `sha256=<hex>` format.
  */
-export function signPayload(payload: string, secret: string): string {
-  const digest = createHmac("sha256", secret).update(payload, "utf8").digest("hex");
+export function signPayload(
+  payload: string,
+  secret: string,
+  timestampSeconds?: number | string,
+): string {
+  const material =
+    timestampSeconds !== undefined &&
+    timestampSeconds !== null &&
+    String(timestampSeconds).trim() !== ""
+      ? `${timestampSeconds}.${payload}`
+      : payload;
+  const digest = createHmac("sha256", secret).update(material, "utf8").digest("hex");
   return `${SIGNATURE_PREFIX}${digest}`;
 }
 
@@ -166,33 +176,60 @@ function normalizeHex(value: string | null | undefined): string | null {
  *
  * Accepts either scheme; the material signed follows from the scheme in the
  * header, so a v1 signature is verified over `` `${t}.${payload}` `` and a
- * legacy one over `payload`.
+ * legacy one over `` `${t}.${payload}` `` (or `payload` as fallback).
  *
  * @param payload - The raw payload string that was signed.
  * @param secret - The shared secret key.
  * @param signatureHeader - The full signature header value.
+ * @param timestampHeader - Optional timestamp header value.
  * @returns `true` if the signature is valid.
  */
 export function verifySignature(
   payload: string,
   secret: string,
   signatureHeader: string | null | undefined,
+  timestampHeader?: string | null | undefined,
 ): boolean {
   const parsed = parseSignatureHeader(signatureHeader);
   if (!parsed) return false;
 
-  return digestMatches(payload, secret, parsed);
+  const timestampMs = parseTimestamp(timestampHeader);
+  const timestampSeconds = timestampMs !== null ? Math.floor(timestampMs / 1000) : undefined;
+
+  return digestMatches(payload, secret, parsed, timestampSeconds);
 }
 
 /** Constant-time comparison of the expected digest against a parsed header. */
-function digestMatches(payload: string, secret: string, parsed: ParsedSignature): boolean {
-  const material = parsed.scheme === "v1" ? `${parsed.timestampSeconds}.${payload}` : payload;
+function digestMatches(
+  payload: string,
+  secret: string,
+  parsed: ParsedSignature,
+  timestampSeconds?: number,
+): boolean {
+  if (parsed.scheme === "v1") {
+    const material = `${parsed.timestampSeconds}.${payload}`;
+    const digest = createHmac("sha256", secret).update(material, "utf8").digest("hex");
+    const expected = Buffer.from(parsed.hex, "hex");
+    const provided = Buffer.from(digest, "hex");
+    if (provided.length !== expected.length) return false;
+    return timingSafeEqual(provided, expected);
+  }
 
-  const digest = createHmac("sha256", secret).update(material, "utf8").digest("hex");
+  // legacy scheme: try timestamp-bound digest first if timestampSeconds is provided
+  if (timestampSeconds !== undefined) {
+    const timestampMaterial = `${timestampSeconds}.${payload}`;
+    const digest = createHmac("sha256", secret).update(timestampMaterial, "utf8").digest("hex");
+    const expected = Buffer.from(parsed.hex, "hex");
+    const provided = Buffer.from(digest, "hex");
+    if (provided.length === expected.length && timingSafeEqual(provided, expected)) {
+      return true;
+    }
+  }
 
+  // Fallback to bare body digest for backward compatibility with legacy un-bound senders
+  const bareDigest = createHmac("sha256", secret).update(payload, "utf8").digest("hex");
   const expected = Buffer.from(parsed.hex, "hex");
-  const provided = Buffer.from(digest, "hex");
-
+  const provided = Buffer.from(bareDigest, "hex");
   if (provided.length !== expected.length) return false;
 
   return timingSafeEqual(provided, expected);
@@ -297,7 +334,8 @@ export function admitWebhookRequest(
   }
 
   // 5. Verify signature (constant-time)
-  if (!digestMatches(payload, secret, parsed)) {
+  const timestampSeconds = Math.floor(timestampMs / 1000);
+  if (!digestMatches(payload, secret, parsed, timestampSeconds)) {
     return { ok: false, status: 401, message: "Invalid signature" };
   }
 
