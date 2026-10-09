@@ -153,8 +153,8 @@ helm upgrade --install secureflow ./helm/secureflow -f production-values.yaml
 | `worker.enabled`             | Enable background queue workers                 | `true`           |
 | `worker.replicaCount`        | Number of worker replicas                       | `2`              |
 | `worker.concurrency`         | Scan concurrency per worker                     | `5`              |
-| `worker.resources.requests`  | Enforced CPU and memory requests for worker container (OOM protection during heavy AST/SBOM scans) | `cpu: 500m, memory: 1024Mi` |
-| `worker.resources.limits`    | Enforced CPU and memory limits for worker container | `cpu: 2000m, memory: 2048Mi` |
+| `worker.resources.requests`  | Enforced CPU and memory requests for worker container (OOM protection during heavy AST/SBOM scans) | `cpu: 500m, memory: 1Gi` |
+| `worker.resources.limits`    | Enforced CPU and memory limits for worker container | `cpu: 2000m, memory: 2Gi` |
 | `worker.autoscaling.enabled` | Enable HorizontalPodAutoscaler for workers      | `false`          |
 | `worker.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for workers          | `true`           |
 | `worker.podDisruptionBudget.minAvailable` | Minimum available worker replicas during voluntary disruptions | `1` |
