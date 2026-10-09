@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { generateSarifReport, formatSarifJson } from "./sarif.js";
+import { Readable } from "node:stream";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import {
+  generateSarifReport,
+  formatSarifJson,
+  streamSarifResults,
+  parseSarifStream,
+  parseSarifFileStream,
+  type SarifResult,
+} from "./sarif.js";
 import { FileScanResult, formatScanResults } from "./scanner.js";
 
 describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
@@ -127,6 +138,103 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       const textOutput = formatScanResults(sampleScanResults, "text");
       expect(textOutput).toContain("🚨 [SecureFlow] Secret logging detected");
       expect(textOutput).toContain("src/config/db.ts:15");
+    });
+  });
+
+  describe("Streaming JSON Parser for Large SARIF Reports (#1232)", () => {
+    it("should stream and extract individual SarifResult records iteratively", async () => {
+      const sarifDoc = generateSarifReport(sampleScanResults);
+      const jsonContent = JSON.stringify(sarifDoc);
+      const stream = Readable.from([jsonContent]);
+
+      const results: SarifResult[] = [];
+      for await (const result of streamSarifResults(stream)) {
+        results.push(result);
+      }
+
+      expect(results).toHaveLength(3);
+      expect(results[0].ruleId).toBe("SECUREFLOW-001");
+      expect(results[0].message.text).toContain("process.env.DB_PASSWORD");
+      expect(results[1].ruleId).toBe("SECUREFLOW-002");
+      expect(results[2].ruleId).toBe("SECUREFLOW-002");
+    });
+
+    it("should process results via parseSarifStream callback without buffering", async () => {
+      const sarifDoc = generateSarifReport(sampleScanResults);
+      const jsonContent = JSON.stringify(sarifDoc);
+      const stream = Readable.from([jsonContent]);
+
+      const received: string[] = [];
+      const summary = await parseSarifStream(stream, (result) => {
+        received.push(result.ruleId);
+      });
+
+      expect(summary.totalResults).toBe(3);
+      expect(received).toEqual(["SECUREFLOW-001", "SECUREFLOW-002", "SECUREFLOW-002"]);
+    });
+
+    it("should stream directly from file path via parseSarifFileStream using fs.createReadStream", async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sarif-stream-test-"));
+      const filePath = path.join(tmpDir, "report.sarif");
+
+      try {
+        const sarifDoc = generateSarifReport(sampleScanResults);
+        fs.writeFileSync(filePath, JSON.stringify(sarifDoc, null, 2), "utf-8");
+
+        const parsed = await parseSarifFileStream(filePath);
+        expect(parsed.totalResults).toBe(3);
+        expect(parsed.results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+          "src/config/db.ts",
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should handle empty results array gracefully", async () => {
+      const emptySarif = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [{ tool: { driver: { name: "Test" } }, results: [] }],
+      };
+      const stream = Readable.from([JSON.stringify(emptySarif)]);
+
+      const results: SarifResult[] = [];
+      for await (const result of streamSarifResults(stream)) {
+        results.push(result);
+      }
+
+      expect(results).toHaveLength(0);
+    });
+
+    it("should maintain flat memory consumption (< 150MB) while streaming large synthetic SARIF data", async () => {
+      // Stream a synthetic large SARIF report (10,000 results)
+      const totalItems = 10000;
+
+      async function* generateSyntheticSarif() {
+        yield '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"BigScan"}},"results":[';
+        for (let i = 1; i <= totalItems; i++) {
+          yield `${i === 1 ? "" : ","}{"ruleId":"RULE-${i}","level":"error","message":{"text":"Vulnerability report for item ${i} with extended description to simulate payload"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"repo/deeply/nested/component_${i}.tsx"},"region":{"startLine":${i},"snippet":{"text":"leak_${i}"}}}}]}`;
+        }
+        yield "]}]}";
+      }
+
+      const stream = Readable.from(generateSyntheticSarif());
+
+      let parsedCount = 0;
+      let maxHeapMb = 0;
+
+      for await (const result of streamSarifResults(stream)) {
+        parsedCount++;
+        if (parsedCount % 2000 === 0) {
+          const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
+          if (heapMb > maxHeapMb) maxHeapMb = heapMb;
+        }
+      }
+
+      expect(parsedCount).toBe(totalItems);
+      // Verify acceptance criteria: memory consumption stays well under 150MB
+      expect(maxHeapMb).toBeLessThan(150);
     });
   });
 });
