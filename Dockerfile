@@ -79,7 +79,7 @@ FROM node:22-alpine AS prisma-cli
 WORKDIR /opt/prisma-cli
 RUN --mount=type=cache,target=/root/.npm npm init -y \
  && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
-      dotenv@16.6.1 prisma@7.8.0
+      dotenv@16.6.1 prisma@7.10.0
 
 
 # ----------------------------------------------------------------------------
@@ -103,7 +103,7 @@ RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 # --- Prisma CLI layer (for startup migrations) -----------------------------
-COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
+COPY --from=prisma-cli --chown=nextjs:nodejs /opt/prisma-cli /opt/prisma-cli
 
 # --- Standalone Next.js server ---------------------------------------------
 # `.next/standalone` is a self-contained bundle produced by `output: 'standalone'`
