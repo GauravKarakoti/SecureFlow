@@ -1,70 +1,221 @@
-'use server';
+"use server";
+
+import "dotenv/config";
+import {
+  __internal,
+  evaluateForInjection,
+  isRateLimitError,
+  isTimeoutError,
+  withRetry,
+} from "./security-helpers";
+import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
+import {
+  InsufficientVRAMError,
+  insufficientVramMessage,
+  isInsufficientMemoryError,
+  isLocalModelEnabled,
+} from "@/ai/local-model";
+import {
+  AISecurityExplanationInputSchema,
+  AISecurityExplanationOutputSchema,
+  SYSTEM_PROMPT,
+  type AISecurityExplanationInput,
+  type AISecurityExplanationOutput,
+} from "./security-explanation-schemas";
+import { detectWeb3Ecosystem, web3SecurityExplanation } from "./web3-security-explanations";
+import {
+  createExplanationCacheKey,
+  getCachedExplanation,
+  getModelId,
+  setCachedExplanation,
+} from "@/lib/explanation-cache";
+
+const { contradictsSeverity, buildPrompt } = __internal;
+
 /**
- * @fileOverview A Genkit flow that generates plain-English explanations and remediation suggestions for security findings.
+ * Returns true when the finding originates from a Web3 / ZK-circuit file.
  *
- * - developerReceivesAISecurityExplanations - A function that handles the AI explanation process.
- * - AISecurityExplanationInput - The input type for the developerReceivesAISecurityExplanations function.
- * - AISecurityExplanationOutput - The return type for the developerReceivesAISecurityExplanations function.
+ * Used by the dispatcher below to route to the ecosystem-specific prompt
+ * templates in web3-security-explanations.ts instead of the generic flow.
  */
-
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
-
-const AISecurityExplanationInputSchema = z.object({
-  findingType: z
-    .string()
-    .describe('The type of security finding (e.g., Hardcoded OpenAI API key).'),
-  severity: z.string().describe('The severity of the finding (e.g., CRITICAL, HIGH, MEDIUM, LOW).'),
-  description: z.string().describe('A detailed description of the security issue from the scanner.'),
-  fileLocation: z.string().describe('The file path and line number where the finding was detected.'),
-  codeSnippet: z.string().describe('The relevant code snippet related to the finding.'),
-});
-export type AISecurityExplanationInput = z.infer<typeof AISecurityExplanationInputSchema>;
-
-const AISecurityExplanationOutputSchema = z.object({
-  explanation: z
-    .string()
-    .describe('A plain-English explanation of the security finding, easily understandable by a developer.'),
-  remediationSuggestions: z
-    .string()
-    .describe('Actionable and practical remediation steps to fix the security issue.'),
-});
-export type AISecurityExplanationOutput = z.infer<typeof AISecurityExplanationOutputSchema>;
-
-export async function developerReceivesAISecurityExplanations(
-  input: AISecurityExplanationInput
-): Promise<AISecurityExplanationOutput> {
-  return explainSecurityFindingFlow(input);
+function isWeb3Finding(input: AISecurityExplanationInput): boolean {
+  const ecosystem = detectWeb3Ecosystem(input.fileLocation, input.findingType);
+  return ecosystem !== "generic-web3";
 }
 
-const explainSecurityFindingPrompt = ai.definePrompt({
-  name: 'explainSecurityFindingPrompt',
-  input: {schema: AISecurityExplanationInputSchema},
-  output: {schema: AISecurityExplanationOutputSchema},
-  prompt: `You are a security expert. Your task is to explain a security finding in plain English and provide practical remediation suggestions.
+export async function developerReceivesAISecurityExplanations(
+  input: AISecurityExplanationInput,
+): Promise<AISecurityExplanationOutput> {
+  const validatedInput = AISecurityExplanationInputSchema.parse(input);
 
-The explanation should be concise, clear, and easy for a developer to understand. Focus on the impact and risk.
-The remediation suggestions should be actionable, specific steps to fix the issue, including best practices.
-
-Security Finding Details:
-Type: {{{findingType}}}
-Severity: {{{severity}}}
-Description: {{{description}}}
-File Location: {{{fileLocation}}}
-Code Snippet:
-"""{{{codeSnippet}}}"""
-
-Please provide a plain-English explanation and specific remediation suggestions based on the above finding.`,
-});
-
-const explainSecurityFindingFlow = ai.defineFlow(
-  {
-    name: 'explainSecurityFindingFlow',
-    inputSchema: AISecurityExplanationInputSchema,
-    outputSchema: AISecurityExplanationOutputSchema,
-  },
-  async input => {
-    const {output} = await explainSecurityFindingPrompt(input);
-    return output!;
+  // Route Web3 / ZK-circuit findings to the ecosystem-specific flow.
+  // detectWeb3Ecosystem() identifies .sol, .rs, .circom, .leo files and
+  // Web3-specific finding types (reentrancy, underconstrained, CPI, etc.).
+  // The web3 flow runs the same injection pre-filter and consistency checks
+  // but uses domain-specific system prompts and prompt templates.
+  if (isWeb3Finding(validatedInput)) {
+    return web3SecurityExplanation(validatedInput);
   }
-);
+
+  // Cache lookup. The key includes the active model and prompt version, so switching
+  // models (or LOCAL_AI_URL) or editing the prompt never serves stale explanations.
+  // A hit skips the injection checks and the LLM call entirely.
+  const activeAi = getAiInstance();
+  const activeModel = getDefaultModelRef();
+  const cacheKey = createExplanationCacheKey({
+    findingType: validatedInput.findingType,
+    severity: validatedInput.severity,
+    fileLocation: validatedInput.fileLocation,
+    codeSnippet: validatedInput.codeSnippet,
+    description: validatedInput.description,
+    model: getModelId(activeModel),
+  });
+
+  const cached = await getCachedExplanation(cacheKey);
+  if (cached) {
+    return AISecurityExplanationOutputSchema.parse(cached);
+  }
+
+  // Set to true only when the model returned a real, parseable explanation.
+  // Error/fallback text ("Signal lost", rate limit, timeout) must never be cached.
+  let cacheable = false;
+  // A smaller fallback model's answer is never cached under the primary model's key.
+  let usedFallbackModel = false;
+
+  // Two-layer injection check runs on the raw, attacker-controlled fields BEFORE anything is
+  // sent to the main Genkit engine:
+  //   1. Heuristic pre-filter (synchronous, zero cost).
+  //   2. If the heuristic fires, a secondary lightweight LLM call confirms it.
+  // Advisory only — a match sets promptInjectionSuspected so reviewers know to trust the
+  // static severity badge over the AI narrative, but the explanation is still generated.
+  const [snippetResult, descResult] = await Promise.all([
+    evaluateForInjection(validatedInput.codeSnippet),
+    evaluateForInjection(validatedInput.description),
+  ]);
+  const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
+
+  const prompt = buildPrompt(validatedInput);
+
+  let responseText: string | undefined;
+  let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
+
+  try {
+    // Route to local model when LOCAL_AI_URL is set, otherwise use the pinned
+    // fast Groq model. Local mode never falls back to a cloud provider, but if
+    // the active local model does not fit in GPU memory it tries the smaller
+    // models in LOCAL_AI_FALLBACK_MODELS before giving up (#1140).
+    const modelsToTry: unknown[] = isLocalModelEnabled()
+      ? getSecurityExplanationModelChain()
+      : [activeModel];
+    let res: { text: string } | undefined;
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const candidate = modelsToTry[i];
+      try {
+        res = await withRetry(
+          () =>
+            activeAi.generate({
+              model: candidate as any,
+              system: SYSTEM_PROMPT,
+              prompt,
+              config: {
+                maxOutputTokens: 3000,
+                temperature: 0.1,
+              },
+            }),
+          {
+            initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
+          },
+        );
+        usedFallbackModel = i > 0;
+        break;
+      } catch (modelErr) {
+        if (!isInsufficientMemoryError(modelErr)) throw modelErr;
+        if (i < modelsToTry.length - 1) {
+          console.warn(
+            `[LOCAL_AI] Model ${getModelId(candidate)} does not fit in GPU memory. Trying smaller model: ${getModelId(modelsToTry[i + 1])}`,
+          );
+        }
+      }
+    }
+    if (!res) throw new InsufficientVRAMError(modelsToTry.map((m) => getModelId(m)));
+    responseText = res.text;
+  } catch (genError) {
+    if (isInsufficientMemoryError(genError)) {
+      const message =
+        genError instanceof InsufficientVRAMError
+          ? genError.message
+          : insufficientVramMessage([getModelId(activeModel)]);
+      // One actionable line, deliberately without the stack trace.
+      console.warn(`[LOCAL_AI] ${message}`);
+      parsedContent = {
+        explanation: message,
+        remediationSuggestions:
+          "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
+      };
+    } else if (isRateLimitError(genError)) {
+      console.warn("Groq API rate limit reached after retries:", genError);
+      parsedContent = {
+        explanation:
+          "Groq API rate limit reached (429). The Professor will retry transmission shortly.",
+        remediationSuggestions:
+          "Rate limit active: review static scanner details or wait a moment before re-evaluating.",
+      };
+    } else if (isTimeoutError(genError)) {
+      console.warn("Groq API connection timed out after retries:", genError);
+      parsedContent = {
+        explanation: "Groq API connection timed out. The Professor is standing by.",
+        remediationSuggestions:
+          "Connection timed out: verify model availability and inspect the vulnerability manually.",
+      };
+    } else {
+      console.error("AI generation failed after retries:", genError);
+      parsedContent = {
+        explanation: "Signal lost. The Professor is recalculating.",
+        remediationSuggestions:
+          "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
+      };
+    }
+  }
+
+  if (responseText && !parsedContent) {
+    try {
+      const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
+      const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
+
+      if (!jsonMatch) {
+        throw new Error("No JSON object found in response");
+      }
+
+      parsedContent = JSON.parse(jsonMatch[0]);
+      cacheable = !usedFallbackModel;
+    } catch (error) {
+      console.error("Failed to parse explanation JSON:", error);
+      console.error("RAW OUTPUT WAS:\n", responseText);
+
+      parsedContent = {
+        explanation: "Signal lost. The Professor is recalculating.",
+        remediationSuggestions:
+          "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
+      };
+    }
+  }
+
+  const explanation: string = parsedContent?.explanation || "No explanation provided.";
+
+  // Output consistency check: even with structural isolation and the pre-filter, catch cases
+  // where the model's explanation ended up contradicting the finding's known severity.
+  const consistencyFlagged = contradictsSeverity(validatedInput.severity, explanation);
+
+  const output = AISecurityExplanationOutputSchema.parse({
+    explanation,
+    remediationSuggestions:
+      parsedContent?.remediationSuggestions || "No remediation suggestions provided.",
+    promptInjectionSuspected: injectionPreFilterFlagged || consistencyFlagged,
+  });
+
+  if (cacheable && parsedContent?.explanation) {
+    await setCachedExplanation(cacheKey, output);
+  }
+
+  return output;
+}

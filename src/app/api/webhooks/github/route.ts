@@ -1,169 +1,207 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { claw } from '@/lib/armor/claw';
-import { iq } from '@/lib/armor/iq';
-import { developerReceivesAISecurityExplanations } from '@/ai/flows/developer-receives-ai-security-explanations';
-import { App } from 'octokit';
-import prisma from '@/lib/prisma'; // Make sure this path matches your Prisma client export
+import { NextRequest, NextResponse } from "next/server";
+import { addWebhookJob } from "@/lib/queue/webhookQueue";
 
-export async function POST(req: NextRequest) {
-  try {
-    const payload = await req.json();
-    const event = req.headers.get('x-github-event');
+export const maxDuration = 60; // optionally increase timeout if not already set
 
-    if (!['pull_request'].includes(event || '')) {
-      return NextResponse.json({ message: 'Event not tracked' }, { status: 200 });
-    }
+import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
+import {
+  isPayloadTooLarge,
+  isTrackedEvent,
+  normalizeDeliveryId,
+  parseGithubSignature,
+  parseMaxWebhookBytes,
+  parseWebhookPayload,
+  payloadByteLength,
+  verifySignature,
+  webhookJobId,
+} from "@/lib/github/webhook-verification";
+import { env } from "@/lib/env";
+import prisma from "@/lib/prisma";
 
-    const { action, pull_request, repository, installation } = payload;
+/**
+ * GitHub webhook ingest (#562).
+ *
+ * The admission order is deliberate and is the substance of this change:
+ *
+ *   size → delivery id → signature → parse → dispatch on event
+ *
+ * The route previously dispatched on `x-github-event` *first* and verified the
+ * signature second, so an unauthenticated caller sending `x-github-event: push`
+ * received `200 {"message":"Event not tracked"}`. Beyond being a free
+ * unauthenticated 200 and an oracle for "endpoint exists" vs "signature
+ * rejected", it meant `ping` — GitHub's very first delivery when a webhook is
+ * registered — was answered without the secret ever being exercised, so a
+ * webhook configured with the wrong secret looked healthy in the GitHub UI.
+ *
+ * The verification primitives live in `src/lib/github/webhook-verification.ts`
+ * so each branch is unit-testable without constructing a request.
+ */
 
-    // Supported actions: opened, synchronize, reopened
-    if (!['opened', 'synchronize', 'reopened'].includes(action)) {
-      return NextResponse.json({ message: 'Action not tracked' }, { status: 200 });
-    }
+// Runs in the webhook worker now (see `src/lib/queue/worker.ts`); re-exported
+// so existing callers and tests keep importing it from here.
+export { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 
-    if (!installation || !installation.id) {
-       return NextResponse.json({ message: 'No GitHub App installation ID found' }, { status: 400 });
-    }
+/**
+ * Triggers security tracking or alert logging loops when repository protection controls change
+ */
+export async function handleBranchProtectionMutation(payload: Record<string, unknown> | any) {
+  const action = payload.action; // 'created', 'edited', or 'deleted'
+  const ruleName = payload.rule?.name;
+  const repoName = payload.repository?.full_name;
 
-    console.log(`Processing PR #${pull_request.number} on ${repository.full_name}`);
-
-    // Initialize the GitHub App Client using your environment variables
-    const appId = process.env.GITHUB_APP_ID!;
-    const privateKey = process.env.GITHUB_PRIVATE_KEY!.replace(/\\n/g, '\n'); 
-
-    const appClient = new App({
-      appId,
-      privateKey,
-    });
-
-    const octokit = await appClient.getInstallationOctokit(installation.id);
-
-    // 1. Fetch real changed files from the Pull Request
-    const { data: pullRequestFiles } = await octokit.rest.pulls.listFiles({
-      owner: repository.owner.login,
-      repo: repository.name,
-      pull_number: pull_request.number,
-    });
-
-    const fileNames = pullRequestFiles.map((file: any) => file.filename);
-
-    // 2. ArmorClaw Scan
-    const findings = await claw.scanPullRequest(fileNames);
-
-    // 3. AI Analysis
-    const enrichedFindings = await Promise.all(findings.map(async (finding: any) => {
-      const aiResponse = await developerReceivesAISecurityExplanations({
-        findingType: finding.type,
-        severity: finding.severity,
-        description: finding.description,
-        fileLocation: finding.fileLocation,
-        codeSnippet: finding.codeSnippet || ''
-      });
-      return {
-        ...finding,
-        explanation: aiResponse.explanation,
-        remediation: aiResponse.remediationSuggestions
-      };
-    }));
-
-    // 4. ArmorIQ Policy Decision
-    const decision = iq.evaluateFindings(findings);
-
-    // 5. Update GitHub Status Check
-    const conclusion = decision === 'PASS' ? 'success' : (decision === 'REVIEW REQUIRED' ? 'action_required' : 'failure');
-    
-    await octokit.rest.checks.create({
-      owner: repository.owner.login,
-      repo: repository.name,
-      name: 'SecureFlow Scan',
-      head_sha: pull_request.head.sha,
-      status: 'completed',
-      conclusion: conclusion,
-      output: {
-        title: `Policy Decision: ${decision}`,
-        summary: `SecureFlow detected ${findings.length} potential security issues.`,
-      }
-    });
-
-    // 6. Post a PR Comment with AI Explanations
-    if (enrichedFindings.length > 0) {
-      let commentBody = `### 🛡️ SecureFlow AI Security Report\n\n`;
-      enrichedFindings.forEach((f: any) => {
-        commentBody += `**[${f.severity}] ${f.type} in \`${f.fileLocation}\`**\n`;
-        commentBody += `> ${f.explanation}\n\n`;
-        commentBody += `**Remediation:** ${f.remediation}\n\n---\n`;
-      });
-
-      await octokit.rest.issues.createComment({
-        owner: repository.owner.login,
-        repo: repository.name,
-        issue_number: pull_request.number,
-        body: commentBody,
-      });
-    }
-
-    console.log(`Decision: ${decision} reported back to GitHub.`);
-
-    // 7. Persist to DB
-    // First, verify the repository exists in your DB so we can link the PR to it
-    const dbRepo = await prisma.repository.findUnique({
-      where: { githubId: repository.id }
-    });
-
-    if (dbRepo) {
-      // Upsert the PR (creates it if new, updates it if "synchronize" triggered a re-scan)
-      const dbPr = await prisma.pullRequest.upsert({
-        where: { githubId: pull_request.id },
-        update: {
-          title: pull_request.title,
-          state: pull_request.state, 
-          status: decision,
-        },
-        create: {
-          githubId: pull_request.id,
-          prNumber: pull_request.number,
-          title: pull_request.title,
-          state: pull_request.state,
-          status: decision,
-          repositoryId: dbRepo.id
-        }
-      });
-
-      // Calculate a basic numerical risk score based on severities
-      const severityScores: Record<string, number> = { CRITICAL: 10, HIGH: 5, MEDIUM: 3, LOW: 1 };
-      const riskScore = findings.reduce((score: number, f: any) => score + (severityScores[f.severity.toUpperCase()] || 0), 0);
-
-      // Create the ScanResult and use Prisma's nested writes to create all associated Findings at once
-      await prisma.scanResult.create({
-        data: {
-          pullRequestId: dbPr.id,
-          riskScore,
-          policyDecision: decision,
-          findings: {
-            create: enrichedFindings.map((f: any) => ({
-              type: f.type,
-              severity: f.severity,
-              fileLocation: f.fileLocation,
-              codeSnippet: f.codeSnippet || null,
-              explanation: f.explanation || null,
-              remediation: f.remediation || null
-            }))
-          }
-        }
-      });
-
-      console.log(`Successfully persisted scan results and ${enrichedFindings.length} findings to the database.`);
-    } else {
-      console.warn(`Repository ${repository.full_name} (ID: ${repository.id}) not found in the database. Skipping persistence.`);
-    }
-
-    return NextResponse.json({ 
-      success: true, 
-      decision, 
-      findingCount: findings.length 
-    });
-  } catch (error) {
-    console.error('Webhook Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-  }
+  console.warn(
+    `[SECURITY_GOVERNANCE] Branch protection rule '${ruleName}' was ${action} on repo ${repoName}.`,
+  );
+  // Hook up secondary administrative logging mechanisms or compliance monitoring flags here
 }
+
+const handler = withErrorHandler(async function POST(req: NextRequest) {
+  // 1. Validate environment configuration first
+  const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new AppError("Server misconfiguration: GitHub webhook secret is missing.", 500);
+  }
+
+  const maxBytes = parseMaxWebhookBytes(env.GITHUB_WEBHOOK_MAX_BYTES);
+
+  // 2. Size, from the header, before reading a single byte.
+  //
+  // `req.text()` buffers the whole body into memory. With a 50/minute rate limit
+  // and no cap, one source could make the process buffer ~1.25 GB per minute of
+  // unverified bytes — and since verification came after the read, without ever
+  // holding a valid signature.
+  if (isPayloadTooLarge(req.headers.get("content-length"), maxBytes)) {
+    throw new AppError("Webhook payload exceeds the configured size limit", 413);
+  }
+  const webhookSecret = env.GITHUB_WEBHOOK_SECRET ?? process.env.GITHUB_WEBHOOK_SECRET;
+  if (!webhookSecret || !webhookSecret.trim()) {
+    throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500);
+  }
+
+  // 3. Delivery ID, required.
+  //
+  // The worker guards its idempotency check on this value being truthy, so a
+  // delivery without the header used to skip the duplicate check entirely — and
+  // with `attempts: 3` on the queue, a job failing after the scan but before the
+  // completion record was fully re-processed on every retry.
+  const deliveryId = normalizeDeliveryId(req.headers.get("x-github-delivery"));
+  if (!deliveryId) {
+    throw new AppError("Missing or invalid x-github-delivery header", 400);
+  }
+
+  const signatureHex = parseGithubSignature(
+    req.headers.get("x-hub-signature-256") ?? req.headers.get("X-Hub-Signature-256"),
+  );
+  if (!signatureHex) {
+    throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
+  }
+
+  // Read the raw text so the signature is verified over the exact bytes sent,
+  // before anything parses them.
+  // We stream the body if possible to enforce the size limit on unbounded
+  // chunked requests and prevent memory exhaustion (OOM).
+  let rawPayloadText = "";
+  if (req.body) {
+    let totalBytes = 0;
+    const reader = req.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > maxBytes) {
+        reader.releaseLock();
+        throw new AppError("Webhook payload exceeds the configured size limit", 413);
+      }
+      rawPayloadText += decoder.decode(value, { stream: true });
+    }
+    rawPayloadText += decoder.decode();
+  } else {
+    rawPayloadText = await req.text();
+    // `Content-Length` is attacker-supplied, so the real length is re-checked. A
+    // chunked request legitimately omits the header, which is why the first check
+    // cannot be the only one.
+    if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
+      throw new AppError("Webhook payload exceeds the configured size limit", 413);
+    }
+  }
+
+  // 4. Signature, before the body is interpreted in any way.
+  if (!verifySignature(rawPayloadText, secret, signatureHex)) {
+    throw new AppError("Invalid GitHub webhook signature", 401);
+  }
+
+  // 5. Parse.
+  //
+  // This was a bare `JSON.parse` inline. A verified-but-malformed body threw a
+  // SyntaxError with no `statusCode`, so the error handler fell through to 500 —
+  // which GitHub treats as retryable, re-delivering a payload that can never
+  // succeed.
+  const parsed = parseWebhookPayload(rawPayloadText);
+  if (!parsed.ok) {
+    throw new AppError(parsed.reason, 400);
+  }
+
+  const event = req.headers.get("x-github-event");
+
+  // 6. Dispatch — now that the delivery is known to be genuine.
+  if (event === "ping") {
+    // Answered only after verification, so a successful ping is real evidence
+    // that the configured secret matches ours.
+    return NextResponse.json(
+      { status: "pong", deliveryId, message: "Webhook signature verified" },
+      { status: 200 },
+    );
+  }
+
+  if (!isTrackedEvent(event)) {
+    return NextResponse.json({ message: "Event not tracked", deliveryId }, { status: 200 });
+  }
+
+  // 6. Delegate to the queue.
+  //
+  // The job ID is derived from the delivery ID so BullMQ collapses a replayed
+  // delivery before a worker picks it up, rather than leaving the worker's
+  // database check as the only defence.
+  //
+  // All Zod validation, Prisma idempotency checks and DB relations live in the
+  // worker that processes this job.
+//
+  // `replaceFailed`: a delivery whose job exhausted its attempts keeps its job ID
+  // in the queue, so without this a redelivery of that same delivery (GitHub's
+  // "Redeliver" button reuses the delivery ID) is deduped against the dead job,
+  // answered 202, and never runs. Only a *failed* job is replaced; a waiting,
+  // active or completed one still collapses the replay. The request is already
+  // signature-verified, so only GitHub can cause this.
+  try {
+    await addWebhookJob(
+      {
+        payload: parsed.payload,
+        deliveryId,
+        event,
+      },
+      { jobId: webhookJobId(deliveryId), replaceFailed: true },
+    );
+  } catch (error: any) {
+    console.error(`[DLQ_FALLBACK] BullMQ enqueue failed for delivery ${deliveryId}. Routing to Dead Letter Queue...`, error);
+    try {
+      // Dead-Letter Queue (DLQ) Fallback: Store failed webhook deliveries in the database
+      // to ensure no repository scans or push events are skipped during Redis downtime.
+      await prisma.webhookDlq.create({
+        data: {
+          deliveryId,
+          event: event || "unknown",
+          payload: parsed.payload as any,
+          errorMessage: error?.message || "BullMQ enqueue failure"
+        }
+      });
+      console.log(`[DLQ_FALLBACK] Successfully routed delivery ${deliveryId} to Database DLQ.`);
+    } catch (dbError) {
+      console.error(`[DLQ_FALLBACK] CRITICAL: Failed to save to Database DLQ for delivery ${deliveryId}`, dbError);
+    }
+  }
+
+  return NextResponse.json({ status: "queued", deliveryId }, { status: 202 });
+});
+
+export const POST = handler;

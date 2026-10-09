@@ -1,68 +1,139 @@
 import prisma from "@/lib/prisma";
+import { countDistinctFindings } from "@/lib/dashboard/finding-counts";
 import DashboardClient from "./dashboard-client";
-import { MOCK_CHART_DATA } from "@/lib/mock-data"; 
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { getSuppressedFingerprints } from "@/lib/triage/queries";
+import { syncUserRepositories } from "@/lib/github/sync-user-repos";
+import {
+  bucketScansByUtcDay,
+  generateDateRange,
+  utcRangeBounds,
+} from "@/lib/analytics/scan-history";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const session = await auth();
-  
+
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
-  
+
   const userId = session.user.id;
+
+  // 0. Auto-sync repositories for returning users or check GitHub App status (#634)
+  let repoCount = await prisma.repository.count({
+    where: { userId, isActive: true },
+  });
+
+  let needsGitHubAppInstall = false;
+
+  if (repoCount === 0) {
+    try {
+      const syncResult = await syncUserRepositories(
+        userId,
+        (session.user as any).githubLogin,
+        (session as any).accessToken,
+      );
+      if (syncResult.synced > 0) {
+        repoCount = syncResult.synced;
+      } else if (!syncResult.hasInstallation) {
+        needsGitHubAppInstall = true;
+      }
+    } catch (e) {
+      console.warn("[Dashboard] Automatic repo sync on login encountered an error:", e);
+    }
+  }
+
+  // Dismissed (FALSE_POSITIVE / IGNORED) findings must not count toward the
+  // finding tiles or the severity distribution. Exclude them by fingerprint.
+  //
+  // `getSuppressedFingerprints`, not `getUserTriage`: this page only ever read
+  // the dismissed set, and the full lookup loaded every triage row the user
+  // owns — including the free-text notes nothing here renders (#689).
+  const { fingerprints: suppressedFingerprints } = await getSuppressedFingerprints(userId);
+  // Counted once per finding rather than once per scan: every push to a PR
+  // stores a fresh copy of its findings, so counting rows made one secret in a
+  // PR pushed five times read as five. Dismissed findings are still excluded.
+  // See src/lib/dashboard/finding-counts.ts.
+  const countFindings = (where: Record<string, unknown>) =>
+    countDistinctFindings(
+      prisma,
+      { scanResult: { pullRequest: { repository: { userId } } }, ...where },
+      suppressedFingerprints,
+    );
 
   // 1. Fetch High-level Stats (Filtered by user's repositories)
   const totalScans = await prisma.scanResult.count({
-    where: { pullRequest: { repository: { userId } } }
+    where: { pullRequest: { repository: { userId } } },
   });
-  
-  const blockedPRs = await prisma.pullRequest.count({ 
-    where: { status: 'BLOCKED', repository: { userId } } 
+
+  const blockedPRs = await prisma.pullRequest.count({
+    where: { status: "BLOCKED", repository: { userId } },
   });
-  
-  const approvedPRs = await prisma.pullRequest.count({ 
-    where: { status: 'PASS', repository: { userId } } 
+
+  const approvedPRs = await prisma.pullRequest.count({
+    where: { status: "PASS", repository: { userId } },
   });
-  
-  const secretsDetected = await prisma.finding.count({ 
-    where: { type: 'Secret', scanResult: { pullRequest: { repository: { userId } } } } 
-  });
+
+  // `Finding.type` and `Finding.severity` are Prisma enums (#633), so the
+  // literals below are the column's own members and an exact match is the only
+  // thing that is valid here — `findingCategoryFilter` / `severityFilter` build
+  // the same filters and were imported here without ever being called (#686).
+  const secretsDetected = await countFindings({ type: "SECRET" });
 
   // 2. Fetch Recent Pull Requests
-  const recentPRs = await prisma.pullRequest.findMany({
+  const recentPRsRaw = await prisma.pullRequest.findMany({
     where: { repository: { userId } },
     take: 5,
-    orderBy: { createdAt: 'desc' },
-    include: { repository: true }
+    orderBy: { createdAt: "desc" },
+    include: { repository: true },
+  });
+  const recentPRs = recentPRsRaw.map((pr: any) => ({
+    ...pr,
+    githubId: pr.githubId.toString(),
+    repository: { ...pr.repository, githubId: pr.repository.githubId.toString() },
+  }));
+
+  // 3. Fetch Severity Distribution (dismissed findings excluded)
+  const [critical, high, medium, low] = await Promise.all([
+    countFindings({ severity: "CRITICAL" }),
+    countFindings({ severity: "HIGH" }),
+    countFindings({ severity: "MEDIUM" }),
+    countFindings({ severity: "LOW" }),
+  ]);
+
+  // 4. Generate real Chart Data (Last 7 days of scans)
+  // UTC days, the same buckets and labels as the analytics page.
+  const { startDate: sevenDaysAgo } = utcRangeBounds(generateDateRange(7));
+
+  const recentScans = await prisma.scanResult.findMany({
+    where: {
+      createdAt: { gte: sevenDaysAgo },
+      pullRequest: { repository: { userId } },
+    },
+    select: { createdAt: true },
   });
 
-  // 3. Fetch Severity Distribution
-  const critical = await prisma.finding.count({ 
-    where: { severity: 'CRITICAL', scanResult: { pullRequest: { repository: { userId } } } } 
-  });
-  const high = await prisma.finding.count({ 
-    where: { severity: 'HIGH', scanResult: { pullRequest: { repository: { userId } } } } 
-  });
-  const medium = await prisma.finding.count({ 
-    where: { severity: 'MEDIUM', scanResult: { pullRequest: { repository: { userId } } } } 
-  });
-  const low = await prisma.finding.count({ 
-    where: { severity: 'LOW', scanResult: { pullRequest: { repository: { userId } } } } 
-  });
+  // Group scans by date
+  const chartData = bucketScansByUtcDay(
+    recentScans.map((scan: { createdAt: Date }) => scan.createdAt),
+    7,
+  );
 
   const stats = { totalScans, blockedPRs, approvedPRs, secretsDetected };
   const distribution = { critical, high, medium, low };
 
   return (
-    <DashboardClient 
-      stats={stats} 
-      prs={recentPRs} 
-      distribution={distribution} 
-      chartData={MOCK_CHART_DATA} 
+    <DashboardClient
+      stats={stats}
+      prs={recentPRs}
+      distribution={distribution}
+      chartData={chartData}
+      repoCount={repoCount}
+      needsGitHubAppInstall={needsGitHubAppInstall}
+      githubAppUrl={process.env.GITHUB_APP_URL || "/setup"}
     />
   );
 }

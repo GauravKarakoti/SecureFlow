@@ -1,0 +1,42 @@
+node_modules
+.next
+.env
+.env.local
+.env.*.local
+.git
+.github/
+*.md
+!README.md
+docs/
+*.db
+*.db-journal
+.gguf
+.bin
+
+# Test / dev-only artifacts — never needed in the build context, shrinks context transfer size
+**/__tests__/
+tests/e2e/
+**/*.test.ts
+**/*.test.tsx
+coverage/
+.vscode/
+.idea/
+
+# Local Docker/CI files that shouldn't recurse into the build context themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Next.js SWC Cache
+.swc/
+
+# Playwright & UI Test artifacts
+playwright-report/
+test-results/
+blob-report/
+
+# Package manager debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
