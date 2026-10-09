@@ -1,5 +1,14 @@
 # secureflow-cli
 
+## 2.2.2
+
+### Patch Changes
+
+- 14f6d3e: Read `.secureflowignore` from the pull request's base branch instead of its head. The file decides which files the scanner skips (and the `[placeholders]` section which findings it drops), but it was fetched at the PR's own head commit, so a pull request that added a `.secureflowignore` containing `**` had every file in it, `.env` included, silently skipped and still received a passing check run. The base branch is the trust anchor, since changing it takes a merge through the repository's own review. If the base branch cannot be determined, or the file cannot be read, the scan runs without ignore rules, which can only cover more, never less. The webhook worker now passes `baseRef` and leaves ignore loading to the scan engine, so the webhook and `/api/findings` paths share one implementation.
+- 5715bbf: Recommend the fix for the release line a dependency is actually on. OSV advisories list one `fixed` version per maintained branch, and the first one was always reported, so `ws@8.16.0` was told to "update to 5.2.4 or higher" (a downgrade the installed version already satisfies). The fixed version is now chosen from the range containing the installed version, ignores `GIT` ranges whose `fixed` is a commit hash, and is never lower than the installed version.
+- d812a43: Keep the per-PR scan lock held for as long as the scan runs. The lock was a fixed five-minute lease with no renewal, but a scan is not bounded by that (each LLM call may take two minutes and is retried), so a slow scan lost its lock mid-run and the next delayed job for the same PR started concurrently, producing the duplicate scans and comments the lock exists to prevent. The same flat lease also blocked a PR for the full five minutes after a worker crash. The lease is now 60 seconds, renewed every 20 seconds by a heartbeat that only extends a lock it still owns (atomic compare-and-extend in Lua), and stopped before the lock is released.
+- 96b64b1: Let GitHub redeliver a failed webhook, and stop keeping every webhook payload in Redis forever. The ingest route enqueues under `delivery-<id>`, and a delivery whose job exhausted its attempts keeps that job ID, so GitHub's "Redeliver" button (which reuses the delivery ID) was deduplicated against the dead job, answered `202 queued`, and never ran. Only the DLQ requeue paths knew to replace a failed job; the route now does too, while waiting, active and completed jobs still collapse a replay. Separately, `github-webhooks` was the only queue with no `removeOnComplete`/`removeOnFail`, so BullMQ kept every job, full payload included, indefinitely. It now keeps completed jobs for 24 hours and failed jobs for 48 hours, matching the scan and SBOM queues; replay safety is unaffected because completed deliveries are recorded in `WebhookEvent` and failed ones in the DLQ.
+
 ## 2.2.0
 
 ### Minor Changes
