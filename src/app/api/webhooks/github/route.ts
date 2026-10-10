@@ -13,6 +13,7 @@ import {
   parseWebhookPayload,
   payloadByteLength,
   verifySignature,
+  validateWebhookSignature,
   webhookJobId,
 } from "@/lib/github/webhook-verification";
 import { env } from "@/lib/env";
@@ -40,6 +41,7 @@ import prisma from "@/lib/prisma";
 // Runs in the webhook worker now (see `src/lib/queue/worker.ts`); re-exported
 // so existing callers and tests keep importing it from here.
 export { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
+export { validateWebhookSignature, verifySignature } from "@/lib/github/webhook-verification";
 
 /**
  * Triggers security tracking or alert logging loops when repository protection controls change
@@ -93,6 +95,9 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     req.headers.get("x-hub-signature-256") ?? req.headers.get("X-Hub-Signature-256"),
   );
   if (!signatureHex) {
+    console.warn(
+      `[SECURITY_WARNING] GitHub webhook rejected: Missing or invalid x-hub-signature-256 header (delivery: ${deliveryId})`,
+    );
     throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
   }
 
@@ -128,6 +133,9 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   // 4. Signature, before the body is interpreted in any way.
   if (!verifySignature(rawPayloadText, secret, signatureHex)) {
+    console.warn(
+      `[SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery ${deliveryId}`,
+    );
     throw new AppError("Invalid GitHub webhook signature", 401);
   }
 

@@ -64,23 +64,46 @@ export function parseGithubSignature(signatureHeader: string | null | undefined)
 /**
  * Constant-time signature check.
  *
- * `timingSafeEqual` throws when the two buffers differ in length, so the length
- * is compared first. Both operands are fixed-length SHA-256 digests by the time
- * they get here, so that guard is belt-and-braces rather than a leak.
+ * Uses `crypto.timingSafeEqual` to prevent timing attacks.
+ * Accepts string or raw Buffer payload.
  */
 export function verifySignature(
-  payloadText: string,
+  payload: string | Buffer | Uint8Array,
   secret: string,
   signatureHex: string,
 ): boolean {
-  const digest = createHmac("sha256", secret).update(payloadText, "utf8").digest("hex");
+  const hmac = createHmac("sha256", secret);
+  if (typeof payload === "string") {
+    hmac.update(payload, "utf8");
+  } else {
+    hmac.update(Buffer.from(payload));
+  }
+  const digest = hmac.digest("hex");
 
-  const provided = Buffer.from(signatureHex, "hex");
+  const cleanHex = signatureHex.startsWith("sha256=")
+    ? signatureHex.slice("sha256=".length)
+    : signatureHex;
+
+  const provided = Buffer.from(cleanHex, "hex");
   const expected = Buffer.from(digest, "hex");
 
   if (provided.length !== expected.length) return false;
 
   return timingSafeEqual(provided, expected);
+}
+
+/**
+ * Validates the GitHub webhook HMAC signature strictly using Node's crypto module
+ * and timingSafeEqual.
+ */
+export function validateWebhookSignature(
+  payload: string | Buffer | Uint8Array,
+  secret: string,
+  signatureHeader: string | null | undefined,
+): boolean {
+  const signatureHex = parseGithubSignature(signatureHeader);
+  if (!signatureHex) return false;
+  return verifySignature(payload, secret, signatureHex);
 }
 
 /** Read `GITHUB_WEBHOOK_MAX_BYTES`, falling back to the default for junk values. */
