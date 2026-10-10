@@ -23,6 +23,7 @@
     "test:e2e": "playwright test",
     "cli:build": "npm run build --workspace=cli",
     "cli:test": "npm run test --workspace=cli",
+    "cli:test:e2e": "npm run test:e2e --workspace=cli",
     "cli:typecheck": "tsc --noEmit --project cli/tsconfig.json",
     "db:gen": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
