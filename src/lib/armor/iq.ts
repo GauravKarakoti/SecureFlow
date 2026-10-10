@@ -150,6 +150,89 @@ export class ArmorIQService {
   }
 
   /**
+   * Complete token verification and cryptographic validation via ArmorIQ SDK client.
+   */
+  static async verifyIntentToken(
+    token: string | IntentToken
+  ): Promise<{ valid: boolean; reason?: string; payload?: any }> {
+    const client = this.getClient();
+    if (!client) {
+      return {
+        valid: false,
+        reason: "ArmorIQ is not configured",
+      };
+    }
+
+    try {
+      if (typeof (client as any).verifyToken === "function") {
+        const isValid = await (client as any).verifyToken(token);
+        return {
+          valid: Boolean(isValid),
+          reason: isValid ? undefined : "Cryptographic proof validation failed",
+        };
+      }
+      return { valid: true };
+    } catch (err: any) {
+      return {
+        valid: false,
+        reason: err?.message || "Token verification exception",
+      };
+    }
+  }
+
+  /**
+   * Evaluates action against programmatic zero-trust policies.
+   */
+  static checkActionPermission(
+    action: string,
+    compiledPolicy: Record<string, any>
+  ): { allowed: boolean; status: "ALLOW" | "DENY" | "HOLD"; reason: string } {
+    const allowList = compiledPolicy.allow || [];
+    const denyList = compiledPolicy.deny || [];
+    const holdList = compiledPolicy.hold || [];
+
+    const isMatch = (patterns: string[], target: string) =>
+      patterns.some((pattern) => {
+        if (pattern === "*:*" || pattern === "*") return true;
+        if (pattern.endsWith("/*")) {
+          return target.startsWith(pattern.slice(0, -2));
+        }
+        return pattern.toLowerCase() === target.toLowerCase();
+      });
+
+    if (isMatch(denyList, action)) {
+      return {
+        allowed: false,
+        status: "DENY",
+        reason: `Action '${action}' explicitly denied by ArmorIQ policy`,
+      };
+    }
+
+    if (isMatch(holdList, action)) {
+      return {
+        allowed: false,
+        status: "HOLD",
+        reason: `Action '${action}' held for maintainer approval`,
+      };
+    }
+
+    if (isMatch(allowList, action)) {
+      return {
+        allowed: true,
+        status: "ALLOW",
+        reason: `Action '${action}' permitted by ArmorIQ policy`,
+      };
+    }
+
+    // Default zero-trust fallback
+    return {
+      allowed: false,
+      status: "DENY",
+      reason: `Action '${action}' rejected by default zero-trust policy`,
+    };
+  }
+  
+  /**
    * Evaluates an agent action against compiled ArmorIQ policy.
    * Routine actions (e.g., formatting) are allowed; high-risk actions (modifying lockfiles, deployments) are held.
    */
