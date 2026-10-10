@@ -42,7 +42,8 @@
     "prepare": "husky",
     "ngrok": "ngrok http 9002",
     "secureflow": "npx secureflow",
-    "verify:openapi": "tsx scripts/verify-openapi.ts"
+    "verify:openapi": "tsx scripts/verify-openapi.ts",
+    "mcp:threat-intel": "tsx src/mcp/threat-intel-server.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.6.10",

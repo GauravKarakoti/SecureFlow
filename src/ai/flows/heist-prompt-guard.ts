@@ -501,9 +501,11 @@ export interface PromptSafetyOptions {
 
 export interface ArmorIQVerificationResult {
   allowed: boolean;
+  status?: "allowed" | "denied" | "hold";
   reason: string | null;
   error?: string | null;
   verified?: boolean;
+  requiresHumanApproval?: boolean;
 }
 
 export interface VerifyArmorIQStepOptions {
@@ -683,11 +685,45 @@ export async function verifyArmorIQStep(
       }
     }
 
+    // 4. Action policy check (hold for approval vs allow vs deny)
+    if (options.toolCall?.action) {
+      const evaluation = ArmorIQService.evaluateActionPolicy(
+        options.toolCall.action,
+        options.toolCall.params || {}
+      );
+
+      if (evaluation.status === "hold") {
+        logger.info(
+          `[ARMORIQ_POLICY] Action held for approval: ${options.toolCall.action}`,
+          { reason: evaluation.reason }
+        );
+        return {
+          allowed: false,
+          status: "hold",
+          reason: evaluation.reason,
+          verified: true,
+          requiresHumanApproval: true,
+        };
+      }
+
+      if (evaluation.status === "deny") {
+        return {
+          allowed: false,
+          status: "denied",
+          reason: evaluation.reason,
+          verified: true,
+          requiresHumanApproval: false,
+        };
+      }
+    }
+
     // Valid and verified
     return {
       allowed: true,
+      status: "allowed",
       reason: null,
       verified: true,
+      requiresHumanApproval: false,
     };
   } catch (error: any) {
     // FAIL-CLOSED: Catch all network timeouts, 503s, and unhandled JWT exceptions
