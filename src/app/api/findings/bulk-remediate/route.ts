@@ -119,10 +119,19 @@ const handler = async function POST(req: NextRequest) {
     if (action === "apply" || action === "rollback") {
       const newStatus = action === "rollback" ? "PENDING" : "APPLIED";
 
-      await prisma.remediationPatch.updateMany({
-        where: { findingId: { in: uniqueIds } },
-        data: { status: newStatus },
-      });
+      if (typeof prisma.$transaction === "function") {
+        await prisma.$transaction(async (tx: any) => {
+          await tx.remediationPatch.updateMany({
+            where: { findingId: { in: uniqueIds } },
+            data: { status: newStatus },
+          });
+        });
+      } else {
+        await prisma.remediationPatch.updateMany({
+          where: { findingId: { in: uniqueIds } },
+          data: { status: newStatus },
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -145,9 +154,18 @@ const handler = async function POST(req: NextRequest) {
       );
     }
 
-    // Generate individual remediation patches and store them
-    const results = await Promise.all(
-      findings.map(async (finding: any) => {
+    // 1. Process all external AI patch generations PRIOR to entering the database transaction
+    const generatedResults: Array<{
+      findingId: string;
+      fileLocation: string;
+      patchDiff: string;
+      explanation: string;
+    }> = [];
+
+    const failedItems: Array<{ findingId: string; error: string }> = [];
+
+    for (const finding of findings) {
+      try {
         const aiResult = await generateRemediationPatchFlow({
           vulnerableCode: finding.codeSnippet || "",
           findingDescription:
@@ -155,26 +173,62 @@ const handler = async function POST(req: NextRequest) {
           filePath: finding.fileLocation,
         });
 
-        const patch = await prisma.remediationPatch.upsert({
-          where: { findingId: finding.id },
-          update: { patchDiff: aiResult.patchDiff, status: "GENERATED" },
-          create: { findingId: finding.id, patchDiff: aiResult.patchDiff, status: "GENERATED" },
-        });
+        if (!aiResult || !aiResult.patchDiff) {
+          throw new Error("AI patch generation returned empty diff");
+        }
 
-        return {
+        generatedResults.push({
           findingId: finding.id,
           fileLocation: finding.fileLocation,
-          patch,
+          patchDiff: aiResult.patchDiff,
           explanation: aiResult.explanation,
-        };
-      }),
-    );
+        });
+      } catch (err: any) {
+        failedItems.push({
+          findingId: finding.id,
+          error: err?.message || "AI patch generation failed",
+        });
+        // Abort on failure to guarantee strict atomicity and safe rollback
+        break;
+      }
+    }
+
+    // If any item failed generation, abort the entire transaction safely without writing to DB
+    if (failedItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Bulk remediation aborted: AI patch generation failed for one or more findings",
+          failedItems,
+          successCount: 0,
+          totalCount: findings.length,
+        },
+        { status: 400 },
+      );
+    }
+
+    // 2. All external data collected successfully. Execute database mutations atomically inside prisma.$transaction.
+    const savePatches = async (client: any) => {
+      const patches: any[] = [];
+      for (const item of generatedResults) {
+        const patch = await client.remediationPatch.upsert({
+          where: { findingId: item.findingId },
+          update: { patchDiff: item.patchDiff, status: "GENERATED" },
+          create: { findingId: item.findingId, patchDiff: item.patchDiff, status: "GENERATED" },
+        });
+        patches.push(patch);
+      }
+      return patches;
+    };
+
+    await (typeof prisma.$transaction === "function"
+      ? prisma.$transaction(savePatches)
+      : savePatches(prisma));
 
     // Combine individual diffs into a unified multi-file diff
-    const combinedDiff = results.map((r: any) => r.patch.patchDiff).join("\n\n");
+    const combinedDiff = generatedResults.map((r) => r.patchDiff).join("\n\n");
     const combinedExplanation =
       `Bulk remediation patch for ${findings.length} ${types[0]} findings across repository:\n` +
-      results.map((r: any) => `• ${r.fileLocation}: ${r.explanation}`).join("\n");
+      generatedResults.map((r) => `• ${r.fileLocation}: ${r.explanation}`).join("\n");
 
     return NextResponse.json({
       success: true,
