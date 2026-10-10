@@ -17,6 +17,7 @@ import {
   BarChart3,
   Activity,
   Settings,
+  Cpu,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -28,10 +29,12 @@ const NAV_ITEMS = [
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
+  { name: "AI Model Health", href: "/dashboard/ai-health", icon: Cpu },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
   { name: "System Status", href: "/dashboard/status", icon: Activity },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
+
 
 // ─── SidebarContent ───────────────────────────────────────────────────────────
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
