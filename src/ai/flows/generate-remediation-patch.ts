@@ -35,12 +35,22 @@ export async function generateRemediationPatch(input: PatchInput): Promise<Patch
   const activeAi = getAiInstance();
   const activeModel = getDefaultModelRef();
 
+  let threatIntelContext = "";
+  try {
+    const { queryLiveThreatIntelligence } = await import("@/mcp/threat-intel-server");
+    threatIntelContext = await queryLiveThreatIntelligence(
+      `${validatedInput.findingDescription} ${validatedInput.filePath}`
+    );
+  } catch {
+    // Graceful degradation if MCP server module cannot be loaded
+  }
+
   const prompt = `You are an expert security engineer. Your task is to generate a unified diff patch to fix the following security vulnerability.
 
 File: ${validatedInput.filePath}
 
 Vulnerability: ${validatedInput.findingDescription}
-
+${threatIntelContext ? `\nLive Threat Intelligence Context:\n${threatIntelContext}\n` : ""}
 Current Code:
 
 \`\`\`
@@ -48,7 +58,6 @@ ${validatedInput.vulnerableCode}
 \`\`\`
 
 Provide ONLY the unified diff patch that fixes this issue securely. Do not include markdown code blocks around the diff, just the raw diff text. Also provide a brief 1-sentence explanation of the fix.
-
 `;
 
   try {
