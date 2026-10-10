@@ -367,6 +367,51 @@ secrets:
   armoriqApiKey: ""
 
 # ----------------------------------------------------------------------------
+# External Secrets Operator (ESO) Configuration
+# https://external-secrets.io/
+# Integrates with AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, etc.
+# ----------------------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  annotations: {}
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "vault-backend"
+    kind: "SecretStore" # SecretStore or ClusterSecretStore
+  target:
+    creationPolicy: "Owner"
+  # Fetch specific secret keys from external provider
+  data: []
+  # Example:
+  # - secretKey: AUTH_SECRET
+  #   remoteRef:
+  #     key: secureflow/production
+  #     property: auth_secret
+  # - secretKey: GROQ_API_KEY
+  #   remoteRef:
+  #     key: secureflow/production
+  #     property: groq_api_key
+
+  # Or fetch all properties from remote secret map
+  dataFrom: []
+  # Example:
+  # - extract:
+  #     key: secureflow/production
+
+# ----------------------------------------------------------------------------
+# Sealed Secrets Configuration (Bitnami)
+# https://github.com/bitnami-labs/sealed-secrets
+# ----------------------------------------------------------------------------
+sealedSecrets:
+  enabled: false
+  annotations: {}
+  # Map of encrypted secret tokens generated via `kubeseal`
+  encryptedData: {}
+  # Example:
+  #   AUTH_SECRET: AgBy3...
+  #   GROQ_API_KEY: AgBy3...
+
+# ----------------------------------------------------------------------------
 # PostgreSQL Configuration (In-cluster deployment or External Database)
 # ----------------------------------------------------------------------------
 postgresql:
