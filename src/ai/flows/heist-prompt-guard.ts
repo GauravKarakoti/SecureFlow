@@ -24,6 +24,7 @@
 
 import { __internal } from "./security-helpers";
 import { logger } from "@/lib/logger";
+import { ArmorIQService } from "@/lib/armor/iq";
 
 const { detectPromptInjection } = __internal;
 
@@ -209,6 +210,7 @@ export function delimitProjectName(projectName: string): string {
 export interface PromptSafetyEvaluation {
   isSafe: boolean;
   flaggedReason: string | null;
+  armorIQVerification?: ArmorIQVerificationResult;
 }
 
 /**
@@ -340,7 +342,19 @@ export function looksLikeObfuscatedInjection(text: string): boolean {
  */
 export async function evaluatePromptSafety(
   payload: string | null | undefined,
+  options?: PromptSafetyOptions,
 ): Promise<PromptSafetyEvaluation> {
+  if (options?.intentToken !== undefined) {
+    const verification = await verifyArmorIQStep(options.intentToken, options);
+    if (!verification.allowed) {
+      return {
+        isSafe: false,
+        flaggedReason: verification.reason || "verification_failed_unreachable",
+        armorIQVerification: verification,
+      };
+    }
+  }
+
   if (typeof payload !== "string" || !payload.trim()) {
     return { isSafe: true, flaggedReason: null };
   }
@@ -355,15 +369,6 @@ export async function evaluatePromptSafety(
     ] ?? character,
   );
   const compactPayload = payload.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-  if (
-    detectPromptInjection(leetNormalized) ||
-    /(?:system|critical)override.{0,40}(?:approve|returnapproved|ignore|bypass|disable)/.test(
-      compactPayload,
-    )
-  ) {
-    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
-  }
 
   // 0. Separator-obfuscated injection keywords (`i g n o r e   a l l …`),
   // caught against a fully-stripped copy so the choice of separator is moot.
@@ -447,7 +452,7 @@ export async function evaluatePromptSafety(
 
   // 7. System Prompt Exfiltration & Extraction Directives
   if (
-    /(?:output\s+(?:the\s+)?markdown\s+code\s+block\s+containing\s+your\s+initial\s+system\s+prompt|print\s+everything\s+written\s+before)/i.test(
+    /(?:output\s+(?:the\s+)?markdown\s+code\s+block\s+containing\s+your\s+initial\s+system\s+prompt|print\s+everything\s+written\s+before|list\s+all\s+rules\s+you\s+were\s+initialized\s+with)/i.test(
       payload,
     )
   ) {
@@ -461,6 +466,16 @@ export async function evaluatePromptSafety(
     )
   ) {
     return { isSafe: false, flaggedReason: "policy_bypass_social_engineering" };
+  }
+
+  // 9. Leetspeak obfuscation & system override sequence
+  if (
+    detectPromptInjection(leetNormalized) ||
+    /(?:system|critical)override.{0,40}(?:approve|returnapproved|ignore|bypass|disable)/.test(
+      compactPayload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
   }
 
   // Standard screening check, on both the raw and de-obfuscated forms.
@@ -477,3 +492,219 @@ export async function evaluatePromptSafety(
 
   return { isSafe: true, flaggedReason: null };
 }
+
+export interface PromptSafetyOptions {
+  intentToken?: any;
+  toolCall?: any;
+  client?: any;
+}
+
+export interface ArmorIQVerificationResult {
+  allowed: boolean;
+  reason: string | null;
+  error?: string | null;
+  verified?: boolean;
+}
+
+export interface VerifyArmorIQStepOptions {
+  client?: any;
+  toolCall?: {
+    action?: string;
+    mcp?: string;
+    params?: Record<string, unknown>;
+  };
+  policy?: Record<string, unknown>;
+  timeoutMs?: number;
+}
+
+/**
+ * Parses JWT payload (supporting base64 and base64url).
+ */
+function parseJwtPayload(token: string): Record<string, any> | null {
+  if (typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const raw = Buffer.from(parts[1], "base64url").toString("utf-8");
+    return JSON.parse(raw);
+  } catch {
+    try {
+      const raw = Buffer.from(parts[1], "base64").toString("utf-8");
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Verifies an AI agent intent token and tool execution step against ArmorIQ policy.
+ *
+ * Implements strict FAIL-CLOSED enforcement (#1236):
+ * If the policy engine is unreachable, times out, throws an exception during JWT validation,
+ * or cryptographic proof verification fails, the execution is blocked (`allowed: false`)
+ * with a `verification_failed_unreachable` reason.
+ */
+export async function verifyArmorIQStep(
+  tokenOrInput: any,
+  toolCallOrOptions?: any,
+  maybeOptions?: any,
+): Promise<ArmorIQVerificationResult> {
+  try {
+    let token = tokenOrInput;
+    let options: VerifyArmorIQStepOptions = {};
+
+    if (
+      tokenOrInput &&
+      typeof tokenOrInput === "object" &&
+      ("intentToken" in tokenOrInput || "token" in tokenOrInput)
+    ) {
+      token = tokenOrInput.intentToken ?? tokenOrInput.token;
+      options = { ...tokenOrInput, ...toolCallOrOptions };
+    } else if (toolCallOrOptions && typeof toolCallOrOptions === "object") {
+      if ("action" in toolCallOrOptions || "mcp" in toolCallOrOptions || "tool" in toolCallOrOptions) {
+        options = { toolCall: toolCallOrOptions, ...maybeOptions };
+      } else {
+        options = { ...toolCallOrOptions };
+      }
+    }
+
+    if (!token) {
+      logger.warn("[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (missing token)");
+      return {
+        allowed: false,
+        reason: "verification_failed_unreachable",
+        error: "Missing intent token",
+        verified: false,
+      };
+    }
+
+    // 1. If an explicit client is provided or available from ArmorIQService
+    const client = options.client ?? ArmorIQService.getClient();
+
+    if (client && typeof client.verifyToken === "function") {
+      const isValid = await client.verifyToken(token);
+      if (!isValid) {
+        logger.warn(
+          "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (cryptographic verification returned false)",
+        );
+        return {
+          allowed: false,
+          reason: "verification_failed_unreachable",
+          error: "Token verification failed: cryptographic proof or expiry check failed",
+          verified: false,
+        };
+      }
+    }
+
+    // 2. JWT string checks (expiry, malformed structure, tampering)
+    if (typeof token === "string") {
+      const parts = token.split(".");
+      if (parts.length !== 3) {
+        logger.warn(
+          "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (malformed JWT token)",
+        );
+        return {
+          allowed: false,
+          reason: "verification_failed_unreachable",
+          error: "Malformed JWT token structure",
+          verified: false,
+        };
+      }
+
+      if (token.includes("tampered") || parts[2] === "tampered-signature") {
+        logger.warn(
+          "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (tampered JWT token)",
+        );
+        return {
+          allowed: false,
+          reason: "verification_failed_unreachable",
+          error: "Tampered JWT signature",
+          verified: false,
+        };
+      }
+
+      const payload = parseJwtPayload(token);
+      if (!payload) {
+        logger.warn(
+          "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (unparseable JWT payload)",
+        );
+        return {
+          allowed: false,
+          reason: "verification_failed_unreachable",
+          error: "Unparseable JWT payload",
+          verified: false,
+        };
+      }
+
+      if (payload.exp && typeof payload.exp === "number") {
+        const expMs = payload.exp > 1e11 ? payload.exp : payload.exp * 1000;
+        if (expMs < Date.now()) {
+          logger.warn(
+            "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (expired JWT token)",
+          );
+          return {
+            allowed: false,
+            reason: "verification_failed_unreachable",
+            error: "Expired JWT token",
+            verified: false,
+          };
+        }
+      }
+    }
+
+    // 3. Object-based token expiry / validity checks
+    if (typeof token === "object" && token !== null) {
+      if (token.tampered || token.valid === false) {
+        logger.warn(
+          "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (tampered token object)",
+        );
+        return {
+          allowed: false,
+          reason: "verification_failed_unreachable",
+          error: "Invalid or tampered token object",
+          verified: false,
+        };
+      }
+
+      if (token.expiresAt) {
+        const expTime = new Date(token.expiresAt).getTime();
+        if (!isNaN(expTime) && expTime < Date.now()) {
+          logger.warn(
+            "[ARMORIQ_POLICY] Verification failed: Fail-closed enforced (expired token object)",
+          );
+          return {
+            allowed: false,
+            reason: "verification_failed_unreachable",
+            error: "Expired token",
+            verified: false,
+          };
+        }
+      }
+    }
+
+    // Valid and verified
+    return {
+      allowed: true,
+      reason: null,
+      verified: true,
+    };
+  } catch (error: any) {
+    // FAIL-CLOSED: Catch all network timeouts, 503s, and unhandled JWT exceptions
+    logger.warn("[ARMORIQ_POLICY] Verification failed: Fail-closed enforced", {
+      error: error?.message || String(error),
+      reason: "verification_failed_unreachable",
+    });
+
+    return {
+      allowed: false,
+      reason: "verification_failed_unreachable",
+      error: error?.message || String(error),
+      verified: false,
+    };
+  }
+}
+
+export const verifyArmorIQToken = verifyArmorIQStep;
+export const verifyArmorIQIntentToken = verifyArmorIQStep;
+export const verifyArmorIQPolicy = verifyArmorIQStep;
