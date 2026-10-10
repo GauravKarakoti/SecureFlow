@@ -8,17 +8,22 @@ expect.extend(matchers);
 // causing "Cannot read properties of undefined (reading 'config')" in all test files.
 vi.mock("@/lib/prisma", () => ({
   default: {
-    user: { count: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
-    pullRequest: { count: vi.fn(), findUnique: vi.fn(), groupBy: vi.fn() },
-    auditLog: { count: vi.fn() },
-    scanResult: { aggregate: vi.fn() },
-    repository: { findUnique: vi.fn() },
-    finding: { findFirst: vi.fn(), update: vi.fn() },
+    user: { count: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(async () => []), create: vi.fn() },
+    pullRequest: { count: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(async () => []), groupBy: vi.fn() },
+    auditLog: { count: vi.fn(), findMany: vi.fn(async () => []), create: vi.fn() },
+    auditEventLedger: { findMany: vi.fn(async () => []), create: vi.fn() },
+    scanResult: { aggregate: vi.fn(), findMany: vi.fn(async () => []) },
+    repository: { findUnique: vi.fn(), findMany: vi.fn(async () => []) },
+    finding: { findFirst: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn() },
+    findingTriage: { findMany: vi.fn(async () => []) },
+    policyTemplate: { findMany: vi.fn(async () => []) },
+    userPolicyToggle: { findMany: vi.fn(async () => []) },
     webhookEvent: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({})) },
   },
   getDatabaseConnectionString: vi.fn(() => undefined),
   getPgPoolConfig: vi.fn(() => ({})),
 }));
+
 
 // Activate the manual __mocks__/groq-sdk.ts mock for all test files.
 // That file exposes APIConnectionTimeoutError (required by scanner.ts at module level)
