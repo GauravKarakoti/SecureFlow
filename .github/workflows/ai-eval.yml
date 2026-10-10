@@ -1,0 +1,66 @@
+﻿name: AI Evaluation & Adversarial Red-Team Suite
+
+on:
+  schedule:
+    # Run nightly at 03:00 UTC
+    - cron: "0 3 * * *"
+  pull_request:
+    paths:
+      - "src/ai/**"
+      - ".github/workflows/ai-eval.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/ai/**"
+      - ".github/workflows/ai-eval.yml"
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ai-redteam-eval:
+    name: AI Red-Team & Adversarial Evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Run AI Red-Team Evaluation Suite
+        run: npm run test:redteam
+        env:
+          NODE_ENV: test
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'ci-dummy-key' }}
+          VITEST: "true"
+
+      - name: Upload evaluation results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-eval-results
+          path: test-results/
+          retention-days: 7
