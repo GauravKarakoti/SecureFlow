@@ -275,6 +275,18 @@ describe("POST /api/findings", () => {
     expect(enqueueScanMock.mock.calls[0][0].customPlaceholders).toEqual([]);
   });
 
+  it("ignores client-supplied fileChanges in the body (#1155)", async () => {
+    await POST(
+      postRequest({
+        ...VALID_BODY,
+        fileChanges: [{ filename: "fake.ts", patch: "@@ fake patch @@" }],
+      }),
+    );
+
+    expect(enqueueScanMock).toHaveBeenCalledTimes(1);
+    expect(enqueueScanMock.mock.calls[0][0].fileChanges).toEqual([]);
+  });
+
   it("rejects a malformed body with 400", async () => {
     const res = await POST(postRequest({ repositoryId: "repo-1" }));
 
