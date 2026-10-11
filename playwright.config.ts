@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests/e2e",
+  testDir: process.env.PLAYWRIGHT_TEST_DIR || ".",
+  testMatch: ["e2e/**/*.spec.ts", "tests/e2e/**/*.spec.ts"],
   timeout: 60_000,
   expect: { timeout: 15_000 },
   fullyParallel: true,

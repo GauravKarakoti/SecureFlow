@@ -9,6 +9,8 @@ on:
       - "cli-v[0-9]+.[0-9]+.[0-9]+-*"
       - "cli-*[0-9]+.[0-9]+.[0-9]+"
       - "cli@[0-9]+.[0-9]+.[0-9]+"
+      - "secureflow-cli@[0-9]+.[0-9]+.[0-9]+"
+      - "secureflow-cli@[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       dist_tag:

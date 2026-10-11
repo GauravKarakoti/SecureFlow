@@ -129,7 +129,7 @@ vi.mock("@/lib/middleware/rateLimit", () => ({
 // ---- Imports (after mocks) ----
 
 import * as webhookRoute from "@/app/api/webhooks/github/route";
-const { POST, handlePullRequestSynchronize } = webhookRoute;
+const { POST, handlePullRequestSynchronize, validateWebhookSignature } = webhookRoute;
 import { addWebhookJob } from "@/lib/queue/webhookQueue";
 
 // ---- Helpers ----
@@ -329,6 +329,43 @@ describe("GitHub webhook route", () => {
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: "Invalid GitHub webhook signature" });
       expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+
+    it("logs a security warning when signature is missing or mismatched (#1231)", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      // 1. Missing signature header
+      const reqMissing = makeRequest(minimalPRPayload, { "x-hub-signature-256": null });
+      const resMissing = await POST(reqMissing);
+      expect(resMissing.status).toBe(401);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[SECURITY_WARNING] GitHub webhook rejected: Missing or invalid"),
+      );
+
+      warnSpy.mockClear();
+
+      // 2. Mismatched signature
+      const reqInvalid = makeRequest(minimalPRPayload, {
+        "x-hub-signature-256": "sha256=" + "0".repeat(64),
+      });
+      const resInvalid = await POST(reqInvalid);
+      expect(resInvalid.status).toBe(401);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[SECURITY_WARNING] GitHub webhook rejected: Invalid signature"),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it("validates signatures using validateWebhookSignature helper with crypto.timingSafeEqual (#1231)", () => {
+      const payload = JSON.stringify({ action: "ping" });
+      const validSig = sign(payload);
+      expect(validateWebhookSignature(payload, SECRET, validSig)).toBe(true);
+
+      const invalidSig = "sha256=" + "f".repeat(64);
+      expect(validateWebhookSignature(payload, SECRET, invalidSig)).toBe(false);
+      expect(validateWebhookSignature(payload, SECRET, null)).toBe(false);
+      expect(validateWebhookSignature(payload, SECRET, "md5=123")).toBe(false);
     });
 
     it("verifies before dispatching on the event type (#562)", async () => {

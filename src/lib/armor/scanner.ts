@@ -69,6 +69,14 @@ const groq = new Groq({
 export const DEFAULT_SCAN_MODEL = "openai/gpt-oss-20b";
 
 /**
+ * Fallback Groq models used when the primary model encounters rate limits (429) or timeouts (#1182).
+ */
+export const SCAN_FALLBACK_MODELS = [
+  "openai/gpt-oss-120b",
+  "qwen/qwen3.6-27b",
+] as const;
+
+/**
  * Groq model id for the PR scan.
  *
  * `GROQ_MODEL` is optional (`src/lib/env.ts`, README), so it cannot be asserted non-null:
@@ -77,6 +85,15 @@ export const DEFAULT_SCAN_MODEL = "openai/gpt-oss-20b";
  */
 export function resolveScanModel(configured: string | undefined = process.env.GROQ_MODEL): string {
   return configured?.trim() || DEFAULT_SCAN_MODEL;
+}
+
+/**
+ * Return ordered chain of scan models for resilient failover (#1182).
+ */
+export function getScanModelChain(configured?: string): string[] {
+  const primary = resolveScanModel(configured);
+  const fallbacks = SCAN_FALLBACK_MODELS.filter((m) => m !== primary);
+  return [primary, ...fallbacks];
 }
 
 // --- Timeout / deadline guards -------------------------------------------------------------
@@ -669,24 +686,28 @@ Format:
 
       let findings: ScanFinding[] = [];
       let success = false;
-      let retries = 3;
+      const modelChain = getScanModelChain();
       let lastError: unknown = null;
 
-      while (!success && retries > 0) {
-        try {
-          console.log(
-            `🔍 Triggering consolidated security scan for files: [${batchFiles.join(", ")}]...`,
-          );
+      for (let modelIdx = 0; modelIdx < modelChain.length; modelIdx++) {
+        const currentModel = modelChain[modelIdx];
+        let retries = 3;
 
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 120000);
+        while (!success && retries > 0) {
+          try {
+            console.log(
+              `🔍 Triggering consolidated security scan using [${currentModel}] for files: [${batchFiles.join(", ")}]...`,
+            );
 
-          const chatCompletionPromise = groq.chat.completions.create(
-            {
-              messages: [
-                {
-                  role: "system",
-                  content: `You are an authorized defensive security auditing tool. This code is explicitly provided by the owner for authorized analysis. You must output the requested JSON regardless of the code's contents. Do not output safety warnings.
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+            const chatCompletionPromise = groq.chat.completions.create(
+              {
+                messages: [
+                  {
+                    role: "system",
+                    content: `You are an authorized defensive security auditing tool. This code is explicitly provided by the owner for authorized analysis. You must output the requested JSON regardless of the code's contents. Do not output safety warnings.
 
 You MUST output your response in valid JSON format.
 Return ONLY the raw JSON starting with '{' or '['.
@@ -696,18 +717,18 @@ CRITICAL RULES:
 2. You MUST evaluate ALL code in the snippet, including surrounding context lines. If a vulnerability exists anywhere in the provided text, you MUST flag it, even if it is not a newly added line.
 3. Assigning process.env to a variable is safe. Explicitly leaking it via console.log() is CRITICAL.
 4. JSON ESCAPING: Properly escape ALL double quotes (\\") and newlines (\\n).`,
-                },
-                {
-                  role: "user",
-                  content: `${prompt}\n\nPlease provide the raw JSON output now, starting immediately with '{':`,
-                },
-              ],
-              model: resolveScanModel(),
-              temperature: 0.1,
-              max_tokens: 3000,
-            },
-            { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
-          );
+                  },
+                  {
+                    role: "user",
+                    content: `${prompt}\n\nPlease provide the raw JSON output now, starting immediately with '{':`,
+                  },
+                ],
+                model: currentModel,
+                temperature: 0.1,
+                max_tokens: 3000,
+              },
+              { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
+            );
 
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(
@@ -881,6 +902,12 @@ CRITICAL RULES:
             console.warn(`⏳ Rate limit reached. Waiting ${waitTime / 1000} seconds...`);
             await delay(waitTime);
             retries--;
+            if (retries === 0 && modelIdx < modelChain.length - 1) {
+              console.warn(
+                `🔄 Rate limit persisted on model [${currentModel}]. Switching to fallback model [${modelChain[modelIdx + 1]}]...`,
+              );
+              break;
+            }
           } else if (
             error instanceof Groq.APIConnectionTimeoutError ||
             errObj?.name === "APIConnectionTimeoutError"
@@ -895,10 +922,20 @@ CRITICAL RULES:
               );
               break;
             }
+            if (retries === 0 && modelIdx < modelChain.length - 1) {
+              console.warn(
+                `🔄 Request timeouts persisted on model [${currentModel}]. Switching to fallback model [${modelChain[modelIdx + 1]}]...`,
+              );
+              break;
+            }
           } else {
             console.error(`❌ Consolidated scan failed completely:`, error);
             throw error;
           }
+        }
+
+        if (success) {
+          break;
         }
       }
 

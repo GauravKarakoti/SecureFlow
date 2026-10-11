@@ -10,6 +10,15 @@ import { isMockAuthEnabled } from "@/lib/mock-auth";
 const { auth } = NextAuth(authConfig);
 
 /**
+ * Middleware entrypoint (src/proxy.ts):
+ * Enforces edge security, authentication routing, and Redis-backed IP/user rate limiting (#1243).
+ *
+ * Rate limiting uses `getApiRateLimiter(rateLimitClass)` backed by the stack's Redis infrastructure
+ * (`src/lib/redis.ts` & `src/lib/rate-limit.ts`) with route-specific classification (`src/lib/api-rate-limit-policy.ts`)
+ * to protect AI streaming endpoints, auth routes, and standard APIs.
+ */
+
+/**
  * Attach the security headers to a response middleware builds itself (#559).
  *
  * `next.config.ts` `headers()` covers everything that reaches the routing

@@ -72,4 +72,16 @@ describe("GET /api/health", () => {
     mockRunHealthCheck.mockResolvedValueOnce(report("degraded"));
     expect((await GET()).status).toBe(200);
   });
+
+  it("returns an SSE stream when stream=true is provided (#994)", async () => {
+    const req = {
+      nextUrl: new URL("http://localhost:3000/api/health?stream=true"),
+      headers: new Headers(),
+    } as any;
+
+    const res = await GET(req);
+
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(res.headers.get("Cache-Control")).toBe("no-cache, no-transform");
+  });
 });

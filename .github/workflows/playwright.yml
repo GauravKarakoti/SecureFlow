@@ -1,0 +1,110 @@
+name: Playwright E2E Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright-e2e:
+    name: Run Playwright Browser Tests
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+
+    env:
+      CI: "true"
+      NEXTAUTH_URL: http://localhost:9002
+      AUTH_URL: http://localhost:9002
+      NEXTAUTH_SECRET: e2e-test-secret-key
+      AUTH_SECRET: e2e-test-secret-key
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_TRUST_HOST: "true"
+      NEXT_PUBLIC_MOCK_DB: "true"
+      NEXT_PUBLIC_MOCK_AUTH: "true"
+      ALLOW_MOCK_AUTH: "true"
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/secureflow
+      DATABASE_POOL_URL: postgresql://ci:ci@localhost:5432/secureflow
+      GROQ_API_KEY: ci-build-placeholder
+      GITHUB_APP_ID: "1"
+      GITHUB_WEBHOOK_SECRET: e2e-webhook-secret
+      GITHUB_PRIVATE_KEY: ci-build-placeholder
+      GITHUB_CLIENT_ID: ci-build-placeholder
+      GITHUB_CLIENT_SECRET: ci-build-placeholder
+      NEXT_PUBLIC_APP_URL: http://localhost:9002
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Cache npm cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-node22-
+
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'src/**/*.js', 'src/**/*.jsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Install Playwright browsers with OS dependencies
+        run: npx playwright install --with-deps
+
+      - name: Build Application for E2E
+        run: npm run build
+
+      - name: Run Playwright E2E Tests (Root e2e specs)
+        run: npx playwright test e2e/
+
+      - name: Run Playwright E2E Tests (tests/e2e specs)
+        run: npm run test:e2e
+
+      - name: Upload Playwright Test Report
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-e2e-report
+          path: playwright-report/
+          retention-days: 30

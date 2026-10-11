@@ -18,11 +18,17 @@ export default defineConfig({
       "cli/src/**/*.test.ts",
       "tests/**/*.test.ts",
     ],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/*.redteam.test.ts",
+      "**/*.redteam.test.tsx",
+    ],
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 15000,
     coverage: {
       provider: "v8",
-      reporter: ["text", "lcov"],
+      reporter: ["text", "lcov", "json-summary", "json", "html"],
       include: ["src/**/*.ts", "src/**/*.tsx"],
       exclude: ["src/**/*.test.ts", "src/**/*.test.tsx", "src/app/**", "src/components/**"],
       thresholds: {

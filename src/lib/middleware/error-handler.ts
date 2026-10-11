@@ -65,8 +65,38 @@ export { scrubSensitiveData };
  */
 const EXPOSABLE_ERROR_NAMES = new Set(["AppError", "ValidationError"]);
 
+/**
+ * In-memory API error metrics registry for observability & monitoring.
+ */
+export interface ApiErrorMetrics {
+  totalErrors: number;
+  errorsByStatus: Record<number, number>;
+  errorsByCode: Record<string, number>;
+  lastErrorTimestamp: number | null;
+}
+
+export const apiErrorMetrics: ApiErrorMetrics = {
+  totalErrors: 0,
+  errorsByStatus: {},
+  errorsByCode: {},
+  lastErrorTimestamp: null,
+};
+
+export function recordApiErrorMetric(statusCode: number, errorCode: string): void {
+  apiErrorMetrics.totalErrors++;
+  apiErrorMetrics.errorsByStatus[statusCode] = (apiErrorMetrics.errorsByStatus[statusCode] || 0) + 1;
+  apiErrorMetrics.errorsByCode[errorCode] = (apiErrorMetrics.errorsByCode[errorCode] || 0) + 1;
+  apiErrorMetrics.lastErrorTimestamp = Date.now();
+}
+
+export interface ErrorHandlerOptions {
+  routeLabel?: string;
+  enableMetrics?: boolean;
+}
+
 export function withErrorHandler<Args extends unknown[], Result>(
   handler: (...args: Args) => Promise<Result>,
+  options?: ErrorHandlerOptions,
 ) {
   return async (...args: Args) => {
     try {
@@ -95,7 +125,7 @@ export function withErrorHandler<Args extends unknown[], Result>(
       // including a Prisma `meta` holding query parameter values and any
       // request/response objects an HTTP client attached — which is how raw
       // credentials end up in log aggregation.
-      logger.error("API route error caught by global handler", {
+      logger.error(`API route error caught by global handler${options?.routeLabel ? ` [${options.routeLabel}]` : ""}`, {
         error: {
           name: err?.name || "Error",
           message: originalMessage,
@@ -103,6 +133,7 @@ export function withErrorHandler<Args extends unknown[], Result>(
           code: prismaCode,
           meta: prismaMeta,
         },
+        route: options?.routeLabel,
         statusCode,
         rawStatus: err?.statusCode ?? err?.status ?? null,
       });
@@ -139,6 +170,11 @@ export function withErrorHandler<Args extends unknown[], Result>(
           clientErrorCode = "DATABASE_ERROR";
           clientMessage = "A database error occurred. Connection or schema details redacted.";
         }
+      }
+
+      // Record error metrics
+      if (options?.enableMetrics !== false) {
+        recordApiErrorMetric(statusCode, clientErrorCode);
       }
 
       return NextResponse.json(

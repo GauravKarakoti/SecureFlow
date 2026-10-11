@@ -3,6 +3,15 @@ export const AUTO_REMEDIATION_ARMORIQ_SCOPE = {
   deny: ["github.pull_request.merge", "github.push"],
 } as const;
 
+export {
+  ArmorIQBoundaryInterceptor,
+  SecureFlowAgent,
+  type AgentCommand,
+  type InterceptVerdict,
+  type VerdictProof,
+  type VerdictDecision,
+} from "./boundary-interceptor";
+
 export function isAllowedAutoRemediationPath(filePath: string): boolean {
   if (!filePath || filePath.includes("\\") || filePath.startsWith("/")) return false;
 

@@ -1,4 +1,4 @@
-import { describe, it, test, expect } from "vitest";
+import { describe, it, test, expect, vi } from "vitest";
 import {
   DEFAULT_PROJECT_NAME,
   MAX_PROJECT_NAME_LENGTH,
@@ -12,6 +12,9 @@ import {
   normalizeProjectName,
   screenProjectName,
   screenTransmission,
+  verifyArmorIQStep,
+  verifyArmorIQIntentToken,
+  verifyArmorIQPolicy,
 } from "./heist-prompt-guard";
 import {
   ALL_INJECTION_PAYLOADS,
@@ -424,5 +427,96 @@ describe("ALL_INJECTION_PAYLOADS — full corpus parametrized sweep (#1109)", ()
     expect(Object.keys(INJECTION_PAYLOADS_BY_CATEGORY)).toEqual(
       expect.arrayContaining(["systemPromptExfiltration", "personaHijack", "encodedObfuscation"]),
     );
+  });
+});
+
+describe("ArmorIQ Fail-Closed Policy Enforcement (#1236)", () => {
+  it("simulates an ArmorIQ API 503 Service Unavailable response, ensuring the flow returns a block directive", async () => {
+    const mock503Client = {
+      verifyToken: vi.fn().mockRejectedValue(new Error("503 Service Unavailable: ArmorIQ service offline")),
+    };
+
+    const token = {
+      tokenId: "token-503-test",
+      rawToken: { token: { plan_hash: "hash123" } },
+    };
+
+    const result = await verifyArmorIQStep(token, { client: mock503Client });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe("verification_failed_unreachable");
+    expect(result.error).toContain("503 Service Unavailable");
+    expect(result.verified).toBe(false);
+  });
+
+  it("simulates a network timeout to the ArmorIQ API, triggering a hard block on the pending tool call", async () => {
+    const mockTimeoutClient = {
+      verifyToken: vi.fn().mockRejectedValue(new Error("ETIMEDOUT: Connection to ArmorIQ API timed out")),
+    };
+
+    const token = { tokenId: "token-timeout-test" };
+    const result = await verifyArmorIQStep(token, { client: mockTimeoutClient });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe("verification_failed_unreachable");
+    expect(result.error).toContain("ETIMEDOUT");
+  });
+
+  it("simulates an expired or tampered JWT intent token, asserting a strict denial", async () => {
+    // 1. Expired JWT token
+    const expiredPayload = Buffer.from(
+      JSON.stringify({ sub: "agent-1", exp: Math.floor(Date.now() / 1000) - 3600 }),
+    ).toString("base64url");
+    const expiredJwt = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${expiredPayload}.signature`;
+
+    const expiredResult = await verifyArmorIQStep(expiredJwt);
+    expect(expiredResult.allowed).toBe(false);
+    expect(expiredResult.reason).toBe("verification_failed_unreachable");
+    expect(expiredResult.error).toContain("Expired JWT token");
+
+    // 2. Tampered JWT token
+    const tamperedJwt = "eyJhbGciOiJIUzI1NiJ9.invalid-payload.tampered-signature";
+    const tamperedResult = await verifyArmorIQStep(tamperedJwt);
+    expect(tamperedResult.allowed).toBe(false);
+    expect(tamperedResult.reason).toBe("verification_failed_unreachable");
+    expect(tamperedResult.error).toContain("Tampered JWT signature");
+
+    // 3. Cryptographic proof verification failure from client
+    const mockTamperedClient = {
+      verifyToken: vi.fn().mockResolvedValue(false),
+    };
+    const tamperedTokenObj = { tokenId: "token-tampered-proof" };
+    const tamperedObjResult = await verifyArmorIQStep(tamperedTokenObj, { client: mockTamperedClient });
+    expect(tamperedObjResult.allowed).toBe(false);
+    expect(tamperedObjResult.reason).toBe("verification_failed_unreachable");
+  });
+
+  it("allows valid tokens with passing cryptographic proofs and allowed policies to execute normally", async () => {
+    const mockValidClient = {
+      verifyToken: vi.fn().mockResolvedValue(true),
+    };
+
+    const validPayload = Buffer.from(
+      JSON.stringify({ sub: "agent-1", exp: Math.floor(Date.now() / 1000) + 3600 }),
+    ).toString("base64url");
+    const validJwt = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${validPayload}.valid_signature`;
+
+    const result = await verifyArmorIQStep(validJwt, { client: mockValidClient });
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.verified).toBe(true);
+  });
+
+  it("integrates with evaluatePromptSafety when intent token is provided", async () => {
+    const mock503Client = {
+      verifyToken: vi.fn().mockRejectedValue(new Error("503 Service Unavailable")),
+    };
+
+    const evalResult = await evaluatePromptSafety("Safe display name", {
+      intentToken: "test-token",
+      client: mock503Client,
+    });
+
+    expect(evalResult.isSafe).toBe(false);
+    expect(evalResult.flaggedReason).toBe("verification_failed_unreachable");
+    expect(evalResult.armorIQVerification?.allowed).toBe(false);
   });
 });

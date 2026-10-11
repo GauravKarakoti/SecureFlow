@@ -70,10 +70,10 @@ spec:
             {{- else }}
             limits:
               cpu: 2000m
-              memory: 2048Mi
+              memory: 2Gi
             requests:
               cpu: 500m
-              memory: 1024Mi
+              memory: 1Gi
             {{- end }}
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:

@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Activity, Database, Server, Brain, RefreshCw, Clock, Zap } from "lucide-react";
+import { Activity, Database, Server, Brain, RefreshCw, Clock, Zap, Radio } from "lucide-react";
 import type { ComponentHealth, ComponentStatus } from "@/lib/health-check";
 
 interface StatusClientProps {
@@ -63,6 +63,8 @@ function ComponentRow({ component }: { component: ComponentHealth }) {
 export default function StatusClient({ status, timestamp, uptime, components }: StatusClientProps) {
   const [data, setData] = useState({ status, timestamp, uptime, components });
   const [refreshing, setRefreshing] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -77,18 +79,64 @@ export default function StatusClient({ status, timestamp, uptime, components }: 
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof EventSource === "undefined") {
+      return;
+    }
+
+    const es = new EventSource("/api/health?stream=true");
+    eventSourceRef.current = es;
+
+    es.onopen = () => {
+      setIsLive(true);
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const report = JSON.parse(event.data);
+        if (report && report.status) {
+          setData(report);
+        }
+      } catch {
+        // Ignore unparseable frames
+      }
+    };
+
+    es.onerror = () => {
+      setIsLive(false);
+      es.close();
+      eventSourceRef.current = null;
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, []);
+
   const style = STATUS_STYLES[data.status];
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <span className="text-sm font-medium uppercase tracking-widest text-primary">System</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium uppercase tracking-widest text-primary">System</span>
+            {isLive ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-green-500/10 text-green-400 border border-green-500/20">
+                <Radio className="w-3 h-3 animate-pulse" /> LIVE SSE
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono text-muted-foreground bg-foreground/5 border border-foreground/10">
+                POLLING
+              </span>
+            )}
+          </div>
           <h1 className="mt-1 font-headline text-4xl font-extrabold tracking-tight">
             Health Status
           </h1>
           <p className="mt-2 max-w-xl text-muted-foreground">
-            Live infrastructure health for all connected services.
+            Real-time infrastructure health and status indicators via Server-Sent Events.
           </p>
         </div>
         <Button

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { loadLeaderboard } from "@/app/leaderboard/aggregate";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
+import { withErrorHandler } from "@/lib/middleware/error-handler";
 import { createLogger } from "@/lib/logger";
 import {
   DEFAULT_LEADERBOARD_LIMIT,
@@ -182,7 +183,10 @@ async function handler(req: NextRequest): Promise<Response> {
   });
 }
 
-export const GET = withRateLimit(handler as any, {
-  ...TIERS.STANDARD,
-  keyPrefix: "leaderboard",
-});
+export const GET = withRateLimit(
+  withErrorHandler(handler as any, { routeLabel: "leaderboard" }) as any,
+  {
+    ...TIERS.STANDARD,
+    keyPrefix: "leaderboard",
+  },
+);

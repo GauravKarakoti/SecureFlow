@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDetailedLandingMetrics } from "@/lib/metrics/landing-stats";
 import { DEFAULT_METRICS_TTL_MS, createTtlCache } from "@/lib/metrics/landing-cache";
 import { TIERS, withRateLimit } from "@/lib/middleware/rate-limit";
+import { withErrorHandler } from "@/lib/middleware/error-handler";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,12 @@ async function handler(_req: NextRequest): Promise<NextResponse> {
  * and it fails open, so a Redis outage cannot take the landing page down with
  * it.
  */
-export const GET = withRateLimit(handler, {
-  ...TIERS.STANDARD,
-  keyPrefix: "metrics:landing",
-});
+export const GET = withRateLimit(
+  withErrorHandler(handler, { routeLabel: "metrics:landing" }) as (
+    req: NextRequest,
+  ) => Promise<NextResponse>,
+  {
+    ...TIERS.STANDARD,
+    keyPrefix: "metrics:landing",
+  },
+);

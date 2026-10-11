@@ -100,13 +100,9 @@ export async function developerReceivesAISecurityExplanations(
   let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
   try {
-    // Route to local model when LOCAL_AI_URL is set, otherwise use the pinned
-    // fast Groq model. Local mode never falls back to a cloud provider, but if
-    // the active local model does not fit in GPU memory it tries the smaller
-    // models in LOCAL_AI_FALLBACK_MODELS before giving up (#1140).
-    const modelsToTry: unknown[] = isLocalModelEnabled()
-      ? getSecurityExplanationModelChain()
-      : [activeModel];
+    // Route to model chain (local or cloud). When primary model hits 429 rate limits,
+    // timeouts, or out-of-memory errors, fallback to secondary/tertiary models (#1182).
+    const modelsToTry: unknown[] = getSecurityExplanationModelChain();
     let res: { text: string } | undefined;
     for (let i = 0; i < modelsToTry.length; i++) {
       const candidate = modelsToTry[i];
@@ -129,12 +125,22 @@ export async function developerReceivesAISecurityExplanations(
         usedFallbackModel = i > 0;
         break;
       } catch (modelErr) {
-        if (!isInsufficientMemoryError(modelErr)) throw modelErr;
-        if (i < modelsToTry.length - 1) {
-          console.warn(
-            `[LOCAL_AI] Model ${getModelId(candidate)} does not fit in GPU memory. Trying smaller model: ${getModelId(modelsToTry[i + 1])}`,
-          );
+        if (isInsufficientMemoryError(modelErr)) {
+          if (i < modelsToTry.length - 1) {
+            console.warn(
+              `[LOCAL_AI] Model ${getModelId(candidate)} does not fit in GPU memory. Trying smaller model: ${getModelId(modelsToTry[i + 1])}`,
+            );
+            continue;
+          }
+          throw modelErr;
         }
+        if (i < modelsToTry.length - 1 && (isRateLimitError(modelErr) || isTimeoutError(modelErr))) {
+          console.warn(
+            `[AI_FALLBACK] Model ${getModelId(candidate)} rate-limited or timed out. Switching to fallback model: ${getModelId(modelsToTry[i + 1])}`,
+          );
+          continue;
+        }
+        throw modelErr;
       }
     }
     if (!res) throw new InsufficientVRAMError(modelsToTry.map((m) => getModelId(m)));

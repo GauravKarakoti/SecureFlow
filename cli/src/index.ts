@@ -44,12 +44,32 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
 
+function printMcpHelp(): void {
+  console.log(`
+SecureFlow CLI - Threat Intelligence MCP Server
+
+Usage:
+  secureflow mcp [options]
+
+Description:
+  Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio.
+  Communicates using JSON-RPC protocol over standard input/output.
+
+Options:
+  -h, --help    Show this help message
+`);
+}
+
 function printHelp(): void {
   console.log(`
 SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
   secureflow [options]
+  secureflow mcp [options]
+
+Commands:
+  mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
 
 Options:
   --verbose              Enable verbose logging
@@ -64,6 +84,7 @@ Options:
 
 Examples:
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow mcp                                 # Start the Threat Intelligence MCP server over stdio
   $ secureflow --format json -o res.json           # Scan and export results to JSON file
   $ secureflow --fail-on high                      # Fail commit only on high/critical findings
   $ secureflow --local --local-model llama3        # Run completely local scan
@@ -171,6 +192,24 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
+  const isMcpCommand = process.argv[2] === "mcp";
+
+  if (isMcpCommand) {
+    if (process.argv.includes("--help") || process.argv.includes("-h")) {
+      printMcpHelp();
+      return 0;
+    }
+
+    try {
+      const { startMcpServer } = await import("./mcp/index.js");
+      await startMcpServer();
+      return 0;
+    } catch (err) {
+      console.error(`❌ [SecureFlow MCP] Failed to start MCP server: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+  }
+
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;

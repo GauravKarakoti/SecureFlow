@@ -8,6 +8,7 @@ import {
   applyScopedUnifiedDiff,
   isAllowedAutoRemediationPath,
 } from "@/lib/armor/auto-remediation";
+import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 
 async function readScopedSource(
   octokit: any,
@@ -38,7 +39,7 @@ async function readScopedSource(
   return null;
 }
 
-export async function POST(
+const handler = async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -201,4 +202,6 @@ export async function POST(
     console.error("[AUTO_REMEDIATION] Failed to create approved pull request:", error);
     return NextResponse.json({ error: "Unable to create remediation pull request" }, { status: 502 });
   }
-}
+};
+
+export const POST = withErrorHandler(handler, { routeLabel: "findings:remediate:apply" });
