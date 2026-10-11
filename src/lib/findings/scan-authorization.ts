@@ -125,10 +125,13 @@ export async function loadActivePoliciesForUser(
  *    from the body is what let a caller aim the GitHub App somewhere else;
  *  - `customIgnores` and `customPlaceholders`, because ignore patterns and
  *    placeholders must be governed by repository configuration (.secureflowignore)
- *    rather than untrusted request parameters (#2).
+ *    rather than untrusted request parameters (#2);
  *  - `activePolicies`, because policy rules are derived server-side from
  *    database templates and user toggles, so a client cannot disable or alter
- *    security policies by sending an empty or modified array (#1).
+ *    security policies by sending an empty or modified array (#1);
+ *  - `fileChanges`, because pull request security scans must analyze the
+ *    authoritative diff fetched directly from GitHub for the authenticated repository,
+ *    PR number, and head SHA, rather than caller-supplied file changes (#1155).
  *
  * `installationId` is still accepted — `Repository` carries no installation id
  * to derive it from — but it can no longer be used to reach another account's
@@ -141,14 +144,6 @@ export const scanRequestSchema = z.object({
   installationId: z.union([z.number(), z.string()]),
   prNumber: z.number().int().positive(),
   headSha: z.string().min(1),
-  fileChanges: z
-    .array(
-      z.object({
-        filename: z.string(),
-        patch: z.string(),
-      }),
-    )
-    .default([]),
 });
 
 export type ScanRequestBody = z.infer<typeof scanRequestSchema>;
@@ -160,6 +155,8 @@ export type ScanRequestBody = z.infer<typeof scanRequestSchema>;
  * server-side authorization and database state, never from `body`.
  * Ignore patterns and placeholders are initialized empty and loaded from repository
  * configuration (.secureflowignore) by the scan engine.
+ * `fileChanges` is initialized empty so the scan engine authoritatively fetches
+ * and validates the actual pull request diff from GitHub (#1155).
  */
 export function buildScanJobData(args: {
   body: ScanRequestBody;
@@ -186,7 +183,7 @@ export function buildScanJobData(args: {
     installationId: body.installationId,
     prNumber: body.prNumber,
     headSha: body.headSha,
-    fileChanges: body.fileChanges,
+    fileChanges: [],
     activePolicies,
     customIgnores,
     customPlaceholders,

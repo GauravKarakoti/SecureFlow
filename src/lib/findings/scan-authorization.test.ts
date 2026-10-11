@@ -31,13 +31,24 @@ const validBody = {
 };
 
 describe("scanRequestSchema", () => {
-  it("accepts a minimal valid body and defaults the collections", () => {
+  it("accepts a minimal valid body", () => {
     const parsed = scanRequestSchema.safeParse(validBody);
 
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
 
-    expect(parsed.data.fileChanges).toEqual([]);
+    expect(parsed.data).not.toHaveProperty("fileChanges");
+  });
+
+  it("drops caller-supplied fileChanges so the scan engine validates the actual PR diff (#1155)", () => {
+    const parsed = scanRequestSchema.safeParse({
+      ...validBody,
+      fileChanges: [{ filename: "fake.ts", patch: "@@ fake @@" }],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data).not.toHaveProperty("fileChanges");
   });
 
   it("drops customIgnores, so a caller cannot suppress scanning files", () => {
@@ -220,20 +231,28 @@ describe("buildScanJobData", () => {
   });
 
   it("carries the scan parameters through and defaults ignores, placeholders, and policies to empty", () => {
-    const parsed = scanRequestSchema.parse({
-      ...validBody,
-      fileChanges: [{ filename: "a.ts", patch: "@@" }],
-    });
+    const parsed = scanRequestSchema.parse(validBody);
 
     const data = buildScanJobData({ body: parsed, repository, userId: "user-1" });
 
     expect(data.prNumber).toBe(7);
     expect(data.headSha).toBe("a".repeat(40));
     expect(data.installationId).toBe(12345678);
-    expect(data.fileChanges).toEqual([{ filename: "a.ts", patch: "@@" }]);
+    expect(data.fileChanges).toEqual([]);
     expect(data.customIgnores).toEqual([]);
     expect(data.customPlaceholders).toEqual([]);
     expect(data.activePolicies).toEqual([]);
+  });
+
+  it("never trusts caller-supplied fileChanges in buildScanJobData (#1155)", () => {
+    const parsed = scanRequestSchema.parse({
+      ...validBody,
+      fileChanges: [{ filename: "a.ts", patch: "@@" }],
+    } as never);
+
+    const data = buildScanJobData({ body: parsed, repository, userId: "user-1" });
+
+    expect(data.fileChanges).toEqual([]);
   });
 
   it("uses server-derived activePolicies, customIgnores, and customPlaceholders rather than trusting body", () => {
