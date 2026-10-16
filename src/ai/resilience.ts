@@ -12,6 +12,7 @@ import {
   CircuitState,
   type CircuitBreakerOptions,
 } from "@/lib/utils/circuit-breaker";
+import { recordModelExecution, recordFailoverEvent } from "./telemetry";
 
 export { CircuitBreaker, CircuitBreakerError, CircuitState, type CircuitBreakerOptions };
 
@@ -44,9 +45,24 @@ export function getModelCircuitBreaker(
   return breaker;
 }
 
+export function getAllModelCircuitBreakers(): Map<string, CircuitBreaker> {
+  return new Map(modelCircuitBreakers);
+}
+
+export function tripModelCircuitBreaker(modelName: string, customTimeoutMs?: number): void {
+  const breaker = getModelCircuitBreaker(modelName);
+  breaker.trip(customTimeoutMs);
+}
+
+export function resetModelCircuitBreaker(modelName: string): void {
+  const breaker = getModelCircuitBreaker(modelName);
+  breaker.reset();
+}
+
 export function resetModelCircuitBreakers(): void {
   modelCircuitBreakers.clear();
 }
+
 
 /**
  * Wraps an async operation with a timeout to prevent hanging on stalled local models (#988).
@@ -207,6 +223,13 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
       console.warn(
         `[AI_RESILIENCE] Circuit breaker is OPEN for model ${String(currentModel)}. Fast-failing to fallback model: ${String(nextModel)}`,
       );
+      recordFailoverEvent({
+        fromModel: String(currentModel),
+        toModel: String(nextModel),
+        error: openError,
+        attempt: 0,
+        fastFail: true,
+      }).catch(() => {});
       if (config.onModelSwitch) {
         config.onModelSwitch(currentModel, nextModel, openError, 0);
       }
@@ -215,12 +238,20 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       totalAttempts++;
+      const attemptStartTime = Date.now();
 
       try {
         const timeoutMs = config.retryConfig?.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
         const result = await breaker.execute(() =>
           withTimeout(() => operation(currentModel, attempt), timeoutMs),
         );
+
+        recordModelExecution(
+          String(currentModel),
+          Date.now() - attemptStartTime,
+          true,
+          attempt,
+        ).catch(() => {});
 
         return {
           result,
@@ -234,6 +265,14 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
         };
       } catch (err) {
         lastError = err;
+        recordModelExecution(
+          String(currentModel),
+          Date.now() - attemptStartTime,
+          false,
+          attempt,
+          err,
+        ).catch(() => {});
+
         const isBreakerOpen = err instanceof CircuitBreakerError;
         const isRetryable =
           !isBreakerOpen &&
@@ -265,6 +304,14 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
               `[AI_RESILIENCE] Primary model ${String(currentModel)} exhausted or unrecoverable. Switching to fallback model: ${String(nextModel)}`,
             );
 
+            recordFailoverEvent({
+              fromModel: String(currentModel),
+              toModel: String(nextModel),
+              error: err,
+              attempt,
+              fastFail: false,
+            }).catch(() => {});
+
             if (config.onModelSwitch) {
               config.onModelSwitch(currentModel, nextModel, err, attempt);
             }
@@ -273,6 +320,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
         }
       }
     }
+
   }
 
   console.error(

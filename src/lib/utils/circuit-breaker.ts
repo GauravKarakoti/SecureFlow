@@ -74,6 +74,57 @@ export class CircuitBreaker {
     }
   }
 
+  /**
+   * Manually trip the circuit breaker into OPEN state.
+   */
+  public trip(customTimeoutMs?: number): void {
+    this.state = CircuitState.OPEN;
+    this.failureCount = this.failureThreshold;
+    this.nextAttemptTimestamp = Date.now() + (customTimeoutMs ?? this.resetTimeoutMs);
+    this.halfOpenProbeInFlight = false;
+  }
+
+  /**
+   * Manually reset the circuit breaker back to CLOSED state.
+   */
+  public reset(): void {
+    this.state = CircuitState.CLOSED;
+    this.failureCount = 0;
+    this.nextAttemptTimestamp = 0;
+    this.halfOpenProbeInFlight = false;
+  }
+
+  /**
+   * Returns current breaker statistics and operational state.
+   */
+  public getStats(): {
+    state: CircuitState;
+    stateName: "CLOSED" | "OPEN" | "HALF_OPEN";
+    failureCount: number;
+    failureThreshold: number;
+    resetTimeoutMs: number;
+    nextAttemptTimestamp: number;
+    isHealthy: boolean;
+  } {
+    const currentState = this.getState();
+    const stateName: "CLOSED" | "OPEN" | "HALF_OPEN" =
+      currentState === CircuitState.CLOSED
+        ? "CLOSED"
+        : currentState === CircuitState.OPEN
+          ? "OPEN"
+          : "HALF_OPEN";
+
+    return {
+      state: currentState,
+      stateName,
+      failureCount: this.failureCount,
+      failureThreshold: this.failureThreshold,
+      resetTimeoutMs: this.resetTimeoutMs,
+      nextAttemptTimestamp: this.nextAttemptTimestamp,
+      isHealthy: currentState === CircuitState.CLOSED,
+    };
+  }
+
   private onSuccess(): void {
     this.failureCount = 0;
     this.state = CircuitState.CLOSED;
@@ -87,3 +138,4 @@ export class CircuitBreaker {
     }
   }
 }
+

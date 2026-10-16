@@ -261,4 +261,51 @@ describe("CircuitBreaker", () => {
     release();
     await expect(probe).resolves.toBe("ok");
   });
+
+  describe("manual trip, reset, and getStats", () => {
+    it("should allow manually tripping the circuit breaker", async () => {
+      const breaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 15000 });
+      expect(breaker.getState()).toBe(CircuitState.CLOSED);
+
+      breaker.trip();
+      expect(breaker.getState()).toBe(CircuitState.OPEN);
+
+      const stats = breaker.getStats();
+      expect(stats.state).toBe(CircuitState.OPEN);
+      expect(stats.stateName).toBe("OPEN");
+      expect(stats.isHealthy).toBe(false);
+
+      await expect(breaker.execute(async () => "ok")).rejects.toThrow(CircuitBreakerError);
+    });
+
+    it("should allow manually resetting an OPEN circuit breaker", async () => {
+      const breaker = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 15000 });
+      breaker.trip();
+      expect(breaker.getState()).toBe(CircuitState.OPEN);
+
+      breaker.reset();
+      expect(breaker.getState()).toBe(CircuitState.CLOSED);
+
+      const stats = breaker.getStats();
+      expect(stats.state).toBe(CircuitState.CLOSED);
+      expect(stats.stateName).toBe("CLOSED");
+      expect(stats.isHealthy).toBe(true);
+      expect(stats.failureCount).toBe(0);
+
+      const result = await breaker.execute(async () => "recovered");
+      expect(result).toBe("recovered");
+    });
+
+    it("should accurately report HALF_OPEN in getStats", async () => {
+      const breaker = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 5000 });
+      breaker.trip();
+      expect(breaker.getStats().stateName).toBe("OPEN");
+
+      vi.advanceTimersByTime(5001);
+      expect(breaker.getStats().stateName).toBe("HALF_OPEN");
+      expect(breaker.getStats().state).toBe(CircuitState.HALF_OPEN);
+      expect(breaker.getStats().isHealthy).toBe(false);
+    });
+  });
 });
+
