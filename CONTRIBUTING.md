@@ -51,7 +51,7 @@ By participating in this project, you agree to abide by our Code of Conduct. We 
 
 Before diving in, please ensure you're familiar with our core stack:
 
-- **Framework**: Next.js 15 (App Router)
+- **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
 - **Database & ORM**: PostgreSQL with Prisma
 - **Styling**: Tailwind CSS & Radix UI
