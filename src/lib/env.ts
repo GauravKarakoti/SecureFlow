@@ -48,6 +48,12 @@ const envSchema = z.object({
   OUTBOUND_WEBHOOK_ALLOWED_HOSTS: z.string().optional(),
   OUTBOUND_WEBHOOK_ALLOW_INSECURE_HTTP: z.string().optional(),
   OUTBOUND_WEBHOOK_ALLOW_PRIVATE_NETWORKS: z.string().optional(),
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_VOICE_ID_DEFAULT: z.string().optional(),
+  ELEVENLABS_VOICE_ID_ALERT: z.string().optional(),
+  ELEVENLABS_VOICE_ID_HEIST: z.string().optional(),
+  ELEVENLABS_MODEL_ID: z.string().optional(),
+  AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

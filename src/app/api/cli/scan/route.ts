@@ -13,7 +13,8 @@
  * has to be handed to every legitimate CLI user anyway (see PR
  * discussion); real per-user API keys are tracked as a follow-up.
  */
-
+import { getOrSynthesize } from "@/lib/audio-cache";
+import { resolveVoiceId, streamSpeech } from "@/lib/elevenlabs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -86,6 +87,15 @@ function toSyntheticAddedPatch(content: string): string {
   const header = `@@ -0,0 +1,${lines.length} @@`;
   const body = lines.map((line) => `+${line}`).join("\n");
   return `${header}\n${body}\n`;
+}
+
+async function streamToBuffer(stream: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(stream)) return stream;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 const handler = withErrorHandler(async function POST(req: NextRequest) {
@@ -164,22 +174,12 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
         (findings.length > 0
           ? `SecureFlow scan completed with ${findings.length} findings.`
           : "SecureFlow scan passed cleanly.");
-      const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
-      const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xi-api-key": process.env.ELEVENLABS_API_KEY,
-        },
-        body: JSON.stringify({
-          text: summary,
-          model_id: "eleven_monolingual_v1",
-        }),
-      });
-      if (ttsRes.ok) {
-        const buf = await ttsRes.arrayBuffer();
-        audioBase64 = Buffer.from(buf).toString("base64");
-      }
+      const voiceId = resolveVoiceId("default");
+      const modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
+      const audio = await getOrSynthesize(summary, voiceId, modelId, async () =>
+        streamToBuffer(await streamSpeech(summary, { voiceId, modelId })),
+      );
+      audioBase64 = audio.toString("base64");
     } catch {
       // Graceful fallback
     }
