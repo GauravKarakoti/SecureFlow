@@ -164,26 +164,56 @@ export class ArmorIQService {
     token: string | IntentToken,
   ): Promise<{ valid: boolean; reason?: string; payload?: any }> {
     const client = this.getClient();
+
     if (!client) {
-      return {
-        valid: false,
-        reason: "ArmorIQ is not configured",
-      };
+      return { valid: false, reason: "ArmorIQ is not configured" };
+    }
+
+    if (typeof token === "string" || !token.rawToken?.token) {
+      return { valid: false, reason: "Invalid intent token" };
     }
 
     try {
-      if (typeof (client as any).verifyToken === "function") {
-        const isValid = await (client as any).verifyToken(token);
+      const tokenData = token.rawToken.token;
+      const tokenPublicKey = tokenData.public_key;
+
+      if (typeof tokenPublicKey !== "string" || !/^[0-9a-fA-F]{64}$/.test(tokenPublicKey)) {
+        return { valid: false, reason: "Invalid token signing key" };
+      }
+
+      const trustedKey = await client.ensureIapPublicKey();
+
+      if (!trustedKey || trustedKey.asymmetricKeyType !== "ed25519") {
         return {
-          valid: Boolean(isValid),
-          reason: isValid ? undefined : "Cryptographic proof validation failed",
+          valid: false,
+          reason: "Trusted ArmorIQ issuer key unavailable",
         };
       }
-      return { valid: true };
-    } catch (err: any) {
+
+      const trustedDer = trustedKey.export({
+        format: "der",
+        type: "spki",
+      });
+      const trustedRawKey = trustedDer.subarray(-32);
+      const suppliedRawKey = Buffer.from(tokenPublicKey, "hex");
+
+      if (!trustedRawKey.equals(suppliedRawKey)) {
+        return {
+          valid: false,
+          reason: "Token signing key is not trusted",
+        };
+      }
+
+      const isValid = await client.verifyToken(token);
+
+      return {
+        valid: Boolean(isValid),
+        reason: isValid ? undefined : "Cryptographic proof validation failed",
+      };
+    } catch (error: unknown) {
       return {
         valid: false,
-        reason: err?.message || "Token verification exception",
+        reason: error instanceof Error ? error.message : "Token verification failed",
       };
     }
   }

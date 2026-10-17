@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withErrorHandler } from "@/lib/middleware/error-handler";
 import { createHash } from "node:crypto";
 import { App } from "octokit";
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import { ArmorIQService } from "@/lib/armor/iq";
+import { AUTO_REMEDIATION_ARMORIQ_SCOPE } from "@/lib/armor/auto-remediation";
 import { applyScopedUnifiedDiff, isAllowedAutoRemediationPath } from "@/lib/armor/auto-remediation";
-import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 
 async function readScopedSource(
   octokit: any,
@@ -36,10 +38,7 @@ async function readScopedSource(
   return null;
 }
 
-const handler = async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+async function handler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -125,6 +124,96 @@ const handler = async function POST(
       finding.fileLocation,
       source,
     );
+
+    // Fail closed: verify authorization before the first GitHub write.
+    const armorClient = ArmorIQService.getClient();
+    if (!armorClient) {
+      return NextResponse.json(
+        { error: "ArmorIQ is not configured; remediation is blocked" },
+        { status: 503 },
+      );
+    }
+
+    const armorPatchHash = createHash("sha256")
+      .update(finding.remediationPatch.patchDiff)
+      .digest("hex");
+
+    const expectedPlan = {
+      goal: "Create an approved draft remediation pull request without merging or pushing directly",
+      steps: [
+        {
+          action: "fs.readwrite",
+          mcp: "secureflow",
+          params: {
+            repository: `${owner}/${repo}`,
+            findingId: finding.id,
+            path: finding.fileLocation,
+            armorPatchHash,
+          },
+        },
+        {
+          action: "github.pull_request.create",
+          mcp: "secureflow",
+          params: {
+            repository: `${owner}/${repo}`,
+            findingId: finding.id,
+            path: finding.fileLocation,
+            armorPatchHash,
+            draft: true,
+          },
+        },
+      ],
+    };
+
+    const policy = {
+      allow: [...AUTO_REMEDIATION_ARMORIQ_SCOPE.allow],
+      deny: [...AUTO_REMEDIATION_ARMORIQ_SCOPE.deny],
+      hold: [],
+      priority: 100,
+    };
+
+    try {
+      const capture = armorClient.capturePlan(
+        "secureflow",
+        `Apply the approved remediation for finding ${finding.id} in ${owner}/${repo}.`,
+        expectedPlan,
+        {
+          findingId: finding.id,
+          repository: `${owner}/${repo}`,
+          path: finding.fileLocation,
+          armorPatchHash,
+        },
+      );
+
+      const token = await armorClient.getIntentToken(capture, policy, 300);
+      const verification = await ArmorIQService.verifyIntentToken(token);
+
+      const signedPlan = token.rawToken?.plan;
+      const samePlan = JSON.stringify(signedPlan) === JSON.stringify(expectedPlan);
+
+      if (
+        !verification.valid ||
+        !samePlan ||
+        !token.planHash ||
+        token.planHash !== token.rawToken?.token?.plan_hash
+      ) {
+        console.error("[AUTO_REMEDIATION] ArmorIQ verification rejected", {
+          valid: verification.valid,
+          samePlan,
+        });
+        return NextResponse.json(
+          { error: "ArmorIQ intent verification failed; remediation is blocked" },
+          { status: 403 },
+        );
+      }
+    } catch (error) {
+      console.error("[AUTO_REMEDIATION] ArmorIQ authorization failed:", error);
+      return NextResponse.json(
+        { error: "ArmorIQ authorization failed; remediation is blocked" },
+        { status: 403 },
+      );
+    }
+
     const blob = await octokit.rest.git.createBlob({
       owner,
       repo,
@@ -215,6 +304,9 @@ const handler = async function POST(
       { status: 502 },
     );
   }
-};
+}
 
-export const POST = withErrorHandler(handler, { routeLabel: "findings:remediate:apply" });
+export const POST = withErrorHandler(
+  handler as (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>,
+  { routeLabel: "findings:remediate:apply" },
+) as typeof handler;
