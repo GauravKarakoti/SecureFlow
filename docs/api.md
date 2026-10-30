@@ -403,6 +403,67 @@ GITHUB_PRIVATE_KEY      # PEM private key (\n-escaped)
 
 ---
 
+### 3a. GitLab and Bitbucket Webhooks — `/api/webhooks/gitlab` & `/api/webhooks/bitbucket`
+
+Native webhook ingestion endpoints for GitLab and Bitbucket CI/CD ecosystems (#1466).
+
+#### `POST /api/webhooks/gitlab`
+
+**File**: `src/app/api/webhooks/gitlab/route.ts`
+
+GitLab webhook ingestion handler. Validates `X-Gitlab-Token` header using constant-time equality check (`timingSafeEqual`) before buffering the body.
+
+```http
+POST /api/webhooks/gitlab
+X-Gitlab-Token: <pre-shared-token>
+X-Gitlab-Event: Merge Request Hook
+Content-Type: application/json
+```
+
+**Auth**: `X-Gitlab-Token` matching `GITLAB_WEBHOOK_TOKEN`  
+**Rate limit**: 100 req/min per IP  
+**Max payload**: 1 MiB (configurable via `WEBHOOK_MAX_BYTES`)  
+**Tracked events**: `Merge Request Hook`, `Push Hook`, `Pipeline Hook`
+
+**Responses**:
+- `200 OK { "status": "queued" }` — Merge Request Hook enqueued for security scanning
+- `200 OK { "status": "received" }` — Push or Pipeline Hook acknowledged
+- `200 OK { "status": "ignored" }` — Untracked event safely acknowledged
+- `400 Bad Request` — Missing `X-Gitlab-Event` header or malformed JSON
+- `401 Unauthorized` — Missing or invalid `X-Gitlab-Token`
+- `413 Payload Too Large` — Payload exceeds byte limit
+- `500 Internal Server Error` — `GITLAB_WEBHOOK_TOKEN` not configured
+
+#### `POST /api/webhooks/bitbucket`
+
+**File**: `src/app/api/webhooks/bitbucket/route.ts`
+
+Bitbucket Cloud and Server (Data Center) webhook ingestion handler. Validates `X-Hub-Signature` (`sha256=<hex>`) HMAC-SHA256 digest using timing-safe comparison.
+
+```http
+POST /api/webhooks/bitbucket
+X-Hub-Signature: sha256=1234567890abcdef...
+X-Event-Key: pullrequest:created
+X-Request-UUID: 123e4567-e89b-12d3-a456-426614174000
+Content-Type: application/json
+```
+
+**Auth**: HMAC-SHA256 signature in `X-Hub-Signature` matching `BITBUCKET_WEBHOOK_SECRET`  
+**Rate limit**: 100 req/min per IP  
+**Max payload**: 1 MiB (configurable via `WEBHOOK_MAX_BYTES`)  
+**Tracked events**: `pullrequest:created`, `pullrequest:updated`, `pullrequest:fulfilled`, `repo:push`, `repo:refs_changed`
+
+**Responses**:
+- `200 OK { "status": "queued" }` — Pull request event enqueued for scan
+- `200 OK { "status": "received" }` — Push or closure event acknowledged
+- `200 OK { "status": "ignored" }` — Untracked event acknowledged
+- `400 Bad Request` — Missing `X-Event-Key` or malformed JSON
+- `401 Unauthorized` — Missing or invalid HMAC signature
+- `413 Payload Too Large` — Payload exceeds byte limit
+- `500 Internal Server Error` — `BITBUCKET_WEBHOOK_SECRET` not configured
+
+---
+
 ### 4. Finding Explanation Stream — `/api/findings/[id]/explain-stream`
 
 **File**: `src/app/api/findings/[id]/explain-stream/route.ts`
