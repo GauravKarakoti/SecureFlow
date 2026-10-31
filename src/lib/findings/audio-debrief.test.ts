@@ -4,14 +4,13 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { findUniqueMock, upsertMock, deleteManyMock, aggregateMock, countMock } =
-  vi.hoisted(() => ({
-    findUniqueMock: vi.fn(),
-    upsertMock: vi.fn(),
-    deleteManyMock: vi.fn(),
-    aggregateMock: vi.fn(),
-    countMock: vi.fn(),
-  }));
+const { findUniqueMock, upsertMock, deleteManyMock, aggregateMock, countMock } = vi.hoisted(() => ({
+  findUniqueMock: vi.fn(),
+  upsertMock: vi.fn(),
+  deleteManyMock: vi.fn(),
+  aggregateMock: vi.fn(),
+  countMock: vi.fn(),
+}));
 
 vi.mock("@/lib/prisma", () => ({
   default: {

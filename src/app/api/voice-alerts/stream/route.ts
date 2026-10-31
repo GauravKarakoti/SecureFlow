@@ -16,11 +16,7 @@ import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { subscribeVoiceAlert } from "@/lib/voice-alert-events";
 import { checkRateLimitDetailed } from "@/lib/redis";
-import {
-  TIERS,
-  buildRateLimitHeaders,
-  secondsUntilReset,
-} from "@/lib/middleware/rate-limit";
+import { TIERS, buildRateLimitHeaders, secondsUntilReset } from "@/lib/middleware/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +54,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Too Many Requests",
-        message: "You have exceeded the rate limit for voice alert connections. Please try again later.",
+        message:
+          "You have exceeded the rate limit for voice alert connections. Please try again later.",
       },
       {
         status: 429,
