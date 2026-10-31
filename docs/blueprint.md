@@ -6,6 +6,8 @@ _"In this heist, we're not stealing — we're protecting." SecureFlow casts ever
 
 - **GitHub App Integration — The Inside Job**: Streamlined GitHub OAuth flow for repository selection and automated pull request webhook listeners. This is how the crew gets access to the building in the first place.
 - **ArmorIQ Scanner — The Professor's Eyes**: High-fidelity security scan implementation that identifies hardcoded secrets, vulnerable dependencies, and insecure code patterns during PR cycles.
+  - Deterministic pre-scan of added diff lines (AWS keys, GitHub/Slack tokens, PEM private keys, quoted secret assignments) runs before LLM dispatch, so findings still land if the LLM is down.
+  - Known gaps: scans PR diffs only (no historical commit walking); detection is regex-based with entropy tuning for credential assignments.
 - **AI Reasoner Tool — The Professor's Voice**: An AI tool that applies logical reasoning to scanner findings to provide human-readable risk summaries and direct remediation advice in plain English, in-character as "The Professor."
 - **ArmorIQ Policy Engine — The Plan**: Logic engine for automated risk evaluation, mapping findings to customizable policy states: Pass, Review Required, or Blocked.
 - **Mission Control Dashboard**: Centralized workspace featuring high-level risk trends, PR status visualizations, and active vulnerability metrics built with shadcn/ui and Recharts.
