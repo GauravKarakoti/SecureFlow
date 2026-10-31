@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authMock, findUniqueMock, subscribeVoiceAlertMock, checkRateLimitDetailedMock } = vi.hoisted(() => ({
-  authMock: vi.fn(),
-  findUniqueMock: vi.fn(),
-  subscribeVoiceAlertMock: vi.fn(),
-  checkRateLimitDetailedMock: vi.fn(),
-}));
+const { authMock, findUniqueMock, subscribeVoiceAlertMock, checkRateLimitDetailedMock } =
+  vi.hoisted(() => ({
+    authMock: vi.fn(),
+    findUniqueMock: vi.fn(),
+    subscribeVoiceAlertMock: vi.fn(),
+    checkRateLimitDetailedMock: vi.fn(),
+  }));
 
 vi.mock("@/auth", () => ({
   auth: authMock,

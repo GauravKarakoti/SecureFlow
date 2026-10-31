@@ -74,8 +74,26 @@ vi.mock("./analytics-client", () => ({
 describe("AnalyticsPage Server Component (#1469)", () => {
   const mockPayload = {
     dailyMetrics: [
-      { date: "2026-10-01", scansCount: 5, passCount: 4, reviewCount: 1, blockCount: 0, criticalCount: 1, highCount: 2, avgRiskScore: 45 },
-      { date: "2026-10-02", scansCount: 8, passCount: 6, reviewCount: 2, blockCount: 0, criticalCount: 0, highCount: 1, avgRiskScore: 35 },
+      {
+        date: "2026-10-01",
+        scansCount: 5,
+        passCount: 4,
+        reviewCount: 1,
+        blockCount: 0,
+        criticalCount: 1,
+        highCount: 2,
+        avgRiskScore: 45,
+      },
+      {
+        date: "2026-10-02",
+        scansCount: 8,
+        passCount: 6,
+        reviewCount: 2,
+        blockCount: 0,
+        criticalCount: 0,
+        highCount: 1,
+        avgRiskScore: 35,
+      },
     ],
     severityTrend: [
       { date: "2026-10-01", critical: 1, high: 2, medium: 3, low: 4, info: 0 },
@@ -254,4 +272,3 @@ describe("AnalyticsPage Server Component (#1469)", () => {
     expect(screen.getByTestId("repo-summaries-count").textContent).toBe("0");
   });
 });
-

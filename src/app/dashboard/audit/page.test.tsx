@@ -195,4 +195,3 @@ describe("AuditPage Server Component (#1469)", () => {
     expect(screen.getByTestId("own-name").textContent).toBe("You");
   });
 });
-

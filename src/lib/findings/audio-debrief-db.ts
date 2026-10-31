@@ -37,9 +37,7 @@ export async function getDbAudioCache(contentHash: string): Promise<Buffer | nul
     // Respect explicit TTL if set
     if (entry.expiresAt && new Date() > entry.expiresAt) {
       // Async cleanup — do not await so callers are not delayed
-      prisma.audioDebriefCache
-        .delete({ where: { contentHash } })
-        .catch(() => {});
+      prisma.audioDebriefCache.delete({ where: { contentHash } }).catch(() => {});
       return null;
     }
 
@@ -100,10 +98,7 @@ export async function evictStaleDbAudioCache(olderThanDays: number = 30): Promis
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
     const result = await prisma.audioDebriefCache.deleteMany({
       where: {
-        OR: [
-          { expiresAt: { lt: new Date() } },
-          { lastAccessed: { lt: cutoff } },
-        ],
+        OR: [{ expiresAt: { lt: new Date() } }, { lastAccessed: { lt: cutoff } }],
       },
     });
     return result.count;
