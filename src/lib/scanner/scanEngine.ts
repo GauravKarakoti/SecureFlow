@@ -37,6 +37,12 @@ import {
 } from "./scan-persistence";
 import { resolvePullRequestRecord, splitRepositoryFullName } from "./pull-request-record";
 import { loadTrustedIgnoreConfig, type IgnoreConfigClient } from "./ignore-config";
+import {
+  loadTrustedGateConfig,
+  formatGateSummaryLine,
+  DEFAULT_GATE_CONFIG,
+  type GateConfig,
+} from "./gate-config";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 
 /** Maximum files to process in a single batch before yielding. */
@@ -191,6 +197,7 @@ export async function processScanJob(
   //
   // `initialCustomIgnores` / `initialCustomPlaceholders` are server-supplied
   // (never request fields) and are kept as an addition to the repository's own.
+  let repositoryGateConfig: GateConfig = { ...DEFAULT_GATE_CONFIG };
   let repositoryIgnoreConfig: { ignoredPaths: string[]; placeholders: string[] } = {
     ignoredPaths: [],
     placeholders: [],
@@ -199,6 +206,12 @@ export async function processScanJob(
     const { owner, repo } = splitRepositoryFullName(repositoryFullName);
     const client = octokit as unknown as IgnoreConfigClient;
     repositoryIgnoreConfig = await loadTrustedIgnoreConfig(client, {
+      owner,
+      repo,
+      prNumber,
+      baseRef,
+    });
+    repositoryGateConfig = await loadTrustedGateConfig(client, {
       owner,
       repo,
       prNumber,
@@ -370,7 +383,7 @@ export async function processScanJob(
   }
 
   // --- Phase 4: Evaluate policy decision ---
-  const decision = iq.evaluateFindings(activeFindings);
+  const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
   // Both the check-run conclusion and the stored enum are derived from the same
   // normalizer, so they can no longer disagree about what the scan decided.
   const conclusion = checkRunConclusion(decision);
@@ -398,7 +411,9 @@ export async function processScanJob(
         conclusion,
         output: {
           title: `Policy Decision: ${decision}`,
-          summary: `SecureFlow detected ${enrichedFindings.length} potential security issues across ${totalFiles} analyzed file(s).`,
+          summary:
+            `SecureFlow detected ${enrichedFindings.length} potential security issues across ${totalFiles} analyzed file(s).` +
+            (formatGateSummaryLine(repositoryGateConfig) ? `\n\n${formatGateSummaryLine(repositoryGateConfig)}` : ""),
         },
       });
 

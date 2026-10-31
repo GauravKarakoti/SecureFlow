@@ -2,7 +2,9 @@ import { ArmorIQClient, IntentToken } from "@armoriq/sdk";
 import { ScanFinding } from "./scanner";
 import prisma from "@/lib/prisma";
 import { z } from "zod";
-import { isAtLeast, parseSeverity } from "@/lib/severity";
+import { isAtLeast, parseSeverity, type Severity } from "@/lib/severity";
+import type { GateConfig, GateLevel } from "@/lib/scanner/gate-config";
+import { DEFAULT_GATE_CONFIG } from "@/lib/scanner/gate-config";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "./armoriq-breaker";
 
 const armorIQConfigSchema = z.object({
@@ -34,15 +36,63 @@ export class ArmorIQPolicyEngine {
    * rather than BLOCKED or PASS — we know the scanner reported something, we
    * just cannot rank it, so a human should look.
    */
-  evaluateFindings(findings: ScanFinding[]): PolicyResult {
-    if (findings.some((f) => parseSeverity(f.severity) === "CRITICAL")) {
-      return "BLOCKED";
+  /**
+   * Decide whether a pull request is blocked, needs review, or passes.
+   *
+   * Accepts an optional GateConfig parameter (loaded from .secureflow.json on the base branch).
+   * Missing gate config falls back to DEFAULT_GATE_CONFIG (blockOn: CRITICAL, reviewOn: MEDIUM).
+   *
+   * Rules:
+   * 1. BLOCKED if any active finding is at or above effective blockOn.
+   * 2. Otherwise REVIEW REQUIRED if any finding is at or above effective reviewOn,
+   *    or has an uninterpretable severity.
+   * 3. Otherwise PASS.
+   * Setting a level to NONE turns off that gate level.
+   */
+  evaluateFindings(findings: ScanFinding[], gate?: GateConfig | null): PolicyResult {
+    const config = gate ?? DEFAULT_GATE_CONFIG;
+    const globalBlock = config.blockOn;
+    const globalReview = config.reviewOn;
+    const overrides = config.overrides ?? [];
+
+    const getFindingGate = (finding: ScanFinding): { blockOn: GateLevel; reviewOn: GateLevel } => {
+      if (overrides.length > 0 && finding.type) {
+        const typeNormalized = finding.type.trim().toUpperCase();
+        const match = overrides.find((o) => o.type.trim().toUpperCase() === typeNormalized);
+        if (match) {
+          return {
+            blockOn: match.blockOn ?? globalBlock,
+            reviewOn: match.reviewOn ?? globalReview,
+          };
+        }
+      }
+      return { blockOn: globalBlock, reviewOn: globalReview };
+    };
+
+    // Check BLOCKED condition across all findings
+    for (const finding of findings) {
+      const { blockOn } = getFindingGate(finding);
+      if (blockOn !== "NONE") {
+        if (isAtLeast(finding.severity, blockOn as Severity)) {
+          return "BLOCKED";
+        }
+      }
     }
 
-    if (
-      findings.some((f) => isAtLeast(f.severity, "MEDIUM") || parseSeverity(f.severity) === null)
-    ) {
-      return "REVIEW REQUIRED";
+    // Check REVIEW REQUIRED condition across all findings
+    for (const finding of findings) {
+      const parsed = parseSeverity(finding.severity);
+      // Uninterpretable severity always requires human review
+      if (parsed === null) {
+        return "REVIEW REQUIRED";
+      }
+
+      const { reviewOn } = getFindingGate(finding);
+      if (reviewOn !== "NONE") {
+        if (isAtLeast(finding.severity, reviewOn as Severity)) {
+          return "REVIEW REQUIRED";
+        }
+      }
     }
 
     return "PASS";
