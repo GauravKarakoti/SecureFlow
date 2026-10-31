@@ -5,8 +5,8 @@
  * pipeline that reports progress as files are scanned.
  *
  * Usage (from worker):
- *   import { processScanJob } from '@/lib/scanner/scanEngine';
- *   const result = await processScanJob(jobData, onProgress);
+ *    import { processScanJob } from '@/lib/scanner/scanEngine';
+ *    const result = await processScanJob(jobData, onProgress);
  */
 
 import { scanner } from "@/lib/armor/scanner";
@@ -18,6 +18,7 @@ import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
 import { App } from "octokit";
+import { postScanCheckRun } from "./check-run";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -26,8 +27,7 @@ import { fetchPullRequestFiles } from "@/lib/github/pull-request-files";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { updateScanJobProgress } from "@/lib/queue/scanQueue";
 import {
-  checkRunConclusion,
-  parseInstallationId,
+   parseInstallationId,
   progressPercent,
   scanResultCreateData,
   ScanPersistenceError,
@@ -338,17 +338,6 @@ export async function processScanJob(
     (f) => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint),
   );
 
-  // Enrich active findings with AI explanations.
-  //
-  // Previously used Promise.all over all findings simultaneously. On a PR with
-  // many findings this fired all AI calls at once, immediately exhausting the
-  // Groq rate limit (429) and causing every call to fail and retry at the same
-  // time — a thundering herd that made the problem worse with each retry cycle.
-  //
-  // Fixed by processing findings in batches of AI_ENRICHMENT_CONCURRENCY (3).
-  // Each batch runs in parallel (fast), but batches are sequential (safe).
-  // This keeps Groq request rate well within limits while still being faster
-  // than fully sequential processing.
   // Enrich active findings with AI explanations in batches to prevent rate-limit storms (thundering herd)
   const enrichedFindings: EnrichedScanFinding[] = [];
 
@@ -384,9 +373,12 @@ export async function processScanJob(
 
   // --- Phase 4: Evaluate policy decision ---
   const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
-  // Both the check-run conclusion and the stored enum are derived from the same
-  // normalizer, so they can no longer disagree about what the scan decided.
-  const conclusion = checkRunConclusion(decision);
+  const conclusion =
+    decision === "PASS"
+      ? "success"
+      : decision === "REVIEW REQUIRED"
+        ? "action_required"
+        : "failure";
 
   // --- Phase 5: Post to GitHub ---
   onProgress({
@@ -408,7 +400,7 @@ export async function processScanJob(
         name: "SecureFlow Scan",
         head_sha: headSha,
         status: "completed",
-        conclusion,
+        conclusion: conclusion as any,
         output: {
           title: `Policy Decision: ${decision}`,
           summary:
@@ -449,9 +441,6 @@ export async function processScanJob(
 
   if (persist && repositoryId) {
     try {
-      // Resolved against `prNumber` — the column's actual name — and created
-      // with the pull request's real GitHub id rather than `BigInt(0)`, which
-      // is `@unique` and so worked at most once per database (#747).
       const dbPr = await resolvePullRequestRecord({
         store: prisma.pullRequest as never,
         fetchPullRequest: (params) => octokit.rest.pulls.get(params) as never,
@@ -493,23 +482,12 @@ export async function processScanJob(
         });
       }
     } catch (err) {
-      // Recorded rather than only logged. Every write above is an enum or a
-      // column name away from being rejected outright, and the previous
-      // log-and-continue meant the job still reported COMPLETED with nothing in
-      // the database — the failure mode was indistinguishable from a clean scan
-      // of a repository with no findings (#747).
       persistenceError = err instanceof Error ? err.message : String(err);
       console.error(`[ScanEngine] Failed to persist results:`, err);
     }
   }
 
   // --- Phase 7: Real-time Slack alert for high-severity findings (#936) ---
-  //
-  // Runs after persistence so an alert only fires for findings that are already
-  // saved, and is deliberately outside the persist try/catch: it is best-effort
-  // and `notifyHighSeverityFindings` never throws, so a Slack outage cannot turn
-  // a completed scan into a failed one or trigger a BullMQ retry. The threshold
-  // (CRITICAL/HIGH) is decided inside the integration.
   if (userId && enrichedFindings.length > 0) {
     try {
       const owner = await prisma.user.findUnique({
@@ -523,7 +501,6 @@ export async function processScanJob(
         findings: enrichedFindings,
       });
     } catch (err) {
-      // Includes the webhook lookup — a Slack step must never fail the scan.
       console.error(`[ScanEngine] Slack notification step failed:`, err);
     }
   }

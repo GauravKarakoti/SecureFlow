@@ -1,4 +1,5 @@
 import { Worker, Job, DelayedError } from "bullmq";
+import { postScanCheckRun, postScanErrorCheckRun } from "../scanner/check-run";
 import { z } from "zod";
 import { redis } from "./redis";
 import { webhookDLQ, WebhookJobData } from "./webhookQueue";
@@ -863,7 +864,7 @@ export const worker = new Worker<WebhookJobData>(
             });
           }
 
-          await octokit.rest.checks.create({
+          await postScanCheckRun(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
             name: "SecureFlow Scan",
@@ -1156,6 +1157,47 @@ export const worker = new Worker<WebhookJobData>(
   { connection: redis as any },
 );
 
+/**
+ * Fail-closed: when a pull_request scan fails permanently, post a failing
+ * "SecureFlow Scan" check so the PR cannot merge as if it had been scanned.
+ *
+ * Never throws: a failure here must not disturb DLQ routing. The reason is a
+ * fixed string on purpose, because the check output is visible on the PR and
+ * an internal error message (DB host, stack detail) must not end up there.
+ */
+export async function postScanFailureCheck(data: WebhookJobData | undefined): Promise<void> {
+  try {
+    if (!data || data.event !== "pull_request") return;
+
+    const payload = data.payload as any;
+
+    // Only deliveries that actually trigger a scan; "closed" etc. never posted a check.
+    const actionKind = classifyPullRequestAction(payload?.action);
+    if (actionKind === "ignore" || actionKind === "metadata") return;
+
+    const installationId = payload?.installation?.id;
+    if (!installationId) return;
+
+    const { ownerLogin, repoName, headSha } = assertPullRequestContext(payload);
+
+    const { appId, privateKey } = getGitHubAppCredentials();
+    const appClient = new App({ appId, privateKey });
+    const octokit = await appClient.getInstallationOctokit(installationId);
+
+    await postScanErrorCheckRun(octokit as any, {
+      owner: ownerLogin,
+      repo: repoName,
+      headSha,
+      reason: "An internal error interrupted the scan. Re-run it by pushing a new commit.",
+    });
+  } catch (checkErr: any) {
+    console.error(
+      "[QUEUE] Could not post fail-closed check run:",
+      sanitize(checkErr?.message ?? String(checkErr)),
+    );
+  }
+}
+
 worker.on("completed", (job: Job) => console.log(`[QUEUE] Job ${job.id} completed.`));
 worker.on("error", (err: Error) => {
   console.error("[QUEUE] Worker connection error:", err);
@@ -1185,6 +1227,9 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
     } catch (dlqErr: any) {
       console.error(`Failed to route job ${sanitize(job.id)} to DLQ:`, sanitize(dlqErr.message));
     }
+
+    // After DLQ routing, so a slow GitHub call can never delay the DLQ entry.
+    await postScanFailureCheck(job.data);
   } else {
     console.warn(
       `[QUEUE] Job ${sanitize(job.id)} failed (attempt ${sanitize(job.attemptsMade)}/${sanitize(maxAttempts)}), retrying with exponential backoff: ${sanitize(err.message)}`,
