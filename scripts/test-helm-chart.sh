@@ -13,8 +13,9 @@ for monitor in false true; do
     --set serviceMonitor.enabled="$monitor" > /dev/null
 done
 
-metrics_service="$("$helm_bin" template check "$chart_dir" \
-  --show-only templates/service.yaml \
+# One Service for the app, which also carries the ServiceMonitor wiring (#1143, #1467).
+app_service="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/app-service.yaml \
   --set secrets.authSecret=local-test-only \
   --set app.service.port=9010 \
   --set service.portName=metrics)"
@@ -24,17 +25,23 @@ service_monitor="$("$helm_bin" template check "$chart_dir" \
   --set serviceMonitor.enabled=true \
   --set service.portName=metrics)"
 
-grep -Fq 'targetPort: http' <<< "$metrics_service"
-grep -Fq 'name: metrics' <<< "$metrics_service"
+grep -Fq 'targetPort: http' <<< "$app_service"
+grep -Fq 'port: 9010' <<< "$app_service"
+grep -Fq 'name: metrics' <<< "$app_service"
 grep -Fq 'port: metrics' <<< "$service_monitor"
-grep -Fq 'secureflow-metrics: "true"' <<< "$metrics_service"
+grep -Fq 'secureflow-metrics: "true"' <<< "$app_service"
 grep -Fq 'secureflow-metrics: "true"' <<< "$service_monitor"
 
-app_service="$("$helm_bin" template check "$chart_dir" \
-  --show-only templates/app-service.yaml \
+# Regression (#1467): the redundant metrics Service template must stay removed,
+# and exactly one rendered Service may carry the metrics label.
+if [ -e "$chart_dir/templates/service.yaml" ]; then
+  echo 'templates/service.yaml duplicates app-service.yaml and must not exist' >&2
+  exit 1
+fi
+default_render="$("$helm_bin" template check "$chart_dir" \
   --set secrets.authSecret=local-test-only)"
-if grep -Fq 'secureflow-metrics:' <<< "$app_service"; then
-  echo 'Application Service must not match the metrics ServiceMonitor' >&2
+if [ "$(grep -c 'secureflow-metrics: "true"' <<< "$default_render")" -ne 1 ]; then
+  echo 'Exactly one Service must carry the secureflow-metrics label' >&2
   exit 1
 fi
 
