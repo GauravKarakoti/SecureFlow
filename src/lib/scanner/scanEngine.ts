@@ -18,6 +18,7 @@ import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
 import { App } from "octokit";
+import { postScanCheckRun } from "./check-run";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -26,7 +27,7 @@ import { fetchPullRequestFiles } from "@/lib/github/pull-request-files";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { updateScanJobProgress } from "@/lib/queue/scanQueue";
 import {
-  checkRunConclusion,
+  
   parseInstallationId,
   progressPercent,
   scanResultCreateData,
@@ -373,7 +374,7 @@ export async function processScanJob(
   const decision = iq.evaluateFindings(activeFindings);
   // Both the check-run conclusion and the stored enum are derived from the same
   // normalizer, so they can no longer disagree about what the scan decided.
-  const conclusion = checkRunConclusion(decision);
+  
 
   // --- Phase 5: Post to GitHub ---
   onProgress({
@@ -389,18 +390,14 @@ export async function processScanJob(
       const { owner, repo } = splitRepositoryFullName(repositoryFullName);
 
       // Create check run
-      await octokit.rest.checks.create({
-        owner,
-        repo,
-        name: "SecureFlow Scan",
-        head_sha: headSha,
-        status: "completed",
-        conclusion,
-        output: {
-          title: `Policy Decision: ${decision}`,
-          summary: `SecureFlow detected ${enrichedFindings.length} potential security issues across ${totalFiles} analyzed file(s).`,
-        },
-      });
+     await postScanCheckRun(octokit, {
+      owner,
+      repo,
+      headSha,
+      decision,
+      findingsCount: enrichedFindings.length,
+      fileCount: totalFiles,
+    });
 
       // Post PR comment if there are findings
       if (enrichedFindings.length > 0) {

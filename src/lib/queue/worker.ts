@@ -1,4 +1,5 @@
 import { Worker, Job, DelayedError } from "bullmq";
+import { postScanCheckRun, postScanErrorCheckRun } from "../scanner/check-run";
 import { z } from "zod";
 import { redis } from "./redis";
 import { webhookDLQ, WebhookJobData } from "./webhookQueue";
@@ -824,12 +825,6 @@ export const worker = new Worker<WebhookJobData>(
           // Evaluate only the findings the user hasn't dismissed, so a triaged-away
           // critical no longer BLOCKs the PR on every subsequent re-scan.
           const decision = iq.evaluateFindings(activeFindings);
-          const conclusion =
-            decision === "PASS"
-              ? "success"
-              : decision === "REVIEW REQUIRED"
-                ? "action_required"
-                : "failure";
 
           if (userId) {
             await prisma.auditLog.create({
@@ -846,21 +841,14 @@ export const worker = new Worker<WebhookJobData>(
             });
           }
 
-          await octokit.rest.checks.create({
+          await postScanCheckRun(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
-            name: "SecureFlow Scan",
-            head_sha: pull_request.head.sha,
-            status: "completed",
-            conclusion: conclusion as any,
-            output: {
-              title: `Policy Decision: ${decision}`,
-              // The scanned-file count is stated explicitly so a truncated scan can
-              // never read as a clean bill of health for the whole PR.
-              summary:
-                `SecureFlow detected ${activeFindings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
-                (coverageNotice ? `\n\n${coverageNotice}` : ""),
-            },
+            headSha: pull_request.head.sha,
+            decision,
+            findingsCount: activeFindings.length,
+            fileCount: fileChanges.length,
+            notice: coverageNotice || undefined,
           });
 
           // Publish the same findings to GitHub's Code Scanning UI, so they show
@@ -1138,6 +1126,47 @@ export const worker = new Worker<WebhookJobData>(
   { connection: redis as any },
 );
 
+/**
+ * Fail-closed: when a pull_request scan fails permanently, post a failing
+ * "SecureFlow Scan" check so the PR cannot merge as if it had been scanned.
+ *
+ * Never throws: a failure here must not disturb DLQ routing. The reason is a
+ * fixed string on purpose, because the check output is visible on the PR and
+ * an internal error message (DB host, stack detail) must not end up there.
+ */
+export async function postScanFailureCheck(data: WebhookJobData | undefined): Promise<void> {
+  try {
+    if (!data || data.event !== "pull_request") return;
+
+    const payload = data.payload as any;
+
+    // Only deliveries that actually trigger a scan; "closed" etc. never posted a check.
+    const actionKind = classifyPullRequestAction(payload?.action);
+    if (actionKind === "ignore" || actionKind === "metadata") return;
+
+    const installationId = payload?.installation?.id;
+    if (!installationId) return;
+
+    const { ownerLogin, repoName, headSha } = assertPullRequestContext(payload);
+
+    const { appId, privateKey } = getGitHubAppCredentials();
+    const appClient = new App({ appId, privateKey });
+    const octokit = await appClient.getInstallationOctokit(installationId);
+
+    await postScanErrorCheckRun(octokit as any, {
+      owner: ownerLogin,
+      repo: repoName,
+      headSha,
+      reason: "An internal error interrupted the scan. Re-run it by pushing a new commit.",
+    });
+  } catch (checkErr: any) {
+    console.error(
+      "[QUEUE] Could not post fail-closed check run:",
+      sanitize(checkErr?.message ?? String(checkErr)),
+    );
+  }
+}
+
 worker.on("completed", (job: Job) => console.log(`[QUEUE] Job ${job.id} completed.`));
 worker.on("error", (err: Error) => {
   console.error("[QUEUE] Worker connection error:", err);
@@ -1167,6 +1196,9 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
     } catch (dlqErr: any) {
       console.error(`Failed to route job ${sanitize(job.id)} to DLQ:`, sanitize(dlqErr.message));
     }
+
+    // After DLQ routing, so a slow GitHub call can never delay the DLQ entry.
+    await postScanFailureCheck(job.data);
   } else {
     console.warn(
       `[QUEUE] Job ${sanitize(job.id)} failed (attempt ${sanitize(job.attemptsMade)}/${sanitize(maxAttempts)}), retrying with exponential backoff: ${sanitize(err.message)}`,
