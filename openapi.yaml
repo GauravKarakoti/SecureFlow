@@ -1091,6 +1091,129 @@ paths:
                     type: string
                     example: Internal Server Error
 
+  /api/webhooks/gitlab:
+    post:
+      operationId: ingestGitLabWebhook
+      summary: Ingest GitLab webhook
+      description: >
+        Receives and verifies GitLab webhook payloads. Validates the
+        X-Gitlab-Token header via timing-safe comparison before processing. (#1466)
+      tags:
+        - Webhooks
+      security: []
+      parameters:
+        - name: X-Gitlab-Token
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Pre-shared secret token (matching GITLAB_WEBHOOK_TOKEN env var).
+        - name: X-Gitlab-Event
+          in: header
+          required: true
+          schema:
+            type: string
+          description: GitLab event type (e.g. "Merge Request Hook", "Push Hook").
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook accepted or ignored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued, received, ignored]
+                  message:
+                    type: string
+        "400":
+          description: Missing header or invalid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Payload too large
+        "500":
+          description: Server misconfiguration
+  /api/webhooks/bitbucket:
+    post:
+      operationId: ingestBitbucketWebhook
+      summary: Ingest Bitbucket webhook
+      description: >
+        Receives and verifies Bitbucket Cloud and Server webhook payloads.
+        Validates X-Hub-Signature HMAC-SHA256 before processing. (#1466)
+      tags:
+        - Webhooks
+      security: []
+      parameters:
+        - name: X-Hub-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: "HMAC-SHA256 signature in format: sha256=<hex>"
+        - name: X-Event-Key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bitbucket event key (e.g. "repo:push", "pullrequest:created").
+        - name: X-Request-UUID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Bitbucket delivery UUID for idempotency logging.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook accepted or ignored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued, received, ignored]
+                  message:
+                    type: string
+        "400":
+          description: Missing header or invalid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Payload too large
+        "500":
+          description: Server misconfiguration
+
   /api/webhooks/github:
     post:
       summary: GitHub webhook receiver

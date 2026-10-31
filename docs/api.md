@@ -403,97 +403,64 @@ GITHUB_PRIVATE_KEY      # PEM private key (\n-escaped)
 
 ---
 
-### 3b. Single Finding Operations — `/api/findings/[id]`
+### 3a. GitLab and Bitbucket Webhooks — `/api/webhooks/gitlab` & `/api/webhooks/bitbucket`
 
-**File**: `src/app/api/findings/[id]/route.ts`
+Native webhook ingestion endpoints for GitLab and Bitbucket CI/CD ecosystems (#1466).
 
-REST endpoints for fetching, updating, and deleting a single security finding. All operations scope strictly to the session user via the relation chain: `Finding → ScanResult → PullRequest → Repository → userId`. A finding the caller does not own returns 404 to prevent IDOR enumeration. (#1465)
+#### `POST /api/webhooks/gitlab`
 
-#### `GET /api/findings/[id]`
+**File**: `src/app/api/webhooks/gitlab/route.ts`
 
-Returns full details for a single finding, including scan result, pull request metadata, and remediation patch status.
-
-```http
-GET /api/findings/cld1a2b3...
-Cookie: next-auth.session-token=<jwt>
-```
-
-**Auth**: Session required (owner only)  
-**Rate limit**: 120 req/min per IP (`STANDARD` tier)
-
-**Response `200 OK`**:
-```json
-{
-  "id": "cld1a2b3...",
-  "type": "VULNERABILITY",
-  "severity": "HIGH",
-  "fileLocation": "src/lib/auth.ts:42",
-  "lineStart": 42,
-  "lineEnd": 45,
-  "codeSnippet": "eval(userInput)",
-  "explanation": "Remote code execution via eval",
-  "remediation": "Remove eval usage",
-  "promptInjectionSuspected": false,
-  "fingerprint": "fp-abc123",
-  "complianceTags": ["SOC2"],
-  "createdAt": "2026-01-01T00:00:00.000Z",
-  "remediationPatch": null,
-  "scanResult": {
-    "id": "scan-1",
-    "riskScore": 80,
-    "policyDecision": "BLOCK",
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "pullRequest": {
-      "id": "pr-1",
-      "prNumber": 42,
-      "title": "Feature branch",
-      "state": "OPEN",
-      "repositoryId": "repo-1"
-    }
-  }
-}
-```
-
-#### `PATCH /api/findings/[id]`
-
-Updates the triage status and/or severity of a finding. At least one field is required. Writes an immutable audit log entry.
+GitLab webhook ingestion handler. Validates `X-Gitlab-Token` header using constant-time equality check (`timingSafeEqual`) before buffering the body.
 
 ```http
-PATCH /api/findings/cld1a2b3...
-Cookie: next-auth.session-token=<jwt>
+POST /api/webhooks/gitlab
+X-Gitlab-Token: <pre-shared-token>
+X-Gitlab-Event: Merge Request Hook
 Content-Type: application/json
-
-{
-  "triageStatus": "RESOLVED",
-  "severity": "LOW",
-  "note": "Verified safe input validation in test"
-}
 ```
 
-**Auth**: Session required (owner only)  
-**Rate limit**: 120 req/min per IP, per-user inner guard  
-**Valid `triageStatus`**: `OPEN`, `RESOLVED`, `FALSE_POSITIVE`, `IGNORED`  
-**Valid `severity`**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`
+**Auth**: `X-Gitlab-Token` matching `GITLAB_WEBHOOK_TOKEN`  
+**Rate limit**: 100 req/min per IP  
+**Max payload**: 1 MiB (configurable via `WEBHOOK_MAX_BYTES`)  
+**Tracked events**: `Merge Request Hook`, `Push Hook`, `Pipeline Hook`
 
-**Response `200 OK`**: Updated finding JSON object  
-**Response `400 Bad Request`**: Validation failure or no updates provided  
-**Response `404 Not Found`**: Finding does not exist or caller does not own it  
-**Response `429 Too Many Requests`**: Rate limit exceeded
+**Responses**:
+- `200 OK { "status": "queued" }` — Merge Request Hook enqueued for security scanning
+- `200 OK { "status": "received" }` — Push or Pipeline Hook acknowledged
+- `200 OK { "status": "ignored" }` — Untracked event safely acknowledged
+- `400 Bad Request` — Missing `X-Gitlab-Event` header or malformed JSON
+- `401 Unauthorized` — Missing or invalid `X-Gitlab-Token`
+- `413 Payload Too Large` — Payload exceeds byte limit
+- `500 Internal Server Error` — `GITLAB_WEBHOOK_TOKEN` not configured
 
-#### `DELETE /api/findings/[id]`
+#### `POST /api/webhooks/bitbucket`
 
-Permanently deletes a finding. Writes an audit log entry.
+**File**: `src/app/api/webhooks/bitbucket/route.ts`
+
+Bitbucket Cloud and Server (Data Center) webhook ingestion handler. Validates `X-Hub-Signature` (`sha256=<hex>`) HMAC-SHA256 digest using timing-safe comparison.
 
 ```http
-DELETE /api/findings/cld1a2b3...
-Cookie: next-auth.session-token=<jwt>
+POST /api/webhooks/bitbucket
+X-Hub-Signature: sha256=1234567890abcdef...
+X-Event-Key: pullrequest:created
+X-Request-UUID: 123e4567-e89b-12d3-a456-426614174000
+Content-Type: application/json
 ```
 
-**Auth**: Session required (owner only)  
-**Rate limit**: 30 req/min per IP (`ADMIN` tier), per-user inner guard
+**Auth**: HMAC-SHA256 signature in `X-Hub-Signature` matching `BITBUCKET_WEBHOOK_SECRET`  
+**Rate limit**: 100 req/min per IP  
+**Max payload**: 1 MiB (configurable via `WEBHOOK_MAX_BYTES`)  
+**Tracked events**: `pullrequest:created`, `pullrequest:updated`, `pullrequest:fulfilled`, `repo:push`, `repo:refs_changed`
 
-**Response `204 No Content`**: Successfully deleted  
-**Response `404 Not Found`**: Finding not found or caller does not own it
+**Responses**:
+- `200 OK { "status": "queued" }` — Pull request event enqueued for scan
+- `200 OK { "status": "received" }` — Push or closure event acknowledged
+- `200 OK { "status": "ignored" }` — Untracked event acknowledged
+- `400 Bad Request` — Missing `X-Event-Key` or malformed JSON
+- `401 Unauthorized` — Missing or invalid HMAC signature
+- `413 Payload Too Large` — Payload exceeds byte limit
+- `500 Internal Server Error` — `BITBUCKET_WEBHOOK_SECRET` not configured
 
 ---
 

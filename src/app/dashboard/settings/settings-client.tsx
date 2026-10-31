@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateSlackWebhook, updateVoiceAlerts } from "@/lib/actions/settings";
 import { Save, MessageSquare, Volume2 } from "lucide-react";
+import WebhookConfigCard from "@/components/settings/webhook-config-card";
 
 export default function SettingsClient({
   initialWebhookUrl,
@@ -63,9 +64,12 @@ export default function SettingsClient({
           Integrations & Settings
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          Manage your integrations and configure external alerts.
+          Manage your integrations, configure inbound CI/CD webhooks, and external alerts.
         </p>
       </div>
+
+      {/* ── Inbound VCS Webhook Configuration (GitLab & Bitbucket) ── */}
+      <WebhookConfigCard />
 
       {/* ── Slack Integration ── */}
       <Card className="glass-card">
