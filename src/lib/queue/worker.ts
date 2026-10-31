@@ -10,6 +10,12 @@ import { processScanJob, type ScanJobResult } from "@/lib/scanner/scanEngine";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 import { iq } from "@/lib/armor/iq";
+import {
+  loadTrustedGateConfig,
+  formatGateSummaryLine,
+  type GateConfig,
+} from "@/lib/scanner/gate-config";
+import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
@@ -822,9 +828,26 @@ export const worker = new Worker<WebhookJobData>(
           );
           const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
 
+          // Load base-branch gate configuration
+          const gateConfig = await loadTrustedGateConfig(
+            octokit as unknown as IgnoreConfigClient,
+            {
+              owner: repository.owner.login,
+              repo: repository.name,
+              prNumber: pull_request.number,
+              baseRef: pull_request.base?.ref,
+            },
+          );
+
           // Evaluate only the findings the user hasn't dismissed, so a triaged-away
           // critical no longer BLOCKs the PR on every subsequent re-scan.
-          const decision = iq.evaluateFindings(activeFindings);
+          const decision = iq.evaluateFindings(activeFindings, gateConfig);
+          const conclusion =
+            decision === "PASS"
+              ? "success"
+              : decision === "REVIEW REQUIRED"
+                ? "action_required"
+                : "failure";
 
           if (userId) {
             await prisma.auditLog.create({
@@ -844,11 +867,19 @@ export const worker = new Worker<WebhookJobData>(
           await postScanCheckRun(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
-            headSha: pull_request.head.sha,
-            decision,
-            findingsCount: activeFindings.length,
-            fileCount: fileChanges.length,
-            notice: coverageNotice || undefined,
+            name: "SecureFlow Scan",
+            head_sha: pull_request.head.sha,
+            status: "completed",
+            conclusion: conclusion as any,
+            output: {
+              title: `Policy Decision: ${decision}`,
+              // The scanned-file count is stated explicitly so a truncated scan can
+              // never read as a clean bill of health for the whole PR.
+              summary:
+                `SecureFlow detected ${activeFindings.length} potential security issues across ${fileChanges.length} analyzed file(s).` +
+                (formatGateSummaryLine(gateConfig) ? `\n\n${formatGateSummaryLine(gateConfig)}` : "") +
+                (coverageNotice ? `\n\n${coverageNotice}` : ""),
+            },
           });
 
           // Publish the same findings to GitHub's Code Scanning UI, so they show

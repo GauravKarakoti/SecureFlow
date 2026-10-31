@@ -11,6 +11,8 @@ import prisma from "@/lib/prisma";
 import { generateRemediationPatchFlow } from "@/ai/flows/generate-remediation-patch";
 import { MAX_PAGE_SIZE } from "@/lib/findings/query";
 import { withErrorHandler } from "@/lib/middleware/error-handler";
+import { ArmorIQService } from "@/lib/armor/iq";
+import { ArmorIQUnavailableError, withArmorIQBreaker } from "@/lib/armor/armoriq-breaker";
 
 const MAX_BULK_REMEDIATION_FINDINGS = MAX_PAGE_SIZE;
 
@@ -212,6 +214,72 @@ const handler = async function POST(req: NextRequest) {
         { error: "One or more findings could not be found or access is denied" },
         { status: 403 },
       );
+    }
+
+    // Authorize bulk actions through ArmorIQ when applying remediation patches
+    if (action === "apply") {
+      const armorClient = ArmorIQService.getClient();
+      if (armorClient) {
+        try {
+          const bulkPlan = {
+            goal: "Bulk apply remediation patches across verified repository findings",
+            steps: findings.map((f) => ({
+              action: "fs.readwrite",
+              mcp: "secureflow",
+              params: {
+                findingId: f.id,
+                path: f.fileLocation,
+                type: f.type,
+              },
+            })),
+          };
+
+          const policy = {
+            allow: ["fs.readwrite"],
+            deny: ["github.push"],
+            hold: [],
+            priority: 100,
+          };
+
+          const capture = armorClient.capturePlan(
+            "secureflow",
+            `Apply bulk remediation patches for ${findings.length} findings.`,
+            bulkPlan,
+            { findingIds: uniqueIds },
+          );
+
+          const token = await withArmorIQBreaker(() =>
+            armorClient.getIntentToken(capture, policy, 300),
+          );
+          const verification = await ArmorIQService.verifyIntentToken(token);
+
+          if (verification.unavailable) {
+            return NextResponse.json(
+              { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
+              { status: 503 },
+            );
+          }
+
+          if (!verification.valid) {
+            return NextResponse.json(
+              { error: "ArmorIQ intent verification failed; remediation is blocked" },
+              { status: 403 },
+            );
+          }
+        } catch (error) {
+          console.error("[BULK_REMEDIATE] ArmorIQ authorization failed:", error);
+          if (error instanceof ArmorIQUnavailableError) {
+            return NextResponse.json(
+              { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
+              { status: 503 },
+            );
+          }
+          return NextResponse.json(
+            { error: "ArmorIQ authorization failed; remediation is blocked" },
+            { status: 403 },
+          );
+        }
+      }
     }
 
     // Process Apply or Rollback actions
