@@ -403,6 +403,100 @@ GITHUB_PRIVATE_KEY      # PEM private key (\n-escaped)
 
 ---
 
+### 3b. Single Finding Operations — `/api/findings/[id]`
+
+**File**: `src/app/api/findings/[id]/route.ts`
+
+REST endpoints for fetching, updating, and deleting a single security finding. All operations scope strictly to the session user via the relation chain: `Finding → ScanResult → PullRequest → Repository → userId`. A finding the caller does not own returns 404 to prevent IDOR enumeration. (#1465)
+
+#### `GET /api/findings/[id]`
+
+Returns full details for a single finding, including scan result, pull request metadata, and remediation patch status.
+
+```http
+GET /api/findings/cld1a2b3...
+Cookie: next-auth.session-token=<jwt>
+```
+
+**Auth**: Session required (owner only)  
+**Rate limit**: 120 req/min per IP (`STANDARD` tier)
+
+**Response `200 OK`**:
+```json
+{
+  "id": "cld1a2b3...",
+  "type": "VULNERABILITY",
+  "severity": "HIGH",
+  "fileLocation": "src/lib/auth.ts:42",
+  "lineStart": 42,
+  "lineEnd": 45,
+  "codeSnippet": "eval(userInput)",
+  "explanation": "Remote code execution via eval",
+  "remediation": "Remove eval usage",
+  "promptInjectionSuspected": false,
+  "fingerprint": "fp-abc123",
+  "complianceTags": ["SOC2"],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "remediationPatch": null,
+  "scanResult": {
+    "id": "scan-1",
+    "riskScore": 80,
+    "policyDecision": "BLOCK",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "pullRequest": {
+      "id": "pr-1",
+      "prNumber": 42,
+      "title": "Feature branch",
+      "state": "OPEN",
+      "repositoryId": "repo-1"
+    }
+  }
+}
+```
+
+#### `PATCH /api/findings/[id]`
+
+Updates the triage status and/or severity of a finding. At least one field is required. Writes an immutable audit log entry.
+
+```http
+PATCH /api/findings/cld1a2b3...
+Cookie: next-auth.session-token=<jwt>
+Content-Type: application/json
+
+{
+  "triageStatus": "RESOLVED",
+  "severity": "LOW",
+  "note": "Verified safe input validation in test"
+}
+```
+
+**Auth**: Session required (owner only)  
+**Rate limit**: 120 req/min per IP, per-user inner guard  
+**Valid `triageStatus`**: `OPEN`, `RESOLVED`, `FALSE_POSITIVE`, `IGNORED`  
+**Valid `severity`**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`
+
+**Response `200 OK`**: Updated finding JSON object  
+**Response `400 Bad Request`**: Validation failure or no updates provided  
+**Response `404 Not Found`**: Finding does not exist or caller does not own it  
+**Response `429 Too Many Requests`**: Rate limit exceeded
+
+#### `DELETE /api/findings/[id]`
+
+Permanently deletes a finding. Writes an audit log entry.
+
+```http
+DELETE /api/findings/cld1a2b3...
+Cookie: next-auth.session-token=<jwt>
+```
+
+**Auth**: Session required (owner only)  
+**Rate limit**: 30 req/min per IP (`ADMIN` tier), per-user inner guard
+
+**Response `204 No Content`**: Successfully deleted  
+**Response `404 Not Found`**: Finding not found or caller does not own it
+
+---
+
 ### 4. Finding Explanation Stream — `/api/findings/[id]/explain-stream`
 
 **File**: `src/app/api/findings/[id]/explain-stream/route.ts`

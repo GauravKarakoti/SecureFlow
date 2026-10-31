@@ -2,13 +2,15 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import Link from "next/link";
-import { ArrowLeft, ShieldAlert, CheckCircle2, Terminal, Wrench } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Terminal, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
 import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import StreamingExplanation from "@/components/streaming-explanation";
+import FindingActions from "./finding-actions";
+import type { TriageStatus } from "@/lib/triage/statuses";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +48,18 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
+  const repo = finding.scanResult.pullRequest.repository;
+  const triage = await prisma.findingTriage.findUnique({
+    where: {
+      repositoryId_fingerprint: {
+        repositoryId: repo.id,
+        fingerprint: finding.fingerprint,
+      },
+    },
+  });
+
   const theme = getSeverityTheme(finding.severity);
-  const repoName = finding.scanResult.pullRequest.repository.fullName;
+  const repoName = repo.fullName;
   const prNumber = finding.scanResult.pullRequest.prNumber;
 
   return (
@@ -103,6 +115,14 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
               autoFetch={false}
             />
           </div>
+
+          {/* Interactive Triage & Management Actions (wired to /api/findings/[id]) */}
+          <FindingActions
+            findingId={finding.id}
+            initialSeverity={finding.severity}
+            initialTriageStatus={(triage?.status as TriageStatus) ?? "OPEN"}
+            initialNote={triage?.note ?? ""}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="space-y-6">

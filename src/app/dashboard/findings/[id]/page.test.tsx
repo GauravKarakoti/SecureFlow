@@ -5,9 +5,10 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-const { authMock, findFirstMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
+const { authMock, findFirstMock, findUniqueMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
   findFirstMock: vi.fn(),
+  findUniqueMock: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT: ${url}`);
   }),
@@ -17,7 +18,12 @@ const { authMock, findFirstMock, redirectMock, notFoundMock } = vi.hoisted(() =>
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
-vi.mock("@/lib/prisma", () => ({ default: { finding: { findFirst: findFirstMock } } }));
+vi.mock("@/lib/prisma", () => ({
+  default: {
+    finding: { findFirst: findFirstMock },
+    findingTriage: { findUnique: findUniqueMock },
+  },
+}));
 vi.mock("next/navigation", () => ({ redirect: redirectMock, notFound: notFoundMock }));
 
 vi.mock("@/components/findings/finding-audio-player", () => ({
@@ -45,6 +51,23 @@ vi.mock("@/components/streaming-explanation", () => ({
   ),
 }));
 
+vi.mock("./finding-actions", () => ({
+  default: (props: {
+    findingId: string;
+    initialSeverity: string;
+    initialTriageStatus?: string;
+    initialNote?: string;
+  }) => (
+    <div
+      data-testid="finding-actions"
+      data-finding-id={props.findingId}
+      data-severity={props.initialSeverity}
+      data-triage-status={props.initialTriageStatus}
+      data-note={props.initialNote}
+    />
+  ),
+}));
+
 import FindingDetailPage from "./page";
 
 const baseFinding = {
@@ -52,6 +75,7 @@ const baseFinding = {
   type: "SQL Injection",
   severity: "CRITICAL",
   fileLocation: "src/api/users.ts",
+  fingerprint: "fp-123456",
   explanation: "User input is concatenated into a SQL string.",
   remediation: "Use parameterized queries.",
   codeSnippet: "db.query(sql + id)",
@@ -59,7 +83,7 @@ const baseFinding = {
   scanResult: {
     pullRequest: {
       prNumber: 42,
-      repository: { fullName: "acme/widgets" },
+      repository: { id: "repo-1", fullName: "acme/widgets" },
     },
   },
 };
@@ -68,11 +92,15 @@ async function renderPage(id = "finding-1") {
   render(await FindingDetailPage({ params: Promise.resolve({ id }) }));
 }
 
-describe("FindingDetailPage server component (#1372)", () => {
+describe("FindingDetailPage server component (#1372, #1465)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authMock.mockResolvedValue({ user: { id: "user-1" } });
     findFirstMock.mockResolvedValue(baseFinding);
+    findUniqueMock.mockResolvedValue({
+      status: "OPEN",
+      note: "Initial pending triage",
+    });
   });
 
   it("redirects unauthenticated visitors to sign in without querying the database", async () => {
@@ -82,6 +110,7 @@ describe("FindingDetailPage server component (#1372)", () => {
       FindingDetailPage({ params: Promise.resolve({ id: "finding-1" }) }),
     ).rejects.toThrow("NEXT_REDIRECT: /api/auth/signin");
     expect(findFirstMock).not.toHaveBeenCalled();
+    expect(findUniqueMock).not.toHaveBeenCalled();
   });
 
   it("scopes the lookup to findings owned by the signed-in user", async () => {
@@ -92,6 +121,35 @@ describe("FindingDetailPage server component (#1372)", () => {
       id: "finding-9",
       scanResult: { pullRequest: { repository: { userId: "user-1" } } },
     });
+  });
+
+  it("queries FindingTriage for initial status using repository ID and fingerprint", async () => {
+    await renderPage();
+
+    expect(findUniqueMock).toHaveBeenCalledWith({
+      where: {
+        repositoryId_fingerprint: {
+          repositoryId: "repo-1",
+          fingerprint: "fp-123456",
+        },
+      },
+    });
+  });
+
+  it("renders FindingActions with initial finding and triage data", async () => {
+    findUniqueMock.mockResolvedValue({
+      status: "RESOLVED",
+      note: "Patched via PR #43",
+    });
+
+    await renderPage();
+
+    const actions = screen.getByTestId("finding-actions");
+    expect(actions).toBeInTheDocument();
+    expect(actions.dataset.findingId).toBe("finding-1");
+    expect(actions.dataset.severity).toBe("CRITICAL");
+    expect(actions.dataset.triageStatus).toBe("RESOLVED");
+    expect(actions.dataset.note).toBe("Patched via PR #43");
   });
 
   it("returns a not-found response when the finding is missing or owned by someone else", async () => {
