@@ -458,3 +458,31 @@ model ArmorIQEnforcementLog {
   @@index([timestamp(sort: Desc)])
 }
 
+
+/**
+ * Persistent Audio Debrief Cache for ElevenLabs Text-to-Speech (#1377).
+ * Maps generated vulnerability auditory debriefs to content hashes
+ * to eliminate duplicate ElevenLabs synthesis costs and prevent latency spikes.
+ */
+model AudioDebriefCache {
+  id            String    @id @default(cuid())
+  findingId     String?
+  contentHash   String    @unique
+  audioBase64   String    @db.Text
+  format        String    @default("audio/mpeg")
+  fileSize      Int       @default(0)
+  durationSec   Float?
+  source        String    @default("elevenlabs")
+  storageUrl    String?
+  hitCount      Int       @default(0)
+  lastAccessed  DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  expiresAt     DateTime?
+
+  @@index([findingId])
+  @@index([contentHash])
+  @@index([createdAt(sort: Desc)])
+  @@index([lastAccessed(sort: Desc)])
+  @@map("audio_debrief_cache")
+}

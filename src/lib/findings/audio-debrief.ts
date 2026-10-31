@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { redis } from "@/lib/redis";
+import { getDbAudioCache, setDbAudioCache } from "./audio-debrief-db";
 
 const DEFAULT_AUDIO_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MEMORY_CACHE_MAX_ENTRIES = 200;
@@ -73,10 +74,10 @@ export function getAudioDebriefCacheKey(
 }
 
 /**
- * Retrieves cached audio MPEG buffer from Redis or in-memory fallback.
+ * Retrieves cached audio MPEG buffer from in-memory, Redis, or DB fallback (three-tier).
  */
 export async function getCachedAudioDebrief(key: string): Promise<Buffer | null> {
-  // Check in-memory cache first
+  // L1: Check in-memory cache first (fastest)
   const mem = memoryAudioCache.get(key);
   if (mem) {
     if (Date.now() < mem.expiresAt) {
@@ -85,27 +86,45 @@ export async function getCachedAudioDebrief(key: string): Promise<Buffer | null>
     memoryAudioCache.delete(key);
   }
 
-  if (!redis) return null;
-
-  try {
-    const raw = await redis.get(key);
-    if (!raw) return null;
-
-    const buffer = Buffer.from(raw, "base64");
-    // Populate in-memory fallback for faster subsequent reads
-    memoryAudioCache.set(key, {
-      buffer,
-      expiresAt: Date.now() + 1000 * 60 * 60, // 1 hr in-memory
-    });
-    return buffer;
-  } catch (err) {
-    console.warn("[AUDIO_CACHE] Failed to read cached audio debrief:", err);
-    return null;
+  // L2: Check Redis cache
+  if (redis) {
+    try {
+      const raw = await redis.get(key);
+      if (raw) {
+        const buffer = Buffer.from(raw, "base64");
+        // Populate in-memory fallback for faster subsequent reads
+        memoryAudioCache.set(key, {
+          buffer,
+          expiresAt: Date.now() + 1000 * 60 * 60, // 1 hr in-memory
+        });
+        return buffer;
+      }
+    } catch (err) {
+      console.warn("[AUDIO_CACHE] Failed to read cached audio debrief from Redis:", err);
+    }
   }
+
+  // L3: Check database cache (survives Redis evictions and restarts)
+  const dbBuffer = await getDbAudioCache(key);
+  if (dbBuffer) {
+    // Back-fill Redis and memory for next request
+    if (redis) {
+      redis
+        .set(key, dbBuffer.toString("base64"), "EX", DEFAULT_AUDIO_CACHE_TTL_SECONDS)
+        .catch(() => {});
+    }
+    memoryAudioCache.set(key, {
+      buffer: dbBuffer,
+      expiresAt: Date.now() + 1000 * 60 * 60,
+    });
+    return dbBuffer;
+  }
+
+  return null;
 }
 
 /**
- * Stores audio MPEG buffer in Redis and in-memory cache with TTL.
+ * Stores audio MPEG buffer in in-memory, Redis, and DB cache with TTL (three-tier write).
  */
 export async function setCachedAudioDebrief(
   key: string,
@@ -123,14 +142,24 @@ export async function setCachedAudioDebrief(
     expiresAt: Date.now() + ttlSeconds * 1000,
   });
 
-  if (!redis) return;
-
-  try {
-    const base64 = buffer.toString("base64");
-    await redis.set(key, base64, "EX", ttlSeconds);
-  } catch (err) {
-    console.warn("[AUDIO_CACHE] Failed to write audio debrief to Redis:", err);
+  // Write to Redis
+  if (redis) {
+    try {
+      const base64 = buffer.toString("base64");
+      await redis.set(key, base64, "EX", ttlSeconds);
+    } catch (err) {
+      console.warn("[AUDIO_CACHE] Failed to write audio debrief to Redis:", err);
+    }
   }
+
+  // Persist to database for durability (fire-and-forget)
+  setDbAudioCache({
+    contentHash: key,
+    audioBase64: buffer.toString("base64"),
+    format: "audio/mpeg",
+    source: "elevenlabs",
+    expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+  }).catch(() => {});
 }
 
 /**

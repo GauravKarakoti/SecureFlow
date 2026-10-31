@@ -1,14 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authMock, findUniqueMock, subscribeVoiceAlertMock } = vi.hoisted(() => ({
-  authMock: vi.fn(),
-  findUniqueMock: vi.fn(),
-  subscribeVoiceAlertMock: vi.fn(),
-}));
+const { authMock, findUniqueMock, subscribeVoiceAlertMock, checkRateLimitDetailedMock } =
+  vi.hoisted(() => ({
+    authMock: vi.fn(),
+    findUniqueMock: vi.fn(),
+    subscribeVoiceAlertMock: vi.fn(),
+    checkRateLimitDetailedMock: vi.fn(),
+  }));
 
 vi.mock("@/auth", () => ({
   auth: authMock,
+}));
+
+vi.mock("@/lib/redis", () => ({
+  checkRateLimitDetailed: checkRateLimitDetailedMock,
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -28,6 +34,13 @@ import { GET, VOICE_ALERT_HEARTBEAT_MS } from "./route";
 describe("GET /api/voice-alerts/stream", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    checkRateLimitDetailedMock.mockResolvedValue({
+      allowed: true,
+      limit: 10,
+      remaining: 9,
+      resetAt: Date.now() + 60000,
+      degraded: false,
+    });
   });
 
   describe("Authentication", () => {
@@ -52,6 +65,25 @@ describe("GET /api/voice-alerts/stream", () => {
       expect(res.status).toBe(401);
       const body = await res.json();
       expect(body).toEqual({ error: "Unauthorized" });
+    });
+
+    it("returns 429 when rate limit is exceeded", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-active" } });
+      checkRateLimitDetailedMock.mockResolvedValueOnce({
+        allowed: false,
+        limit: 10,
+        remaining: 0,
+        resetAt: Date.now() + 60000,
+        degraded: false,
+      });
+
+      const req = new NextRequest("http://localhost:3000/api/voice-alerts/stream");
+      const res = await GET(req);
+
+      expect(res.status).toBe(429);
+      const body = await res.json();
+      expect(body.error).toBe("Too Many Requests");
+      expect(res.headers.get("Retry-After")).toBeTruthy();
     });
   });
 

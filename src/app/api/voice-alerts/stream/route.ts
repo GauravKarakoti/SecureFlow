@@ -11,10 +11,12 @@
  *   so the client knows not to reconnect.
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { subscribeVoiceAlert } from "@/lib/voice-alert-events";
+import { checkRateLimitDetailed } from "@/lib/redis";
+import { TIERS, buildRateLimitHeaders, secondsUntilReset } from "@/lib/middleware/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,33 @@ export async function GET(request: NextRequest) {
     });
   }
   const userId = session.user.id;
+
+  // 1b. Per-user rate limiting on SSE connections (#1377)
+  const userLimit = await checkRateLimitDetailed(
+    `rate-limit:voice-alerts:user:${userId}`,
+    TIERS.AI_STREAM_USER.limit,
+    TIERS.AI_STREAM_USER.windowSeconds,
+    {
+      fallbackStrategy: TIERS.AI_STREAM_USER.fallbackStrategy,
+      timeoutMs: TIERS.AI_STREAM_USER.timeoutMs,
+    },
+  );
+  if (!userLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: "Too Many Requests",
+        message:
+          "You have exceeded the rate limit for voice alert connections. Please try again later.",
+      },
+      {
+        status: 429,
+        headers: {
+          ...buildRateLimitHeaders(userLimit),
+          "Retry-After": String(secondsUntilReset(userLimit.resetAt)),
+        },
+      },
+    );
+  }
 
   // 2. Check opt-in preference — do not open a stream for opted-out users.
   const user = await prisma.user.findUnique({

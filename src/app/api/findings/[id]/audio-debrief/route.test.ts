@@ -417,4 +417,154 @@ describe("/api/findings/[id]/audio-debrief", () => {
       "Use safe JSON parser",
     );
   });
+
+  describe("additional cache and rate-limit coverage (#1377)", () => {
+    it("includes Retry-After header when rate limited", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      checkRateLimitMock.mockResolvedValueOnce(false);
+      const req = new NextRequest("http://localhost:3000/api/findings/f-1/audio-debrief");
+      const params = Promise.resolve({ id: "f-1" });
+      const res = await GET(req, { params });
+      expect(res.status).toBe(429);
+      expect(res.headers.get("Retry-After")).toBeTruthy();
+    });
+
+    it("returns 503 when ElevenLabs API key is missing and JSON is requested", async () => {
+      const originalKey = process.env.ELEVENLABS_API_KEY;
+      delete process.env.ELEVENLABS_API_KEY;
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-nokey",
+        type: "SECRET",
+        severity: "CRITICAL",
+        fileLocation: "app.ts:1",
+        codeSnippet: null,
+        explanation: null,
+        remediation: null,
+      });
+      getCachedAudioMock.mockResolvedValueOnce(null);
+      const req = new NextRequest("http://localhost:3000/api/findings/f-nokey/audio-debrief", {
+        headers: { accept: "application/json" },
+      });
+      const params = Promise.resolve({ id: "f-nokey" });
+      const res = await GET(req, { params });
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.error).toBe("Configuration Error");
+      process.env.ELEVENLABS_API_KEY = originalKey;
+    });
+
+    it("returns fallback audio with X-Audio-Cache: FALLBACK when ElevenLabs fails", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-fallback",
+        type: "VULNERABILITY",
+        severity: "MEDIUM",
+        fileLocation: "lib/index.ts:22",
+        codeSnippet: null,
+        explanation: "Some vulnerability",
+        remediation: null,
+      });
+      getCachedAudioMock.mockResolvedValueOnce(null);
+      fetchElevenLabsMock.mockResolvedValueOnce(null);
+      const fallbackBuf = Buffer.from([0xff, 0xfb, 0x92, 0x64]);
+      createFallbackAudioMock.mockReturnValueOnce(fallbackBuf);
+      process.env.ELEVENLABS_API_KEY = "test-key";
+      const req = new NextRequest("http://localhost:3000/api/findings/f-fallback/audio-debrief");
+      const params = Promise.resolve({ id: "f-fallback" });
+      const res = await GET(req, { params });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Audio-Cache")).toBe("FALLBACK");
+    });
+
+    it("returns 502 when ElevenLabs stream fails and JSON is accepted", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-502",
+        type: "VULNERABILITY",
+        severity: "HIGH",
+        fileLocation: "server.ts:50",
+        codeSnippet: null,
+        explanation: "RCE vulnerability",
+        remediation: null,
+      });
+      getCachedAudioMock.mockResolvedValueOnce(null);
+      fetchElevenLabsMock.mockResolvedValueOnce(null);
+      process.env.ELEVENLABS_API_KEY = "test-key";
+      const req = new NextRequest("http://localhost:3000/api/findings/f-502/audio-debrief", {
+        headers: { accept: "application/json" },
+      });
+      const params = Promise.resolve({ id: "f-502" });
+      const res = await GET(req, { params });
+      expect(res.status).toBe(502);
+      const body = await res.json();
+      expect(body.error).toBe("Bad Gateway");
+    });
+
+    it("calls AI explanation flow when finding.explanation is null", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-no-explain",
+        type: "VULNERABILITY",
+        severity: "HIGH",
+        fileLocation: "auth.ts:12",
+        codeSnippet: "eval(userInput)",
+        explanation: null,
+        remediation: null,
+      });
+      aiExplanationMock.mockResolvedValueOnce({
+        explanation: "Code injection risk via eval.",
+        remediationSuggestions: "Remove eval usage.",
+        promptInjectionSuspected: false,
+      });
+      getCachedAudioMock.mockResolvedValueOnce(null);
+      fetchElevenLabsMock.mockResolvedValueOnce(null);
+      createFallbackAudioMock.mockReturnValueOnce(Buffer.from("fallback"));
+      const req = new NextRequest("http://localhost:3000/api/findings/f-no-explain/audio-debrief");
+      const params = Promise.resolve({ id: "f-no-explain" });
+      const res = await GET(req, { params });
+      expect(aiExplanationMock).toHaveBeenCalledOnce();
+      expect(res.status).toBe(200);
+    });
+
+    it("POST is an alias for GET (same behaviour)", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-post",
+        type: "SECRET",
+        severity: "LOW",
+        fileLocation: "env.ts:1",
+        codeSnippet: null,
+        explanation: "Hardcoded value",
+        remediation: "Move to env var",
+      });
+      const cached = Buffer.from("cached-post-bytes");
+      getCachedAudioMock.mockResolvedValueOnce(cached);
+      const req = new NextRequest("http://localhost:3000/api/findings/f-post/audio-debrief", {
+        method: "POST",
+      });
+      const params = Promise.resolve({ id: "f-post" });
+      const res = await POST(req, { params });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Audio-Cache")).toBe("HIT");
+    });
+
+    it("Cache-Control includes private on HIT to prevent shared-cache storage", async () => {
+      authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+      findingFindFirstMock.mockResolvedValueOnce({
+        id: "f-cc",
+        type: "MISCONFIG",
+        severity: "INFO",
+        fileLocation: "docker-compose.yml:10",
+        codeSnippet: null,
+        explanation: "Exposed port",
+        remediation: null,
+      });
+      getCachedAudioMock.mockResolvedValueOnce(Buffer.from("some-audio"));
+      const req = new NextRequest("http://localhost:3000/api/findings/f-cc/audio-debrief");
+      const params = Promise.resolve({ id: "f-cc" });
+      const res = await GET(req, { params });
+      expect(res.headers.get("Cache-Control")).toContain("private");
+    });
+  });
 });
