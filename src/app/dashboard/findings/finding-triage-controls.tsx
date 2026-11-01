@@ -44,11 +44,19 @@ const STATUS_BADGE: Record<TriageStatus, string> = {
   IGNORED: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
 };
 
+const EXPIRY_OPTIONS = [
+  { value: "none", label: "No expiry" },
+  { value: "7", label: "7 days" },
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+] as const;
+
 type SingleFindingTriageControlsProps = {
   repositoryId: string;
   fingerprint: string;
   currentStatus: TriageStatus;
   currentNote: string | null;
+  currentExpiresAt?: Date | string | null;
 };
 
 type BulkFindingTriageControlsProps = {
@@ -66,6 +74,13 @@ function statusLabel(status: TriageStatus): string {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
 }
 
+function computeExpiryDate(days: string): Date | null {
+  if (days === "none" || !days) return null;
+  const numDays = parseInt(days, 10);
+  if (Number.isNaN(numDays) || numDays <= 0) return null;
+  return new Date(Date.now() + numDays * 24 * 60 * 60 * 1000);
+}
+
 export default function FindingTriageControls(props: FindingTriageControlsProps) {
   if (isBulkProps(props)) {
     return <BulkTriageControls targets={props.targets} />;
@@ -79,19 +94,36 @@ function SingleTriageControls({
   fingerprint,
   currentStatus,
   currentNote,
+  currentExpiresAt,
 }: SingleFindingTriageControlsProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
   const [note, setNote] = useState(currentNote ?? "");
+  const [expirySelection, setExpirySelection] = useState<string>("none");
 
-  const dirty = status !== currentStatus || note !== (currentNote ?? "");
+  const isDismissal = status === "FALSE_POSITIVE" || status === "IGNORED";
+  const dirty =
+    status !== currentStatus ||
+    note !== (currentNote ?? "") ||
+    (isDismissal && expirySelection !== "none");
+
+  // Determine current expiry status for UI badge/text
+  const currentExpiryDate = currentExpiresAt ? new Date(currentExpiresAt) : null;
+  const isLapsed = currentExpiryDate ? currentExpiryDate.getTime() <= Date.now() : false;
 
   const save = () => {
     startTransition(async () => {
       try {
-        const result = await setFindingStatus({ repositoryId, fingerprint, status, note });
+        const computedExpiry = isDismissal ? computeExpiryDate(expirySelection) : null;
+        const result = await setFindingStatus({
+          repositoryId,
+          fingerprint,
+          status,
+          note,
+          expiresAt: computedExpiry,
+        });
         if (result.ok) {
           toast({
             variant: "success",
@@ -122,14 +154,33 @@ function SingleTriageControls({
         <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
           Triage
         </h4>
-        <Badge variant="outline" className={STATUS_BADGE[currentStatus]}>
-          {statusLabel(currentStatus)}
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          {currentExpiryDate && (
+            <Badge
+              variant="outline"
+              className={
+                isLapsed
+                  ? "border-red-500/20 bg-red-500/10 text-red-400"
+                  : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+              }
+            >
+              {isLapsed ? "expired" : `expires on ${currentExpiryDate.toLocaleDateString()}`}
+            </Badge>
+          )}
+          <Badge variant="outline" className={STATUS_BADGE[currentStatus]}>
+            {statusLabel(currentStatus)}
+          </Badge>
+        </div>
       </div>
 
       <Select
         value={status}
-        onValueChange={(v) => setStatus(v as TriageStatus)}
+        onValueChange={(v) => {
+          setStatus(v as TriageStatus);
+          if (v !== "FALSE_POSITIVE" && v !== "IGNORED") {
+            setExpirySelection("none");
+          }
+        }}
         disabled={isPending}
       >
         <SelectTrigger className="h-9 text-sm">
@@ -143,6 +194,28 @@ function SingleTriageControls({
           ))}
         </SelectContent>
       </Select>
+
+      {isDismissal && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
+          <Select
+            value={expirySelection}
+            onValueChange={setExpirySelection}
+            disabled={isPending}
+          >
+            <SelectTrigger className="h-9 text-sm" data-testid="triage-expiry-select">
+              <SelectValue placeholder="Select expiry period" />
+            </SelectTrigger>
+            <SelectContent>
+              {EXPIRY_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <Textarea
         value={note}
@@ -168,11 +241,7 @@ export interface BulkTriageBarProps {
 }
 
 /**
- * Action bar for triaging many findings at once (#732).
- *
- * Rendered by the findings list only while at least one finding is selected. It
- * wraps {@link setFindingStatuses}, which reuses the same ownership check and
- * audit trail as the single-finding control above.
+ * Action bar for triaging many findings at once (#732, #1503).
  */
 export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
@@ -180,6 +249,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const [isPending, startTransition] = useTransition();
   const [note, setNote] = useState("");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
+  const [expiryDays, setExpiryDays] = useState<string>("none");
 
   const count = targets.length;
 
@@ -190,7 +260,15 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        const result = await setFindingStatuses({ items: targets, status: applyStatus, note });
+        const isDismissal = applyStatus === "FALSE_POSITIVE" || applyStatus === "IGNORED";
+        const computedExpiry = isDismissal ? computeExpiryDate(expiryDays) : null;
+
+        const result = await setFindingStatuses({
+          items: targets,
+          status: applyStatus,
+          note,
+          expiresAt: computedExpiry,
+        });
         if (result.ok) {
           toast({
             variant: "success",
@@ -198,6 +276,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
             description: `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
           setNote("");
+          setExpiryDays("none");
           onDone?.();
           router.refresh();
         } else {
@@ -235,6 +314,28 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         </Badge>
       </div>
 
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">
+          Dismissal Expiry (for False Positive / Ignored)
+        </label>
+        <Select
+          value={expiryDays}
+          onValueChange={setExpiryDays}
+          disabled={isPending}
+        >
+          <SelectTrigger className="h-9 text-sm" data-testid="bulk-triage-expiry-select">
+            <SelectValue placeholder="Select expiry period" />
+          </SelectTrigger>
+          <SelectContent>
+            {EXPIRY_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -248,43 +349,68 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         <Button
           size="sm"
           variant="outline"
+          onClick={() => setPendingStatus("RESOLVED")}
           disabled={isPending}
-          onClick={() => setPendingStatus("IGNORED")}
+          className="border-green-500/20 bg-green-500/10 text-green-300 hover:bg-green-500/20 hover:text-green-200"
         >
-          {isPending && pendingStatus === "IGNORED" ? "Saving…" : "Dismiss all"}
+          Mark Resolved
         </Button>
         <Button
           size="sm"
           variant="outline"
-          disabled={isPending}
           onClick={() => setPendingStatus("FALSE_POSITIVE")}
+          disabled={isPending}
+          className="border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
         >
-          {isPending && pendingStatus === "FALSE_POSITIVE" ? "Saving…" : "Mark as false positive"}
+          Mark False positive
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setPendingStatus("IGNORED")}
+          disabled={isPending}
+          className="border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
+        >
+          Mark Ignored
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setPendingStatus("OPEN")}
+          disabled={isPending}
+          className="border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
+        >
+          Reopen
         </Button>
       </div>
 
       <AlertDialog
-        open={pendingStatus !== null && !isPending}
+        open={pendingStatus !== null}
         onOpenChange={(open) => {
-          if (!open && !isPending) setPendingStatus(null);
+          if (!open) setPendingStatus(null);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Apply bulk triage?</AlertDialogTitle>
+            <AlertDialogTitle>Apply bulk triage to {count} findings?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark {count} {count === 1 ? "finding" : "findings"} on this page as{" "}
-              {pendingLabel}.
+              Every finding selected on this page will be marked as{" "}
+              <strong>{pendingLabel}</strong>
+              {pendingStatus && (pendingStatus === "FALSE_POSITIVE" || pendingStatus === "IGNORED") && (
+                <> with {expiryDays === "none" ? "no expiry" : `${expiryDays} days expiry`}</>
+              )}
+              . This updates the database and creates an audit entry for each finding.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (pendingStatus) apply(pendingStatus);
               }}
+              disabled={isPending}
             >
-              Confirm
+              {isPending ? "Applying…" : "Apply to all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -293,6 +419,6 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   );
 }
 
-function BulkTriageControls({ targets }: { targets: FindingTriageTarget[] }) {
+function BulkTriageControls({ targets }: BulkFindingTriageControlsProps) {
   return <BulkTriageBar targets={targets} />;
 }

@@ -327,7 +327,7 @@ export async function processScanJob(
     const dismissed = await prisma.findingTriage.findMany({
       where: {
         repositoryId,
-        status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+        ...activeSuppressionWhere(new Date()),
       },
       select: { fingerprint: true },
     });
