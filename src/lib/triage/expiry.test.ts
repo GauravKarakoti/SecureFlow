@@ -29,23 +29,19 @@ describe("Triage Expiry Helper (#1503)", () => {
     it("returns true for FALSE_POSITIVE or IGNORED with null or undefined expiresAt (never expires)", () => {
       expect(isSuppressionActive({ status: "FALSE_POSITIVE" }, baseTime)).toBe(true);
       expect(isSuppressionActive({ status: "IGNORED", expiresAt: null }, baseTime)).toBe(true);
-      expect(isSuppressionActive({ status: "FALSE_POSITIVE", expiresAt: undefined }, baseTime)).toBe(true);
+      expect(
+        isSuppressionActive({ status: "FALSE_POSITIVE", expiresAt: undefined }, baseTime),
+      ).toBe(true);
     });
 
     it("returns true when expiresAt is in the future relative to injected clock", () => {
       const futureExpiry = new Date("2026-11-08T12:00:00.000Z"); // 7 days later
       expect(
-        isSuppressionActive(
-          { status: "FALSE_POSITIVE", expiresAt: futureExpiry },
-          baseTime,
-        ),
+        isSuppressionActive({ status: "FALSE_POSITIVE", expiresAt: futureExpiry }, baseTime),
       ).toBe(true);
 
       expect(
-        isSuppressionActive(
-          { status: "IGNORED", expiresAt: "2026-11-08T12:00:00.000Z" },
-          baseTime,
-        ),
+        isSuppressionActive({ status: "IGNORED", expiresAt: "2026-11-08T12:00:00.000Z" }, baseTime),
       ).toBe(true);
     });
 
@@ -61,25 +57,16 @@ describe("Triage Expiry Helper (#1503)", () => {
     it("returns false when expiresAt is in the past relative to injected clock (expired dismissal)", () => {
       const pastExpiry = new Date("2026-10-31T12:00:00.000Z"); // 1 day before
       expect(
-        isSuppressionActive(
-          { status: "FALSE_POSITIVE", expiresAt: pastExpiry },
-          baseTime,
-        ),
+        isSuppressionActive({ status: "FALSE_POSITIVE", expiresAt: pastExpiry }, baseTime),
       ).toBe(false);
-      expect(
-        isSuppressionActive(
-          { status: "IGNORED", expiresAt: pastExpiry },
-          baseTime,
-        ),
-      ).toBe(false);
+      expect(isSuppressionActive({ status: "IGNORED", expiresAt: pastExpiry }, baseTime)).toBe(
+        false,
+      );
     });
 
     it("returns false safely when expiresAt string is unparseable", () => {
       expect(
-        isSuppressionActive(
-          { status: "FALSE_POSITIVE", expiresAt: "not-a-valid-date" },
-          baseTime,
-        ),
+        isSuppressionActive({ status: "FALSE_POSITIVE", expiresAt: "not-a-valid-date" }, baseTime),
       ).toBe(false);
     });
   });
@@ -89,10 +76,7 @@ describe("Triage Expiry Helper (#1503)", () => {
       const fragment = activeSuppressionWhere(baseTime);
       expect(fragment).toEqual({
         status: { in: ["FALSE_POSITIVE", "IGNORED"] },
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gt: baseTime } },
-        ],
+        OR: [{ expiresAt: null }, { expiresAt: { gt: baseTime } }],
       });
     });
   });
@@ -149,4 +133,3 @@ describe("Triage Expiry Helper (#1503)", () => {
     });
   });
 });
-

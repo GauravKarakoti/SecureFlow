@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setFindingStatus, setFindingStatuses } from "@/lib/actions/triage";
+import { setFindingStatus, setFindingStatuses, type TriageStatus } from "@/lib/actions/triage";
 // Not from '@/lib/actions/triage': that is a `"use server"` module, and a
 // non-async export from one fails `next build` (#747).
 import { MAX_BULK_TRIAGE } from "@/lib/triage/statuses";
@@ -23,6 +23,13 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+const mockAuth = vi.mocked(auth);
+const mockRepoFindFirst = vi.mocked(prisma.repository.findFirst);
+const mockRepoFindMany = vi.mocked(prisma.repository.findMany);
+const mockTriageUpsert = vi.mocked(prisma.findingTriage.upsert);
+const mockAuditCreate = vi.mocked(prisma.auditLog.create);
+const mockTransaction = vi.mocked(prisma.$transaction);
+
 const validInput = {
   repositoryId: "repo-1",
   fingerprint: "a".repeat(64),
@@ -36,7 +43,7 @@ describe("setFindingStatus", () => {
   });
 
   it("rejects unauthenticated callers without touching the DB", async () => {
-    (auth as any).mockResolvedValue(null);
+    mockAuth.mockResolvedValue(null as never);
 
     const result = await setFindingStatus(validInput);
 
@@ -46,17 +53,20 @@ describe("setFindingStatus", () => {
   });
 
   it("rejects an invalid status", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
 
-    const result = await setFindingStatus({ ...validInput, status: "BOGUS" as any });
+    const result = await setFindingStatus({
+      ...validInput,
+      status: "BOGUS" as unknown as TriageStatus,
+    });
 
     expect(result.ok).toBe(false);
     expect(prisma.repository.findFirst).not.toHaveBeenCalled();
   });
 
   it("refuses to triage a repository the user does not own", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-    (prisma.repository.findFirst as any).mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    mockRepoFindFirst.mockResolvedValue(null);
 
     const result = await setFindingStatus(validInput);
 
@@ -67,10 +77,10 @@ describe("setFindingStatus", () => {
   });
 
   it("upserts the triage row and writes one audit log entry on success", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-    (prisma.repository.findFirst as any).mockResolvedValue({ id: "repo-1", fullName: "acme/app" });
-    (prisma.findingTriage.upsert as any).mockResolvedValue({});
-    (prisma.auditLog.create as any).mockResolvedValue({});
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    mockRepoFindFirst.mockResolvedValue({ id: "repo-1", fullName: "acme/app" } as never);
+    mockTriageUpsert.mockResolvedValue({} as never);
+    mockAuditCreate.mockResolvedValue({} as never);
 
     const result = await setFindingStatus(validInput);
 
@@ -83,11 +93,17 @@ describe("setFindingStatus", () => {
         where: {
           repositoryId_fingerprint: { repositoryId: "repo-1", fingerprint: validInput.fingerprint },
         },
-        update: { status: "FALSE_POSITIVE", note: "legit env var", resolvedById: "user-1" },
+        update: {
+          status: "FALSE_POSITIVE",
+          note: "legit env var",
+          resolvedById: "user-1",
+          expiresAt: null,
+        },
         create: expect.objectContaining({
           status: "FALSE_POSITIVE",
           note: "legit env var",
           resolvedById: "user-1",
+          expiresAt: null,
         }),
       }),
     );
@@ -105,10 +121,10 @@ describe("setFindingStatus", () => {
   });
 
   it("normalises a blank note to null", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-    (prisma.repository.findFirst as any).mockResolvedValue({ id: "repo-1", fullName: "acme/app" });
-    (prisma.findingTriage.upsert as any).mockResolvedValue({});
-    (prisma.auditLog.create as any).mockResolvedValue({});
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    mockRepoFindFirst.mockResolvedValue({ id: "repo-1", fullName: "acme/app" } as never);
+    mockTriageUpsert.mockResolvedValue({} as never);
+    mockAuditCreate.mockResolvedValue({} as never);
 
     await setFindingStatus({ ...validInput, status: "OPEN", note: "   " });
 
@@ -126,13 +142,12 @@ describe("setFindingStatuses", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (prisma.$transaction as any).mockImplementation(
-      async (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma),
-    );
+    mockTransaction.mockImplementation((async (fn: (tx: typeof prisma) => Promise<unknown>) =>
+      fn(prisma)) as never);
   });
 
   it("rejects unauthenticated callers without touching the DB", async () => {
-    (auth as any).mockResolvedValue(null);
+    mockAuth.mockResolvedValue(null as never);
 
     const result = await setFindingStatuses({ items, status: "IGNORED" });
 
@@ -142,16 +157,19 @@ describe("setFindingStatuses", () => {
   });
 
   it("rejects an invalid status", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
 
-    const result = await setFindingStatuses({ items, status: "BOGUS" as any });
+    const result = await setFindingStatuses({
+      items,
+      status: "BOGUS" as unknown as TriageStatus,
+    });
 
     expect(result.ok).toBe(false);
     expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects an empty item list", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
 
     const result = await setFindingStatuses({ items: [], status: "IGNORED" });
 
@@ -161,7 +179,7 @@ describe("setFindingStatuses", () => {
   });
 
   it("rejects more items than MAX_BULK_TRIAGE", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
     const tooMany = Array.from({ length: MAX_BULK_TRIAGE + 1 }, (_, index) => ({
       repositoryId: "repo-1",
       fingerprint: `fp-${index}`,
@@ -175,8 +193,8 @@ describe("setFindingStatuses", () => {
   });
 
   it("refuses to triage a repository the user does not own", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-    (prisma.repository.findMany as any).mockResolvedValue([]);
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    mockRepoFindMany.mockResolvedValue([]);
 
     const result = await setFindingStatuses({ items, status: "IGNORED" });
 
@@ -186,10 +204,10 @@ describe("setFindingStatuses", () => {
   });
 
   it("upserts every finding and writes one audit log entry each", async () => {
-    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-    (prisma.repository.findMany as any).mockResolvedValue([{ id: "repo-1", fullName: "acme/app" }]);
-    (prisma.findingTriage.upsert as any).mockResolvedValue({});
-    (prisma.auditLog.create as any).mockResolvedValue({});
+    mockAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    mockRepoFindMany.mockResolvedValue([{ id: "repo-1", fullName: "acme/app" }] as never);
+    mockTriageUpsert.mockResolvedValue({} as never);
+    mockAuditCreate.mockResolvedValue({} as never);
 
     const result = await setFindingStatuses({
       items: [...items, items[0]],
@@ -202,7 +220,12 @@ describe("setFindingStatuses", () => {
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
     expect(prisma.findingTriage.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        update: { status: "FALSE_POSITIVE", note: "noise", resolvedById: "user-1" },
+        update: {
+          status: "FALSE_POSITIVE",
+          note: "noise",
+          resolvedById: "user-1",
+          expiresAt: null,
+        },
       }),
     );
   });

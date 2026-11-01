@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockFindingTriageFindMany, mockRepositoryFindFirst, mockRepositoryFindMany, mockAuditLogCreate, mockUpsert } =
-  vi.hoisted(() => ({
-    mockFindingTriageFindMany: vi.fn(),
-    mockRepositoryFindFirst: vi.fn(),
-    mockRepositoryFindMany: vi.fn(),
-    mockAuditLogCreate: vi.fn(),
-    mockUpsert: vi.fn(),
-  }));
+const {
+  mockFindingTriageFindMany,
+  mockRepositoryFindFirst,
+  mockRepositoryFindMany,
+  mockAuditLogCreate,
+  mockUpsert,
+} = vi.hoisted(() => ({
+  mockFindingTriageFindMany: vi.fn(),
+  mockRepositoryFindFirst: vi.fn(),
+  mockRepositoryFindMany: vi.fn(),
+  mockAuditLogCreate: vi.fn(),
+  mockUpsert: vi.fn(),
+}));
 
 vi.mock("@/auth", () => ({
   auth: vi.fn().mockResolvedValue({ user: { id: "user-123" } }),
@@ -233,4 +238,3 @@ describe("Triage Expiry Enforcement Integration (#1503)", () => {
     });
   });
 });
-

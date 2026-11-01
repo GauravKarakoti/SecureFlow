@@ -148,9 +148,7 @@ describe("src/ai/flows/prompt-injection-payloads.ts unit tests (#1500)", () => {
 
     it("validates ALL_INJECTION_PAYLOADS aggregation", () => {
       expect(ALL_INJECTION_PAYLOADS.length).toBe(
-        SYSTEM_PROMPT_EXFILTRATION.length +
-          PERSONA_HIJACK.length +
-          ENCODED_OBFUSCATION.length,
+        SYSTEM_PROMPT_EXFILTRATION.length + PERSONA_HIJACK.length + ENCODED_OBFUSCATION.length,
       );
     });
 
@@ -213,8 +211,8 @@ describe("src/ai/flows/prompt-injection-payloads.ts unit tests (#1500)", () => {
     });
 
     it("ensures payloads contain descriptions or valid severity ratings when populated", () => {
-      const payloadsWithDesc = ADVANCED_PROMPT_INJECTION_PAYLOADS.filter(
-        (p) => Boolean(p.description),
+      const payloadsWithDesc = ADVANCED_PROMPT_INJECTION_PAYLOADS.filter((p) =>
+        Boolean(p.description),
       );
       for (const item of payloadsWithDesc) {
         expect(typeof item.description).toBe("string");

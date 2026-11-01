@@ -81,9 +81,14 @@ function computeExpiryDate(days: string): Date | null {
   return new Date(Date.now() + numDays * 24 * 60 * 60 * 1000);
 }
 
+function isExpiryLapsed(expiryDate: Date | null): boolean {
+  if (!expiryDate) return false;
+  return expiryDate.getTime() <= Date.now();
+}
+
 export default function FindingTriageControls(props: FindingTriageControlsProps) {
   if (isBulkProps(props)) {
-    return <BulkTriageControls targets={props.targets} />;
+    return <BulkTriageControls {...props} />;
   }
 
   return <SingleTriageControls {...props} />;
@@ -111,7 +116,7 @@ function SingleTriageControls({
 
   // Determine current expiry status for UI badge/text
   const currentExpiryDate = currentExpiresAt ? new Date(currentExpiresAt) : null;
-  const isLapsed = currentExpiryDate ? currentExpiryDate.getTime() <= Date.now() : false;
+  const isLapsed = isExpiryLapsed(currentExpiryDate);
 
   const save = () => {
     startTransition(async () => {
@@ -198,11 +203,7 @@ function SingleTriageControls({
       {isDismissal && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
-          <Select
-            value={expirySelection}
-            onValueChange={setExpirySelection}
-            disabled={isPending}
-          >
+          <Select value={expirySelection} onValueChange={setExpirySelection} disabled={isPending}>
             <SelectTrigger className="h-9 text-sm" data-testid="triage-expiry-select">
               <SelectValue placeholder="Select expiry period" />
             </SelectTrigger>
@@ -318,11 +319,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         <label className="text-xs font-medium text-muted-foreground">
           Dismissal Expiry (for False Positive / Ignored)
         </label>
-        <Select
-          value={expiryDays}
-          onValueChange={setExpiryDays}
-          disabled={isPending}
-        >
+        <Select value={expiryDays} onValueChange={setExpiryDays} disabled={isPending}>
           <SelectTrigger className="h-9 text-sm" data-testid="bulk-triage-expiry-select">
             <SelectValue placeholder="Select expiry period" />
           </SelectTrigger>
@@ -394,11 +391,11 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply bulk triage to {count} findings?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every finding selected on this page will be marked as{" "}
-              <strong>{pendingLabel}</strong>
-              {pendingStatus && (pendingStatus === "FALSE_POSITIVE" || pendingStatus === "IGNORED") && (
-                <> with {expiryDays === "none" ? "no expiry" : `${expiryDays} days expiry`}</>
-              )}
+              Every finding selected on this page will be marked as <strong>{pendingLabel}</strong>
+              {pendingStatus &&
+                (pendingStatus === "FALSE_POSITIVE" || pendingStatus === "IGNORED") && (
+                  <> with {expiryDays === "none" ? "no expiry" : `${expiryDays} days expiry`}</>
+                )}
               . This updates the database and creates an audit entry for each finding.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -419,6 +416,6 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   );
 }
 
-function BulkTriageControls({ targets }: BulkFindingTriageControlsProps) {
+function BulkTriageControls({ targets }: Pick<BulkFindingTriageControlsProps, "targets">) {
   return <BulkTriageBar targets={targets} />;
 }

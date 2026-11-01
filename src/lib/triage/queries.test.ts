@@ -46,7 +46,7 @@ const row = (overrides: Partial<Record<string, unknown>> = {}) => ({
 });
 
 describe("getSuppressedFingerprints", () => {
-  it("filters by status in the database rather than over every row", async () => {
+  it("filters by status and active expiry in the database rather than over every row", async () => {
     // The read had no status filter at all: it loaded every triage row the user
     // owned and picked the suppressed ones out in a loop.
     findMany.mockResolvedValue([]);
@@ -57,6 +57,7 @@ describe("getSuppressedFingerprints", () => {
     expect(args.where).toEqual({
       repository: { userId: "user-1" },
       status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
     });
   });
 

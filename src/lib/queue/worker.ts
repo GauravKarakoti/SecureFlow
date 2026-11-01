@@ -6,7 +6,7 @@ import { webhookDLQ, WebhookJobData } from "./webhookQueue";
 import { dlqRetryStateFor } from "./dlq-auto-retry";
 import { acquireLock, releaseLock, startLockHeartbeat } from "./lock";
 import { scanner } from "@/lib/armor/scanner";
-import { processScanJob, type ScanJobResult } from "@/lib/scanner/scanEngine";
+import { processScanJob } from "@/lib/scanner/scanEngine";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 import { iq } from "@/lib/armor/iq";
@@ -48,6 +48,7 @@ import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { activeSuppressionWhere } from "../triage/expiry";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
