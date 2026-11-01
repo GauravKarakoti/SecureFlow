@@ -91,10 +91,7 @@ describe("POST /api/webhooks/gitlab", () => {
   });
 
   it("returns 200 for a valid Push Hook", async () => {
-    const req = makeGitLabRequest(
-      { ref: "refs/heads/main", repository: { id: 1 } },
-      "Push Hook",
-    );
+    const req = makeGitLabRequest({ ref: "refs/heads/main", repository: { id: 1 } }, "Push Hook");
     const res = await POST(req as never);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -166,4 +163,3 @@ describe("POST /api/webhooks/gitlab", () => {
     expect(body.status).toBe("received");
   });
 });
-

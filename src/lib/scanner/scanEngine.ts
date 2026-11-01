@@ -27,7 +27,7 @@ import { fetchPullRequestFiles } from "@/lib/github/pull-request-files";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { updateScanJobProgress } from "@/lib/queue/scanQueue";
 import {
-   parseInstallationId,
+  parseInstallationId,
   progressPercent,
   scanResultCreateData,
   ScanPersistenceError,
@@ -371,14 +371,7 @@ export async function processScanJob(
     enrichedFindings.push(...batchResults);
   }
 
-  // --- Phase 4: Evaluate policy decision ---
   const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
-  const conclusion =
-    decision === "PASS"
-      ? "success"
-      : decision === "REVIEW REQUIRED"
-        ? "action_required"
-        : "failure";
 
   // --- Phase 5: Post to GitHub ---
   onProgress({
@@ -392,21 +385,17 @@ export async function processScanJob(
   if (report) {
     try {
       const { owner, repo } = splitRepositoryFullName(repositoryFullName);
+      const gateSummary = formatGateSummaryLine(repositoryGateConfig);
 
       // Create check run
-      await octokit.rest.checks.create({
+      await postScanCheckRun(octokit as any, {
         owner,
         repo,
-        name: "SecureFlow Scan",
-        head_sha: headSha,
-        status: "completed",
-        conclusion: conclusion as any,
-        output: {
-          title: `Policy Decision: ${decision}`,
-          summary:
-            `SecureFlow detected ${enrichedFindings.length} potential security issues across ${totalFiles} analyzed file(s).` +
-            (formatGateSummaryLine(repositoryGateConfig) ? `\n\n${formatGateSummaryLine(repositoryGateConfig)}` : ""),
-        },
+        headSha,
+        decision,
+        findingsCount: enrichedFindings.length,
+        fileCount: totalFiles,
+        notice: gateSummary || undefined,
       });
 
       // Post PR comment if there are findings

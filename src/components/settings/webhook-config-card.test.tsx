@@ -62,7 +62,9 @@ describe("WebhookConfigCard component (#1466)", () => {
     fireEvent.click(copyBtn);
 
     await waitFor(() => {
-      expect(writeTextMock).toHaveBeenCalledWith("https://secureflow.example.com/api/webhooks/gitlab");
+      expect(writeTextMock).toHaveBeenCalledWith(
+        "https://secureflow.example.com/api/webhooks/gitlab",
+      );
       expect(toastSuccessMock).toHaveBeenCalledWith("GitLab URL copied to clipboard.");
     });
   });

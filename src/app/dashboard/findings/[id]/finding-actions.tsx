@@ -104,7 +104,9 @@ export default function FindingActions({
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
-          throw new Error(data?.message || data?.error || `Failed to update finding (${res.status})`);
+          throw new Error(
+            data?.message || data?.error || `Failed to update finding (${res.status})`,
+          );
         }
 
         toast({
@@ -173,7 +175,10 @@ export default function FindingActions({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Triage Status Selector */}
         <div className="space-y-1.5">
-          <label htmlFor="triage-status-select" className="text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="triage-status-select"
+            className="text-xs font-medium text-muted-foreground"
+          >
             Triage Status
           </label>
           <Select
