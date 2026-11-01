@@ -44,6 +44,7 @@ import {
   type GateConfig,
 } from "./gate-config";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
+import { activeSuppressionWhere } from "../triage/expiry";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;

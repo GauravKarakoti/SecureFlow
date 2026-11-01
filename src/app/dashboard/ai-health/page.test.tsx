@@ -26,13 +26,7 @@ vi.mock("@/ai/telemetry", () => ({
 }));
 
 vi.mock("./ai-health-client", () => ({
-  default: ({
-    initialData,
-    isAdmin,
-  }: {
-    initialData: any;
-    isAdmin: boolean;
-  }) => (
+  default: ({ initialData, isAdmin }: { initialData: any; isAdmin: boolean }) => (
     <div data-testid="ai-health-client">
       <div data-testid="is-admin">{isAdmin ? "admin" : "user"}</div>
       <div data-testid="active-provider">{initialData?.activeProvider}</div>

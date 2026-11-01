@@ -2,7 +2,6 @@
  * @vitest-environment jsdom
  */
 import "@testing-library/jest-dom/vitest";
-import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import FindingTriageControls from "./finding-triage-controls";
@@ -51,28 +50,31 @@ describe("FindingTriageControls bulk actions (#677)", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders dismiss all and mark as false positive", () => {
+  it("renders mark ignored and mark false positive buttons", () => {
     render(<FindingTriageControls variant="bulk" targets={targets} />);
 
-    expect(screen.getByRole("button", { name: /dismiss all/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /mark as false positive/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mark resolved/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mark false positive/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mark ignored/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reopen/i })).toBeInTheDocument();
     expect(screen.getByText("2 on this page")).toBeInTheDocument();
   });
 
-  it("confirms dismiss all as IGNORED", async () => {
+  it("confirms mark ignored as IGNORED", async () => {
     render(<FindingTriageControls variant="bulk" targets={targets} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /dismiss all/i }));
-    expect(screen.getByText(/mark 2 findings on this page as Ignored/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /mark ignored/i }));
+    expect(screen.getByText(/Apply bulk triage to 2 findings\?/i)).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply to all/i }));
     });
 
     expect(setFindingStatuses).toHaveBeenCalledWith({
       items: targets,
       status: "IGNORED",
       note: "",
+      expiresAt: null,
     });
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -81,22 +83,23 @@ describe("FindingTriageControls bulk actions (#677)", () => {
     );
   });
 
-  it("confirms mark as false positive", async () => {
+  it("confirms mark false positive", async () => {
     render(<FindingTriageControls variant="bulk" targets={targets} />);
 
     fireEvent.change(screen.getByPlaceholderText(/optional note for this bulk action/i), {
       target: { value: "Known test keys" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /mark as false positive/i }));
+    fireEvent.click(screen.getByRole("button", { name: /mark false positive/i }));
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply to all/i }));
     });
 
     expect(setFindingStatuses).toHaveBeenCalledWith({
       items: targets,
       status: "FALSE_POSITIVE",
       note: "Known test keys",
+      expiresAt: null,
     });
   });
 });

@@ -50,10 +50,7 @@ export function isSuppressionActive(
 export function activeSuppressionWhere(now: Date) {
   return {
     status: { in: [...SUPPRESSED_STATUSES] },
-    OR: [
-      { expiresAt: null },
-      { expiresAt: { gt: now } },
-    ],
+    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
   };
 }
 
@@ -90,4 +87,3 @@ export function validateExpiryDate(
 
   return { ok: true, expiresAt: date };
 }
-
