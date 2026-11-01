@@ -771,7 +771,7 @@ export const worker = new Worker<WebhookJobData>(
             const dismissed = await prisma.findingTriage.findMany({
               where: {
                 repositoryId: dbRepo.id,
-                status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+                ...activeSuppressionWhere(new Date()),
               },
               select: { fingerprint: true },
             });
