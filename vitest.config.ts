@@ -13,6 +13,7 @@ export default defineConfig({
     // same `npm test` the husky hook already runs. Coverage `include` below is
     // deliberately left at src/**, so the CLI does not move the thresholds.
     include: [
+      "*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
       "cli/src/**/*.test.ts",
