@@ -426,6 +426,7 @@ Content-Type: application/json
 **Tracked events**: `Merge Request Hook`, `Push Hook`, `Pipeline Hook`
 
 **Responses**:
+
 - `200 OK { "status": "queued" }` — Merge Request Hook enqueued for security scanning
 - `200 OK { "status": "received" }` — Push or Pipeline Hook acknowledged
 - `200 OK { "status": "ignored" }` — Untracked event safely acknowledged
@@ -454,6 +455,7 @@ Content-Type: application/json
 **Tracked events**: `pullrequest:created`, `pullrequest:updated`, `pullrequest:fulfilled`, `repo:push`, `repo:refs_changed`
 
 **Responses**:
+
 - `200 OK { "status": "queued" }` — Pull request event enqueued for scan
 - `200 OK { "status": "received" }` — Push or closure event acknowledged
 - `200 OK { "status": "ignored" }` — Untracked event acknowledged

@@ -49,7 +49,8 @@ export default function WebhookConfigCard({
 
   // Derive origin from window if running client-side without explicit prop
   const currentOrigin =
-    baseUrl || (typeof window !== "undefined" ? window.location.origin : "https://app.secureflow.dev");
+    baseUrl ||
+    (typeof window !== "undefined" ? window.location.origin : "https://app.secureflow.dev");
 
   const gitlabEndpoint = `${currentOrigin}/api/webhooks/gitlab`;
   const bitbucketEndpoint = `${currentOrigin}/api/webhooks/bitbucket`;
@@ -85,11 +86,15 @@ export default function WebhookConfigCard({
             <div>
               <CardTitle>Inbound VCS Webhooks</CardTitle>
               <CardDescription>
-                Configure real-time automated PR and push security scanning for GitLab and Bitbucket.
+                Configure real-time automated PR and push security scanning for GitLab and
+                Bitbucket.
               </CardDescription>
             </div>
           </div>
-          <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10">
+          <Badge
+            variant="outline"
+            className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+          >
             Active Handlers
           </Badge>
         </div>
@@ -196,11 +201,23 @@ export default function WebhookConfigCard({
                 <ShieldCheck className="w-4 h-4 text-emerald-400" /> Setup Instructions (GitLab)
               </h4>
               <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside leading-relaxed">
-                <li>Navigate to your project on GitLab: <strong>Settings &gt; Webhooks</strong>.</li>
-                <li>Paste the Ingestion URL into the <strong>URL</strong> field.</li>
-                <li>Provide the shared secret in the <strong>Secret token</strong> field.</li>
-                <li>Check the <strong>Merge requests events</strong>, <strong>Push events</strong>, and <strong>Pipeline events</strong> triggers.</li>
-                <li>Enable <strong>Enable SSL verification</strong> and click <strong>Add webhook</strong>.</li>
+                <li>
+                  Navigate to your project on GitLab: <strong>Settings &gt; Webhooks</strong>.
+                </li>
+                <li>
+                  Paste the Ingestion URL into the <strong>URL</strong> field.
+                </li>
+                <li>
+                  Provide the shared secret in the <strong>Secret token</strong> field.
+                </li>
+                <li>
+                  Check the <strong>Merge requests events</strong>, <strong>Push events</strong>,
+                  and <strong>Pipeline events</strong> triggers.
+                </li>
+                <li>
+                  Enable <strong>Enable SSL verification</strong> and click{" "}
+                  <strong>Add webhook</strong>.
+                </li>
               </ol>
             </div>
           </div>
@@ -275,12 +292,28 @@ export default function WebhookConfigCard({
                 <ShieldCheck className="w-4 h-4 text-emerald-400" /> Setup Instructions (Bitbucket)
               </h4>
               <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside leading-relaxed">
-                <li>Go to repository settings: <strong>Repository settings &gt; Webhooks</strong>.</li>
-                <li>Click <strong>Add webhook</strong> and enter a title (e.g. SecureFlow CI Scan).</li>
+                <li>
+                  Go to repository settings: <strong>Repository settings &gt; Webhooks</strong>.
+                </li>
+                <li>
+                  Click <strong>Add webhook</strong> and enter a title (e.g. SecureFlow CI Scan).
+                </li>
                 <li>Paste the Bitbucket Ingestion URL above.</li>
-                <li>Enter your HMAC shared secret in <strong>Secret</strong> (corresponds to <code className="text-primary font-mono text-[11px]">BITBUCKET_WEBHOOK_SECRET</code>).</li>
-                <li>Select triggers under Pull Request (<strong>Created</strong>, <strong>Updated</strong>, <strong>Merged</strong>) and Repository (<strong>Push</strong>).</li>
-                <li>Click <strong>Save</strong> to activate automatic pipeline scanning.</li>
+                <li>
+                  Enter your HMAC shared secret in <strong>Secret</strong> (corresponds to{" "}
+                  <code className="text-primary font-mono text-[11px]">
+                    BITBUCKET_WEBHOOK_SECRET
+                  </code>
+                  ).
+                </li>
+                <li>
+                  Select triggers under Pull Request (<strong>Created</strong>,{" "}
+                  <strong>Updated</strong>, <strong>Merged</strong>) and Repository (
+                  <strong>Push</strong>).
+                </li>
+                <li>
+                  Click <strong>Save</strong> to activate automatic pipeline scanning.
+                </li>
               </ol>
             </div>
           </div>

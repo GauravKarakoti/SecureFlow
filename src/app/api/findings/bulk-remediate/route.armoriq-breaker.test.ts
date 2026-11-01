@@ -94,7 +94,10 @@ const mockFindings = [
     fileLocation: "src/app/api/auth/route.ts",
     codeSnippet: "const secret = 'insecure';",
     explanation: "Hardcoded secret detected",
-    remediationPatch: { patchDiff: "diff --git a/src/app/api/auth/route.ts b/src/app/api/auth/route.ts", status: "GENERATED" },
+    remediationPatch: {
+      patchDiff: "diff --git a/src/app/api/auth/route.ts b/src/app/api/auth/route.ts",
+      status: "GENERATED",
+    },
     scanResult: { pullRequest: { repository: { userId: "user-123" } } },
   },
   {
@@ -103,7 +106,10 @@ const mockFindings = [
     fileLocation: "src/lib/db.ts",
     codeSnippet: "const query = `SELECT * FROM users WHERE id = ${id}`;",
     explanation: "SQL injection risk",
-    remediationPatch: { patchDiff: "diff --git a/src/lib/db.ts b/src/lib/db.ts", status: "GENERATED" },
+    remediationPatch: {
+      patchDiff: "diff --git a/src/lib/db.ts b/src/lib/db.ts",
+      status: "GENERATED",
+    },
     scanResult: { pullRequest: { repository: { userId: "user-123" } } },
   },
   {
@@ -112,7 +118,10 @@ const mockFindings = [
     fileLocation: "src/server/handler.ts",
     codeSnippet: "eval(userInput);",
     explanation: "Code execution vulnerability",
-    remediationPatch: { patchDiff: "diff --git a/src/server/handler.ts b/src/server/handler.ts", status: "GENERATED" },
+    remediationPatch: {
+      patchDiff: "diff --git a/src/server/handler.ts b/src/server/handler.ts",
+      status: "GENERATED",
+    },
     scanResult: { pullRequest: { repository: { userId: "user-123" } } },
   },
 ];

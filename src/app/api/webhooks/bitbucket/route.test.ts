@@ -196,4 +196,3 @@ describe("POST /api/webhooks/bitbucket", () => {
     expect(body.status).toBe("received");
   });
 });
-

@@ -94,7 +94,9 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   logger.info("GitLab webhook received", {
     event: safeEvent,
     tracked: isTracked,
-    projectId: String(payload.project_id ?? (payload.project as Record<string, unknown>)?.id ?? "unknown"),
+    projectId: String(
+      payload.project_id ?? (payload.project as Record<string, unknown>)?.id ?? "unknown",
+    ),
   });
 
   if (!isTracked) {
@@ -123,7 +125,9 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       );
     }
     case "Pipeline Hook": {
-      const pipelineStatus = String((payload.object_attributes as Record<string, unknown>)?.status ?? "");
+      const pipelineStatus = String(
+        (payload.object_attributes as Record<string, unknown>)?.status ?? "",
+      );
       logger.info("GitLab pipeline event", { pipelineStatus });
       return NextResponse.json(
         { status: "received", message: "Pipeline event accepted" },

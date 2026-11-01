@@ -185,10 +185,7 @@ const patchHandler = withErrorHandler(async function PATCH(
 
   // Validate severity
   if (severity !== undefined && !VALID_SEVERITIES.has(severity)) {
-    throw new AppError(
-      `Invalid severity. Allowed values: CRITICAL, HIGH, MEDIUM, LOW, INFO`,
-      400,
-    );
+    throw new AppError(`Invalid severity. Allowed values: CRITICAL, HIGH, MEDIUM, LOW, INFO`, 400);
   }
 
   // Verify ownership before any mutation

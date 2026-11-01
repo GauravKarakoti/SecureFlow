@@ -176,7 +176,9 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       const client = {
         rest: {
           repos: {
-            getContent: vi.fn().mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 })),
+            getContent: vi
+              .fn()
+              .mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 })),
           },
           pulls: {
             get: vi.fn().mockResolvedValue({ data: { base: { ref: "main" } } }),
@@ -268,8 +270,12 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     it("Case 7: Regression - single argument evaluateFindings(findings) returns baseline results", () => {
       expect(engine.evaluateFindings([])).toBe("PASS");
       expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "CRITICAL")])).toBe("BLOCKED");
-      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "HIGH")])).toBe("REVIEW REQUIRED");
-      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "MEDIUM")])).toBe("REVIEW REQUIRED");
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "HIGH")])).toBe(
+        "REVIEW REQUIRED",
+      );
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "MEDIUM")])).toBe(
+        "REVIEW REQUIRED",
+      );
       expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "LOW")])).toBe("PASS");
     });
   });

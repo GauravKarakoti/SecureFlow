@@ -49,7 +49,13 @@ export function parseGateLevel(value: unknown): GateLevel | null {
   const upper = value.trim().toUpperCase();
   if (upper === "NONE") return "NONE";
   const parsed = parseSeverity(upper);
-  if (parsed === "CRITICAL" || parsed === "HIGH" || parsed === "MEDIUM" || parsed === "LOW" || parsed === "NONE") {
+  if (
+    parsed === "CRITICAL" ||
+    parsed === "HIGH" ||
+    parsed === "MEDIUM" ||
+    parsed === "LOW" ||
+    parsed === "NONE"
+  ) {
     return parsed;
   }
   return null;
@@ -149,7 +155,9 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     if (parsedBlock !== null) {
       blockOn = parsedBlock;
     } else {
-      console.warn(`[GateConfig] Unknown blockOn value '${String(rawBlock)}'; using default ${DEFAULT_GATE_CONFIG.blockOn}.`);
+      console.warn(
+        `[GateConfig] Unknown blockOn value '${String(rawBlock)}'; using default ${DEFAULT_GATE_CONFIG.blockOn}.`,
+      );
     }
   }
 
@@ -159,7 +167,9 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     if (parsedReview !== null) {
       reviewOn = parsedReview;
     } else {
-      console.warn(`[GateConfig] Unknown reviewOn value '${String(rawReview)}'; using default ${DEFAULT_GATE_CONFIG.reviewOn}.`);
+      console.warn(
+        `[GateConfig] Unknown reviewOn value '${String(rawReview)}'; using default ${DEFAULT_GATE_CONFIG.reviewOn}.`,
+      );
     }
   }
 

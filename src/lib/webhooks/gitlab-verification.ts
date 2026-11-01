@@ -61,10 +61,7 @@ export function parseGitLabEvent(headerValue: string | null): string | null {
  * @param expectedSecret - The configured shared secret.
  * @returns true if the tokens match, false otherwise.
  */
-export function verifyGitLabToken(
-  receivedToken: string,
-  expectedSecret: string,
-): boolean {
+export function verifyGitLabToken(receivedToken: string, expectedSecret: string): boolean {
   if (!receivedToken || !expectedSecret) return false;
 
   try {

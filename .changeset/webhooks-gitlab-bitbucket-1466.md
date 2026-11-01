@@ -12,4 +12,3 @@ feat(webhooks): add GitLab and Bitbucket webhook ingestion handlers (#1466)
 - Add integration route tests for both routes (19 tests across 2 files)
 - Updated `docs/api.md` and `openapi.yaml` with full endpoint documentation
 - New env vars: `GITLAB_WEBHOOK_TOKEN`, `BITBUCKET_WEBHOOK_SECRET`
-
