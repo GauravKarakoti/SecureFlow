@@ -56,7 +56,11 @@ describe("instrumentation.ts unit tests (#1500)", () => {
 
   it("handles environment variables inspection without throwing during nodejs startup", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
-    process.env.NODE_ENV = "test";
+    Object.defineProperty(process.env, "NODE_ENV", {
+      value: "test",
+      configurable: true,
+      writable: true,
+    });
 
     const { register } = await import("./instrumentation");
     const promise = register();
