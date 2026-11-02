@@ -29,76 +29,82 @@ vi.mock("./ai-health-client", () => ({
   default: ({ initialData, isAdmin }: { initialData: any; isAdmin: boolean }) => (
     <div data-testid="ai-health-client">
       <div data-testid="is-admin">{isAdmin ? "admin" : "user"}</div>
-      <div data-testid="active-provider">{initialData?.activeProvider}</div>
-      <div data-testid="active-model">{initialData?.activeModel}</div>
-      <div data-testid="overall-status">{initialData?.overallStatus}</div>
+      <div data-testid="active-provider">{initialData?.primaryModel}</div>
+      <div data-testid="active-model">{initialData?.primaryModel}</div>
+      <div data-testid="overall-status">{initialData?.primaryTripped ? "degraded" : "healthy"}</div>
       <div data-testid="models-count">{initialData?.models?.length ?? 0}</div>
       <div data-testid="failovers-count">{initialData?.recentFailovers?.length ?? 0}</div>
-      <div data-testid="total-invocations">{initialData?.summary?.totalInvocations ?? 0}</div>
-      <div data-testid="total-failures">{initialData?.summary?.totalFailures ?? 0}</div>
-      <div data-testid="avg-latency">{initialData?.summary?.averageLatencyMs ?? 0}</div>
+      <div data-testid="total-invocations">{initialData?.totalRequests ?? 0}</div>
+      <div data-testid="total-failures">{initialData?.totalErrors ?? 0}</div>
+      <div data-testid="avg-latency">{initialData?.models?.[0]?.avgLatencyMs ?? 0}</div>
     </div>
   ),
 }));
 
 describe("AiHealthDashboardPage Server Component (#1498)", () => {
   const mockReport: telemetryModule.AiHealthReport = {
-    activeProvider: "groq",
-    activeModel: "llama-3.3-70b-versatile",
-    overallStatus: "healthy",
+    timestamp: 1730000000000,
+    primaryModel: "groq/llama-3.3-70b-versatile",
+    primaryTripped: false,
+    totalRequests: 170,
+    totalErrors: 2,
+    totalFailovers: 1,
+    overallErrorRate: 1.2,
     models: [
       {
-        provider: "groq",
-        modelId: "llama-3.3-70b-versatile",
-        role: "primary",
-        state: "CLOSED",
-        failures: 0,
-        consecutiveSuccesses: 15,
+        modelName: "groq/llama-3.3-70b-versatile",
+        displayName: "Groq: llama-3.3-70b-versatile",
+        isPrimary: true,
+        isLocal: false,
+        circuitState: "CLOSED",
+        isHealthy: true,
+        failureCount: 0,
+        failureThreshold: 5,
+        resetTimeoutMs: 30000,
+        nextAttemptTimestamp: 0,
         totalRequests: 150,
-        successfulRequests: 148,
-        failedRequests: 2,
-        failureRate: 0.013,
-        lastFailureReason: null,
-        lastStateChange: 1730000000000,
-        averageLatencyMs: 420,
-        slidingWindowLatencyP95: 580,
-        slidingWindowLatencyP99: 720,
+        totalSuccesses: 148,
+        totalErrors: 2,
+        errorRate: 1.3,
+        avgLatencyMs: 420,
+        p95LatencyMs: 580,
+        minLatencyMs: 200,
+        maxLatencyMs: 800,
+        recentLatencies: [],
       },
       {
-        provider: "google",
-        modelId: "gemini-2.0-flash",
-        role: "fallback",
-        state: "CLOSED",
-        failures: 0,
-        consecutiveSuccesses: 5,
+        modelName: "groq/gemini-2.0-flash",
+        displayName: "Groq: gemini-2.0-flash",
+        isPrimary: false,
+        isLocal: false,
+        circuitState: "CLOSED",
+        isHealthy: true,
+        failureCount: 0,
+        failureThreshold: 5,
+        resetTimeoutMs: 30000,
+        nextAttemptTimestamp: 0,
         totalRequests: 20,
-        successfulRequests: 20,
-        failedRequests: 0,
-        failureRate: 0,
-        lastFailureReason: null,
-        lastStateChange: 1730000000000,
-        averageLatencyMs: 310,
-        slidingWindowLatencyP95: 410,
-        slidingWindowLatencyP99: 490,
+        totalSuccesses: 20,
+        totalErrors: 0,
+        errorRate: 0,
+        avgLatencyMs: 310,
+        p95LatencyMs: 410,
+        minLatencyMs: 150,
+        maxLatencyMs: 500,
+        recentLatencies: [],
       },
     ],
     recentFailovers: [
       {
+        id: "failover-1",
         timestamp: 1730000000000,
-        fromModel: "llama-3.3-70b-versatile",
-        toModel: "gemini-2.0-flash",
-        reason: "Rate limit exceeded (HTTP 429)",
+        fromModel: "groq/llama-3.3-70b-versatile",
+        toModel: "groq/gemini-2.0-flash",
+        error: "Rate limit exceeded (HTTP 429)",
+        attempt: 1,
+        fastFail: false,
       },
     ],
-    summary: {
-      totalInvocations: 170,
-      totalFailures: 2,
-      averageLatencyMs: 407,
-      openBreakers: 0,
-      halfOpenBreakers: 0,
-      closedBreakers: 2,
-    },
-    latencyTimeline: [],
   };
 
   beforeEach(() => {
@@ -139,14 +145,14 @@ describe("AiHealthDashboardPage Server Component (#1498)", () => {
 
     expect(screen.getByTestId("ai-health-client")).toBeInTheDocument();
     expect(screen.getByTestId("is-admin")).toHaveTextContent("user");
-    expect(screen.getByTestId("active-provider")).toHaveTextContent("groq");
-    expect(screen.getByTestId("active-model")).toHaveTextContent("llama-3.3-70b-versatile");
+    expect(screen.getByTestId("active-provider")).toHaveTextContent("groq/llama-3.3-70b-versatile");
+    expect(screen.getByTestId("active-model")).toHaveTextContent("groq/llama-3.3-70b-versatile");
     expect(screen.getByTestId("overall-status")).toHaveTextContent("healthy");
     expect(screen.getByTestId("models-count")).toHaveTextContent("2");
     expect(screen.getByTestId("failovers-count")).toHaveTextContent("1");
     expect(screen.getByTestId("total-invocations")).toHaveTextContent("170");
     expect(screen.getByTestId("total-failures")).toHaveTextContent("2");
-    expect(screen.getByTestId("avg-latency")).toHaveTextContent("407");
+    expect(screen.getByTestId("avg-latency")).toHaveTextContent("420");
   });
 
   it("identifies ADMIN role correctly and passes isAdmin: true", async () => {
@@ -163,20 +169,15 @@ describe("AiHealthDashboardPage Server Component (#1498)", () => {
 
   it("handles empty telemetry report data gracefully", async () => {
     const emptyReport: telemetryModule.AiHealthReport = {
-      activeProvider: "none",
-      activeModel: "none",
-      overallStatus: "degraded",
+      timestamp: 1730000000000,
+      primaryModel: "none",
+      primaryTripped: true,
+      totalRequests: 0,
+      totalErrors: 0,
+      totalFailovers: 0,
+      overallErrorRate: 0,
       models: [],
       recentFailovers: [],
-      summary: {
-        totalInvocations: 0,
-        totalFailures: 0,
-        averageLatencyMs: 0,
-        openBreakers: 0,
-        halfOpenBreakers: 0,
-        closedBreakers: 0,
-      },
-      latencyTimeline: [],
     };
 
     vi.mocked(authModule.auth).mockResolvedValue({
