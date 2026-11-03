@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 2.7.0
+
+### Minor Changes
+
+- 2ee9608: feat(admin): add granular route-level error boundaries for /admin/logs, /admin/queue, and /admin/users (#1527)
+- 948311f: Refine secret detection regex patterns and add entropy filtering to suppress benign placeholder tokens (#1512)
+- 9788696: Add Playwright E2E test suites for GitHub webhooks, generic inbound webhooks, and compliance exports (#1524)
+
 ## 2.6.0
 
 ### Minor Changes

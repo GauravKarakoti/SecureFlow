@@ -19,7 +19,10 @@ test.describe("Compliance Export API E2E (#1524)", () => {
     expect(json.error).toMatch(/invalid.*date|from/i);
   });
 
-  test("exports default JSON compliance dossier for authorized admin", async ({ page, baseURL }) => {
+  test("exports default JSON compliance dossier for authorized admin", async ({
+    page,
+    baseURL,
+  }) => {
     await setMockSession(page, "admin", baseURL);
 
     const res = await page.request.get("/api/compliance/export");

@@ -1,10 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
-import {
-  GENERIC_SECRET,
-  genericWebhookPayload,
-  signGeneric,
-} from "./helpers/webhook-fixtures";
+import { GENERIC_SECRET, genericWebhookPayload, signGeneric } from "./helpers/webhook-fixtures";
 
 const URL = "/api/webhooks/generic";
 
@@ -62,7 +58,9 @@ test.describe("Generic webhook ingestion E2E (#1524)", () => {
     expect(json.error).toMatch(/timestamp/i);
   });
 
-  test("rejects expired or replayed timestamp outside clock skew tolerance", async ({ request }) => {
+  test("rejects expired or replayed timestamp outside clock skew tolerance", async ({
+    request,
+  }) => {
     const expiredTs = (Math.floor(Date.now() / 1000) - 600).toString(); // 10 minutes old
     const res = await sendGenericWebhook(
       request,
@@ -91,12 +89,7 @@ test.describe("Generic webhook ingestion E2E (#1524)", () => {
   test("rejects forged or incorrect HMAC signature", async ({ request }) => {
     const ts = Math.floor(Date.now() / 1000).toString();
     const wrongSig = "sha256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    const res = await sendGenericWebhook(
-      request,
-      genericWebhookPayload,
-      ts,
-      wrongSig,
-    );
+    const res = await sendGenericWebhook(request, genericWebhookPayload, ts, wrongSig);
     expect(res.status()).toBe(401);
     const json = await res.json();
     expect(json.error).toMatch(/invalid.*signature|verification failed/i);
@@ -106,12 +99,7 @@ test.describe("Generic webhook ingestion E2E (#1524)", () => {
     const malformed = "{ this is invalid json payload ...";
     const ts = Math.floor(Date.now() / 1000).toString();
     const sig = signGeneric(malformed, ts);
-    const res = await sendGenericWebhook(
-      request,
-      malformed,
-      ts,
-      sig,
-    );
+    const res = await sendGenericWebhook(request, malformed, ts, sig);
     expect(res.status()).toBe(400);
   });
 
@@ -123,21 +111,14 @@ test.describe("Generic webhook ingestion E2E (#1524)", () => {
     const bodyStr = JSON.stringify(hugePayload);
     const ts = Math.floor(Date.now() / 1000).toString();
     const sig = signGeneric(bodyStr, ts);
-    const res = await sendGenericWebhook(
-      request,
-      hugePayload,
-      ts,
-      sig,
-      { "content-length": Buffer.byteLength(bodyStr).toString() },
-    );
+    const res = await sendGenericWebhook(request, hugePayload, ts, sig, {
+      "content-length": Buffer.byteLength(bodyStr).toString(),
+    });
     expect(res.status()).toBe(413);
   });
 
   test("accepts valid signed generic webhook payload", async ({ request }) => {
-    const res = await sendGenericWebhook(
-      request,
-      genericWebhookPayload,
-    );
+    const res = await sendGenericWebhook(request, genericWebhookPayload);
     expect(res.status()).toBe(200);
     const json = await res.json();
     expect(json).toBeDefined();
