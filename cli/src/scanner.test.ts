@@ -499,3 +499,47 @@ describe("voice flag and audio player integration", () => {
     expect(res.bypassed).toBe(true);
   });
 });
+
+describe("entropy and benign secret false positive suppression (#1512)", () => {
+  it("does not flag benign placeholder tokens and mock keys", () => {
+    const benignCases = [
+      "console.log(your_api_key_here);",
+      "console.info(mock_token);",
+      "console.warn(placeholder_token);",
+      "console.error(dummy_secret);",
+      "console.log(test_token);",
+      "console.log(sample_secret);",
+      "console.log(fake_api_key);",
+      "console.debug(example_token);",
+      "console.log(changeme);",
+    ];
+
+    for (const code of benignCases) {
+      expect(findSecretLogging(code)).toEqual([]);
+    }
+  });
+
+  it("does not flag UUID strings or standard UUID variables", () => {
+    const uuidCode = `
+      const transactionId = "123e4567-e89b-12d3-a456-426614174000";
+      console.log(transactionId);
+    `;
+    expect(findSecretLogging(uuidCode)).toEqual([]);
+  });
+
+  it("still flags actual high-risk secret identifiers", () => {
+    const secretCases = [
+      "console.log(stripeApiKey);",
+      "console.error(clientSecret);",
+      "console.warn(jwtAuthToken);",
+      "console.log(production_private_key);",
+      "console.log(database_password);",
+    ];
+
+    for (const code of secretCases) {
+      const violations = findSecretLogging(code);
+      expect(violations.length).toBeGreaterThan(0);
+      expect(violations[0].reason).toBe("secret-named identifier");
+    }
+  });
+});
