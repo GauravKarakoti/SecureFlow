@@ -956,6 +956,7 @@ export const worker = new Worker<WebhookJobData>(
                 coverageNotice,
                 suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
                 rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
+                previouslyDismissedCount: suppressedFindings.length,
               });
 
             // Try to post the anchored findings as an inline review. If that fails
@@ -1005,12 +1006,18 @@ export const worker = new Worker<WebhookJobData>(
               });
             }
           } else {
+            const cleanDismissedNotice =
+              suppressedFindings.length > 0
+                ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
+                : "";
+
             await octokit.rest.issues.updateComment({
               owner: repository.owner.login,
               repo: repository.name,
               comment_id: pendingComment.data.id,
               body:
                 `### 🛡️ SecureFlow AI Security Report\n\n✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
+                cleanDismissedNotice +
                 // A clean result on a partial scan must say so — this is exactly the
                 // case where silent truncation was most misleading.
                 (coverageNotice ? `\n\n${coverageNotice}` : ""),

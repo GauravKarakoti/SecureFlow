@@ -201,7 +201,7 @@ describe("Triage Expiry Enforcement Integration (#1503)", () => {
         expect.objectContaining({
           where: expect.objectContaining({
             repository: { userId: "user-123" },
-            status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+            status: { in: ["FALSE_POSITIVE", "IGNORED", "DISMISSED"] },
             OR: [{ expiresAt: null }, { expiresAt: expect.any(Object) }],
           }),
         }),

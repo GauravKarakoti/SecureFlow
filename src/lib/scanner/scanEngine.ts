@@ -400,9 +400,14 @@ export async function processScanJob(
       });
 
       // Post PR comment if there are findings
+      const suppressedCount = allFindings.length - activeFindings.length;
       if (enrichedFindings.length > 0) {
         let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
         body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
+
+        if (suppressedCount > 0) {
+          body += `🛡️ **${suppressedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+        }
 
         enrichedFindings.forEach((f) => {
           body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;

@@ -27,7 +27,22 @@
  * is open, which is why the status filter in `findings/query.ts` resolves it as
  * "not in the triaged set" rather than as a value to match.
  */
-export const TRIAGE_STATUSES = ["OPEN", "RESOLVED", "FALSE_POSITIVE", "IGNORED"] as const;
+export const TRIAGE_STATUSES = [
+  "OPEN",
+  "RESOLVED",
+  "FALSE_POSITIVE",
+  "IGNORED",
+  "DISMISSED",
+] as const;
+
+export const DISMISSAL_REASONS = ["FALSE_POSITIVE", "ACCEPTED_RISK", "WONT_FIX"] as const;
+export type DismissalReason = (typeof DISMISSAL_REASONS)[number];
+
+const DISMISSAL_REASON_SET = new Set<string>(DISMISSAL_REASONS);
+
+export function isDismissalReason(reason: unknown): reason is DismissalReason {
+  return typeof reason === "string" && DISMISSAL_REASON_SET.has(reason);
+}
 
 /**
  * The most findings one bulk-triage call may carry.
@@ -59,7 +74,7 @@ export type TriageStatus = (typeof TRIAGE_STATUSES)[number];
  * decision. `RESOLVED` is deliberately not one of them: a resolved finding was
  * real and was fixed, so it still counts toward the author's history.
  */
-export const SUPPRESSED_STATUSES = ["FALSE_POSITIVE", "IGNORED"] as const;
+export const SUPPRESSED_STATUSES = ["FALSE_POSITIVE", "IGNORED", "DISMISSED"] as const;
 
 export type SuppressedStatus = (typeof SUPPRESSED_STATUSES)[number];
 

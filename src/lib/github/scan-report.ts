@@ -53,6 +53,8 @@ export interface ScanReportSummaryInput {
   suppressedFindings?: readonly SuppressedFindingReport[];
   /** Inline suppression directives that were rejected or ignored. */
   rejectedSuppressions?: readonly RejectedSuppressionReport[];
+  /** Previously triaged/dismissed findings on this repository suppressed during the scan. */
+  previouslyDismissedCount?: number;
 }
 
 /** Quote every line of `text`, so a multi-paragraph value stays one blockquote. */
@@ -88,9 +90,14 @@ export function renderScanReportSummary({
   coverageNotice,
   suppressedFindings = [],
   rejectedSuppressions = [],
+  previouslyDismissedCount = 0,
 }: ScanReportSummaryInput): string {
   let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
+
+  if (previouslyDismissedCount > 0) {
+    body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+  }
 
   if (coverageNotice) {
     body += `${coverageNotice}\n\n`;

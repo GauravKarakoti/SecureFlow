@@ -8,11 +8,14 @@ import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
 import {
   MAX_BULK_TRIAGE,
   isTriageStatus,
+  isDismissalReason,
   type TriageStatus as SharedTriageStatus,
+  type DismissalReason,
 } from "@/lib/triage/statuses";
 import { validateExpiryDate } from "@/lib/triage/expiry";
 
 export type TriageStatus = SharedTriageStatus;
+export type { DismissalReason };
 
 interface TriageTransactionClient {
   findingTriage: { upsert: (args: unknown) => Promise<unknown> };
@@ -23,6 +26,7 @@ export interface SetFindingStatusInput {
   repositoryId: string;
   fingerprint: string;
   status: TriageStatus;
+  reason?: DismissalReason | string | null;
   note?: string | null;
   expiresAt?: Date | string | null;
 }
@@ -40,13 +44,14 @@ export interface FindingTriageTarget {
 export interface SetFindingStatusesInput {
   items: FindingTriageTarget[];
   status: TriageStatus;
+  reason?: DismissalReason | string | null;
   note?: string | null;
   expiresAt?: Date | string | null;
 }
 
 /**
- * Set the triage status (+ optional note + optional expiry) for a finding, keyed by its stable
- * fingerprint so the decision survives the re-scans that recreate Finding rows.
+ * Set the triage status (+ optional reason + required/optional note + optional expiry) for a finding,
+ * keyed by its stable fingerprint so the decision survives the re-scans that recreate Finding rows.
  */
 export async function setFindingStatus(
   input: SetFindingStatusInput,
@@ -67,9 +72,28 @@ export async function setFindingStatus(
     return { ok: false, error: "Invalid status" };
   }
 
+  // Dismissal validation: dismissing requires a non-empty note/reason
+  let dismissalReason: DismissalReason | null = null;
+  let dismissedAt: Date | null = null;
+  let dismissedById: string | null = null;
+
+  if (status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED") {
+    if (status === "DISMISSED") {
+      if (!note) {
+        return { ok: false, error: "A note or explanation is required when dismissing a finding" };
+      }
+      if (input.reason && !isDismissalReason(input.reason)) {
+        return { ok: false, error: "Invalid dismissal reason category" };
+      }
+      dismissalReason = (input.reason as DismissalReason) ?? "FALSE_POSITIVE";
+      dismissedAt = new Date();
+      dismissedById = userId;
+    }
+  }
+
   // Handle optional dismissal expiry: ignore for OPEN and RESOLVED.
   let expiresAt: Date | null = null;
-  if (status === "FALSE_POSITIVE" || status === "IGNORED") {
+  if (status === "FALSE_POSITIVE" || status === "IGNORED" || status === "DISMISSED") {
     const validated = validateExpiryDate(input.expiresAt, new Date());
     if (!validated.ok) {
       return { ok: false, error: validated.error };
@@ -88,8 +112,26 @@ export async function setFindingStatus(
 
   await prisma.findingTriage.upsert({
     where: { repositoryId_fingerprint: { repositoryId, fingerprint } },
-    update: { status, note, resolvedById: userId, expiresAt },
-    create: { repositoryId, fingerprint, status, note, resolvedById: userId, expiresAt },
+    update: {
+      status,
+      note,
+      resolvedById: userId,
+      expiresAt,
+      dismissalReason,
+      dismissedAt,
+      dismissedById,
+    },
+    create: {
+      repositoryId,
+      fingerprint,
+      status,
+      note,
+      resolvedById: userId,
+      expiresAt,
+      dismissalReason,
+      dismissedAt,
+      dismissedById,
+    },
   });
 
   await prisma.auditLog.create({
@@ -102,7 +144,10 @@ export async function setFindingStatus(
         repositoryId,
         fingerprint,
         status,
+        dismissalReason,
         hasNote: note !== null,
+        note,
+        dismissedAt: dismissedAt?.toISOString() ?? null,
         expiresAt: expiresAt?.toISOString() ?? null,
       },
     }),
@@ -155,8 +200,30 @@ export async function setFindingStatuses(
     return { ok: false, error: "Too many findings" };
   }
 
+  const note = input.note?.trim() ? input.note.trim() : null;
+
+  let dismissalReason: DismissalReason | null = null;
+  let dismissedAt: Date | null = null;
+  let dismissedById: string | null = null;
+
+  if (input.status === "DISMISSED") {
+    if (!note) {
+      return { ok: false, error: "A note or explanation is required when dismissing a finding" };
+    }
+    if (input.reason && !isDismissalReason(input.reason)) {
+      return { ok: false, error: "Invalid dismissal reason category" };
+    }
+    dismissalReason = (input.reason as DismissalReason) ?? "FALSE_POSITIVE";
+    dismissedAt = new Date();
+    dismissedById = userId;
+  }
+
   let expiresAt: Date | null = null;
-  if (input.status === "FALSE_POSITIVE" || input.status === "IGNORED") {
+  if (
+    input.status === "FALSE_POSITIVE" ||
+    input.status === "IGNORED" ||
+    input.status === "DISMISSED"
+  ) {
     const validated = validateExpiryDate(input.expiresAt, new Date());
     if (!validated.ok) {
       return { ok: false, error: validated.error };
@@ -164,7 +231,6 @@ export async function setFindingStatuses(
     expiresAt = validated.expiresAt;
   }
 
-  const note = input.note?.trim() ? input.note.trim() : null;
   const { status } = input;
   const repoIds = [...new Set(items.map((item) => item.repositoryId))];
 
@@ -190,7 +256,15 @@ export async function setFindingStatuses(
             fingerprint: item.fingerprint,
           },
         },
-        update: { status, note, resolvedById: userId, expiresAt },
+        update: {
+          status,
+          note,
+          resolvedById: userId,
+          expiresAt,
+          dismissalReason,
+          dismissedAt,
+          dismissedById,
+        },
         create: {
           repositoryId: item.repositoryId,
           fingerprint: item.fingerprint,
@@ -198,6 +272,9 @@ export async function setFindingStatuses(
           note,
           resolvedById: userId,
           expiresAt,
+          dismissalReason,
+          dismissedAt,
+          dismissedById,
         },
       });
 
@@ -211,9 +288,12 @@ export async function setFindingStatuses(
             repositoryId: item.repositoryId,
             fingerprint: item.fingerprint,
             status,
+            dismissalReason,
             hasNote: note !== null,
-            bulk: true,
+            note,
+            dismissedAt: dismissedAt?.toISOString() ?? null,
             expiresAt: expiresAt?.toISOString() ?? null,
+            bulk: true,
           },
         }),
       });
