@@ -246,11 +246,14 @@ model Finding {
 
 
   @@index([scanResultId])
+  // Analytics date windows and newest-first findings within a scan (#1515).
+  @@index([scanResultId, createdAt(sort: Desc)])
   @@index([fingerprint])
   // Severity-bucketed reads on /dashboard/findings (#731). planSeverityPage
   // walks one severity at a time within a scan's findings, so the list and its
   // per-bucket counts filter on (scanResultId, severity) together.
-  @@index([scanResultId, severity])
+  // Retain the equality prefix for counts, then serve the bucket's date order.
+  @@index([scanResultId, severity, createdAt(sort: Desc)])
 
   @@index([severity])
   @@index([type])
