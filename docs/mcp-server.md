@@ -1,8 +1,8 @@
 # SecureFlow Threat Intelligence MCP Server
 
-The SecureFlow CLI includes a built-in **Model Context Protocol (MCP)** server (`cli/src/mcp/index.ts`) that exposes real-time threat intelligence advisories, CVE/CWE vulnerability remediation guidance, and cryptographic intent verification to AI coding assistants and IDE agents over standard I/O (`stdio`).
+The SecureFlow CLI includes a **Model Context Protocol (MCP)** server (`cli/src/mcp/index.ts`) exposing bundled advisory examples and caller-provided remediation-history summaries over standard I/O (`stdio`). It does not fetch a live CVE feed or connect to the dashboard database.
 
-By connecting your AI agent (such as **Cursor**, **Claude Desktop**, or **Windsurf**) to the SecureFlow MCP server, the model can look up verified security advisories, identify known vulnerabilities, and validate proposed fixes against ArmorIQ security boundaries while writing code.
+IDE agents can retrieve the bundled guidance and inspect reported remediation outcomes. Treat these as context for review, not verification that an advisory is current or that an applied patch resolves a vulnerability.
 
 ---
 
@@ -35,7 +35,7 @@ The server operates locally via `stdio` using `@modelcontextprotocol/sdk`, requi
 
 ## Available MCP Tools
 
-The server registers two primary tools exposed via `ListToolsRequestSchema`:
+The server registers three tools exposed via `ListToolsRequestSchema`:
 
 ### 1. `query_threat_intelligence`
 
@@ -57,6 +57,123 @@ Retrieves detailed vulnerability information, severity rating, and concrete reme
 
 ---
 
+### 3. `get_remediation_context`
+
+Summarizes a caller-supplied snapshot of remediation attempts. Each history row
+represents one attempt's latest status, not multiple updates of the same attempt.
+The standalone CLI has no authenticated production-data connection. Supply only
+non-sensitive advisory IDs and outcomes; do not include source code or secrets.
+
+The input JSON Schema is defined in
+[`index.ts`](../cli/src/mcp/index.ts) and returned by
+`tools/list`:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "history": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "properties": {
+          "advisoryId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$" },
+          "status": { "type": "string", "enum": ["APPLIED", "FAILED", "PENDING", "GENERATED"] }
+        },
+        "required": ["advisoryId", "status"],
+        "additionalProperties": false
+      }
+    },
+    "advisoryId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$" },
+    "intentToken": { "type": "string" }
+  },
+  "required": ["history"],
+  "additionalProperties": false
+}
+```
+
+`advisoryId` filters history case-insensitively. The result includes
+`source: "caller_provided"`, the matched `sampleSize`, all four status counts,
+`completed` (`APPLIED + FAILED`), and `applicationSuccessRate` as a fraction in
+`[0, 1]`. That rate is `null` when no matching attempt is completed. Pending and
+generated patches are counted but excluded from the denominator. Application
+success is a reported operational outcome, not proof of vulnerability resolution.
+
+## JSON-RPC contract
+
+This is a stdio service, not an HTTP endpoint. The SDK handles newline-delimited
+JSON-RPC 2.0 frames on stdin/stdout; diagnostics go to stderr. Follow the
+[MCP tools protocol](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+After the `initialize` handshake shown below, send
+`{"jsonrpc":"2.0","method":"notifications/initialized"}` before tool requests.
+
+Discover the exact advertised schemas:
+
+```json
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }
+```
+
+The response is `{ "jsonrpc": "2.0", "id": 2, "result": { "tools": [...] } }`.
+Each entry has `name`, `description` and `inputSchema`. Existing advisory calls
+keep their original schemas and text-encoded JSON results:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": { "name": "lookup_cve", "arguments": { "cveId": "CWE-79" } }
+}
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": { "name": "query_threat_intelligence", "arguments": { "query": "SQL injection" } }
+}
+```
+
+Request reported history context:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "get_remediation_context",
+    "arguments": {
+      "advisoryId": "cwe-79",
+      "history": [
+        { "advisoryId": "CWE-79", "status": "APPLIED" },
+        { "advisoryId": "CWE-79", "status": "FAILED" },
+        { "advisoryId": "CWE-79", "status": "PENDING" }
+      ]
+    }
+  }
+}
+```
+
+The new tool returns the same object in `structuredContent` and as JSON in
+`content[0].text` (with `type: "text"`). Parse the latter as JSON to obtain
+`sampleSize: 3`, `completed: 2`, `applicationSuccessRate: 0.5`, and
+`counts: { "APPLIED": 1, "FAILED": 1, "PENDING": 1, "GENERATED": 0 }`.
+Malformed context returns `result.isError: true` with text JSON containing
+`code: "INVALID_ARGUMENTS"`. Intent-gate failures use
+`ARMORIQ_INTENT_VERIFICATION_FAILED` and run before context validation.
+Unknown tool names produce a JSON-RPC error rather than a successful tool result.
+
+Run the actual client/server transport tests and compile the CLI:
+
+```bash
+npm ci --legacy-peer-deps
+npm run cli:build
+npm run cli:test
+```
+
 ## ArmorIQ Cryptographic Intent Verification
 
 All MCP tool invocations are gated by the `verifyDeclaredIntent` boundary filter before execution to prevent prompt injection and unauthorized actions:
@@ -72,9 +189,10 @@ All MCP tool invocations are gated by the `verifyDeclaredIntent` boundary filter
      }
      ```
 
-2. **Cryptographic Intent Tokens**:
-   - If an `intentToken` is supplied, it is validated for tamper resistance (minimum length of 16 characters and absence of tampering flags).
-   - The server computes a SHA-256 hash over `{ toolName, args, timestamp }` and signs it using HMAC-SHA256 with `ARMORIQ_PROOF_SIGNING_KEY`.
+2. **Intent checks and proof signing**:
+   - The existing gate checks argument text with regular expressions, and its token helper checks length/tampering markers. These checks are not cryptographic verification of caller identity or a comprehensive prompt-injection defense.
+   - The current argument filter also matches the literal `intentToken` key. Supplying that optional field in an MCP call therefore fails closed; omit it for ordinary local calls. This extension preserves the existing gate.
+   - The helper computes an HMAC-SHA256 proof using `ARMORIQ_PROOF_SIGNING_KEY`; the MCP handler does not expose that internal proof in tool responses. Missing signing configuration fails closed.
 
 ---
 

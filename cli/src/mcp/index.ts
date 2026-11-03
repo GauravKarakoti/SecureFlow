@@ -160,6 +160,84 @@ export function verifyDeclaredIntent(
   };
 }
 
+const REMEDIATION_CONTEXT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    history: {
+      type: "array",
+      maxItems: 1000,
+      description: "Caller-provided remediation outcomes; never fetched from a dashboard database.",
+      items: {
+        type: "object",
+        properties: {
+          advisoryId: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$" },
+          status: { type: "string", enum: ["APPLIED", "FAILED", "PENDING", "GENERATED"] },
+        },
+        required: ["advisoryId", "status"],
+        additionalProperties: false,
+      },
+    },
+    advisoryId: {
+      type: "string",
+      pattern: "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$",
+      description: "Optional case-insensitive advisory filter.",
+    },
+    intentToken: { type: "string" },
+  },
+  required: ["history"],
+  additionalProperties: false,
+};
+
+const STATUSES = ["APPLIED", "FAILED", "PENDING", "GENERATED"] as const;
+type Status = (typeof STATUSES)[number];
+const ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
+
+/** Aggregate bounded caller-supplied history, without inventing production evidence. */
+function summarizeRemediationHistory(args: Record<string, unknown>) {
+  if (Object.keys(args).some((key) => !["history", "advisoryId", "intentToken"].includes(key))) {
+    throw new Error("Unknown remediation-context argument");
+  }
+  if (args.intentToken !== undefined && typeof args.intentToken !== "string") {
+    throw new Error("intentToken must be a string");
+  }
+  const filter = args.advisoryId;
+  if (filter !== undefined && (typeof filter !== "string" || !ID.test(filter))) {
+    throw new Error("advisoryId must be an alphanumeric/hyphen identifier of 1–64 characters");
+  }
+  if (!Array.isArray(args.history) || args.history.length > 1000) {
+    throw new Error("history must be an array of at most 1000 outcomes");
+  }
+  const counts: Record<Status, number> = { APPLIED: 0, FAILED: 0, PENDING: 0, GENERATED: 0 };
+  for (const value of args.history) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Each history item must be an object");
+    }
+    const item = value as Record<string, unknown>;
+    if (
+      Object.keys(item).some((key) => !["advisoryId", "status"].includes(key)) ||
+      typeof item.advisoryId !== "string" ||
+      !ID.test(item.advisoryId) ||
+      !STATUSES.includes(item.status as Status)
+    ) {
+      throw new Error("Each history item requires a valid advisoryId and remediation status");
+    }
+    if (filter === undefined || item.advisoryId.toUpperCase() === filter.toUpperCase()) {
+      counts[item.status as Status] += 1;
+    }
+  }
+  const completed = counts.APPLIED + counts.FAILED;
+  return {
+    source: "caller_provided",
+    advisoryId: typeof filter === "string" ? filter.toUpperCase() : null,
+    sampleSize: Object.values(counts).reduce((sum, count) => sum + count, 0),
+    counts,
+    completed,
+    applicationSuccessRate: completed === 0 ? null : counts.APPLIED / completed,
+    interpretation:
+      "APPLIED / (APPLIED + FAILED); application is not proof of vulnerability resolution",
+  };
+}
+
 export function createThreatIntelMcpServer(): Server {
   const server = new Server(
     {
@@ -177,9 +255,21 @@ export function createThreatIntelMcpServer(): Server {
     return {
       tools: [
         {
+          name: "get_remediation_context",
+          description:
+            "Summarize caller-provided historical remediation outcomes, optionally by advisory. Returns application rates with explicit sample counts; does not access production data.",
+          inputSchema: REMEDIATION_CONTEXT_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        {
           name: "query_threat_intelligence",
           description:
-            "Search live threat intelligence and CVE databases for security context and remediation recommendations.",
+            "Search the bundled advisory examples for security context and remediation recommendations. Does not query a live CVE service.",
           inputSchema: {
             type: "object",
             properties: {
@@ -221,7 +311,7 @@ export function createThreatIntelMcpServer(): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const intentToken = (args as any)?.intentToken;
+    const intentToken = typeof args?.intentToken === "string" ? args.intentToken : undefined;
 
     // Cryptographic intent verification gate: reject any drift or injection attempt fail-closed
     const intentVerification = verifyDeclaredIntent(
@@ -245,8 +335,31 @@ export function createThreatIntelMcpServer(): Server {
       };
     }
 
+    if (name === "get_remediation_context") {
+      try {
+        const summary = summarizeRemediationHistory(args || {});
+        return {
+          content: [{ type: "text", text: JSON.stringify(summary) }],
+          structuredContent: summary,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error: error instanceof Error ? error.message : "Invalid remediation context",
+              }),
+            },
+          ],
+        };
+      }
+    }
+
     if (name === "query_threat_intelligence") {
-      const query = String((args as any)?.query || "").toLowerCase();
+      const query = String(args?.query || "").toLowerCase();
       const matches = KNOWLEDGE_BASE.filter(
         (item) =>
           item.description.toLowerCase().includes(query) ||
@@ -269,7 +382,7 @@ export function createThreatIntelMcpServer(): Server {
     }
 
     if (name === "lookup_cve") {
-      const cveId = String((args as any)?.cveId || "").toUpperCase();
+      const cveId = String(args?.cveId || "").toUpperCase();
       const match = KNOWLEDGE_BASE.find(
         (item) => item.id.toUpperCase() === cveId || (item.cve && item.cve.toUpperCase() === cveId),
       );
