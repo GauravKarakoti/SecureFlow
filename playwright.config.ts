@@ -33,6 +33,8 @@ export default defineConfig({
       GROQ_API_KEY: process.env.GROQ_API_KEY || "ci-build-placeholder",
       GITHUB_APP_ID: process.env.GITHUB_APP_ID || "1",
       GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || "e2e-webhook-secret",
+      GITLAB_WEBHOOK_TOKEN: process.env.GITLAB_WEBHOOK_TOKEN || "e2e-gitlab-token",
+      BITBUCKET_WEBHOOK_SECRET: process.env.BITBUCKET_WEBHOOK_SECRET || "e2e-bitbucket-secret",
       GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY || "ci-build-placeholder",
       GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "ci-build-placeholder",
       GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "ci-build-placeholder",
