@@ -192,17 +192,123 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
       const response = await client.listTools();
 
       expect(response.tools).toBeDefined();
-      expect(response.tools.length).toBe(2);
+      expect(response.tools.length).toBe(3);
 
       const toolNames = response.tools.map((t) => t.name);
       expect(toolNames).toContain("query_threat_intelligence");
       expect(toolNames).toContain("lookup_cve");
+      expect(toolNames).toContain("get_remediation_context");
 
       const queryTool = response.tools.find((t) => t.name === "query_threat_intelligence");
       expect(queryTool?.inputSchema.required).toContain("query");
 
       const lookupTool = response.tools.find((t) => t.name === "lookup_cve");
       expect(lookupTool?.inputSchema.required).toContain("cveId");
+    });
+
+    describe("get_remediation_context tool", () => {
+      async function call(arguments_: Record<string, unknown>) {
+        const response = await client.callTool({
+          name: "get_remediation_context",
+          arguments: arguments_,
+        });
+        return { response, data: JSON.parse(getTextContent(response)[0]!.text) };
+      }
+
+      it("advertises the bounded history and optional advisory filter", async () => {
+        const { tools } = await client.listTools();
+        const tool = tools.find((entry) => entry.name === "get_remediation_context")!;
+        expect(tool.inputSchema.required).toEqual(["history"]);
+        expect(tool.inputSchema.additionalProperties).toBe(false);
+        expect(tool.inputSchema.properties?.history).toMatchObject({
+          type: "array",
+          maxItems: 1000,
+        });
+        expect(tool.inputSchema.properties?.advisoryId).toMatchObject({ type: "string" });
+      });
+
+      it("uses completed outcomes as the denominator, keeping pending and generated counts", async () => {
+        const { response, data } = await call({
+          history: [
+            { advisoryId: "CWE-79", status: "APPLIED" },
+            { advisoryId: "CWE-79", status: "FAILED" },
+            { advisoryId: "CWE-79", status: "APPLIED" },
+            { advisoryId: "CWE-79", status: "PENDING" },
+            { advisoryId: "CWE-79", status: "GENERATED" },
+          ],
+        });
+        expect(response.isError).toBeFalsy();
+        expect(data).toMatchObject({
+          source: "caller_provided",
+          sampleSize: 5,
+          completed: 3,
+          counts: { APPLIED: 2, FAILED: 1, PENDING: 1, GENERATED: 1 },
+        });
+        expect(data.applicationSuccessRate).toBeCloseTo(2 / 3);
+        expect(response.structuredContent).toEqual(data);
+      });
+
+      it("filters advisory IDs case-insensitively without mixing unrelated outcomes", async () => {
+        const { data } = await call({
+          advisoryId: "cwe-79",
+          history: [
+            { advisoryId: "CWE-79", status: "APPLIED" },
+            { advisoryId: "cwe-79", status: "FAILED" },
+            { advisoryId: "CWE-94", status: "APPLIED" },
+          ],
+        });
+        expect(data.advisoryId).toBe("CWE-79");
+        expect(data.sampleSize).toBe(2);
+        expect(data.applicationSuccessRate).toBe(0.5);
+      });
+
+      it.each([
+        { history: [] },
+        { history: [{ advisoryId: "CWE-79", status: "PENDING" }] },
+        { advisoryId: "CWE-94", history: [{ advisoryId: "CWE-79", status: "APPLIED" }] },
+      ])("reports an unknown rate instead of inventing a percentage: %j", async (args) => {
+        const { response, data } = await call(args);
+        expect(response.isError).toBeFalsy();
+        expect(data.completed).toBe(0);
+        expect(data.applicationSuccessRate).toBeNull();
+      });
+
+      it.each([
+        {},
+        { history: "not an array" },
+        { history: [null] },
+        { history: [[]] },
+        { history: [{ advisoryId: "CWE-79", status: "SUCCESS" }] },
+        { history: [{ advisoryId: "CWE-79" }] },
+        { history: [{ advisoryId: "", status: "APPLIED" }] },
+        { history: [{ advisoryId: "CWE-79", status: "APPLIED", extra: "data" }] },
+        { history: [], advisoryId: "x".repeat(65) },
+        { history: [], advisoryId: 123 },
+        { history: [], unexpected: true },
+      ])("rejects malformed context over the actual MCP transport: %j", async (args) => {
+        const { response, data } = await call(args);
+        expect(response.isError).toBe(true);
+        expect(data.code).toBe("INVALID_ARGUMENTS");
+      });
+
+      it("accepts the history boundary and rejects a larger batch", async () => {
+        const history = Array.from({ length: 1000 }, () => ({
+          advisoryId: "CWE-79",
+          status: "APPLIED",
+        }));
+        const accepted = await call({ history });
+        expect(accepted.response.isError).toBeFalsy();
+        expect(accepted.data.sampleSize).toBe(1000);
+        const rejected = await call({ history: [...history, history[0]] });
+        expect(rejected.response.isError).toBe(true);
+        expect(rejected.data.code).toBe("INVALID_ARGUMENTS");
+      });
+
+      it("keeps the existing intent gate in front of the new tool", async () => {
+        const { response, data } = await call({ history: [], intentToken: "short" });
+        expect(response.isError).toBe(true);
+        expect(data.code).toBe("ARMORIQ_INTENT_VERIFICATION_FAILED");
+      });
     });
 
     describe("query_threat_intelligence tool", () => {
