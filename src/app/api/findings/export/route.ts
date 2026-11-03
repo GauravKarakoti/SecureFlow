@@ -19,6 +19,7 @@ import prisma from "@/lib/prisma";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import { streamCsv } from "@/lib/utils/csv-stream";
+import { exportResponse } from "@/lib/utils/export-response";
 import {
   buildFindingsWhere,
   fromSearchParams,
@@ -182,14 +183,10 @@ async function handler(req: NextRequest) {
     },
   );
 
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${findingsExportFilename()}"`,
-      "Cache-Control": "no-store",
-      "X-Export-Limit": String(MAX_FINDINGS_EXPORT_ROWS),
-    },
+  return exportResponse(body, {
+    contentType: "text/csv; charset=utf-8",
+    filename: findingsExportFilename(),
+    limit: MAX_FINDINGS_EXPORT_ROWS,
   });
 }
 

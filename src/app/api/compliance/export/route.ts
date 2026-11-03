@@ -10,18 +10,7 @@ import {
 } from "@/lib/compliance/auditor-exporter";
 import { buildComplianceSarifDocument } from "@/lib/compliance/sarif-exporter";
 import { enrichFindingsWithComplianceTags } from "@/lib/policies/compliance-engine";
-
-/**
- * Parse an ISO-8601 date string.
- */
-function parseDateParam(raw: string | null, name: string): Date | undefined {
-  if (!raw || raw.trim() === "") return undefined;
-  const parsed = new Date(raw.trim());
-  if (Number.isNaN(parsed.getTime())) {
-    throw new AppError(`Invalid \`${name}\` parameter: expected an ISO-8601 date string.`, 400);
-  }
-  return parsed;
-}
+import { exportResponse, parseDateParam } from "@/lib/utils/export-response";
 
 /**
  * GET /api/compliance/export
@@ -81,14 +70,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
     const filename = `secureflow-compliance-${new Date().toISOString().slice(0, 10)}.sarif`;
 
-    return new NextResponse(JSON.stringify(sarifDoc, null, 2), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/sarif+json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "no-store",
-        "X-Compliance-Findings-Count": String(enriched.length),
-      },
+    return exportResponse(JSON.stringify(sarifDoc, null, 2), {
+      contentType: "application/sarif+json; charset=utf-8",
+      filename,
+      headers: { "X-Compliance-Findings-Count": String(enriched.length) },
     });
   }
 
@@ -100,14 +85,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     const html = generateAuditorPdfHtml(dossier);
     const filename = `secureflow-compliance-audit-${dossier.reportId}.html`;
 
-    return new NextResponse(html, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "no-store",
-        "X-Compliance-Report-Id": dossier.reportId,
-      },
+    return exportResponse(html, {
+      contentType: "text/html; charset=utf-8",
+      filename,
+      headers: { "X-Compliance-Report-Id": dossier.reportId },
     });
   }
 

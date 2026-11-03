@@ -4,6 +4,10 @@ import prisma from "@/lib/prisma";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import { streamCsv } from "@/lib/utils/csv-stream";
+import { exportResponse, parseDateParam, parseLimitParam } from "@/lib/utils/export-response";
+
+// Re-exported so existing imports from this route keep working.
+export { parseDateParam, parseLimitParam };
 
 /** Column order of the export. Fixed rather than derived so the file shape is stable. */
 export const AUDIT_LOG_EXPORT_COLUMNS = [
@@ -35,42 +39,6 @@ export const MAX_EXPORT_ROWS = 100_000;
 
 /** Default window when the caller does not ask for one. */
 export const DEFAULT_EXPORT_WINDOW_DAYS = 90;
-
-/**
- * Parse an ISO-8601 date query parameter.
- *
- * Returns `undefined` for an absent or empty value and throws for a malformed
- * one. Silently ignoring a typo would hand back a different range than the
- * operator asked for, which for an audit export is worse than an error.
- */
-export function parseDateParam(raw: string | null, name: string): Date | undefined {
-  if (raw === null) return undefined;
-
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new AppError(`Invalid \`${name}\` parameter: expected an ISO-8601 date.`, 400);
-  }
-
-  return parsed;
-}
-
-/** Parse a positive integer, clamped to `max`. */
-export function parseLimitParam(raw: string | null, max: number): number | undefined {
-  if (raw === null) return undefined;
-
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-
-  const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
-    throw new AppError("Invalid `limit` parameter: expected a positive integer.", 400);
-  }
-
-  return Math.min(parsed, max);
-}
 
 export interface ExportRange {
   from?: Date;
@@ -204,20 +172,15 @@ async function handler(req: NextRequest) {
     },
   );
 
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      // The charset is explicit so the BOM is interpreted rather than shown as
-      // stray characters in the first header cell.
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${exportFilename(range)}"`,
-      // Audit data must never be cached by an intermediary.
-      "Cache-Control": "no-store",
-      // The applied bounds, stated rather than silent, so a client can tell a
-      // complete export from one that stopped at the ceiling.
-      "X-Export-Limit": String(range.limit),
-      "X-Export-Window": describeRange(range),
-    },
+  return exportResponse(body, {
+    // The charset is explicit so the BOM is interpreted rather than shown as
+    // stray characters in the first header cell.
+    contentType: "text/csv; charset=utf-8",
+    filename: exportFilename(range),
+    // The applied bounds, stated rather than silent, so a client can tell a
+    // complete export from one that stopped at the ceiling.
+    limit: range.limit,
+    headers: { "X-Export-Window": describeRange(range) },
   });
 }
 
