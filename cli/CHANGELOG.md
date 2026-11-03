@@ -1,5 +1,52 @@
 # secureflow-cli
 
+## 2.6.0
+
+### Minor Changes
+
+- 2a1f329: Add ArmorIQ circuit breaker protection and comprehensive resilience test suite for bulk remediation (#1488).
+- d01dd1c: Add loading.tsx and page.test.tsx server component tests to dashboard/ai-health (#1498).
+- f82dd2a: feat(api): add base REST handler for single finding at /api/findings/[id] (#1465)
+
+  - Implement GET (fetch full finding detail with ownership check), PATCH (update triage status/severity), and DELETE (permanent removal with audit log)
+  - All operations scope to the authenticated session user via the relation chain to prevent IDOR attacks
+  - Dual-tier rate limiting: IP-based outer guard + per-user inner guard
+  - New route test file with 17 test cases covering auth, ownership, validation, rate limiting, and success paths
+  - Updated `docs/api.md` and `openapi.yaml` with full endpoint documentation
+
+- d6117d6: feat(policy): configurable pull-request gate per repository via .secureflow.json (#1491, #1470)
+- 89728c0: Add a bounded, validated get_remediation_context MCP tool for caller-provided history, with explicit application-rate denominators and no inferred production statistics. Document the stdio JSON-RPC tools and test calls through the real SDK transport.
+- e45d814: Add optional expiry to finding dismissals with active suppression filtering and UI controls (#1503).
+- 07eb7d2: feat(tts-cache): add database-backed persistence layer and rate limiting for ElevenLabs audio debriefs (#1377)
+
+  - Add `AudioDebriefCache` Prisma model for durable audio storage mapped to finding content hashes
+  - Implement `src/lib/findings/audio-debrief-db.ts` with multi-tier cache (in-memory -> Redis -> database)
+  - Upgrade `getCachedAudioDebrief` and `setCachedAudioDebrief` to support persistent DB cache fallback
+  - Add per-user rate limiting on `/api/voice-alerts/stream` to prevent reconnect quota exhaustion
+  - Add comprehensive test coverage in `src/app/api/findings/[id]/audio-debrief/route.test.ts` and `src/app/api/voice-alerts/stream/route.test.ts`
+
+- 4789a88: Add comprehensive unit test suites for db-client.ts, instrumentation.ts, and prompt-injection-payloads.ts (#1500).
+- 9665a2e: feat(webhooks): add GitLab and Bitbucket webhook ingestion handlers (#1466)
+
+  - Implement `src/app/api/webhooks/gitlab/route.ts` with X-Gitlab-Token timing-safe validation
+  - Implement `src/app/api/webhooks/bitbucket/route.ts` with HMAC-SHA256 X-Hub-Signature verification
+  - Add `src/lib/webhooks/gitlab-verification.ts` with verification helpers (timing-safe token comparison, event type guards, safe log labels)
+  - Add `src/lib/webhooks/bitbucket-verification.ts` with HMAC helpers, signature parsing, and event routing
+  - Add unit tests for both verification libraries (47 tests across 2 files)
+  - Add integration route tests for both routes (19 tests across 2 files)
+  - Updated `docs/api.md` and `openapi.yaml` with full endpoint documentation
+  - New env vars: `GITLAB_WEBHOOK_TOKEN`, `BITBUCKET_WEBHOOK_SECRET`
+
+### Patch Changes
+
+- 32cb882: test(dashboard): add server page unit tests for Analytics and Audit routes (#1469)
+
+  - Add `src/app/dashboard/analytics/page.test.tsx` testing server-side session authentication guards, query param range parsing (7, 30, 90 days), data aggregation prop forwarding to `AnalyticsClient`, and empty state handling
+  - Add `src/app/dashboard/audit/page.test.tsx` testing session auth redirection, Prisma parallel counts for monitored repositories and recent system actions, user display name fallbacks, and prop passing to `AuditLogTable`
+
+- 20fa9c8: Add scan/date and scan/severity/date Finding indexes for analytics windows and severity-bucket reads in migration 20261103070000_finding_analytics_indexes. Replace the redundant scan/severity index while preserving its equality prefix.
+- 6cc851e: Add route-level `loading.tsx` and `error.tsx` boundaries to the finding detail and AI remediation pages.
+
 ## 2.5.0
 
 ### Minor Changes
