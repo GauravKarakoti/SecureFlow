@@ -6,6 +6,9 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import AdminError from "./error";
+import AdminLogsError from "./logs/error";
+import AdminQueueError from "./queue/error";
+import AdminUsersError from "./users/error";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -99,5 +102,128 @@ describe("admin loading skeletons (#1444)", () => {
     const grid = container.querySelector(".lg\\:grid-cols-5");
     expect(grid).not.toBeNull();
     expect(grid?.children).toHaveLength(5);
+  });
+});
+
+describe("app/admin/logs/error.tsx - route-level boundary (#1527)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders audit logs error header, retry button and calls reset()", () => {
+    const reset = vi.fn();
+    render(<AdminLogsError error={boundaryError("logs-err-1")} reset={reset} />);
+
+    expect(screen.getByTestId("admin-logs-error-boundary")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Audit Logs" })).toBeInTheDocument();
+    expect(screen.getByText(/failed to load audit logs/i)).toBeInTheDocument();
+
+    const retryBtn = screen.getByRole("button", { name: /try again/i });
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("displays error digest and redacts connection strings", () => {
+    render(<AdminLogsError error={boundaryError("digest-audit-99")} reset={vi.fn()} />);
+
+    expect(screen.getByTestId("error-digest")).toHaveTextContent("digest-audit-99");
+    expect(document.body.textContent).not.toContain("postgresql://");
+    expect(document.body.textContent).not.toContain("hunter2");
+  });
+
+  it("logs the digest to console without leaking raw message", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<AdminLogsError error={boundaryError("digest-audit-99")} reset={vi.fn()} />);
+
+    const logged = spy.mock.calls.flat().join(" ");
+    expect(logged).toContain("digest-audit-99");
+    expect(logged).not.toContain("hunter2");
+  });
+});
+
+describe("app/admin/queue/error.tsx - route-level boundary (#1527)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders queue error header and allows retry via reset()", () => {
+    const reset = vi.fn();
+    render(<AdminQueueError error={boundaryError("queue-err-2")} reset={reset} />);
+
+    expect(screen.getByTestId("admin-queue-error-boundary")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /queue management/i })).toBeInTheDocument();
+    expect(screen.getByText(/failed to load queue metrics/i)).toBeInTheDocument();
+
+    const retryBtn = screen.getByRole("button", { name: /try again/i });
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("displays error digest and avoids exposing sensitive Redis details", () => {
+    render(<AdminQueueError error={boundaryError("digest-queue-55")} reset={vi.fn()} />);
+
+    expect(screen.getByTestId("error-digest")).toHaveTextContent("digest-queue-55");
+    expect(document.body.textContent).not.toContain("postgresql://");
+    expect(document.body.textContent).not.toContain("hunter2");
+  });
+
+  it("logs the queue error digest safely", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<AdminQueueError error={boundaryError("digest-queue-55")} reset={vi.fn()} />);
+
+    const logged = spy.mock.calls.flat().join(" ");
+    expect(logged).toContain("digest-queue-55");
+    expect(logged).not.toContain("hunter2");
+  });
+});
+
+describe("app/admin/users/error.tsx - route-level boundary (#1527)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders user management error view and connects retry button", () => {
+    const reset = vi.fn();
+    render(<AdminUsersError error={boundaryError("users-err-3")} reset={reset} />);
+
+    expect(screen.getByTestId("admin-users-error-boundary")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "User Management" })).toBeInTheDocument();
+    expect(screen.getByText(/failed to load user management/i)).toBeInTheDocument();
+
+    const retryBtn = screen.getByRole("button", { name: /try again/i });
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("safely renders digest without exposing user table queries or credentials", () => {
+    render(<AdminUsersError error={boundaryError("digest-users-77")} reset={vi.fn()} />);
+
+    expect(screen.getByTestId("error-digest")).toHaveTextContent("digest-users-77");
+    expect(document.body.textContent).not.toContain("postgresql://");
+    expect(document.body.textContent).not.toContain("hunter2");
+  });
+
+  it("logs the users error digest to console without stack trace leaks", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<AdminUsersError error={boundaryError("digest-users-77")} reset={vi.fn()} />);
+
+    const logged = spy.mock.calls.flat().join(" ");
+    expect(logged).toContain("digest-users-77");
+    expect(logged).not.toContain("hunter2");
   });
 });
