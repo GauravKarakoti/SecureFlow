@@ -10,6 +10,13 @@
 import { formatSarifJson } from "./sarif.js";
 import { getExporter } from "./exporters.js";
 import {
+  calculateShannonEntropy,
+  isBenignSecretCandidate,
+  hasHighEntropy,
+  BENIGN_SECRET_WHITELIST_EXACT,
+  UUID_REGEX,
+} from "./entropy.js";
+import {
   shouldIgnorePath,
   parseSecureFlowIgnore,
   compileIgnorePatterns,
@@ -19,6 +26,11 @@ import {
 } from "./ignore.js";
 
 export {
+  calculateShannonEntropy,
+  isBenignSecretCandidate,
+  hasHighEntropy,
+  BENIGN_SECRET_WHITELIST_EXACT,
+  UUID_REGEX,
   shouldIgnorePath,
   parseSecureFlowIgnore,
   compileIgnorePatterns,
@@ -80,6 +92,9 @@ const TOKEN_COUNT_FORMS =
 
 /** Whether an identifier reads as holding a credential. */
 export function isSecretIdentifier(name: string): boolean {
+  if (isBenignSecretCandidate(name)) {
+    return false;
+  }
   const normalized = name.replace(/[_-]/g, "").toLowerCase();
   return SECRET_WORDS.test(normalized.replace(TOKEN_COUNT_FORMS, ""));
 }
@@ -91,6 +106,16 @@ interface IndicatorMatcher {
 
 const SECRET_IDENTIFIER: IndicatorMatcher = {
   test: (text) => (text.match(/[A-Za-z_$][\w$]*/g) ?? []).some(isSecretIdentifier),
+};
+
+const COMPOUND_SECRET_PATTERN =
+  /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?token|authorization)\b/i;
+
+const COMPOUND_SECRET_IDENTIFIER: IndicatorMatcher = {
+  test: (text) => {
+    const tokens = text.match(/[A-Za-z_$][\w$]*/g) ?? [];
+    return tokens.some((token) => !isBenignSecretCandidate(token) && COMPOUND_SECRET_PATTERN.test(token));
+  },
 };
 
 /**
@@ -111,7 +136,7 @@ const INDICATORS: ReadonlyArray<readonly [string, IndicatorMatcher]> = [
   // as a whole word or as an obvious compound.
   [
     "secret-named identifier",
-    /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?token|authorization)\b/i,
+    COMPOUND_SECRET_IDENTIFIER,
   ],
 ];
 
