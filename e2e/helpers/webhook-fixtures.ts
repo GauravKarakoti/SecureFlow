@@ -82,7 +82,11 @@ export function signGithub(body: string, secret: string = GITHUB_SECRET): string
   return `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
 }
 
-export function signGeneric(body: string, timestamp: string, secret: string = GENERIC_SECRET): string {
+export function signGeneric(
+  body: string,
+  timestamp: string,
+  secret: string = GENERIC_SECRET,
+): string {
   return `sha256=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;
 }
 

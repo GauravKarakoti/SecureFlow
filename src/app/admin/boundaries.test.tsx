@@ -160,7 +160,9 @@ describe("app/admin/queue/error.tsx - route-level boundary (#1527)", () => {
     render(<AdminQueueError error={boundaryError("queue-err-2")} reset={reset} />);
 
     expect(screen.getByTestId("admin-queue-error-boundary")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1, name: /queue management/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /queue management/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/failed to load queue metrics/i)).toBeInTheDocument();
 
     const retryBtn = screen.getByRole("button", { name: /try again/i });

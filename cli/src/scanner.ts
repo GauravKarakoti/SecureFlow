@@ -114,7 +114,9 @@ const COMPOUND_SECRET_PATTERN =
 const COMPOUND_SECRET_IDENTIFIER: IndicatorMatcher = {
   test: (text) => {
     const tokens = text.match(/[A-Za-z_$][\w$]*/g) ?? [];
-    return tokens.some((token) => !isBenignSecretCandidate(token) && COMPOUND_SECRET_PATTERN.test(token));
+    return tokens.some(
+      (token) => !isBenignSecretCandidate(token) && COMPOUND_SECRET_PATTERN.test(token),
+    );
   },
 };
 
@@ -134,10 +136,7 @@ const INDICATORS: ReadonlyArray<readonly [string, IndicatorMatcher]> = [
   // `key` and `auth` on their own are common enough in ordinary code
   // (`keyof`, `authorised`, `keys`) that they are only flagged when they read
   // as a whole word or as an obvious compound.
-  [
-    "secret-named identifier",
-    COMPOUND_SECRET_IDENTIFIER,
-  ],
+  ["secret-named identifier", COMPOUND_SECRET_IDENTIFIER],
 ];
 
 /** Extensions never worth scanning as source text. */

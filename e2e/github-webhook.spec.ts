@@ -103,37 +103,22 @@ test.describe("GitHub webhook ingestion E2E (#1524)", () => {
       bloat: "x".repeat(3 * 1024 * 1024), // 3 MiB exceeds standard 1-2 MiB limit
     });
     const sig = signGithub(hugeBody);
-    const res = await sendGithubWebhook(
-      request,
-      "push",
-      "e2e-delivery-oversize-4",
-      hugeBody,
-      sig,
-      { "content-length": Buffer.byteLength(hugeBody).toString() },
-    );
+    const res = await sendGithubWebhook(request, "push", "e2e-delivery-oversize-4", hugeBody, sig, {
+      "content-length": Buffer.byteLength(hugeBody).toString(),
+    });
     expect(res.status()).toBe(413);
   });
 
   test("accepts ping event without queueing work", async ({ request }) => {
     const pingPayload = { zen: "Design for failure.", hook_id: 123456 };
-    const res = await sendGithubWebhook(
-      request,
-      "ping",
-      "e2e-delivery-ping-5",
-      pingPayload,
-    );
+    const res = await sendGithubWebhook(request, "ping", "e2e-delivery-ping-5", pingPayload);
     expect(res.status()).toBe(200);
     const json = await res.json();
     expect(json.message).toMatch(/ping received/i);
   });
 
   test("handles valid push event successfully", async ({ request }) => {
-    const res = await sendGithubWebhook(
-      request,
-      "push",
-      "e2e-delivery-push-6",
-      githubPushPayload,
-    );
+    const res = await sendGithubWebhook(request, "push", "e2e-delivery-push-6", githubPushPayload);
     expect(res.status()).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("queued");
