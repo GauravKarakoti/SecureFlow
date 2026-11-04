@@ -866,6 +866,7 @@ export const worker = new Worker<WebhookJobData>(
             findingsCount: activeFindings.length,
             fileCount: fileChanges.length,
             notice: combinedNotice,
+            findings: enrichedFindings,
           });
 
           // Publish the same findings to GitHub's Code Scanning UI, so they show
