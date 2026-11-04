@@ -155,3 +155,12 @@ Resolve Worker Image
 {{- printf "%s:%s" $repository $tag -}}
 {{- end -}}
 {{- end }}
+
+{{/* Reject conflicting providers even when Helm schema validation is skipped. */}}
+{{- define "secureflow.validateSecretProviders" -}}
+{{- $external := and .Values.externalSecrets .Values.externalSecrets.enabled -}}
+{{- $sealed := and .Values.sealedSecrets .Values.sealedSecrets.enabled -}}
+{{- if or (and $external $sealed) (and .Values.secrets.existingSecret (or $external $sealed)) -}}
+{{- fail "ERROR: Secret providers are mutually exclusive: choose only one of secrets.existingSecret, externalSecrets.enabled, or sealedSecrets.enabled (or leave all unset for a chart-managed Secret)." -}}
+{{- end -}}
+{{- end }}
