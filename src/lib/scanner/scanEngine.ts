@@ -413,6 +413,7 @@ export async function processScanJob(
         findingsCount: enrichedFindings.length,
         fileCount: totalFiles,
         notice: gateSummary || undefined,
+        findings: enrichedFindings,
       });
 
       // Post PR comment if there are findings
