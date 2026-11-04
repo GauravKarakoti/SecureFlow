@@ -42,6 +42,9 @@ const envSchema = z.object({
   WEBHOOK_EVENT_RETENTION_DAYS: z.string().optional(),
   SCAN_RESULT_RETENTION_DAYS: z.string().optional(),
   AUDIT_LOG_RETENTION_DAYS: z.string().optional(),
+  DATA_RETENTION_DAYS: z.string().optional(),
+  CLEANUP_SECRET: z.string().optional(),
+  CRON_SECRET: z.string().optional(),
 
   LOG_LEVEL: z.string().optional(),
 

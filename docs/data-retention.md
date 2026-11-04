@@ -168,6 +168,21 @@ and 3650 days.
 An **unset** variable takes the default from the table above — that is the
 normal case and is not an error.
 
+### Self-Hosted Finding and Audit Log Retention (`DATA_RETENTION_DAYS`)
+
+For self-hosters wishing to bound the retention of both `Finding` and `AuditLog` rows simultaneously, SecureFlow supports `DATA_RETENTION_DAYS` (off by default):
+
+```env
+DATA_RETENTION_DAYS=90
+CLEANUP_SECRET="your-cleanup-secret"
+```
+
+- When unset: retention deletion is disabled.
+- When set: older findings and audit logs can be cleaned up in batches via CLI (`npm run cleanup -- --apply`) or via the secret-protected endpoint `POST /api/admin/cleanup`.
+- **Dry-run mode**: `npm run cleanup` (or `POST /api/admin/cleanup?dryRun=true`) reports counts of affected records and deletes nothing.
+- **Safety guarantee**: The cleanup never touches users, repositories, or policies.
+  normal case and is not an error.
+
 ---
 
 ## Handling an erasure request

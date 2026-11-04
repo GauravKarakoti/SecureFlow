@@ -344,24 +344,26 @@ npm run genkit:dev
 
 ## 🔑 Environment Variables Reference
 
-| Variable                  | Required | Description                                                                                   |
-| ------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`            | ✅       | PostgreSQL connection string (Direct/Standard)                                                |
-| `DATABASE_POOL_URL`       | ⬜       | Recommended for production serverless connection pooler (PgBouncer/Neon Pooler)               |
-| `DB_POOL_MAX`             | ⬜       | Max connections per serverless function instance (default: 10)                                |
-| `GROQ_API_KEY`            | ✅       | API key from [console.groq.com](https://console.groq.com)                                     |
-| `GITHUB_APP_ID`           | ✅       | Numeric ID of your GitHub App                                                                 |
-| `GITHUB_WEBHOOK_SECRET`   | ✅       | Secret used to verify webhook payloads                                                        |
-| `GITHUB_PRIVATE_KEY`      | ✅       | RSA private key from your GitHub App (`.pem` contents)                                        |
-| `GITHUB_APP_URL`          | ✅       | Public URL of your GitHub App (e.g. `https://github.com/apps/your-app`)                       |
-| `GITHUB_CLIENT_ID`        | ✅       | OAuth Client ID for GitHub login                                                              |
-| `GITHUB_CLIENT_SECRET`    | ✅       | OAuth Client Secret for GitHub login                                                          |
-| `AUTH_SECRET`             | ✅       | Random secret for NextAuth session encryption — generate with `openssl rand -base64 32`       |
-| `ARMORIQ_API_KEY`         | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                       |
-| `USER_ID`                 | ⬜       | Optional — ArmorIQ user ID                                                                    |
-| `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
-| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
-| `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
+| Variable                  | Required | Description                                                                                    |
+| ------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | ✅       | PostgreSQL connection string (Direct/Standard)                                                 |
+| `DATABASE_POOL_URL`       | ⬜       | Recommended for production serverless connection pooler (PgBouncer/Neon Pooler)                |
+| `DB_POOL_MAX`             | ⬜       | Max connections per serverless function instance (default: 10)                                 |
+| `GROQ_API_KEY`            | ✅       | API key from [console.groq.com](https://console.groq.com)                                      |
+| `GITHUB_APP_ID`           | ✅       | Numeric ID of your GitHub App                                                                  |
+| `GITHUB_WEBHOOK_SECRET`   | ✅       | Secret used to verify webhook payloads                                                         |
+| `GITHUB_PRIVATE_KEY`      | ✅       | RSA private key from your GitHub App (`.pem` contents)                                         |
+| `GITHUB_APP_URL`          | ✅       | Public URL of your GitHub App (e.g. `https://github.com/apps/your-app`)                        |
+| `GITHUB_CLIENT_ID`        | ✅       | OAuth Client ID for GitHub login                                                               |
+| `GITHUB_CLIENT_SECRET`    | ✅       | OAuth Client Secret for GitHub login                                                           |
+| `AUTH_SECRET`             | ✅       | Random secret for NextAuth session encryption — generate with `openssl rand -base64 32`        |
+| `ARMORIQ_API_KEY`         | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                        |
+| `USER_ID`                 | ⬜       | Optional — ArmorIQ user ID                                                                     |
+| `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                    |
+| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below  |
+| `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count     |
+| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings and audit logs (in days, off by default)                |
+| `CLEANUP_SECRET`          | ⬜       | Optional — Secret token used to authenticate automated cleanup requests (`/api/admin/cleanup`) |
 
 ### Trusted proxies and rate limiting
 
@@ -392,22 +394,44 @@ walked from the right past known proxies rather than counting a fixed number of
 hops. IPv4 CIDR blocks and bare addresses are supported; IPv6 entries are matched
 exactly.
 
+### Data retention and automated cleanup
+
+Findings and audit logs accumulate over time. Self-hosters can bound storage growth by configuring `DATA_RETENTION_DAYS`:
+
+```env
+# Optional: Auto-cleanup findings and audit logs older than N days (off by default)
+DATA_RETENTION_DAYS=90
+
+# Optional: Shared secret to authenticate cleanup route requests
+CLEANUP_SECRET="your-cleanup-secret"
+```
+
+Cleanup can be executed via CLI or through the secret-protected API route:
+
+- **CLI Dry Run (default)**: `npm run cleanup` (reports eligible counts without modifying the database)
+- **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
+- **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
+- **Secret-Protected API Route**: `POST /api/admin/cleanup` with `Authorization: Bearer <CLEANUP_SECRET>` or `x-cleanup-secret: <CLEANUP_SECRET>` (supports `?dryRun=true` or `{ "dryRun": true }` to preview counts).
+
+> 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding` and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
+
 ---
 
 ## 📝 Available Scripts
 
-| Script               | Description                                  |
-| -------------------- | -------------------------------------------- |
-| `npm run dev`        | Start dev server on port 9002 with Turbopack |
-| `npm run build`      | Build for production                         |
-| `npm run start`      | Start production server                      |
-| `npm run lint`       | Run ESLint                                   |
-| `npm run typecheck`  | Run TypeScript compiler checks               |
-| `npm run db:gen`     | Generate Prisma Client                       |
-| `npm run db:migrate` | Run Prisma migrations                        |
-| `npm run db:push`    | Push schema to DB without migrations         |
-| `npm run db:seed`    | Seed default policy templates                |
-| `npm run genkit:dev` | Start Genkit AI development environment      |
+| Script               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `npm run dev`        | Start dev server on port 9002 with Turbopack                              |
+| `npm run build`      | Build for production                                                      |
+| `npm run start`      | Start production server                                                   |
+| `npm run lint`       | Run ESLint                                                                |
+| `npm run typecheck`  | Run TypeScript compiler checks                                            |
+| `npm run db:gen`     | Generate Prisma Client                                                    |
+| `npm run db:migrate` | Run Prisma migrations                                                     |
+| `npm run db:push`    | Push schema to DB without migrations                                      |
+| `npm run db:seed`    | Seed default policy templates                                             |
+| `npm run genkit:dev` | Start Genkit AI development environment                                   |
+| `npm run cleanup`    | Run data retention cleanup (dry-run default; pass `-- --apply` to delete) |
 
 ---
 
