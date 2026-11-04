@@ -21,7 +21,8 @@ import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
-import { renderScanReportSummary } from "@/lib/github/scan-report";
+import { renderScanReportSummary, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/scan-report";
+import { upsertSecureFlowComment } from "@/lib/github/sticky-comment";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -711,13 +712,17 @@ export const worker = new Worker<WebhookJobData>(
             commentableLines.set(file.filename, getCommentableLines(file.patch));
           }
 
-          const pendingComment = await octokit.rest.issues.createComment({
+          const pendingBody =
+            `${SECUREFLOW_COMMENT_MARKER}\n### ⏳ SecureFlow AI Security Scan\n\n` +
+            (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
+            `Evaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...` +
+            (coverageNotice ? `\n\n${coverageNotice}` : "");
+
+          const pendingComment = await upsertSecureFlowComment(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
-            issue_number: pull_request.number,
-            body:
-              `### ⏳ SecureFlow AI Security Scan\n\nEvaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...` +
-              (coverageNotice ? `\n\n${coverageNotice}` : ""),
+            issueNumber: pull_request.number,
+            body: pendingBody,
           });
 
           console.log(
@@ -956,6 +961,7 @@ export const worker = new Worker<WebhookJobData>(
                 coverageNotice,
                 suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
                 rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
+                commitSha: pull_request.head?.sha,
               });
 
             // Try to post the anchored findings as an inline review. If that fails
@@ -981,10 +987,11 @@ export const worker = new Worker<WebhookJobData>(
               }
             }
 
-            await octokit.rest.issues.updateComment({
+            await upsertSecureFlowComment(octokit, {
               owner: repository.owner.login,
               repo: repository.name,
-              comment_id: pendingComment.data.id,
+              issueNumber: pull_request.number,
+              commentId: pendingComment.data.id,
               // When inline posting succeeded, the pending comment only needs the
               // non-anchored findings; otherwise it carries the full report.
               body: renderSummary(inlinePosted ? summaryFindings : enrichedFindings),
@@ -1005,15 +1012,20 @@ export const worker = new Worker<WebhookJobData>(
               });
             }
           } else {
-            await octokit.rest.issues.updateComment({
+            const cleanBody =
+              `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
+              (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
+              `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
+              // A clean result on a partial scan must say so — this is exactly the
+              // case where silent truncation was most misleading.
+              (coverageNotice ? `\n\n${coverageNotice}` : "");
+
+            await upsertSecureFlowComment(octokit, {
               owner: repository.owner.login,
               repo: repository.name,
-              comment_id: pendingComment.data.id,
-              body:
-                `### 🛡️ SecureFlow AI Security Report\n\n✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
-                // A clean result on a partial scan must say so — this is exactly the
-                // case where silent truncation was most misleading.
-                (coverageNotice ? `\n\n${coverageNotice}` : ""),
+              issueNumber: pull_request.number,
+              commentId: pendingComment.data.id,
+              body: cleanBody,
             });
           }
 

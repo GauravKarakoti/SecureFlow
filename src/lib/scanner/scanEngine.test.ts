@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   scanPullRequest: vi.fn(),
   checksCreate: vi.fn(),
   createComment: vi.fn(),
+  updateComment: vi.fn(),
+  listComments: vi.fn(),
   updateScanJobProgress: vi.fn(),
   explain: vi.fn(),
   getContent: vi.fn(),
@@ -44,7 +46,11 @@ vi.mock("octokit", () => ({
       return {
         rest: {
           checks: { create: mocks.checksCreate },
-          issues: { createComment: mocks.createComment },
+          issues: {
+            createComment: mocks.createComment,
+            updateComment: mocks.updateComment,
+            listComments: mocks.listComments,
+          },
           repos: { getContent: mocks.getContent },
           pulls: { get: mocks.pullsGet },
         },
@@ -123,6 +129,39 @@ describe("processScanJob chunk failures", () => {
     expect(result).toMatchObject({ scannedFiles: 12, vulnerabilitiesFound: 0, verdict: "PASS" });
     expect(mocks.checksCreate).toHaveBeenCalledWith(
       expect.objectContaining({ conclusion: "success", head_sha: "abc123" }),
+    );
+  });
+
+  it("posts sticky PR comment with marker and headSha when findings exist", async () => {
+    mocks.scanPullRequest
+      .mockResolvedValueOnce([
+        {
+          ruleId: "SF-001",
+          severity: "HIGH",
+          message: "Hardcoded secret",
+          file: "src/file-0.ts",
+          startLine: 1,
+          endLine: 1,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    mocks.listComments.mockResolvedValue({ data: [] });
+    mocks.createComment.mockResolvedValue({ data: { id: 101 } });
+
+    await processScanJob(jobData);
+
+    expect(mocks.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "acme",
+        repo: "api",
+        issue_number: 7,
+        body: expect.stringContaining("<!-- secureflow-report -->"),
+      }),
+    );
+    expect(mocks.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Scanned commit: `abc123`"),
+      }),
     );
   });
 
