@@ -299,3 +299,11 @@ export function admitWebhook(options: {
 
   return { ok: true, deliveryId, payload: parsed.payload };
 }
+
+export {
+  recordWebhookDelivery,
+  isDuplicateDelivery,
+  webhookDeliveryKey,
+  WEBHOOK_DELIVERY_TTL_SECONDS,
+  WEBHOOK_DELIVERY_KEY_PREFIX,
+} from "./webhook-dedup";
