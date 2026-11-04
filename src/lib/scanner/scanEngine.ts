@@ -18,6 +18,7 @@ import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
 import { App } from "octokit";
+import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
@@ -174,6 +175,10 @@ export async function processScanJob(
     userId,
   } = data;
 
+  const correlationId = data.correlationId || data.scanJobId;
+  const log = logger.child({ correlationId, scanJobId: data.scanJobId });
+
+  log.info(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
   console.log(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
 
   // --- Phase 1: Fetch files from GitHub ---
@@ -220,6 +225,9 @@ export async function processScanJob(
     });
   } catch (err) {
     // Scanning without ignore rules is the safe direction: it can only cover more.
+    log.warn(`[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     console.warn(
       `[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`,
       err,
@@ -247,6 +255,7 @@ export async function processScanJob(
   }
 
   const totalFiles = fileChanges.length;
+  log.info(`[ScanEngine] Scanning ${totalFiles} files`);
   console.log(`[ScanEngine] Scanning ${totalFiles} files`);
 
   // --- Phase 2: Scan files in chunks ---
@@ -273,6 +282,9 @@ export async function processScanJob(
       );
       allFindings.push(...chunkFindings);
     } catch (err) {
+      log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
       console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
       // Fail the scan rather than continue: findings from the other chunks would be
       // evaluated as if these files were clean, and a PR whose risky file sat in this
@@ -363,6 +375,9 @@ export async function processScanJob(
             promptInjectionSuspected: aiResponse.promptInjectionSuspected,
           };
         } catch (err) {
+          log.error(`[ScanEngine] Failed to enrich finding:`, {
+            error: err instanceof Error ? err.message : String(err),
+          });
           console.error(`[ScanEngine] Failed to enrich finding:`, err);
           return finding;
         }
@@ -421,6 +436,9 @@ export async function processScanJob(
         });
       }
     } catch (err) {
+      log.error(`[ScanEngine] Failed to post to GitHub:`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
       console.error(`[ScanEngine] Failed to post to GitHub:`, err);
       // Don't throw — the scan results are still valid even if posting fails
     }
@@ -464,6 +482,9 @@ export async function processScanJob(
             resource: `${repositoryFullName}#${prNumber}`,
             decision,
             metadata: {
+              correlationId,
+              scanJobId,
+              deliveryId: data.deliveryId,
               findingsCount: enrichedFindings.length,
               totalFiles,
               riskScore: storedRiskScore(activeFindings),
@@ -473,6 +494,7 @@ export async function processScanJob(
       }
     } catch (err) {
       persistenceError = err instanceof Error ? err.message : String(err);
+      log.error(`[ScanEngine] Failed to persist results:`, { error: persistenceError });
       console.error(`[ScanEngine] Failed to persist results:`, err);
     }
   }
@@ -491,6 +513,9 @@ export async function processScanJob(
         findings: enrichedFindings,
       });
     } catch (err) {
+      log.error(`[ScanEngine] Slack notification step failed:`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
       console.error(`[ScanEngine] Slack notification step failed:`, err);
     }
   }
@@ -506,6 +531,9 @@ export async function processScanJob(
 
   const riskScore = storedRiskScore(activeFindings);
 
+  log.info(
+    `[ScanEngine] Scan complete: ${enrichedFindings.length} findings, risk=${riskScore}, decision=${decision}`,
+  );
   console.log(
     `[ScanEngine] Scan complete: ${enrichedFindings.length} findings, risk=${riskScore}, decision=${decision}`,
   );

@@ -21,9 +21,9 @@
  *    call three lines above it wrote the unredacted message, stack, Prisma `code`
  *    and Prisma `meta` to stdout — which on a hosted log drain is where the
  *    connection string actually ends up.
- *  - **No correlation ID.** A single GitHub delivery fans out across the route,
- *    the BullMQ job, the scanner, the AI flow and the outbound webhook worker
- *    with nothing tying the records together.
+ *  - **Correlation ID propagation (#1537).** A single GitHub delivery fans out
+ *    across the webhook route, the BullMQ job, the scanner and the worker with a
+ *    shared `correlationId` binding the log records together.
  *
  * Dependency-free on purpose. No `pino`, no `winston`: this has to run unchanged
  * in the Next.js server runtime, inside the standalone Docker image, and in the
@@ -73,6 +73,9 @@ const REDACTED_KEY_PATTERNS = [
   "connection_string",
   "database_url",
   "databaseurl",
+  "email",
+  "codesnippet",
+  "patch",
 ] as const;
 
 export const REDACTED_PLACEHOLDER = "[REDACTED]";
