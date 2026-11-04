@@ -13,18 +13,18 @@ import {
   parseWebhookPayload,
   payloadByteLength,
   verifySignature,
-  validateWebhookSignature,
   webhookJobId,
 } from "@/lib/github/webhook-verification";
+import { isDuplicateDelivery } from "@/lib/github/webhook-dedup";
 import { env } from "@/lib/env";
 import prisma from "@/lib/prisma";
 
 /**
- * GitHub webhook ingest (#562).
+ * GitHub webhook ingest (#562, #1534).
  *
  * The admission order is deliberate and is the substance of this change:
  *
- *   size → delivery id → signature → parse → dispatch on event
+ *   size → delivery id → signature → deduplication → parse → dispatch on event
  *
  * The route previously dispatched on `x-github-event` *first* and verified the
  * signature second, so an unauthenticated caller sending `x-github-event: push`
@@ -34,14 +34,20 @@ import prisma from "@/lib/prisma";
  * registered — was answered without the secret ever being exercised, so a
  * webhook configured with the wrong secret looked healthy in the GitHub UI.
  *
+ * Deduplication runs immediately after signature verification so unauthenticated
+ * or forged deliveries cannot poison Redis keys, while redelivered webhooks return
+ * 200 without enqueuing scans or posting duplicate comments (#1534).
+ *
  * The verification primitives live in `src/lib/github/webhook-verification.ts`
- * so each branch is unit-testable without constructing a request.
+ * and `src/lib/github/webhook-dedup.ts` so each branch is unit-testable without
+ * constructing a request.
  */
 
 // Runs in the webhook worker now (see `src/lib/queue/worker.ts`); re-exported
 // so existing callers and tests keep importing it from here.
 export { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 export { validateWebhookSignature, verifySignature } from "@/lib/github/webhook-verification";
+export { isDuplicateDelivery, recordWebhookDelivery } from "@/lib/github/webhook-dedup";
 
 /**
  * Triggers security tracking or alert logging loops when repository protection controls change
@@ -139,7 +145,20 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     throw new AppError("Invalid GitHub webhook signature", 401);
   }
 
-  // 5. Parse.
+  // 5. Deduplication: GitHub retries webhook deliveries and users can redeliver
+  // them from app settings. Deduplicate using an atomic set-if-absent in Redis
+  // with a 24-hour TTL after signature verification so unauthenticated requests
+  // cannot poison keys. Repeat deliveries return 200 without enqueuing a scan (#1534).
+  const isDuplicate = await isDuplicateDelivery(deliveryId);
+  if (isDuplicate) {
+    console.warn(`[WEBHOOK_DEDUPE] Duplicate GitHub webhook delivery ignored: ${deliveryId}`);
+    return NextResponse.json(
+      { message: "Duplicate webhook delivery ignored", deliveryId },
+      { status: 200 },
+    );
+  }
+
+  // 6. Parse.
   //
   // This was a bare `JSON.parse` inline. A verified-but-malformed body threw a
   // SyntaxError with no `statusCode`, so the error handler fell through to 500 —
@@ -152,7 +171,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
   const event = req.headers.get("x-github-event");
 
-  // 6. Dispatch — now that the delivery is known to be genuine.
+  // 7. Dispatch — now that the delivery is known to be genuine and new.
   if (event === "ping") {
     // Answered only after verification, so a successful ping is real evidence
     // that the configured secret matches ours.
@@ -166,7 +185,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Event not tracked", deliveryId }, { status: 200 });
   }
 
-  // 6. Delegate to the queue.
+  // 8. Delegate to the queue.
   //
   // The job ID is derived from the delivery ID so BullMQ collapses a replayed
   // delivery before a worker picks it up, rather than leaving the worker's
