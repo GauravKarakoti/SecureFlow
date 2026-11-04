@@ -119,6 +119,15 @@ export function withErrorHandler<Args extends unknown[], Result>(
       const prismaCode = err?.code;
       const prismaMeta = err?.meta;
 
+      // Extract correlation ID if a request object is present in arguments
+      const req = args[0] as { headers?: { get?(name: string): string | null } } | undefined;
+      const correlationId =
+        req?.headers?.get?.("x-github-delivery") ||
+        req?.headers?.get?.("x-correlation-id") ||
+        req?.headers?.get?.("x-request-id") ||
+        undefined;
+      const errorLogger = correlationId ? logger.child({ correlationId }) : logger;
+
       // 2. Pipe the error context to the backend logger.
       //
       // We log named fields explicitly instead of spreading the error. `...err`
@@ -126,7 +135,7 @@ export function withErrorHandler<Args extends unknown[], Result>(
       // including a Prisma `meta` holding query parameter values and any
       // request/response objects an HTTP client attached — which is how raw
       // credentials end up in log aggregation.
-      logger.error(
+      errorLogger.error(
         `API route error caught by global handler${options?.routeLabel ? ` [${options.routeLabel}]` : ""}`,
         {
           error: {
@@ -139,6 +148,7 @@ export function withErrorHandler<Args extends unknown[], Result>(
           route: options?.routeLabel,
           statusCode,
           rawStatus: err?.statusCode ?? err?.status ?? null,
+          correlationId,
         },
       );
 

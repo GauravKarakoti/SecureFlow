@@ -62,6 +62,9 @@ describe("isSensitiveKey", () => {
     "sessionToken",
     "DATABASE_URL",
     "privateKey",
+    "email",
+    "codeSnippet",
+    "patch",
   ])("flags %s", (key) => {
     expect(isSensitiveKey(key)).toBe(true);
   });
@@ -337,6 +340,60 @@ describe("createLogger", () => {
     scoped.error("failed");
 
     expect(records().every((record) => record.deliveryId === "delivery-1")).toBe(true);
+  });
+
+  it("filters all log lines for a single scan by correlationId (#1537)", () => {
+    const { logger, lines, records } = capture();
+    const scan1Log = logger.child({ correlationId: "scan-corr-aaa" });
+    const scan2Log = logger.child({ correlationId: "scan-corr-bbb" });
+
+    // Stage 1: Webhook received
+    scan1Log.info("Webhook received and enqueued", { event: "pull_request" });
+    scan2Log.info("Webhook received and enqueued", { event: "pull_request" });
+
+    // Stage 2: Queue worker started
+    scan1Log.info("Worker started processing scan job", { prNumber: 10 });
+    scan2Log.info("Worker started processing scan job", { prNumber: 20 });
+
+    // Stage 3: Scan Engine and completion
+    scan1Log.info("Scan completed successfully", { findingsCount: 0 });
+    scan2Log.error("Scan failed with error", { error: "Timeout" });
+
+    // Filter by single correlationId
+    const targetCorrelationId = "scan-corr-aaa";
+    const filteredRecords = records().filter((r) => r.correlationId === targetCorrelationId);
+    expect(filteredRecords).toHaveLength(3);
+    expect(filteredRecords.every((r) => r.correlationId === targetCorrelationId)).toBe(true);
+    expect(filteredRecords.map((r) => r.message)).toEqual([
+      "Webhook received and enqueued",
+      "Worker started processing scan job",
+      "Scan completed successfully",
+    ]);
+
+    // Also assert line strings can be filtered directly (e.g. grep / jq)
+    const filteredLines = lines.filter((l) => l.line.includes(targetCorrelationId));
+    expect(filteredLines).toHaveLength(3);
+  });
+
+  it("never logs code snippets, patches, secrets, or personal emails (#1537)", () => {
+    const { logger, records } = capture();
+    const scanLog = logger.child({ correlationId: "scan-corr-sec" });
+
+    scanLog.info("Scan finding details", {
+      file: "auth.ts",
+      codeSnippet: "const token = 'ghp_secret12345';",
+      patch: "@@ -1,3 +1,3 @@\n- old\n+ secret_api_key = 'abcdef'",
+      email: "user@example.com",
+      githubToken: "ghp_1234567890123456",
+    });
+
+    const record = records()[0];
+    expect(record.correlationId).toBe("scan-corr-sec");
+    expect(record.file).toBe("auth.ts");
+    expect(record.codeSnippet).toBe(REDACTED_PLACEHOLDER);
+    expect(record.patch).toBe(REDACTED_PLACEHOLDER);
+    expect(record.email).toBe(REDACTED_PLACEHOLDER);
+    expect(record.githubToken).toBe(REDACTED_PLACEHOLDER);
   });
 
   it("merges context through nested children", () => {

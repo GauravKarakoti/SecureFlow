@@ -25,6 +25,19 @@ export const PLACEHOLDER_PATTERN =
   /(?:YOUR_API_KEY_HERE|YOUR_SECRET_KEY|changeme|change[_-]me|replace[_-]me|placeholder|dummy[_-]key|example[_-]key|sample[_-]key|mock[_-]|fake[_-]|\b(?:true|false|null|undefined|none|0|1|""|'')\b)/i;
 
 /**
+ * Values clearly labelled as documentation samples, e.g. AWS's documented
+ * `AKIAIOSFODNN7EXAMPLE` key, or `changeme` style values (#1517).
+ */
+const LABELLED_SAMPLE_PATTERN = /example|changeme/i;
+
+/**
+ * Quoted assignments need at least this much Shannon entropy (bits per
+ * character) to count as a secret, so values like "aaaaaaaaaaaaaaaa" are not
+ * flagged (#1517).
+ */
+export const ASSIGNMENT_MIN_ENTROPY = 3;
+
+/**
  * Checks whether a value is an obvious placeholder, test fixture, or variable lookup.
  */
 export function isPlaceholder(val: string, customPlaceholders: string[] = []): boolean {
@@ -42,6 +55,11 @@ export function isPlaceholder(val: string, customPlaceholders: string[] = []): b
       trimmed,
     )
   ) {
+    return true;
+  }
+
+  // #1517: values labelled EXAMPLE / changeme are documentation, not credentials.
+  if (LABELLED_SAMPLE_PATTERN.test(trimmed)) {
     return true;
   }
 
@@ -83,27 +101,29 @@ export function maskSnippet(line: string, secrets: string[]): string {
 
 /**
  * Five primary rule-based secret families.
+ *
+ * Every deterministic secret finding is CRITICAL (#1517).
  */
 export const SECRET_FAMILIES: readonly SecretFamily[] = [
   // 1. AWS access key IDs
   {
     id: "aws-access-key-id",
     name: "AWS Access Key ID",
-    severity: "HIGH",
+    severity: "CRITICAL",
     pattern: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g,
   },
   // 2. GitHub tokens (classic ghp, fine-grained github_pat, OAuth/user/server gho/ghu/ghs/ghr)
   {
     id: "github-token",
     name: "GitHub Token",
-    severity: "HIGH",
+    severity: "CRITICAL",
     pattern: /\b(?:gh[oprsu]_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{22,})\b/g,
   },
   // 3. Slack tokens (bot, user, app, refresh)
   {
     id: "slack-token",
     name: "Slack Token",
-    severity: "HIGH",
+    severity: "CRITICAL",
     pattern: /\bxox[baprse]-[a-zA-Z0-9-]{10,}\b/g,
   },
   // 4. PEM private-key headers
@@ -117,7 +137,7 @@ export const SECRET_FAMILIES: readonly SecretFamily[] = [
   {
     id: "quoted-secret-assignment",
     name: "Quoted Secret Assignment",
-    severity: "HIGH",
+    severity: "CRITICAL",
     pattern:
       /(?:(?<=[^\w])|^)(?:[a-zA-Z0-9_.-]*(?:secret|token|password|passwd|pwd|api_key|apikey)[a-zA-Z0-9_.-]*)\s*[:=]\s*(["'`])([^"'\`\n]{16,})\1/gi,
     extractValue: (match: RegExpExecArray) => match[2],
@@ -164,6 +184,15 @@ export function detectSecretsInAddedLines(
         const rawSecret = family.extractValue ? family.extractValue(match) : match[0];
 
         if (isPlaceholder(rawSecret, customPlaceholders)) {
+          continue;
+        }
+
+        // #1517: a secret-named variable only counts when the value is
+        // high-entropy. Provider-prefixed formats (AWS, GitHub, ...) are exempt.
+        if (
+          family.id === "quoted-secret-assignment" &&
+          shannonEntropy(rawSecret) < ASSIGNMENT_MIN_ENTROPY
+        ) {
           continue;
         }
 

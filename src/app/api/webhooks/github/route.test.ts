@@ -782,6 +782,29 @@ describe("GitHub webhook route", () => {
       );
     });
 
+    it("uses X-GitHub-Delivery as correlationId and includes it in job data and response (#1537)", async () => {
+      const deliveryId = "delivery-corr-test-999";
+      const req = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(202);
+      expect(json).toMatchObject({
+        status: "queued",
+        deliveryId,
+        correlationId: deliveryId,
+      });
+
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          correlationId: deliveryId,
+          event: "pull_request",
+        }),
+        expect.objectContaining({ jobId: `delivery-${deliveryId}` }),
+      );
+    });
+
     it("ensures duplicate delivery IDs map to identical deterministic job IDs for idempotency", async () => {
       const deliveryId = "delivery-duplicate-test-abc123";
       const req1 = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
