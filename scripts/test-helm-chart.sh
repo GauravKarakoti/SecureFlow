@@ -180,8 +180,8 @@ for provider in existing external sealed; do
     exit 1
   fi
   case "$provider" in
-    external) grep -Fxq 'kind: ExternalSecret' <<< "$manifest" ;;
-    sealed) grep -Fxq 'kind: SealedSecret' <<< "$manifest" ;;
+    external) grep -Eq '^kind: ExternalSecret[[:space:]]*$' <<< "$manifest" ;;
+    sealed) grep -Eq '^kind: SealedSecret[[:space:]]*$' <<< "$manifest" ;;
     existing) grep -Fq 'name: precreated-secret' <<< "$manifest" ;;
   esac
 done
