@@ -129,6 +129,31 @@ Everything visible on the SecureFlow Mission Control Dashboard
 
 ---
 
+## 🔐 Deterministic Secret Pre-Screen
+
+Before a PR diff is sent to the LLM, SecureFlow runs a rule-based secret scan
+(`src/lib/armor/secret-detector.ts`) over the added lines only.
+
+- **Detects:** AWS access key IDs, GitHub tokens, Slack tokens, PEM private key
+  headers, and high-entropy values assigned to secret-named variables
+  (`password`, `secret`, `token`, `apiKey`).
+- **Severity:** every deterministic secret finding is `CRITICAL`.
+- **No false alarms on samples:** values labelled `EXAMPLE` / `changeme`, env
+  lookups, and low-entropy values are not flagged.
+- **Masked everywhere:** stored findings, PR comments and dashboards only show a
+  masked form of the value. The raw secret is never persisted or posted, and it
+  is not part of the request sent to Groq.
+- **Merge and de-duplicate:** if the LLM reports the same file and line as a
+  deterministic finding, only one finding is shown (the deterministic one wins).
+- **Graceful degradation:** if the LLM call fails or times out, the deterministic
+  findings are still saved and reported.
+
+Run its tests:
+
+    npx vitest run src/lib/armor/secret-detector.test.ts src/lib/armor/secret-detector.prescreen.test.ts src/lib/armor/secret-detector.llm-payload.test.ts
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer                  | Technology                                                                                                           |
