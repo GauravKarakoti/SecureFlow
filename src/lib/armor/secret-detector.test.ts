@@ -12,18 +12,22 @@ import {
 } from "./secret-detector";
 import { ArmorIQScanner } from "./scanner";
 
+// #1517: synthetic fake key built at runtime so scanners do not flag this file.
+// It is deliberately not the documented ...EXAMPLE key, which is now skipped.
+const FAKE_AWS = "AKIA" + "Q7XM2PLKD93HTRWN";
+
 describe("secret-detector unit tests (#1448)", () => {
   // 1. AWS access key ID
   it("detects AWS access key IDs in added lines", () => {
-    const lines = [{ number: 10, content: "const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';" }];
+    const lines = [{ number: 10, content: `const AWS_KEY = '${FAKE_AWS}';` }];
     const findings = detectSecretsInAddedLines("config/aws.ts", lines);
     expect(findings).toHaveLength(1);
     expect(findings[0].type).toBe("Secret");
-    expect(findings[0].severity).toBe("HIGH");
+    expect(findings[0].severity).toBe("CRITICAL");
     expect(findings[0].fileLocation).toBe("config/aws.ts");
     expect(findings[0].lineStart).toBe(10);
     expect(findings[0].codeSnippet).toContain("AKIA");
-    expect(findings[0].codeSnippet).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(findings[0].codeSnippet).not.toContain(FAKE_AWS);
   });
 
   // 2. GitHub tokens
@@ -109,7 +113,7 @@ describe("secret-detector unit tests (#1448)", () => {
     const patch = [
       "@@ -10,3 +10,4 @@",
       " contextLine();",
-      "+const apiKey = 'AKIAIOSFODNN7EXAMPLE';",
+      `+const apiKey = '${FAKE_AWS}';`,
       " anotherContext();",
     ].join("\n");
 
@@ -117,7 +121,7 @@ describe("secret-detector unit tests (#1448)", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0].lineStart).toBe(11);
     expect(findings[0].fileLocation).toBe("src/auth.ts");
-    expect(findings[0].codeSnippet).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(findings[0].codeSnippet).not.toContain(FAKE_AWS);
   });
 
   // 8. Masking verification
@@ -221,7 +225,7 @@ describe("ArmorIQScanner deterministic pre-scanner integration (#1448)", () => {
                   severity: "HIGH",
                   description: "LLM finding duplicate",
                   fileLocation: "src/aws.ts",
-                  codeSnippet: "const awsKey = 'AKIAIOSFODNN7EXAMPLE';",
+                  codeSnippet: `const awsKey = '${FAKE_AWS}';`,
                   lineStart: 3,
                 },
               ],
@@ -238,17 +242,19 @@ describe("ArmorIQScanner deterministic pre-scanner integration (#1448)", () => {
         patch: [
           "@@ -1,2 +1,4 @@",
           " import AWS from 'aws-sdk';",
-          "+const awsKey = 'AKIAIOSFODNN7EXAMPLE';",
+          `+const awsKey = '${FAKE_AWS}';`,
           "+const pem = '-----BEGIN RSA PRIVATE KEY-----';",
         ].join("\n"),
       },
     ];
 
     const findings = await scanner.scanPullRequest(files);
+    // #1517: both deterministic findings are CRITICAL now, and the LLM finding
+    // on line 3 duplicates the PEM finding, so it is dropped.
     expect(findings).toHaveLength(2);
-    const severities = findings.map((f) => f.severity);
-    expect(severities).toContain("HIGH");
-    expect(severities).toContain("CRITICAL");
+    expect(findings.every((f) => f.severity === "CRITICAL")).toBe(true);
+    expect(findings.map((f) => f.lineStart).sort()).toEqual([2, 3]);
+    expect(findings.map((f) => f.description)).not.toContain("LLM finding duplicate");
   });
 
   it("completes cleanly with zero findings for clean diffs", async () => {
