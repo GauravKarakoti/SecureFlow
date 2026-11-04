@@ -96,6 +96,7 @@ Intelligently ignores non-executable files and mock placeholders to reduce noise
 ### 🛡️ Finding Triage & Dismissal
 
 Maintainers can dismiss findings directly from the dashboard:
+
 - **Status & Reason**: Triage findings as `DISMISSED` with a mandatory reason category (`False positive`, `Accepted risk`, or `Won't fix`) and a required explanation note.
 - **Stable Fingerprints**: Findings generate deterministic SHA-256 fingerprints (`repositoryId + fileLocation + type + codeSnippet`) so dismissals reliably persist across commits and subsequent scans.
 - **Scan-time Suppression**: Dismissed findings are automatically suppressed during PR scans—they do not block pull requests or inflate open finding tallies, and are reported as previously dismissed in PR scan summaries.
