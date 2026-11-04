@@ -35,7 +35,61 @@ The server operates locally via `stdio` using `@modelcontextprotocol/sdk`, requi
 
 ## Available MCP Tools
 
-The server registers three tools exposed via `ListToolsRequestSchema`:
+The server registers four tools exposed via `ListToolsRequestSchema`:
+
+### `scan_content`
+
+Scan one caller-supplied source file without opening files, executing code or making
+network requests. The existing secret-logging detector always runs. An additional
+heuristic checks directly quoted ASCII tokens in console calls using the CLI's
+`hasHighEntropy` function and benign-value whitelist.
+
+| Argument         | Default    | Validation                                                                                                               |
+| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `content`        | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
+| `path`           | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
+| `minEntropy`     | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
+| `minTokenLength` | `16`       | Integer from 8 to 256                                                                                                    |
+| `format`         | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
+| `intentToken`    | omitted    | Optional string; existing intent verification applies                                                                    |
+
+Unknown keys, null values and invalid argument types return a tool error with
+`code: "INVALID_ARGUMENTS"`. The existing ArmorIQ gate runs first and can reject
+source containing its blocked phrases. A configured proof-signing key is required.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "scan_content",
+    "arguments": {
+      "content": "console.log(password);",
+      "path": "src/example.ts",
+      "minEntropy": 3.5,
+      "minTokenLength": 20,
+      "format": "sarif"
+    }
+  }
+}
+```
+
+The result appears identically as JSON text and `structuredContent`: `source`
+(`caller_provided`), `format`, effective thresholds, `violationCount`, `results`
+(the CLI file-scan shape, including any skip reason), and `report` (a string).
+For SARIF, parse `report` to obtain the existing SARIF 2.1.0 document. Other report
+formats reuse the CLI exporters. Source snippets in both `results` and `report`
+are replaced with `[source redacted]`; report labels and finding locations remain.
+The input still reaches the local server and client history: never submit real
+credentials merely to test detection.
+
+Sensitivity only affects literal detection; it cannot disable identifier-based
+secret logging checks. Literal checks cover 8–256-character directly quoted
+ASCII alphanumeric/base64-like tokens, not arbitrary JavaScript evaluation,
+concatenation, escaped strings, or resolved variable values. High entropy is a
+heuristic, not proof of a secret. CLI binary/type exclusions and its benign-value
+whitelist still apply; one finding per console-call line is returned.
 
 ### 1. `query_threat_intelligence`
 
