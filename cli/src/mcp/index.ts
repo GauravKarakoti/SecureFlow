@@ -2,6 +2,7 @@ import { createHmac, createHash } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
 
 export interface ThreatIntelligenceEntry {
   id: string;
@@ -255,6 +256,18 @@ export function createThreatIntelMcpServer(): Server {
     return {
       tools: [
         {
+          name: "scan_content",
+          description:
+            "Scan caller-provided source for secret logging with configurable literal entropy sensitivity. Return redacted JSON, SARIF, text, CSV, HTML or Markdown reports; never reads files.",
+          inputSchema: SCAN_CONTENT_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        {
           name: "get_remediation_context",
           description:
             "Summarize caller-provided historical remediation outcomes, optionally by advisory. Returns application rates with explicit sample counts; does not access production data.",
@@ -333,6 +346,29 @@ export function createThreatIntelMcpServer(): Server {
           },
         ],
       };
+    }
+
+    if (name === "scan_content") {
+      try {
+        const summary = scanSuppliedContent(args || {});
+        return {
+          content: [{ type: "text", text: JSON.stringify(summary) }],
+          structuredContent: summary,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error: error instanceof Error ? error.message : "Invalid scan arguments",
+              }),
+            },
+          ],
+        };
+      }
     }
 
     if (name === "get_remediation_context") {
