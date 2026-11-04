@@ -262,7 +262,11 @@ function SingleTriageControls({
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder={status === "DISMISSED" ? "Required note (why is this being dismissed?)" : "Optional note (why is this being resolved?)"}
+        placeholder={
+          status === "DISMISSED"
+            ? "Required note (why is this being dismissed?)"
+            : "Optional note (why is this being resolved?)"
+        }
         rows={2}
         disabled={isPending}
         className="text-sm"
@@ -310,7 +314,10 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           });
           return;
         }
-        const isDismissal = applyStatus === "DISMISSED" || applyStatus === "FALSE_POSITIVE" || applyStatus === "IGNORED";
+        const isDismissal =
+          applyStatus === "DISMISSED" ||
+          applyStatus === "FALSE_POSITIVE" ||
+          applyStatus === "IGNORED";
         const computedExpiry = isDismissal ? computeExpiryDate(expiryDays) : null;
 
         const result = await setFindingStatuses({

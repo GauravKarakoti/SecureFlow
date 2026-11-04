@@ -75,7 +75,8 @@ describe("webhook-dedup", () => {
     it("handles multiple calls: first succeeds, second is detected as duplicate", async () => {
       const storage = new Set<string>();
       const mockClient = {
-        set: vi.fn(async (key: string, _val: string, _ex: string, _ttl: number, nx?: string) => {
+        set: vi.fn(async (...args: unknown[]) => {
+          const [key, , , , nx] = args as [string, string, string, number, string | undefined];
           if (nx === "NX") {
             if (storage.has(key)) return null;
             storage.add(key);
@@ -98,7 +99,8 @@ describe("webhook-dedup", () => {
     it("allows different delivery IDs for the same PR without collision", async () => {
       const storage = new Set<string>();
       const mockClient = {
-        set: vi.fn(async (key: string, _val: string, _ex: string, _ttl: number, nx?: string) => {
+        set: vi.fn(async (...args: unknown[]) => {
+          const [key, , , , nx] = args as [string, string, string, number, string | undefined];
           if (nx === "NX") {
             if (storage.has(key)) return null;
             storage.add(key);
