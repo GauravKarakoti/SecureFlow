@@ -149,6 +149,7 @@ secureflow/
 ├── docs/
 │   ├── api.md                   # API route endpoints and specifications
 │   ├── blueprint.md             # Brand, style guidelines, and terminology dictionary
+│   ├── runbook.md               # Operations runbook for diagnosing failed scans and outages
 │   └── security/
 │       └── prompt-injection.md  # Security controls and defenses for LLM prompt injections
 │
@@ -451,6 +452,7 @@ For more in-depth details about the architecture, developer API, and security pr
 - **[AI Security & Prompt Injection Defense](./docs/security/prompt-injection.md)**: Documents the threat vector, policy isolation boundaries, pre-filtering layers, and UI indicators used to protect against LLM prompt injection attacks.
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
+- **[Operator Runbook](./docs/runbook.md)**: Operational troubleshooting guide for scan outages, webhook delivery failures, queue/Redis stalls, Groq rate limits, database pooling errors, and proxy configuration.
 
 ---
 
