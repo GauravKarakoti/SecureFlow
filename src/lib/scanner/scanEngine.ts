@@ -17,6 +17,7 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
+import { upsertSecureFlowComment, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/sticky-comment";
 import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
@@ -416,7 +417,10 @@ export async function processScanJob(
 
       // Post PR comment if there are findings
       if (enrichedFindings.length > 0) {
-        let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
+        let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
+        if (headSha) {
+          body += `Scanned commit: \`${headSha}\`\n\n`;
+        }
         body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
 
         enrichedFindings.forEach((f) => {
@@ -428,10 +432,10 @@ export async function processScanJob(
           body += `---\n\n`;
         });
 
-        await octokit.rest.issues.createComment({
+        await upsertSecureFlowComment(octokit, {
           owner,
           repo,
-          issue_number: prNumber,
+          issueNumber: prNumber,
           body,
         });
       }
