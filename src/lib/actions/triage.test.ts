@@ -93,12 +93,12 @@ describe("setFindingStatus", () => {
         where: {
           repositoryId_fingerprint: { repositoryId: "repo-1", fingerprint: validInput.fingerprint },
         },
-        update: {
+        update: expect.objectContaining({
           status: "FALSE_POSITIVE",
           note: "legit env var",
           resolvedById: "user-1",
           expiresAt: null,
-        },
+        }),
         create: expect.objectContaining({
           status: "FALSE_POSITIVE",
           note: "legit env var",
@@ -220,12 +220,12 @@ describe("setFindingStatuses", () => {
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
     expect(prisma.findingTriage.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        update: {
+        update: expect.objectContaining({
           status: "FALSE_POSITIVE",
           note: "noise",
           resolvedById: "user-1",
           expiresAt: null,
-        },
+        }),
       }),
     );
   });

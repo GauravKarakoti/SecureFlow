@@ -56,6 +56,8 @@ export interface ScanReportSummaryInput {
   suppressedFindings?: readonly SuppressedFindingReport[];
   /** Inline suppression directives that were rejected or ignored. */
   rejectedSuppressions?: readonly RejectedSuppressionReport[];
+  /** Previously triaged/dismissed findings on this repository suppressed during the scan. */
+  previouslyDismissedCount?: number;
   /** Scanned commit SHA to show in the report. */
   commitSha?: string | null;
 }
@@ -93,6 +95,7 @@ export function renderScanReportSummary({
   coverageNotice,
   suppressedFindings = [],
   rejectedSuppressions = [],
+  previouslyDismissedCount = 0,
   commitSha,
 }: ScanReportSummaryInput): string {
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
@@ -102,6 +105,10 @@ export function renderScanReportSummary({
   }
 
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
+
+  if (previouslyDismissedCount > 0) {
+    body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+  }
 
   if (coverageNotice) {
     body += `${coverageNotice}\n\n`;

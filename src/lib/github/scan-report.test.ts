@@ -137,4 +137,14 @@ describe("renderScanReportSummary", () => {
     expect(body).not.toContain("undefined");
     expect(body).not.toContain("null");
   });
+
+  it("reports previously dismissed findings count in the summary (#1528)", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      previouslyDismissedCount: 1,
+    });
+    expect(body).toContain("1 previously dismissed");
+  });
 });

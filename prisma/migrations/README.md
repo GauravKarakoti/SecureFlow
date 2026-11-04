@@ -52,6 +52,8 @@ Because migration folders use timestamp-only naming, refer to this audit table f
 | `20261015122052`    | Voice Alerts User Preference  | Adds `voiceAlertsEnabled` boolean column to `User`.                                                             |
 | `20261030152708`    | Compliance Framework Tags     | Adds `complianceTags` string array to `Finding` and `PolicyTemplate` (SOC 2, ISO 27001, HIPAA).                 |
 | `20261031085913`    | Audio Debrief Cache           | Creates `audio_debrief_cache` table for synthesized voice briefing storage.                                     |
+| `20261103070000_finding_analytics_indexes` | Finding Analytics Indexes | Adds composite indexes on `Finding(createdAt, severity)` and `Finding(createdAt, type)`.                      |
+| `20261104030500`    | Finding Triage Dismissals     | Adds `DISMISSED` to `FindingTriageStatus`, introduces `DismissalReason` enum, adds dismissal audit fields.     |
 
 ---
 

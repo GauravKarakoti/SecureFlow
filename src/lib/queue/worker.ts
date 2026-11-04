@@ -982,6 +982,7 @@ export const worker = new Worker<WebhookJobData>(
                 coverageNotice,
                 suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
                 rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
+                previouslyDismissedCount: suppressedFindings.length,
                 commitSha: pull_request.head?.sha,
               });
 
@@ -1036,10 +1037,16 @@ export const worker = new Worker<WebhookJobData>(
               });
             }
           } else {
+            const cleanDismissedNotice =
+              suppressedFindings.length > 0
+                ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
+                : "";
+
             const cleanBody =
               `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
               (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
               `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
+              cleanDismissedNotice +
               // A clean result on a partial scan must say so — this is exactly the
               // case where silent truncation was most misleading.
               (coverageNotice ? `\n\n${coverageNotice}` : "");

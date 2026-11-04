@@ -25,6 +25,13 @@ enum FindingTriageStatus {
   RESOLVED
   FALSE_POSITIVE
   IGNORED
+  DISMISSED
+}
+
+enum DismissalReason {
+  FALSE_POSITIVE
+  ACCEPTED_RISK
+  WONT_FIX
 }
 
 enum PolicyDecision {
@@ -281,15 +288,18 @@ model RemediationPatch {
 }
 
 model FindingTriage {
-  id           String              @id @default(cuid())
-  repositoryId String
-  repository   Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  fingerprint  String
-  status       FindingTriageStatus @default(OPEN)
-  note         String?
-  resolvedById String?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  id              String              @id @default(cuid())
+  repositoryId    String
+  repository      Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  fingerprint     String
+  status          FindingTriageStatus @default(OPEN)
+  dismissalReason DismissalReason?
+  dismissedAt     DateTime?
+  dismissedById   String?
+  note            String?
+  resolvedById    String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])

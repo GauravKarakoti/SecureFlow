@@ -29,6 +29,7 @@ import type { TriageStatus } from "@/lib/triage/statuses";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
+  { value: "DISMISSED", label: "Dismissed" },
   { value: "RESOLVED", label: "Resolved" },
   { value: "FALSE_POSITIVE", label: "False Positive" },
   { value: "IGNORED", label: "Ignored" },
@@ -44,6 +45,7 @@ const SEVERITY_OPTIONS = [
 
 const STATUS_BADGE: Record<TriageStatus, string> = {
   OPEN: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  DISMISSED: "bg-amber-500/10 text-amber-300 border-amber-500/20",
   RESOLVED: "bg-green-500/10 text-green-400 border-green-500/20",
   FALSE_POSITIVE: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
   IGNORED: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",

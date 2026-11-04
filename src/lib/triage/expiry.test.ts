@@ -75,7 +75,7 @@ describe("Triage Expiry Helper (#1503)", () => {
     it("generates correct Prisma where fragment matching unexpired or null-expiry dismissals", () => {
       const fragment = activeSuppressionWhere(baseTime);
       expect(fragment).toEqual({
-        status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+        status: { in: ["FALSE_POSITIVE", "IGNORED", "DISMISSED"] },
         OR: [{ expiresAt: null }, { expiresAt: { gt: baseTime } }],
       });
     });
