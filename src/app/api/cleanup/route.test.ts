@@ -31,7 +31,7 @@ vi.mock("@/lib/retention/cleanup", async () => {
   };
 });
 
-describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
+describe("Data Retention Cleanup Route (/api/cleanup)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CLEANUP_SECRET = "super-secret-cleanup-token";
@@ -41,46 +41,46 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
 
   describe("Authorization & Secret Verification (isAuthorizedCleanupRequest)", () => {
     it("accepts requests with valid Bearer token in Authorization header", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         headers: { authorization: "Bearer super-secret-cleanup-token" },
       });
       expect(isAuthorizedCleanupRequest(req, null)).toBe(true);
     });
 
     it("accepts requests with valid CRON_SECRET Bearer token", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         headers: { authorization: "Bearer cron-job-token" },
       });
       expect(isAuthorizedCleanupRequest(req, null)).toBe(true);
     });
 
     it("accepts requests with valid x-cleanup-secret header", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         headers: { "x-cleanup-secret": "super-secret-cleanup-token" },
       });
       expect(isAuthorizedCleanupRequest(req, null)).toBe(true);
     });
 
     it("accepts requests with valid x-cron-secret header", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         headers: { "x-cron-secret": "cron-job-token" },
       });
       expect(isAuthorizedCleanupRequest(req, null)).toBe(true);
     });
 
     it("accepts requests from users with ADMIN role session", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup");
+      const req = new NextRequest("http://localhost:9002/api/cleanup");
       expect(isAuthorizedCleanupRequest(req, { roles: ["ADMIN"] })).toBe(true);
     });
 
     it("rejects unauthorized requests without secret or admin session", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup");
+      const req = new NextRequest("http://localhost:9002/api/cleanup");
       expect(isAuthorizedCleanupRequest(req, null)).toBe(false);
       expect(isAuthorizedCleanupRequest(req, { roles: ["USER"] })).toBe(false);
     });
 
     it("rejects requests with incorrect secret tokens", () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         headers: { authorization: "Bearer wrong-token" },
       });
       expect(isAuthorizedCleanupRequest(req, null)).toBe(false);
@@ -92,7 +92,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
       const { auth } = await import("@/auth");
       vi.mocked(auth).mockResolvedValueOnce(null as any);
 
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup");
+      const req = new NextRequest("http://localhost:9002/api/cleanup");
       const res = await GET(req);
       expect(res.status).toBe(401);
     });
@@ -101,7 +101,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
       const { auth } = await import("@/auth");
       vi.mocked(auth).mockResolvedValueOnce(null as any);
 
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup?days=45", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup?days=45", {
         headers: { authorization: "Bearer super-secret-cleanup-token" },
       });
 
@@ -123,7 +123,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
       const { auth } = await import("@/auth");
       vi.mocked(auth).mockResolvedValueOnce(null as any);
 
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         method: "POST",
       });
       const res = await POST(req);
@@ -136,7 +136,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
         user: { id: "admin-1", roles: ["ADMIN"] },
       } as any);
 
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         method: "POST",
         body: JSON.stringify({ dryRun: false, days: 60, batchSize: 200 }),
       });
@@ -153,7 +153,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
     });
 
     it("honors dryRun flag in POST body", async () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         method: "POST",
         headers: { authorization: "Bearer super-secret-cleanup-token" },
         body: JSON.stringify({ dryRun: true }),
@@ -171,7 +171,7 @@ describe("Admin Data Retention Cleanup Route (/api/admin/cleanup)", () => {
     });
 
     it("rejects invalid days parameter with 400", async () => {
-      const req = new NextRequest("http://localhost:9002/api/admin/cleanup", {
+      const req = new NextRequest("http://localhost:9002/api/cleanup", {
         method: "POST",
         headers: { authorization: "Bearer super-secret-cleanup-token" },
         body: JSON.stringify({ days: -10 }),
