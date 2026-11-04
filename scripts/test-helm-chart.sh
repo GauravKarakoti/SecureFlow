@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "Helm chart test failed at line $LINENO" >&2' ERR
 
 chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/secureflow" && pwd)"
 helm_bin="${HELM_BIN:-helm}"
