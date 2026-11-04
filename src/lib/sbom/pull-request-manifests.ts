@@ -40,6 +40,7 @@ async function fetchFileContent(
 export async function handlePullRequestSynchronize(
   payload: Record<string, unknown> | any,
   deliveryId?: string,
+  correlationId?: string,
 ) {
   const prNumber = payload.number;
   const repoName = payload.repository?.full_name;
@@ -164,6 +165,7 @@ export async function handlePullRequestSynchronize(
               jobId,
               dedupeKey,
               deliveryId,
+              correlationId,
             },
           );
           console.log(`[SBOM] Enqueued asynchronous SBOM scan for manifest: ${file.filename}`);

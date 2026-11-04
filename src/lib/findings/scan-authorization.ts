@@ -165,6 +165,7 @@ export function buildScanJobData(args: {
   customIgnores?: string[];
   customPlaceholders?: string[];
   activePolicies?: Array<{ description: string; [key: string]: unknown }>;
+  correlationId?: string;
 }): ScanJobData {
   const {
     body,
@@ -173,6 +174,7 @@ export function buildScanJobData(args: {
     customIgnores = [],
     customPlaceholders = [],
     activePolicies = [],
+    correlationId,
   } = args;
 
   return {
@@ -188,6 +190,7 @@ export function buildScanJobData(args: {
     customIgnores,
     customPlaceholders,
     userId,
+    correlationId: correlationId || crypto.randomUUID(),
   };
 }
 

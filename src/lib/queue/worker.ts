@@ -43,7 +43,7 @@ import {
   normalizePolicyDecisionEnum,
   normalizePrStatusEnum,
 } from "@/lib/finding-taxonomy";
-import { sanitizeLogValue } from "@/lib/logger";
+import { logger, sanitizeLogValue } from "@/lib/logger";
 import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
@@ -371,6 +371,8 @@ export const worker = new Worker<WebhookJobData>(
   "github-webhooks",
   async (job: Job<WebhookJobData>) => {
     const { payload: rawPayload, event, deliveryId } = job.data;
+    const correlationId = job.data.correlationId || deliveryId || crypto.randomUUID();
+    const log = logger.child({ correlationId, deliveryId: deliveryId ?? undefined, jobId: job.id });
 
     // Event Filtering
     if (
@@ -381,7 +383,7 @@ export const worker = new Worker<WebhookJobData>(
         "branch_protection_rule",
       ].includes(event || "")
     ) {
-      console.log(`Event not tracked: ${sanitize(event)}`);
+      log.info(`Event not tracked: ${sanitize(event)}`);
       return;
     }
 
@@ -401,7 +403,7 @@ export const worker = new Worker<WebhookJobData>(
       });
 
       if (existingEvent) {
-        console.log(`[Worker] Webhook ${sanitize(deliveryId)} already processed. Skipping.`);
+        log.info(`[Worker] Webhook ${sanitize(deliveryId)} already processed. Skipping.`);
         return;
       }
     }
@@ -443,7 +445,7 @@ export const worker = new Worker<WebhookJobData>(
       });
 
       if (!account) {
-        console.log(
+        log.info(
           `Webhook received installation for unknown user ${sanitize(senderId)}. Awaiting Setup URL redirect linking.`,
         );
         return; // Safe to return early here; user hasn't set up yet so we shouldn't lock the webhook.
@@ -453,7 +455,7 @@ export const worker = new Worker<WebhookJobData>(
       // The old code called .map() on it unconditionally and threw a TypeError,
       // burning three retries before landing a valid delivery in the DLQ.
       if (repoSelection.repositories.length === 0) {
-        console.log("[Worker] Installation delivery carried no repositories; nothing to link.");
+        log.info("[Worker] Installation delivery carried no repositories; nothing to link.");
       } else {
         await prisma.$transaction([
           ...repoSelection.repositories.map((repo) =>
@@ -472,11 +474,16 @@ export const worker = new Worker<WebhookJobData>(
               userId: account.userId,
               action: "Repository Added",
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
-              metadata: { count: repoSelection.repositories.length, event: "installation" },
+              metadata: {
+                correlationId,
+                deliveryId,
+                count: repoSelection.repositories.length,
+                event: "installation",
+              },
             }),
           }),
         ]);
-        console.log(
+        log.info(
           `Successfully installed app and populated ${repoSelection.repositories.length} repositories.`,
         );
       }
@@ -491,11 +498,11 @@ export const worker = new Worker<WebhookJobData>(
       });
 
       if (!account) {
-        console.log(
+        log.info(
           `[Worker] installation_repositories for unknown user ${sanitize(senderId)}; skipping.`,
         );
       } else if (repoSelection.repositories.length === 0) {
-        console.log(
+        log.info(
           `[Worker] installation_repositories '${sanitize(action)}' carried no repositories; nothing to do.`,
         );
       } else if (repoSelection.intent === "remove") {
@@ -513,6 +520,8 @@ export const worker = new Worker<WebhookJobData>(
               action: "Repository Removed",
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
+                correlationId,
+                deliveryId,
                 count: repoSelection.repositories.length,
                 event,
               },
@@ -538,6 +547,8 @@ export const worker = new Worker<WebhookJobData>(
               action: "Repository Added",
               resource: repoSelection.repositories.map((r) => r.full_name).join(", "),
               metadata: {
+                correlationId,
+                deliveryId,
                 count: repoSelection.repositories.length,
                 event,
               },
@@ -555,7 +566,7 @@ export const worker = new Worker<WebhookJobData>(
       const prFacts = buildPullRequestFacts(pull_request);
 
       if (actionKind === "ignore") {
-        console.log(`Action not tracked: ${sanitize(action)}`);
+        log.info(`Action not tracked: ${sanitize(action)}`);
       } else if (actionKind === "metadata") {
         // No new head commit, so no scan: re-running the pipeline here would cost
         // a Groq call and post a second review on a pull request that is already
@@ -574,7 +585,7 @@ export const worker = new Worker<WebhookJobData>(
             data: pullRequestUpdateData(prFacts),
           });
 
-          console.log(
+          log.info(
             count > 0
               ? `[Worker] Recorded '${sanitize(action)}' for PR #${sanitize(pull_request.number)} as ${sanitize(prFacts.state)}.`
               : `[Worker] '${sanitize(action)}' for PR #${sanitize(pull_request.number)} refers to a pull request we never scanned; nothing to update.`,
@@ -590,7 +601,7 @@ export const worker = new Worker<WebhookJobData>(
         const lockKey = `pr-scan:${repository.full_name}:${pull_request.number}`;
         const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
         if (!lockToken) {
-          console.warn(
+          log.warn(
             `[Worker] PR #${pull_request.number} on ${repository.full_name} is currently locked by a concurrent scan. Delaying job...`,
           );
           await job.moveToDelayed(Date.now() + PR_SCAN_LOCK_RETRY_DELAY_MS, job.token);
@@ -610,10 +621,10 @@ export const worker = new Worker<WebhookJobData>(
             // Never throws (it logs and returns), so a manifest problem cannot
             // fail the code scan below. SBOM jobs are keyed by head SHA and file,
             // so a retry of this delivery does not enqueue them twice.
-            await handlePullRequestSynchronize(payload, deliveryId ?? undefined);
+            await handlePullRequestSynchronize(payload, deliveryId ?? undefined, correlationId);
           }
 
-          console.log(
+          log.info(
             `Processing PR #${sanitize(pull_request.number)} on ${sanitize(repository.full_name)}`,
           );
 
@@ -638,7 +649,7 @@ export const worker = new Worker<WebhookJobData>(
                   isActive: true,
                 },
               });
-              console.log(
+              log.info(
                 `[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`,
               );
             }
@@ -669,7 +680,12 @@ export const worker = new Worker<WebhookJobData>(
                 userId: userId,
                 action: "Scan Triggered",
                 resource: `${repository.full_name}#${pull_request.number}`,
-                metadata: { action: action, head_sha: pull_request.head.sha },
+                metadata: {
+                  correlationId,
+                  deliveryId,
+                  action: action,
+                  head_sha: pull_request.head.sha,
+                },
               }),
             });
           }
@@ -692,7 +708,7 @@ export const worker = new Worker<WebhookJobData>(
 
           const coverageNotice = formatCoverageNotice(pullRequestFilesResult);
           if (coverageNotice) {
-            console.warn(
+            log.warn(
               `[Worker] Partial file coverage on ${sanitize(repository.full_name)}#${sanitize(pull_request.number)}: analysed ${sanitize(pullRequestFilesResult.fetched)} of ${sanitize(pullRequestFilesResult.totalChanged ?? "unknown")} changed files.`,
             );
           }
@@ -720,7 +736,7 @@ export const worker = new Worker<WebhookJobData>(
               (coverageNotice ? `\n\n${coverageNotice}` : ""),
           });
 
-          console.log(
+          log.info(
             `[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`,
           );
           const scanJobData: ScanJobData = {
@@ -739,6 +755,8 @@ export const worker = new Worker<WebhookJobData>(
             customIgnores: [],
             customPlaceholders: [],
             userId,
+            correlationId,
+            deliveryId: deliveryId ?? null,
           };
           // Scanning only. This function posts its own check run and pull request
           // comment below, writes its own AuditLog row and creates its own
@@ -847,6 +865,8 @@ export const worker = new Worker<WebhookJobData>(
                 resource: `${repository.full_name}#${pull_request.number}`,
                 decision: decision,
                 metadata: {
+                  correlationId,
+                  deliveryId,
                   findingsCount: activeFindings.length,
                   suppressedCount: findings.length - activeFindings.length,
                 },
@@ -895,13 +915,13 @@ export const worker = new Worker<WebhookJobData>(
 
             const target = `${sanitize(repository.full_name)}#${sanitize(String(pull_request.number))}`;
 
-            console.log(
+            log.info(
               sarifOutcome.status === "uploaded"
                 ? `[Worker] Uploaded SARIF for ${target}`
                 : `[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`,
             );
           } catch (err) {
-            console.log(
+            log.info(
               `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(
                 err instanceof Error ? err.message : String(err),
               )}`,
@@ -975,8 +995,9 @@ export const worker = new Worker<WebhookJobData>(
                 });
                 inlinePosted = true;
               } catch (err: any) {
-                console.error(
+                log.error(
                   `[REVIEW] Failed to post inline review comments, falling back to summary comment: ${sanitize(err.message)}`,
+                  { error: err?.message },
                 );
               }
             }
@@ -997,6 +1018,8 @@ export const worker = new Worker<WebhookJobData>(
                   action: "PR Comment Posted",
                   resource: `${repository.full_name}#${pull_request.number}`,
                   metadata: {
+                    correlationId,
+                    deliveryId,
                     commentType: "AI Security Report",
                     findingsReported: enrichedFindings.length,
                     inlineComments: inlinePosted ? inlineComments.length : 0,
@@ -1096,7 +1119,9 @@ export const worker = new Worker<WebhookJobData>(
                   findings: enrichedFindings,
                 });
               } catch (err) {
-                console.error(`[Worker] Slack notification step failed:`, err);
+                log.error(`[Worker] Slack notification step failed:`, {
+                  error: err instanceof Error ? err.message : String(err),
+                });
               }
             }
 
@@ -1114,7 +1139,7 @@ export const worker = new Worker<WebhookJobData>(
                   topSeverity: topSeverityFinding.severity,
                   alertId: deliveryId ?? crypto.randomUUID(),
                 }).catch((err: unknown) =>
-                  console.error("[Worker] Voice alert publish failed:", err),
+                  log.error("[Worker] Voice alert publish failed:", { error: String(err) }),
                 );
               }
             }
@@ -1137,7 +1162,7 @@ export const worker = new Worker<WebhookJobData>(
           pullRequestId: dbPrId,
         },
       });
-      console.log(`[Worker] Successfully processed and cached webhook ${sanitize(deliveryId)}`);
+      log.info(`[Worker] Successfully processed and cached webhook ${deliveryId}`);
     }
   },
   { connection: redis as any },
@@ -1151,7 +1176,15 @@ export const worker = new Worker<WebhookJobData>(
  * fixed string on purpose, because the check output is visible on the PR and
  * an internal error message (DB host, stack detail) must not end up there.
  */
-export async function postScanFailureCheck(data: WebhookJobData | undefined): Promise<void> {
+export async function postScanFailureCheck(
+  data: WebhookJobData | undefined,
+  correlationId?: string,
+): Promise<void> {
+  const effectiveCorrelationId = correlationId || data?.correlationId;
+  const log = effectiveCorrelationId
+    ? logger.child({ correlationId: effectiveCorrelationId })
+    : logger;
+
   try {
     if (!data || data.event !== "pull_request") return;
 
@@ -1177,23 +1210,35 @@ export async function postScanFailureCheck(data: WebhookJobData | undefined): Pr
       reason: "An internal error interrupted the scan. Re-run it by pushing a new commit.",
     });
   } catch (checkErr: any) {
-    console.error(
-      "[QUEUE] Could not post fail-closed check run:",
-      sanitize(checkErr?.message ?? String(checkErr)),
-    );
+    log.error("[QUEUE] Could not post fail-closed check run:", {
+      error: checkErr?.message ?? String(checkErr),
+    });
   }
 }
 
-worker.on("completed", (job: Job) => console.log(`[QUEUE] Job ${job.id} completed.`));
+worker.on("completed", (job: Job) => {
+  const correlationId =
+    (job.data as WebhookJobData)?.correlationId ||
+    (job.data as WebhookJobData)?.deliveryId ||
+    job.id;
+  logger.child({ correlationId, jobId: job.id }).info(`[QUEUE] Job ${job.id} completed.`);
+});
 worker.on("error", (err: Error) => {
   console.error("[QUEUE] Worker connection error:", err);
+  logger.error("[QUEUE] Worker connection error:", { error: err.message });
 });
 worker.on("failed", async (job: Job | undefined, err: Error) => {
   if (!job) return;
+  const correlationId =
+    (job.data as WebhookJobData)?.correlationId ||
+    (job.data as WebhookJobData)?.deliveryId ||
+    job.id;
+  const log = logger.child({ correlationId, jobId: job.id });
   const maxAttempts = job.opts.attempts || 3;
   if (job.attemptsMade >= maxAttempts) {
-    console.error(
-      `[DLQ] Job ${sanitize(job.id)} failed permanently after ${sanitize(job.attemptsMade)} attempts: ${sanitize(err.message)}`,
+    log.error(
+      `[DLQ] Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${err.message}`,
+      { error: err.message, attemptsMade: job.attemptsMade },
     );
     try {
       await webhookDLQ.add(
@@ -1201,6 +1246,7 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
         {
           originalJobId: job.id,
           data: job.data,
+          correlationId,
           failedReason: err.message,
           failedAt: new Date().toISOString(),
           attemptsMade: job.attemptsMade,
@@ -1211,14 +1257,15 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
         },
       );
     } catch (dlqErr: any) {
-      console.error(`Failed to route job ${sanitize(job.id)} to DLQ:`, sanitize(dlqErr.message));
+      log.error(`Failed to route job ${job.id} to DLQ:`, { error: dlqErr?.message });
     }
 
     // After DLQ routing, so a slow GitHub call can never delay the DLQ entry.
-    await postScanFailureCheck(job.data);
+    await postScanFailureCheck(job.data, correlationId);
   } else {
-    console.warn(
-      `[QUEUE] Job ${sanitize(job.id)} failed (attempt ${sanitize(job.attemptsMade)}/${sanitize(maxAttempts)}), retrying with exponential backoff: ${sanitize(err.message)}`,
+    log.warn(
+      `[QUEUE] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}), retrying with exponential backoff: ${err.message}`,
+      { attemptsMade: job.attemptsMade, maxAttempts, error: err.message },
     );
   }
 });

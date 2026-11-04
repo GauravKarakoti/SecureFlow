@@ -54,6 +54,8 @@ export interface SbomJobData {
   userId: string;
   repositoryId?: string;
   pullRequestId?: string;
+  correlationId?: string;
+  deliveryId?: string;
 }
 
 export const sbomQueue = new Queue<SbomJobData>(SBOM_QUEUE_NAME, {
@@ -89,6 +91,7 @@ export interface EnqueueSbomOptions {
   jobId?: string;
   dedupeKey?: string;
   deliveryId?: string;
+  correlationId?: string;
 }
 
 /**
@@ -189,6 +192,7 @@ export async function enqueueSbomScan(
           repositoryId: data.repositoryId ?? null,
           pullRequestId: data.pullRequestId ?? null,
           dedupeKey: options.dedupeKey ? sbomDedupeFingerprint(options.dedupeKey) : null,
+          correlationId: options.correlationId ?? options.deliveryId ?? null,
           deliveryId: options.deliveryId ?? null,
         },
       }),
@@ -199,6 +203,8 @@ export async function enqueueSbomScan(
   const jobPayload: SbomJobData = {
     ...data,
     scanJobId: scanJob.id,
+    correlationId: options.correlationId ?? options.deliveryId,
+    deliveryId: options.deliveryId,
   };
 
   // Mock DB support for CI / test environments without Redis
