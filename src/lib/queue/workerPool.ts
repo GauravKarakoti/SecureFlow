@@ -15,6 +15,7 @@ import { Worker, Job, UnrecoverableError } from "bullmq";
 import { redis } from "./redis";
 import { scanDLQ, type ScanJobData, updateScanJobProgress } from "./scanQueue";
 import { processScanJob } from "@/lib/scanner/scanEngine";
+import { logger } from "@/lib/logger";
 import {
   InvalidInstallationIdError,
   ScanPersistenceError,
@@ -102,12 +103,21 @@ class ScanWorkerPool {
     );
 
     this.worker.on("completed", (job) => {
+      const correlationId = job.data?.correlationId || job.data?.scanJobId || job.id;
+      logger
+        .child({ correlationId, scanJobId: job.data?.scanJobId, jobId: job.id })
+        .info(
+          `[WorkerPool] Job ${job.id} completed for ${job.data.repositoryFullName}#${job.data.prNumber}`,
+        );
       console.log(
         `[WorkerPool] Job ${job.id} completed for ${job.data.repositoryFullName}#${job.data.prNumber}`,
       );
     });
 
     this.worker.on("failed", async (job, err) => {
+      const correlationId = job?.data?.correlationId || job?.data?.scanJobId || job?.id;
+      const log = logger.child({ correlationId, scanJobId: job?.data?.scanJobId, jobId: job?.id });
+      log.error(`[WorkerPool] Job ${job?.id} failed: ${err.message}`, { error: err.message });
       console.error(`[WorkerPool] Job ${job?.id} failed:`, err.message);
 
       // Route to DLQ on permanent failure. `processJob` throws UnrecoverableError
@@ -116,12 +126,14 @@ class ScanWorkerPool {
       // `attempts`, so the count alone never routed those jobs to the DLQ.
       // Same rule as `outboundWorker` and `sbomWorker`.
       if (job && isFinalFailure(job, err)) {
+        log.warn(`[WorkerPool] Routing job ${job.id} to DLQ after ${job.attemptsMade} attempts`);
         console.warn(
           `[WorkerPool] Routing job ${job.id} to DLQ after ${job.attemptsMade} attempts`,
         );
         try {
           await scanDLQ.add("failed-scan", {
             ...job.data,
+            correlationId,
             error: err.message,
           } as any);
         } catch (dlqErr) {
@@ -129,6 +141,9 @@ class ScanWorkerPool {
           // under Node's default policy takes the worker process down — so a
           // Redis blip while recording a failed job would stop every other scan
           // in flight. Logged and dropped instead.
+          log.error(`[WorkerPool] Failed to route job ${job.id} to DLQ:`, {
+            error: String(dlqErr),
+          });
           console.error(`[WorkerPool] Failed to route job ${job.id} to DLQ:`, dlqErr);
         }
       }
@@ -178,7 +193,12 @@ class ScanWorkerPool {
    */
   private async processJob(job: Job<ScanJobData>): Promise<{ scanJobId: string }> {
     const { scanJobId } = job.data;
+    const correlationId = job.data.correlationId || scanJobId;
+    const log = logger.child({ correlationId, scanJobId, jobId: job.id });
 
+    log.info(
+      `[WorkerPool] Processing scan job ${job.id} (${job.data.repositoryFullName}#${job.data.prNumber})`,
+    );
     console.log(
       `[WorkerPool] Processing scan job ${job.id} (${job.data.repositoryFullName}#${job.data.prNumber})`,
     );

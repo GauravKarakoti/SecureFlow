@@ -11,6 +11,7 @@ const {
   mockOctokitListFiles,
   mockOctokitGetContent,
   mockGetInstallationOctokit,
+  mockRedisSet,
 } = vi.hoisted(() => ({
   mockEnqueueSbomScan: vi.fn(),
   mockPrismaRepo: { findUnique: vi.fn() },
@@ -18,6 +19,13 @@ const {
   mockOctokitListFiles: vi.fn(),
   mockOctokitGetContent: vi.fn(),
   mockGetInstallationOctokit: vi.fn(),
+  mockRedisSet: vi.fn(),
+}));
+
+vi.mock("@/lib/redis", () => ({
+  redis: {
+    set: mockRedisSet,
+  },
 }));
 
 vi.mock("@/lib/queue/sbomQueue", () => ({
@@ -205,6 +213,7 @@ describe("GitHub webhook route", () => {
     vi.clearAllMocks();
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
     delete process.env.GITHUB_WEBHOOK_MAX_BYTES;
+    mockRedisSet.mockResolvedValue("OK");
   });
 
   describe("signature verification (x-hub-signature-256)", () => {
@@ -441,6 +450,124 @@ describe("GitHub webhook route", () => {
     });
   });
 
+  describe("webhook deduplication (X-GitHub-Delivery) (#1534)", () => {
+    it("records delivery in Redis with 24-hour TTL and enqueues job on first arrival", async () => {
+      const deliveryId = "delivery-first-time-1";
+      const req = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+
+      const res = await POST(req);
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued", deliveryId });
+
+      expect(mockRedisSet).toHaveBeenCalledWith(
+        `webhook:delivery:${deliveryId}`,
+        "1",
+        "EX",
+        86_400,
+        "NX",
+      );
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+    });
+
+    it("returns 200 quickly and ignores repeat delivery with the same X-GitHub-Delivery without enqueuing a second scan", async () => {
+      const deliveryId = "delivery-duplicate-replay";
+      const req1 = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+      const req2 = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      // First delivery: Redis records successfully
+      mockRedisSet.mockResolvedValueOnce("OK");
+      const res1 = await POST(req1);
+      expect(res1.status).toBe(202);
+      expect(addWebhookJob).toHaveBeenCalledTimes(1);
+
+      // Repeat delivery: Redis atomic NX returns null (already exists)
+      mockRedisSet.mockResolvedValueOnce(null);
+      const res2 = await POST(req2);
+      expect(res2.status).toBe(200);
+      expect(await res2.json()).toEqual({
+        message: "Duplicate webhook delivery ignored",
+        deliveryId,
+      });
+
+      // No second scan was enqueued
+      expect(addWebhookJob).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `[WEBHOOK_DEDUPE] Duplicate GitHub webhook delivery ignored: ${deliveryId}`,
+        ),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it("scans and enqueues both deliveries when different delivery IDs are sent for the same PR", async () => {
+      const req1 = makeRequest(minimalPRPayload, { "x-github-delivery": "delivery-pr-event-1" });
+      const req2 = makeRequest(minimalPRPayload, { "x-github-delivery": "delivery-pr-event-2" });
+
+      mockRedisSet.mockResolvedValue("OK");
+
+      const res1 = await POST(req1);
+      expect(res1.status).toBe(202);
+
+      const res2 = await POST(req2);
+      expect(res2.status).toBe(202);
+
+      expect(addWebhookJob).toHaveBeenCalledTimes(2);
+      expect(mockRedisSet).toHaveBeenCalledTimes(2);
+      expect(mockRedisSet).toHaveBeenNthCalledWith(
+        1,
+        "webhook:delivery:delivery-pr-event-1",
+        "1",
+        "EX",
+        86_400,
+        "NX",
+      );
+      expect(mockRedisSet).toHaveBeenNthCalledWith(
+        2,
+        "webhook:delivery:delivery-pr-event-2",
+        "1",
+        "EX",
+        86_400,
+        "NX",
+      );
+    });
+
+    it("processes normally (fail-open) and enqueues job when Redis is unavailable or throws", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockRedisSet.mockRejectedValueOnce(new Error("Redis connection timed out"));
+
+      const deliveryId = "delivery-redis-down";
+      const req = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+
+      const res = await POST(req);
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued", deliveryId });
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`[WEBHOOK_DEDUPE] Redis error checking delivery ${deliveryId}`),
+        expect.any(Error),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it("does not record delivery in Redis if signature verification fails", async () => {
+      const deliveryId = "delivery-unauthenticated";
+      const req = makeRequest(minimalPRPayload, {
+        "x-github-delivery": deliveryId,
+        "x-hub-signature-256": "sha256=" + "0".repeat(64),
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      expect(mockRedisSet).not.toHaveBeenCalled();
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+  });
+
   describe("payload parsing (#562)", () => {
     it("returns 400, not 500, for a verified body that is not valid JSON", async () => {
       // A bare SyntaxError carries no statusCode, so the error handler used to
@@ -652,6 +779,29 @@ describe("GitHub webhook route", () => {
       expect(addWebhookJob).toHaveBeenCalledWith(
         expect.objectContaining({ deliveryId, event: "pull_request" }),
         expect.objectContaining({ jobId: `delivery-${deliveryId}`, replaceFailed: true }),
+      );
+    });
+
+    it("uses X-GitHub-Delivery as correlationId and includes it in job data and response (#1537)", async () => {
+      const deliveryId = "delivery-corr-test-999";
+      const req = makeRequest(minimalPRPayload, { "x-github-delivery": deliveryId });
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(202);
+      expect(json).toMatchObject({
+        status: "queued",
+        deliveryId,
+        correlationId: deliveryId,
+      });
+
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          correlationId: deliveryId,
+          event: "pull_request",
+        }),
+        expect.objectContaining({ jobId: `delivery-${deliveryId}` }),
       );
     });
 

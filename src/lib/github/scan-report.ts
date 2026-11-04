@@ -1,4 +1,7 @@
 import { severityBadge } from "@/lib/severity";
+import { SECUREFLOW_COMMENT_MARKER } from "./sticky-comment";
+
+export { SECUREFLOW_COMMENT_MARKER };
 
 /**
  * The summary comment the webhook worker posts on a pull request.
@@ -55,6 +58,8 @@ export interface ScanReportSummaryInput {
   rejectedSuppressions?: readonly RejectedSuppressionReport[];
   /** Previously triaged/dismissed findings on this repository suppressed during the scan. */
   previouslyDismissedCount?: number;
+  /** Scanned commit SHA to show in the report. */
+  commitSha?: string | null;
 }
 
 /** Quote every line of `text`, so a multi-paragraph value stays one blockquote. */
@@ -91,8 +96,14 @@ export function renderScanReportSummary({
   suppressedFindings = [],
   rejectedSuppressions = [],
   previouslyDismissedCount = 0,
+  commitSha,
 }: ScanReportSummaryInput): string {
-  let body = `### 🛡️ SecureFlow AI Security Report\n\n`;
+  let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
+
+  if (commitSha) {
+    body += `Scanned commit: \`${commitSha}\`\n\n`;
+  }
+
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
 
   if (previouslyDismissedCount > 0) {

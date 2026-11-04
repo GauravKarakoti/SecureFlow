@@ -46,6 +46,10 @@ export interface ScanJobData {
   customPlaceholders: string[];
   /** User ID for audit logging. */
   userId?: string;
+  /** Correlation ID for distributed tracing across webhook, queue, and worker (#1537). */
+  correlationId?: string;
+  /** GitHub webhook delivery ID if triggered via webhook. */
+  deliveryId?: string | null;
 }
 
 // --- Queue setup ---
@@ -104,6 +108,7 @@ export async function enqueueScan(
 
   // Assign the real database scanJob.id to the job data before adding to queue
   data.scanJobId = scanJob.id;
+  data.correlationId = data.correlationId || crypto.randomUUID();
 
   try {
     await scanQueue.add("scan-repository", data, {
