@@ -7,17 +7,13 @@ import {
   CircuitState,
 } from "@/ai/resilience";
 
-const {
-  authMock,
-  findUniqueMock,
-  subscribeVoiceAlertMock,
-  checkRateLimitDetailedMock,
-} = vi.hoisted(() => ({
-  authMock: vi.fn(),
-  findUniqueMock: vi.fn(),
-  subscribeVoiceAlertMock: vi.fn(),
-  checkRateLimitDetailedMock: vi.fn(),
-}));
+const { authMock, findUniqueMock, subscribeVoiceAlertMock, checkRateLimitDetailedMock } =
+  vi.hoisted(() => ({
+    authMock: vi.fn(),
+    findUniqueMock: vi.fn(),
+    subscribeVoiceAlertMock: vi.fn(),
+    checkRateLimitDetailedMock: vi.fn(),
+  }));
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -100,7 +96,12 @@ describe("GET /api/voice-alerts/stream - Circuit Breaker & Provider Resilience (
     });
 
     const secondChunk = await reader.read();
-    const secondEvent = JSON.parse(decoder.decode(secondChunk.value).replace(/^data: /, "").trim());
+    const secondEvent = JSON.parse(
+      decoder
+        .decode(secondChunk.value)
+        .replace(/^data: /, "")
+        .trim(),
+    );
     expect(secondEvent).toMatchObject({
       type: "voice-alert",
       repositoryFullName: "acme/repo",

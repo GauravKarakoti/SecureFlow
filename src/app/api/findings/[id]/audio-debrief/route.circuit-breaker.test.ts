@@ -127,9 +127,13 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
     expect(breaker.getState()).toBe(CircuitState.OPEN);
 
     findingFindFirstMock.mockResolvedValue(mockFindingWithoutExplanation);
-    aiExplanationMock.mockRejectedValue(new Error("Circuit breaker is OPEN for model " + LLM_MODEL));
+    aiExplanationMock.mockRejectedValue(
+      new Error("Circuit breaker is OPEN for model " + LLM_MODEL),
+    );
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-1/audio-debrief");
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-1/audio-debrief",
+    );
     const response = await GET(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-1" }),
     });
@@ -159,7 +163,9 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
       throw timeoutError;
     });
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-1/audio-debrief");
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-1/audio-debrief",
+    );
     const response = await GET(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-1" }),
     });
@@ -177,7 +183,9 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
     const cachedBuffer = Buffer.from("ID3-MOCK-CACHED-AUDIO-DATA");
     getCachedAudioMock.mockResolvedValue(cachedBuffer);
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-2/audio-debrief");
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-2/audio-debrief",
+    );
     const response = await GET(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-2" }),
     });
@@ -197,7 +205,9 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
     (gatewayTimeout as any).status = 504;
     fetchElevenLabsMock.mockRejectedValue(gatewayTimeout);
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-2/audio-debrief");
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-2/audio-debrief",
+    );
     const response = await GET(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-2" }),
     });
@@ -213,9 +223,12 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
     findingFindFirstMock.mockResolvedValue(mockFindingWithExplanation);
     fetchElevenLabsMock.mockRejectedValue(new Error("Circuit breaker is OPEN for elevenlabs/tts"));
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-2/audio-debrief", {
-      headers: { Accept: "application/json" },
-    });
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-2/audio-debrief",
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
     const response = await GET(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-2" }),
     });
@@ -233,9 +246,12 @@ describe("GET /api/findings/[id]/audio-debrief - Circuit Breaker & Provider Outa
     findingFindFirstMock.mockResolvedValue(mockFindingWithExplanation);
     fetchElevenLabsMock.mockRejectedValue(new Error("Service unavailable"));
 
-    const req = new NextRequest("http://localhost/api/findings/finding-audio-breaker-2/audio-debrief", {
-      method: "POST",
-    });
+    const req = new NextRequest(
+      "http://localhost/api/findings/finding-audio-breaker-2/audio-debrief",
+      {
+        method: "POST",
+      },
+    );
     const response = await POST(req, {
       params: Promise.resolve({ id: "finding-audio-breaker-2" }),
     });
