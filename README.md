@@ -397,6 +397,7 @@ npm run genkit:dev
 | `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
 | `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
+| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings and audit logs (in days, off by default)               |
 
 ### Trusted proxies and rate limiting
 
@@ -427,22 +428,41 @@ walked from the right past known proxies rather than counting a fixed number of
 hops. IPv4 CIDR blocks and bare addresses are supported; IPv6 entries are matched
 exactly.
 
+### Data retention and automated cleanup
+
+Findings and audit logs accumulate over time. Self-hosters can bound storage growth by configuring `DATA_RETENTION_DAYS`:
+
+```env
+# Optional: Auto-cleanup findings and audit logs older than N days (off by default)
+DATA_RETENTION_DAYS=90
+```
+
+Cleanup can be executed via the dedicated CLI script:
+
+- **CLI Dry Run (default)**: `npm run cleanup` (reports eligible counts without modifying the database)
+- **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
+- **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
+- **CLI Custom Batch Size**: `npm run cleanup -- --batch-size=200 --apply`
+
+> 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding` and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
+
 ---
 
 ## 📝 Available Scripts
 
-| Script               | Description                                  |
-| -------------------- | -------------------------------------------- |
-| `npm run dev`        | Start dev server on port 9002 with Turbopack |
-| `npm run build`      | Build for production                         |
-| `npm run start`      | Start production server                      |
-| `npm run lint`       | Run ESLint                                   |
-| `npm run typecheck`  | Run TypeScript compiler checks               |
-| `npm run db:gen`     | Generate Prisma Client                       |
-| `npm run db:migrate` | Run Prisma migrations                        |
-| `npm run db:push`    | Push schema to DB without migrations         |
-| `npm run db:seed`    | Seed default policy templates                |
-| `npm run genkit:dev` | Start Genkit AI development environment      |
+| Script               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `npm run dev`        | Start dev server on port 9002 with Turbopack                              |
+| `npm run build`      | Build for production                                                      |
+| `npm run start`      | Start production server                                                   |
+| `npm run lint`       | Run ESLint                                                                |
+| `npm run typecheck`  | Run TypeScript compiler checks                                            |
+| `npm run db:gen`     | Generate Prisma Client                                                    |
+| `npm run db:migrate` | Run Prisma migrations                                                     |
+| `npm run db:push`    | Push schema to DB without migrations                                      |
+| `npm run db:seed`    | Seed default policy templates                                             |
+| `npm run genkit:dev` | Start Genkit AI development environment                                   |
+| `npm run cleanup`    | Run data retention cleanup (dry-run default; pass `-- --apply` to delete) |
 
 ---
 

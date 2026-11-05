@@ -34,6 +34,8 @@
     "worker:render": "tsx scripts/start-worker.ts",
     "retention": "tsx --env-file=.env scripts/retention.ts",
     "retention:render": "tsx scripts/retention.ts",
+    "cleanup": "tsx --env-file=.env scripts/cleanup.ts",
+    "cleanup:render": "tsx scripts/cleanup.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check . || node -e \"console.error('\\n❌ Formatting check failed! Run: npm run format\\n'); process.exit(1)\"",
     "changeset": "changeset",
