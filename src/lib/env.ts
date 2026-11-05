@@ -38,6 +38,8 @@ const envSchema = z.object({
 
   GROQ_MODEL: z.string().optional(),
 
+  DIFF_CHUNK_MAX_CHARS: z.string().optional(),
+  DIFF_FILE_MAX_CHARS: z.string().optional(),
   FINDING_SNIPPET_REDACT_DAYS: z.string().optional(),
   WEBHOOK_EVENT_RETENTION_DAYS: z.string().optional(),
   SCAN_RESULT_RETENTION_DAYS: z.string().optional(),

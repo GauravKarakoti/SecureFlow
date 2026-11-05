@@ -104,6 +104,26 @@ export function getScanModelChain(configured?: string): string[] {
   return [primary, ...fallbacks];
 }
 
+export const DEFAULT_DIFF_FILE_MAX_CHARS = 50_000;
+export const DEFAULT_DIFF_CHUNK_MAX_CHARS = 32_000;
+
+export function resolveDiffFileMaxChars(configured?: string): number {
+  const val = configured ?? process.env.DIFF_FILE_MAX_CHARS;
+  const n = val ? parseInt(val, 10) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_FILE_MAX_CHARS;
+}
+
+export function resolveDiffChunkMaxChars(configured?: string): number {
+  const val = configured ?? process.env.DIFF_CHUNK_MAX_CHARS;
+  const n = val ? parseInt(val, 10) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_CHUNK_MAX_CHARS;
+}
+
+export interface SkippedFile {
+  filename: string;
+  reason: "oversized" | "deadline" | "binary";
+}
+
 // --- Timeout / deadline guards -------------------------------------------------------------
 // A single malformed or maliciously-crafted diff (e.g. one engineered to make the LLM hang,
 // or a PR large enough to spawn many batches) must never be able to hang the scan indefinitely
@@ -510,6 +530,7 @@ export class ArmorIQScanner {
   }
 
   public lastSuppressionResult: InlineSuppressionResult | null = null;
+  public lastSkippedFiles: SkippedFile[] = [];
 
   async scanPullRequest(
     files: FileChange[],
@@ -523,8 +544,9 @@ export class ArmorIQScanner {
     let currentBatch = "";
     let currentBatchFiles: string[] = [];
     const allFindings: ScanFinding[] = [];
-    const ABSOLUTE_MAX_FILE_SIZE = 50000;
-    const MAX_COMBINED_LENGTH = 32000;
+    const skippedFiles: SkippedFile[] = [];
+    const ABSOLUTE_MAX_FILE_SIZE = resolveDiffFileMaxChars();
+    const MAX_COMBINED_LENGTH = resolveDiffChunkMaxChars();
 
     let combinedIgnores = [...customIgnores];
     let combinedPlaceholders = [...customPlaceholders];
@@ -565,6 +587,7 @@ export class ArmorIQScanner {
         console.warn(
           `⏱️ Scan deadline (${MAX_TOTAL_SCAN_MS / 1000}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
         );
+        skippedFiles.push({ filename: file.filename, reason: "deadline" });
         break;
       }
 
@@ -592,6 +615,7 @@ export class ArmorIQScanner {
         console.warn(
           `Skipping ${file.filename}: diff exceeds ${ABSOLUTE_MAX_FILE_SIZE} characters.`,
         );
+        skippedFiles.push({ filename: file.filename, reason: "oversized" });
         continue;
       }
 
@@ -993,6 +1017,9 @@ CRITICAL RULES:
       console.warn(
         `⏱️ Scan deadline exceeded before the final batch (${currentBatchFiles.join(", ")}) could run — dropped from results.`,
       );
+      for (const fn of currentBatchFiles) {
+        skippedFiles.push({ filename: fn, reason: "deadline" });
+      }
     }
 
     if (deadlineHit) {
@@ -1004,6 +1031,7 @@ CRITICAL RULES:
     const combinedFindings = mergeFindings(deterministicFindings, allFindings);
     const suppressionResult = applyInlineSuppression(combinedFindings, files);
     this.lastSuppressionResult = suppressionResult;
+    this.lastSkippedFiles = skippedFiles;
 
     return suppressionResult.activeFindings;
   }
