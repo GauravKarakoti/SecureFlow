@@ -199,7 +199,9 @@ describe("GET /api/findings/[id]/explain-stream - Circuit Breaker & Provider Out
     tripModelCircuitBreaker(FALLBACK_MODEL);
 
     streamGeneratorMock.mockImplementation(async function* () {
-      const err = new Error("All AI inference providers unavailable (Groq and local circuits OPEN)");
+      const err = new Error(
+        "All AI inference providers unavailable (Groq and local circuits OPEN)",
+      );
       err.name = "CircuitBreakerError";
       throw err;
     });

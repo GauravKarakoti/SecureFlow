@@ -18,7 +18,9 @@ const { resetTransmissionCache } = await import("@/lib/heist/transmission-cache"
 
 const decoder = new TextDecoder();
 
-async function readAllEvents(stream: ReadableStream<Uint8Array>): Promise<Array<Record<string, unknown>>> {
+async function readAllEvents(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Array<Record<string, unknown>>> {
   const reader = stream.getReader();
   const events: Array<Record<string, unknown>> = [];
 
@@ -127,7 +129,9 @@ describe("GET /api/heist-transmission - Circuit Breaker & Provider Outage Resili
 
   it("scrubs internal connection credentials from error frames when AI endpoint error leaks environment variables", async () => {
     streamHeistMessageMock.mockImplementation(async function* () {
-      throw new Error("Connection failed to https://api.groq.com with Bearer gsk_abc1234567890qwertyuiop");
+      throw new Error(
+        "Connection failed to https://api.groq.com with Bearer gsk_abc1234567890qwertyuiop",
+      );
     });
 
     const stream = createHeistStream({ projectName: "payload-screen" });
