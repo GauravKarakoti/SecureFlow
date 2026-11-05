@@ -1,7 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { parseCleanupArgs, formatCleanupReport, runCleanupCli } from "./cleanup";
-import * as cleanupEngine from "../src/lib/retention/cleanup";
-
 describe("Data Retention Cleanup CLI (scripts/cleanup.ts)", () => {
   describe("parseCleanupArgs", () => {
     it("defaults to dry-run mode when no arguments are provided", () => {

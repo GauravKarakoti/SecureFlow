@@ -174,12 +174,11 @@ For self-hosters wishing to bound the retention of both `Finding` and `AuditLog`
 
 ```env
 DATA_RETENTION_DAYS=90
-CLEANUP_SECRET="your-cleanup-secret"
 ```
 
 - When unset: retention deletion is disabled.
-- When set: older findings and audit logs can be cleaned up in batches via CLI (`npm run cleanup -- --apply`) or via the secret-protected endpoint `POST /api/cleanup`.
-- **Dry-run mode**: `npm run cleanup` (or `POST /api/cleanup?dryRun=true`) reports counts of affected records and deletes nothing.
+- When set: older findings and audit logs can be cleaned up in batches via CLI (`npm run cleanup -- --apply`).
+- **Dry-run mode**: `npm run cleanup` reports counts of affected records and deletes nothing.
 - **Safety guarantee**: The cleanup never touches users, repositories, or policies.
 
 ---

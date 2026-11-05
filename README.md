@@ -363,7 +363,6 @@ npm run genkit:dev
 | `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
 | `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings and audit logs (in days, off by default)               |
-| `CLEANUP_SECRET`          | ⬜       | Optional — Secret token used to authenticate automated cleanup requests (`/api/cleanup`)      |
 
 ### Trusted proxies and rate limiting
 
@@ -401,17 +400,14 @@ Findings and audit logs accumulate over time. Self-hosters can bound storage gro
 ```env
 # Optional: Auto-cleanup findings and audit logs older than N days (off by default)
 DATA_RETENTION_DAYS=90
-
-# Optional: Shared secret to authenticate cleanup route requests
-CLEANUP_SECRET="your-cleanup-secret"
 ```
 
-Cleanup can be executed via CLI or through the secret-protected API route:
+Cleanup can be executed via the dedicated CLI script:
 
 - **CLI Dry Run (default)**: `npm run cleanup` (reports eligible counts without modifying the database)
 - **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
 - **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
-- **Secret-Protected API Route**: `POST /api/cleanup` with `Authorization: Bearer <CLEANUP_SECRET>` or `x-cleanup-secret: <CLEANUP_SECRET>` (supports `?dryRun=true` or `{ "dryRun": true }` to preview counts).
+- **CLI Custom Batch Size**: `npm run cleanup -- --batch-size=200 --apply`
 
 > 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding` and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
 

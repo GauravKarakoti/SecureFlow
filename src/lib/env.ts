@@ -43,9 +43,6 @@ const envSchema = z.object({
   SCAN_RESULT_RETENTION_DAYS: z.string().optional(),
   AUDIT_LOG_RETENTION_DAYS: z.string().optional(),
   DATA_RETENTION_DAYS: z.string().optional(),
-  CLEANUP_SECRET: z.string().optional(),
-  CRON_SECRET: z.string().optional(),
-
   LOG_LEVEL: z.string().optional(),
 
   OUTBOUND_WEBHOOK_TIMEOUT_MS: z.string().optional(),

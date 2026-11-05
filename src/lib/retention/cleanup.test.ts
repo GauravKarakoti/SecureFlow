@@ -1,10 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   cleanupDataRetention,
   parseDataRetentionDays,
   resolveDataRetentionDays,
   calculateRetentionCutoff,
-  DEFAULT_CLEANUP_BATCH_SIZE,
 } from "./cleanup";
 import { RetentionConfigError } from "./policy";
 
