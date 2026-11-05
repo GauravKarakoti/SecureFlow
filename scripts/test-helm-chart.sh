@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "Helm chart test failed at line $LINENO" >&2' ERR
 
 chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/secureflow" && pwd)"
 helm_bin="${HELM_BIN:-helm}"
@@ -154,4 +155,55 @@ for workload in app worker migration retention postgresql redis; do
   expect_schema_rejection --set "$workload.resources.limits=null"
   expect_schema_rejection --set "$workload.resources.requests=null"
   expect_schema_rejection --set "$workload.resources.limits.cpu=lots"
+done
+
+# Secret provider modes (#1552). Use complete controller fixtures so failures
+# cannot be mistaken for their missing-payload validation.
+external_args=(--set externalSecrets.enabled=true
+  --set externalSecrets.secretStoreRef.name=local-test-store
+  --set 'externalSecrets.data[0].secretKey=AUTH_SECRET'
+  --set 'externalSecrets.data[0].remoteRef.key=local-test-key')
+sealed_args=(--set sealedSecrets.enabled=true
+  --set-string sealedSecrets.encryptedData.AUTH_SECRET=synthetic-encrypted-fixture)
+
+grep -Fq '# Source: secureflow/templates/secret.yaml' <<< "$rendered"
+for provider in existing external sealed; do
+  case "$provider" in
+    existing) args=(--set secrets.existingSecret=precreated-secret) ;;
+    external) args=("${external_args[@]}") ;;
+    sealed) args=("${sealed_args[@]}") ;;
+  esac
+  # No authSecret: controller/existing modes must not need plaintext values.
+  manifest="$("$helm_bin" template check "$chart_dir" "${args[@]}")"
+  if grep -Fq '# Source: secureflow/templates/secret.yaml' <<< "$manifest"; then
+    echo "$provider mode rendered a raw Secret" >&2
+    exit 1
+  fi
+  case "$provider" in
+    external) grep -Eq '^kind: ExternalSecret[[:space:]]*$' <<< "$manifest" ;;
+    sealed) grep -Eq '^kind: SealedSecret[[:space:]]*$' <<< "$manifest" ;;
+    existing) grep -Fq 'name: precreated-secret' <<< "$manifest" ;;
+  esac
+done
+
+expect_provider_rejection() {
+  local output
+  if output="$("$helm_bin" template check "$chart_dir" "$@" 2>&1)"; then
+    echo "accepted conflicting secret providers: $*" >&2
+    exit 1
+  fi
+  # Distinguish the schema guard and template guard from unrelated failures.
+  if [[ " $* " == *' --skip-schema-validation '* ]]; then
+    grep -Fq 'Secret providers are mutually exclusive' <<< "$output"
+  else
+    grep -Eq "Must not validate the schema \(not\)|'not' failed" <<< "$output"
+  fi
+}
+for validation in schema template; do
+  skip=()
+  if [ "$validation" = template ]; then skip=(--skip-schema-validation); fi
+  expect_provider_rejection "${skip[@]}" "${external_args[@]}" "${sealed_args[@]}"
+  expect_provider_rejection "${skip[@]}" --set secrets.existingSecret=precreated-secret "${external_args[@]}"
+  expect_provider_rejection "${skip[@]}" --set secrets.existingSecret=precreated-secret "${sealed_args[@]}"
+  expect_provider_rejection "${skip[@]}" --set secrets.existingSecret=precreated-secret "${external_args[@]}" "${sealed_args[@]}"
 done

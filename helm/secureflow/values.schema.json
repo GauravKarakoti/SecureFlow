@@ -1533,7 +1533,7 @@
       "type": "string",
       "description": "Override the full release resource name."
     },
-      "service": {
+    "service": {
       "type": "object",
       "properties": {
         "portName": {
@@ -1595,5 +1595,132 @@
       ],
       "additionalProperties": false
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "Secret providers are mutually exclusive.",
+      "not": {
+        "allOf": [
+          {
+            "required": [
+              "externalSecrets"
+            ],
+            "properties": {
+              "externalSecrets": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "required": [
+              "sealedSecrets"
+            ],
+            "properties": {
+              "sealedSecrets": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "description": "Secret providers are mutually exclusive.",
+      "not": {
+        "allOf": [
+          {
+            "required": [
+              "secrets"
+            ],
+            "properties": {
+              "secrets": {
+                "required": [
+                  "existingSecret"
+                ],
+                "properties": {
+                  "existingSecret": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          {
+            "required": [
+              "externalSecrets"
+            ],
+            "properties": {
+              "externalSecrets": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "description": "Secret providers are mutually exclusive.",
+      "not": {
+        "allOf": [
+          {
+            "required": [
+              "secrets"
+            ],
+            "properties": {
+              "secrets": {
+                "required": [
+                  "existingSecret"
+                ],
+                "properties": {
+                  "existingSecret": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          {
+            "required": [
+              "sealedSecrets"
+            ],
+            "properties": {
+              "sealedSecrets": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
 }
