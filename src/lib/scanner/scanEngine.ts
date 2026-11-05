@@ -81,6 +81,7 @@ export interface ScanJobResult {
   /** The scanner's verdict as `iq.evaluateFindings` phrased it, for logs and copy. */
   verdict: string;
   findings: EnrichedScanFinding[];
+  skippedFiles?: Array<{ filename: string; reason: string }>;
 }
 
 export interface ScanProgress {
@@ -269,6 +270,7 @@ export async function processScanJob(
   });
 
   const allFindings: EnrichedScanFinding[] = [];
+  const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
   let scannedFiles = 0;
 
   for (let i = 0; i < fileChanges.length; i += CHUNK_SIZE) {
@@ -282,6 +284,9 @@ export async function processScanJob(
         customPlaceholders,
       );
       allFindings.push(...chunkFindings);
+      if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
+        allSkippedFiles.push(...scanner.lastSkippedFiles);
+      }
     } catch (err) {
       log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
         error: err instanceof Error ? err.message : String(err),
@@ -405,6 +410,15 @@ export async function processScanJob(
       const gateSummary = formatGateSummaryLine(repositoryGateConfig);
 
       // Create check run
+      const checkNoticeParts: string[] = [];
+      if (gateSummary) checkNoticeParts.push(gateSummary);
+      if (allSkippedFiles.length > 0) {
+        checkNoticeParts.push(
+          `⚠️ ${allSkippedFiles.length} file(s) were not scanned (oversized or scan deadline exceeded).`,
+        );
+      }
+      const checkNotice = checkNoticeParts.length > 0 ? checkNoticeParts.join("\n\n") : undefined;
+
       await postScanCheckRun(octokit as any, {
         owner,
         repo,
@@ -412,18 +426,30 @@ export async function processScanJob(
         decision,
         findingsCount: enrichedFindings.length,
         fileCount: totalFiles,
-        notice: gateSummary || undefined,
+        notice: checkNotice,
         findings: enrichedFindings,
       });
 
-      // Post PR comment if there are findings
+      // Post PR comment if there are findings or skipped files
       const suppressedCount = allFindings.length - activeFindings.length;
-      if (enrichedFindings.length > 0) {
+      if (enrichedFindings.length > 0 || allSkippedFiles.length > 0) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
           body += `Scanned commit: \`${headSha}\`\n\n`;
         }
-        body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
+        if (enrichedFindings.length > 0) {
+          body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
+        } else {
+          body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
+        }
+
+        if (allSkippedFiles.length > 0) {
+          body += `> ⚠️ **${allSkippedFiles.length} file(s) were not scanned** (too large or scan deadline exceeded):\n`;
+          allSkippedFiles.forEach((f) => {
+            body += `> - \`${f.filename}\` (${f.reason})\n`;
+          });
+          body += `\n`;
+        }
 
         if (suppressedCount > 0) {
           body += `🛡️ **${suppressedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
@@ -560,5 +586,6 @@ export async function processScanJob(
     policyDecision: storedPolicyDecision(decision),
     verdict: decision,
     findings: enrichedFindings,
+    skippedFiles: allSkippedFiles,
   };
 }
