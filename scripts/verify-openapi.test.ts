@@ -71,7 +71,8 @@ describe("scripts/verify-openapi.ts (#1354)", () => {
 
   describe("documentedPaths", () => {
     it("reads the path keys, with LF or CRLF line endings", () => {
-      const spec = "openapi: 3.1.0\r\npaths:\r\n  /api/a:\r\n    get:\r\n  /api/b/{id}:\n    post:\n";
+      const spec =
+        "openapi: 3.1.0\r\npaths:\r\n  /api/a:\r\n    get:\r\n  /api/b/{id}:\n    post:\n";
       expect(documentedPaths(spec)).toEqual(new Set(["/api/a", "/api/b/{id}"]));
     });
   });

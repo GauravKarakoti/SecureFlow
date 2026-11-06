@@ -149,9 +149,7 @@ describe("scanner.scanPullRequest chunking and skipped files", () => {
 
     const findings = await scanner.scanPullRequest(files);
     expect(findings).toEqual([]);
-    expect(scanner.lastSkippedFiles).toEqual([
-      { filename: "src/huge.ts", reason: "oversized" },
-    ]);
+    expect(scanner.lastSkippedFiles).toEqual([{ filename: "src/huge.ts", reason: "oversized" }]);
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const promptArg = mockCreate.mock.calls[0][0].messages[1].content;
     expect(promptArg).toContain("src/normal.ts");

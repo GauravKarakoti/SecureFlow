@@ -1702,7 +1702,7 @@ paths:
         - name: stream
           in: query
           required: false
-          description: Stream the report as Server-Sent Events (also via `Accept: text/event-stream`)
+          description: "Stream the report as Server-Sent Events (also via `Accept: text/event-stream`)"
           schema:
             type: boolean
             default: false

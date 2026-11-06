@@ -216,7 +216,8 @@ function createMockPrismaClient() {
 
       if (method === "findFirst" || method === "findUnique") {
         const id = args[0]?.where?.id;
-        const requestedUserId = args[0]?.where?.scanResult?.pullRequest?.repository?.userId || "mock-admin-id";
+        const requestedUserId =
+          args[0]?.where?.scanResult?.pullRequest?.repository?.userId || "mock-admin-id";
         if (id === "finding-2") {
           return {
             id: "finding-2",

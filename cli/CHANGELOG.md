@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 2.8.1
+
+### Patch Changes
+
+- adeef61: Added dedicated resilience, circuit-breaker, and provider outage test suites for `/api/findings/[id]/explain-stream`, `/api/findings/[id]/audio-debrief`, `/api/voice-alerts/stream`, and `/api/heist-transmission` (#1553).
+- 7a4ee45: Added comprehensive Playwright E2E test suite in `e2e/cli-scan-triage.spec.ts` covering CLI scan uploads (`/api/cli/scan`), findings validation, and dashboard finding triage dismissal persistence on reload (#1555).
+- 6fff754: Reject conflicting Helm secret providers in schema validation and template rendering, including existing Secret references combined with controller-managed secrets.
+
 ## 2.8.0
 
 ### Minor Changes

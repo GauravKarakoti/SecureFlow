@@ -1,5 +1,6 @@
 import { z } from "genkit";
 import { getAiInstance, getDefaultModelRef } from "@/ai/genkit";
+import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
 
 const PatchInputSchema = z.object({
   vulnerableCode: z.string(),
@@ -26,14 +27,9 @@ export async function generateRemediationPatch(input: PatchInput): Promise<Patch
 
   let threatIntelContext = "";
   try {
-    const mcpModule = (await import("../../../cli/src/mcp")) as {
-      queryLiveThreatIntelligence?: (query: string) => Promise<string>;
-    };
-    if (typeof mcpModule.queryLiveThreatIntelligence === "function") {
-      threatIntelContext = await mcpModule.queryLiveThreatIntelligence(
-        `${validatedInput.findingDescription} ${validatedInput.filePath}`,
-      );
-    }
+    threatIntelContext = await queryLiveThreatIntelligence(
+      `${validatedInput.findingDescription} ${validatedInput.filePath}`,
+    );
   } catch {
     // Graceful degradation if MCP server module cannot be loaded
   }
