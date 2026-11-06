@@ -332,7 +332,10 @@ ${textOutput}`);
     console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
   }
 
-  if (unreadable.length > 0 && format === "text") {
+  // Warn on stderr regardless of output format: with --format json|sarif|...
+  // the scan would otherwise silently skip these entries, and stderr cannot
+  // corrupt the structured report on stdout.
+  if (unreadable.length > 0) {
     console.warn(
       `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
         unreadable.length === 1 ? "y" : "ies"
