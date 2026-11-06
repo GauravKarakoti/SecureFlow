@@ -275,6 +275,16 @@ describe("unreadable staged entries", () => {
     expect(output(warnSpy)).toContain("Could not read 1 staged entry");
     expect(output(warnSpy)).toContain("submodule");
   });
+
+  it("still warns on stderr when a structured output format is selected", async () => {
+    m.parseOutputFormat.mockReturnValue("json");
+    m.getStagedFiles.mockReturnValue(["submodule"]);
+    m.readStagedContent.mockReturnValue(null);
+    const code = await runCli("--format", "json");
+    expect(code).toBe(0);
+    expect(output(warnSpy)).toContain("Could not read 1 staged entry");
+    expect(output(warnSpy)).toContain("submodule");
+  });
 });
 
 describe("output formats", () => {
