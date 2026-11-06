@@ -318,6 +318,14 @@ describe("shouldFailScan", () => {
     expect(shouldFailScan(0, [{ severity: "LOW" }], null)).toBe(false);
   });
 
+  it("matches the default gate on severity case-insensitively", () => {
+    // The AI response is cast, not validated, so a lowercase "high" finding
+    // must still block under the default HIGH/CRITICAL gate.
+    expect(shouldFailScan(0, [{ severity: "high" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "Critical" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "medium" }], null)).toBe(false);
+  });
+
   it("fails when local violations (HIGH) meet or exceed threshold", () => {
     expect(shouldFailScan(1, [], "HIGH")).toBe(true);
     expect(shouldFailScan(1, [], "LOW")).toBe(true);
@@ -360,6 +368,12 @@ describe("blockingAiFindings", () => {
     expect(blockingAiFindings(findings, null)).toEqual([
       { severity: "CRITICAL" },
       { severity: "HIGH" },
+    ]);
+  });
+
+  it("matches severity case-insensitively when no threshold is set", () => {
+    expect(blockingAiFindings([{ severity: "high" }, { severity: "low" }], null)).toEqual([
+      { severity: "high" },
     ]);
   });
 
