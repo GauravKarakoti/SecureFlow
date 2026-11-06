@@ -102,4 +102,11 @@ describe("localModeEnv", () => {
         .LOCAL_AI_MODEL,
     ).toBe("codellama");
   });
+
+  it("does not take a following flag as the model value", () => {
+    // `--local-model --verbose` must not set the model to "--verbose".
+    expect(localModeEnv(argv("--local", "--local-model", "--verbose"), {})).toEqual({
+      LOCAL_AI_URL: "http://localhost:11434/v1",
+    });
+  });
 });
