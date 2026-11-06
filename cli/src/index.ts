@@ -388,4 +388,14 @@ ${textOutput}`);
   return 0;
 }
 
-main().then((code) => process.exit(code));
+main()
+  .then((code) => process.exit(code))
+  .catch((error: unknown) => {
+    // Last-resort handler: without it an unexpected throw (e.g. an
+    // unwritable -o path) surfaces as a raw UnhandledPromiseRejection
+    // stack and an exit code that depends on Node's rejection mode.
+    console.error(
+      `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  });
