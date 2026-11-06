@@ -1310,6 +1310,604 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/findings/{id}/audio-debrief:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Finding ID
+        schema:
+          type: string
+    get:
+      summary: Stream an audio debrief of a finding
+      description: |
+        Streams synthesized speech of the finding's AI security explanation.
+        POST is accepted as an alias of GET.
+      operationId: getFindingAudioDebrief
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Audio stream
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not signed in
+        "404":
+          description: Finding not found
+        "429":
+          description: Rate limit exceeded
+        "502":
+          description: Speech provider failed
+        "503":
+          description: Speech synthesis is not configured
+    post:
+      summary: Stream an audio debrief of a finding (alias of GET)
+      operationId: postFindingAudioDebrief
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Audio stream
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+
+  /api/findings/{id}/remediate/apply:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Finding ID
+        schema:
+          type: string
+    post:
+      summary: Apply an approved remediation patch
+      description: Applies the finding's generated remediation patch. The body must confirm approval.
+      operationId: applyFindingRemediation
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved]
+              properties:
+                approved:
+                  type: boolean
+                  const: true
+      responses:
+        "200":
+          description: Patch applied
+        "400":
+          description: Invalid request or approval missing
+        "401":
+          description: Not signed in
+        "403":
+          description: Not allowed to modify this repository
+        "404":
+          description: Finding not found
+        "409":
+          description: Patch no longer applies or was already applied
+        "502":
+          description: GitHub request failed
+        "503":
+          description: Remediation is not configured
+
+  /api/findings/export:
+    get:
+      summary: Export findings as CSV
+      description: |
+        Every finding matching the dashboard's filters, as CSV. Takes the same
+        query string as `/dashboard/findings`.
+      operationId: exportFindingsCsv
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Not signed in
+
+  /api/findings/status/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        description: Scan job ID
+        schema:
+          type: string
+    get:
+      summary: Poll scan job progress
+      description: Returns the scan job's status, progress percentage and, once finished, its results.
+      operationId: getScanJobStatus
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Job status
+        "401":
+          description: Not signed in
+        "404":
+          description: Job not found
+
+  /api/sbom/scan/status/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        description: SBOM scan job ID
+        schema:
+          type: string
+    get:
+      summary: Poll SBOM scan job progress
+      description: |
+        Returns the job's lifecycle status (PENDING, PROCESSING, COMPLETED, FAILED) and,
+        once completed, a page of its results. Jobs of other users report 404.
+      operationId: getSbomScanStatus
+      tags:
+        - SBOM
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Job status
+        "401":
+          description: Not signed in
+        "404":
+          description: Job not found
+
+  /api/cli/scan:
+    post:
+      summary: AI scan for the SecureFlow CLI
+      description: |
+        Runs the same ArmorIQ scanner the GitHub App webhook uses on code sent by the CLI.
+        No authentication beyond IP-based rate limiting.
+      operationId: cliScan
+      tags:
+        - CLI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Scan results
+        "400":
+          description: Invalid request
+        "429":
+          description: Rate limit exceeded
+
+  /api/audit/armoriq:
+    get:
+      summary: Get ArmorIQ enforcement decisions
+      description: Retrieves enforcement metadata and policy decisions recorded by ArmorIQ.
+      operationId: getArmorIqAudit
+      tags:
+        - Audit
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: scanJobId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: findingId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: decision
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: framework
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Audit records
+        "400":
+          description: Invalid query parameter
+        "401":
+          description: Not signed in
+        "403":
+          description: Insufficient role
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: Ingest an ArmorIQ verification proof
+      description: Ingests an ArmorIQ tool execution verification proof and links it to a scan job or finding.
+      operationId: postArmorIqAudit
+      tags:
+        - Audit
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Audit result
+        "401":
+          description: Not signed in
+        "403":
+          description: Insufficient role
+        "404":
+          description: Referenced record not found
+        "502":
+          description: ArmorIQ request failed
+        "503":
+          description: ArmorIQ is not configured
+
+  /api/compliance/export:
+    get:
+      summary: Export a compliance report
+      description: Generates SARIF, a PDF/HTML executive summary, or a JSON compliance dossier.
+      operationId: exportCompliance
+      tags:
+        - Compliance
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: framework
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: repositoryId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Compliance report in the requested format
+        "401":
+          description: Not signed in
+
+  /api/admin/ai-health:
+    get:
+      summary: AI provider health telemetry
+      description: Circuit breaker states and Redis error counters for the AI providers. Admin only.
+      operationId: getAiHealth
+      tags:
+        - Admin
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Telemetry
+        "401":
+          description: Not signed in
+        "403":
+          description: Requires ADMIN role
+    post:
+      summary: Trip or reset circuit breakers, or clear metrics
+      description: Admin action on the AI circuit breakers and metrics.
+      operationId: postAiHealth
+      tags:
+        - Admin
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Action result
+        "403":
+          description: Requires ADMIN role
+    patch:
+      summary: Trip or reset circuit breakers, or clear metrics (same as POST)
+      operationId: patchAiHealth
+      tags:
+        - Admin
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Settings updated
+        "403":
+          description: Requires ADMIN role
+
+  /api/health:
+    get:
+      summary: Health report
+      description: |
+        Structured health report with a status per component, for monitoring tools
+        (UptimeRobot, Datadog, Kubernetes probes). Can also stream as Server-Sent Events.
+      operationId: getHealth
+      tags:
+        - System
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          description: Stream the report as Server-Sent Events (also via `Accept: text/event-stream`)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Healthy or degraded
+          content:
+            application/json:
+              schema:
+                type: object
+            text/event-stream:
+              schema:
+                type: string
+        "503":
+          description: Down
+
+  /api/openapi:
+    get:
+      summary: This OpenAPI specification
+      operationId: getOpenApiSpec
+      tags:
+        - System
+      responses:
+        "200":
+          description: The specification
+        "500":
+          description: The specification could not be read
+
+  /api/metrics/landing:
+    get:
+      summary: Public landing page metrics
+      description: Public, unauthenticated metrics for the landing page, cached process-wide.
+      operationId: getLandingMetrics
+      tags:
+        - Metrics
+      responses:
+        "200":
+          description: Metrics
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: Metrics could not be loaded
+
+  /api/heist-transmission:
+    get:
+      summary: Stream a heist transmission
+      description: Streams a generated (or cached) transmission as Server-Sent Events `chunk` events.
+      operationId: streamHeistTransmission
+      tags:
+        - Leaderboard
+      parameters:
+        - name: project
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: rank
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: score
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: findingsCount
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: Invalid query parameter
+
+  /api/og/heist:
+    get:
+      summary: Open Graph image for a heist card
+      operationId: getHeistOgImage
+      tags:
+        - Leaderboard
+      responses:
+        "200":
+          description: PNG image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "500":
+          description: The image could not be rendered
+
+  /api/voice-alerts/audio:
+    get:
+      summary: Synthesize a voice alert
+      operationId: getVoiceAlertAudio
+      tags:
+        - Voice Alerts
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          description: Repository as owner/repo
+          schema:
+            type: string
+        - name: decision
+          in: query
+          required: true
+          schema:
+            type: string
+            example: BLOCK
+        - name: severity
+          in: query
+          required: true
+          schema:
+            type: string
+            example: CRITICAL
+      responses:
+        "200":
+          description: Audio
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Missing or invalid query parameter
+        "401":
+          description: Not signed in
+
+  /api/voice-alerts/stream:
+    get:
+      summary: Stream voice alerts
+      description: Authenticated Server-Sent Events stream of real-time voice alerts.
+      operationId: streamVoiceAlerts
+      tags:
+        - Voice Alerts
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Not signed in
+        "429":
+          description: Rate limit exceeded for voice alert connections
+
+  /api/webhooks:
+    post:
+      summary: Generic inbound webhook
+      description: |
+        Accepts inbound webhooks from any sender, verified with an HMAC-SHA256 signature.
+        The event type is read from the `x-webhook-event` or `x-event-type` header.
+      operationId: receiveGenericWebhook
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook accepted
+        "401":
+          description: Missing or invalid signature
+        "429":
+          description: Rate limit exceeded
+
+  /api/webhooks/generic:
+    post:
+      summary: Second generic inbound webhook
+      description: Same handler as `/api/webhooks`, with its own secret, for a sender that should not share it.
+      operationId: receiveGenericWebhookAlt
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook accepted
+        "401":
+          description: Missing or invalid signature
+        "429":
+          description: Rate limit exceeded
+
 tags:
   - name: SBOM
     description: Software Bill of Materials scanning
@@ -1323,3 +1921,15 @@ tags:
     description: Administrative operations (requires ADMIN role)
   - name: Webhooks
     description: External webhook receivers
+  - name: Audit
+    description: ArmorIQ enforcement records
+  - name: Compliance
+    description: Compliance reports and exports
+  - name: CLI
+    description: Endpoints used by the SecureFlow CLI
+  - name: Voice Alerts
+    description: Synthesized voice alerts
+  - name: Metrics
+    description: Public metrics
+  - name: System
+    description: Health and API metadata

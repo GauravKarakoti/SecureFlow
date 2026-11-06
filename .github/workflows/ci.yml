@@ -66,6 +66,10 @@ jobs:
       - name: Run Typechecker
         run: npm run typecheck
 
+      # Fails when a route handler under src/app/api has no entry in openapi.yaml.
+      - name: Verify OpenAPI spec covers every API route
+        run: npm run verify:openapi
+
       - name: Build Application
         run: npm run build
         # `next build` evaluates src/lib/env.ts while collecting page data, and
