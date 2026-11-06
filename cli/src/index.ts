@@ -96,30 +96,6 @@ Examples:
 `);
 }
 
-function parseFormatArg(): OutputFormat {
-  const formatIndex = process.argv.findIndex((arg) => arg === "--format");
-  if (formatIndex !== -1) {
-    const valStr = process.argv[formatIndex + 1];
-    if (valStr) {
-      const val = valStr.toLowerCase();
-      if (
-        val === "sarif" ||
-        val === "json" ||
-        val === "text" ||
-        val === "csv" ||
-        val === "html" ||
-        val === "markdown"
-      ) {
-        return val as OutputFormat;
-      }
-      if (val === "md") {
-        return "markdown";
-      }
-    }
-  }
-  return "text";
-}
-
 function parseSeverityArg(): Set<Severity> | null {
   const idx = process.argv.findIndex(
     (arg) => arg === "--severity" || arg.startsWith("--severity="),
