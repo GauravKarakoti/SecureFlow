@@ -1,5 +1,10 @@
 export async function queryLiveThreatIntelligence(query: string): Promise<string> {
-  const q = query.toLowerCase();
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    // An empty query would substring-match every knowledge-base entry and
+    // fabricate an advisory, so return no result instead.
+    return "";
+  }
   const match = KNOWLEDGE_BASE.find(
     (item) =>
       item.description.toLowerCase().includes(q) ||
