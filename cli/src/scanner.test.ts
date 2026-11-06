@@ -24,7 +24,7 @@ import {
   shouldScanFile,
   generateVoiceSummaryText,
 } from "./scanner.js";
-import { parseVoiceArg } from "./lib/output-args.js";
+import { CliUsageError, parseVoiceArg } from "./lib/output-args.js";
 import {
   isNonInteractiveCiEnvironment,
   getOsAudioCommand,
@@ -305,9 +305,25 @@ describe("parseFailOnArg", () => {
     expect(parseFailOnArg(["node", "index.js", "--fail-on", "low"])).toBe("LOW");
   });
 
-  it("returns null when --fail-on is not specified or invalid", () => {
+  it("returns null when --fail-on is not specified", () => {
     expect(parseFailOnArg(["node", "index.js"])).toBeNull();
-    expect(parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toBeNull();
+  });
+
+  it("throws a usage error for an unrecognised --fail-on= value", () => {
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toThrow(CliUsageError);
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toThrow(
+      'Unknown --fail-on value "INVALID"',
+    );
+  });
+
+  it("throws a usage error when --fail-on has no valid following value", () => {
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on"])).toThrow(CliUsageError);
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on"])).toThrow(
+      "--fail-on requires a value",
+    );
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on", "bogus"])).toThrow(
+      'Unknown --fail-on value "bogus"',
+    );
   });
 });
 
