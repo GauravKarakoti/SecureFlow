@@ -47,7 +47,7 @@ manually` note next to that specific finding.
 
 ## Testing
 
-`src/ai/flows/__tests__/developer-receives-ai-security-explanations.test.ts` exercises the
+`src/ai/flows/developer-receives-ai-security-explanations.test.ts` exercises the
 pre-filter and consistency check directly, plus the full
 `developerReceivesAISecurityExplanations()` flow end-to-end against a mocked LLM (no network
 calls), covering: known injection-style payloads, benign code with no injection framing, a
