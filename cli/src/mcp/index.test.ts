@@ -2,11 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
-  KNOWLEDGE_BASE,
   verifyDeclaredIntent,
   createThreatIntelMcpServer,
   queryLiveThreatIntelligence,
 } from "./index.js";
+import { KNOWLEDGE_BASE } from "../threat-intel.js";
 
 type TextContentItem = { type: string; text: string };
 
