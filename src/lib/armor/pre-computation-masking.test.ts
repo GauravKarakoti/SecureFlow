@@ -228,6 +228,26 @@ export function handlePayment() {
       expect(isLocalEndpoint("https://api.groq.com/openai/v1")).toBe(false);
     });
 
+    it("should match the whole RFC-1918 10.0.0.0/8 range, not just 10.0.*", () => {
+      expect(isLocalEndpoint("http://10.1.2.3:8000")).toBe(true);
+      expect(isLocalEndpoint("http://10.255.255.254")).toBe(true);
+      expect(isLocalEndpoint("http://192.168.1.10")).toBe(true);
+      expect(isLocalEndpoint("http://169.254.1.1")).toBe(true);
+    });
+
+    it("should not be fooled by private-looking substrings in a public URL", () => {
+      expect(isLocalEndpoint("https://127.0.0.1.attacker.com/v1")).toBe(false);
+      expect(isLocalEndpoint("https://api.evil.com/?next=192.168.1.1")).toBe(false);
+      expect(isLocalEndpoint("https://localhost.evil.com")).toBe(false);
+      expect(isLocalEndpoint("https://10.0.0.5.evil.com")).toBe(false);
+    });
+
+    it("should recognise .local mDNS hostnames and reject unparseable input", () => {
+      expect(isLocalEndpoint("http://printer.local:631")).toBe(true);
+      expect(isLocalEndpoint("not a url")).toBe(false);
+      expect(isLocalEndpoint("")).toBe(false);
+    });
+
     it("should log egress transmission metrics in auditor", () => {
       EgressSecurityAuditor.clearAuditLogs();
       EgressSecurityAuditor.logEgressTransmission("groq-enterprise", 5, 12, true);
