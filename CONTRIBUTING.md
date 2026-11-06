@@ -393,14 +393,20 @@ npx vitest
 ```typescript
 // Example unit test (Vitest)
 import { describe, it, expect } from "vitest";
-import { scanForSecrets } from "@/lib/armor/scanner";
+import { detectSecretsInAddedLines } from "@/lib/armor/secret-detector";
 
-describe("scanForSecrets", () => {
-  it("should detect hardcoded API keys", () => {
-    const code = 'const apiKey = "sk-1234567890";';
-    const findings = scanForSecrets(code);
+// Build synthetic keys at runtime so secret scanners do not flag this file.
+const FAKE_AWS_KEY = "AKIA" + "Q7XM2PLKD93HTRWN";
+
+describe("detectSecretsInAddedLines", () => {
+  it("should detect hardcoded AWS access keys in added lines", () => {
+    const lines = [{ number: 10, content: `const key = '${FAKE_AWS_KEY}';` }];
+    const findings = detectSecretsInAddedLines("config/aws.ts", lines);
     expect(findings).toHaveLength(1);
-    expect(findings[0].type).toBe("HARDCODED_SECRET");
+    expect(findings[0].type).toBe("Secret");
+    expect(findings[0].severity).toBe("CRITICAL");
+    // Findings are redacted: the snippet keeps a prefix, not the full key.
+    expect(findings[0].codeSnippet).not.toContain(FAKE_AWS_KEY);
   });
 });
 ```
