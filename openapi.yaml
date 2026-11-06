@@ -704,13 +704,6 @@ paths:
             default: 100
           description: Total number of findings being remediated
           example: 10
-        - in: query
-          name: ids
-          required: false
-          schema:
-            type: string
-          description: Comma-separated list of finding IDs being processed
-          example: "cld1a2b3c4,cld5e6f7g8"
       responses:
         "200":
           description: Real-time SSE stream of bulk remediation progress
