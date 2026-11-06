@@ -112,7 +112,7 @@ Retry-After: <windowSeconds>
 | `POST /api/sbom/scan`               | 20 (IP) / 10 (User) | 60s    |
 | `GET /api/sbom/scan/status/[jobId]` | 120                 | 60s    |
 
-All other routes have no explicit rate limit (Next.js / Vercel platform limits still apply).
+This table is illustrative, not exhaustive — other routes enforce their own explicit limits via `withRateLimit` or inline per-user checks (for example `GET /api/leaderboard`, `GET /api/findings/export`, `PATCH /api/findings/[id]`, and `GET /api/voice-alerts/stream`). The authoritative source for each route's limit is the `TIERS` constant in `src/lib/middleware/rate-limit.ts` plus the `keyPrefix` passed at the call site.
 
 ---
 
