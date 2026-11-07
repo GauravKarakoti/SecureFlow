@@ -344,6 +344,34 @@ npx prettier --write .
 npx prettier --check .
 ```
 
+### OpenAPI Specification & Linting
+
+When adding or updating HTTP API routes under `src/app/api/`:
+
+- Every public API route handler must be documented in `openapi.yaml`.
+- Run the Spectral linter to validate OpenAPI conformity:
+  ```bash
+  npm run lint:openapi
+  ```
+- Run the OpenAPI route coverage check:
+  ```bash
+  npm run verify:openapi
+  ```
+
+#### Ignoring Internal Routes (`.openapiignore`)
+
+If a route is private, internal, or intentionally unexposed in the public OpenAPI schema, list it in `.openapiignore` located at the root of the repository.
+
+**Ignore List Format**:
+
+- One route path or prefix pattern per line (e.g., `/api/internal/health` or `/api/internal/*`).
+- Lines beginning with `#` are treated as comments and ignored.
+- Blank lines are ignored.
+- **Exact match**: `/api/example` ignores only `/api/example`.
+- **Wildcard prefix**: `/api/internal/*` ignores `/api/internal` and any nested subroutes (e.g., `/api/internal/stats`).
+
+CI verifies both `npm run lint:openapi` and `npm run verify:openapi`; adding an undocumented public route without documenting it or adding it to `.openapiignore` will cause CI to fail.
+
 ---
 
 ## 📚 Documentation Standards

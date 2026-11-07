@@ -44,6 +44,7 @@
     "prepare": "husky",
     "ngrok": "ngrok http 9002",
     "secureflow": "npx secureflow",
+    "lint:openapi": "spectral lint openapi.yaml --fail-severity=error",
     "verify:openapi": "tsx scripts/verify-openapi.ts"
   },
   "dependencies": {
@@ -113,6 +114,7 @@
   "devDependencies": {
     "@changesets/cli": "^3.0.2",
     "@playwright/test": "^1.64.1",
+    "@stoplight/spectral-cli": "^6.17.1",
     "@tailwindcss/postcss": "^4.3.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
