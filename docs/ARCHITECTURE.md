@@ -22,7 +22,7 @@ GitHub webhooks have strict timeout limits. When a Pull Request is opened or upd
 - **The Solution**: We use **Redis** (via `ioredis` / `bullmq` or similar queueing mechanisms) to decouple event ingestion from processing.
 - **Flow**:
   1. GitHub sends a webhook to our Next.js Route Handler.
-  2. The handler immediately pushes the job onto a Redis queue and responds to GitHub with a `200 OK`.
+  2. The handler immediately pushes the job onto a Redis queue and responds to GitHub with a `202 Accepted` (`{"status":"queued"}`).
   3. A background worker (or serverless queue consumer) picks up the job, runs the ArmorIQ Scanner, evaluates policies, and updates GitHub PR statuses.
 
 ## 3. Data Persistence: Prisma & PostgreSQL
