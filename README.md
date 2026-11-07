@@ -375,6 +375,15 @@ npm run genkit:dev
 2. `docker compose up --build`
 3. App runs at [http://localhost:9002](http://localhost:9002)
 
+### Container Security & Non-Root Execution
+
+SecureFlow's Docker image uses a secure multi-stage build running as an unprivileged user:
+
+- **Non-root execution**: The final runtime container creates and runs under the unprivileged `nextjs` user (`UID 1001`, `GID 1001`), ensuring processes never run as `root` (id verifies non-zero UID).
+- **Multi-stage isolation**: Build tools and dev dependencies are discarded; only the Next.js standalone bundle, public assets, and production client artifacts are included.
+- **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
+- **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
+
 ---
 
 ## 🔑 Environment Variables Reference
