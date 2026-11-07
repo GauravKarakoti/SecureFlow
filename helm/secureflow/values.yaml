@@ -47,7 +47,7 @@ app:
 
   livenessProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 15
     periodSeconds: 20
@@ -56,7 +56,7 @@ app:
 
   readinessProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 10
     periodSeconds: 10
@@ -65,7 +65,7 @@ app:
 
   startupProbe:
     httpGet:
-      path: /
+      path: /api/health
       port: 9002
     initialDelaySeconds: 5
     periodSeconds: 5
