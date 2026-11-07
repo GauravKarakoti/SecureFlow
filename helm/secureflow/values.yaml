@@ -230,6 +230,7 @@ worker:
     capabilities:
       drop:
         - ALL
+    readOnlyRootFilesystem: false
 
   nodeSelector: {}
   tolerations: []
