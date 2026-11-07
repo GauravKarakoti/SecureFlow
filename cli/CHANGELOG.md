@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 2.10.0
+
+### Minor Changes
+
+- 4951070: Add comprehensive rendering, skeleton layout, and aria-busy accessibility unit tests for Admin Portal loading states across admin, logs, queue, and users.
+- 783e8da: Add SBOM scanning (`secureflow sbom <file>`) and Web3 smart contract explanation (`secureflow explain --web3`) subcommands with background job status polling and local resilience fallbacks.
+- 79b099d: Implement deterministic secret pre-scanner (`src/lib/armor/precheck.ts`) running prior to LLM analysis for fast, offline-resilient credential detection and redaction.
+
 ## 2.9.0
 
 ### Minor Changes
