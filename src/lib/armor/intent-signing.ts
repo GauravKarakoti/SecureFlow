@@ -6,7 +6,7 @@
  * Generates tamper-evident HMAC-SHA256 signatures and SHA-256 intent hashes.
  */
 
-import { createHmac, createHash, randomUUID } from "node:crypto";
+import { createHmac, createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { agentRegistry, ARMORIQ_AGENT_IDS } from "./agent-registry";
 
 export interface ExecutionPlan {
@@ -105,6 +105,20 @@ export function computeIntentHash(
 /**
  * Creates an HMAC-SHA256 signature for the intent hash.
  */
+/**
+ * Constant-time comparison of two hex-encoded digests/signatures.
+ *
+ * Plain `!==` short-circuits on the first differing byte — a timing side
+ * channel in a verify function. Matches the pattern already used by
+ * webhook-verification.ts and outbound-dispatch.ts.
+ */
+export function timingSafeEqualHex(a: string, b: string): boolean {
+  if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return false;
+  const bufA = Buffer.from(a, "hex");
+  const bufB = Buffer.from(b, "hex");
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
 export function signIntentHash(intentHash: string, signingKey?: string): string {
   return createHmac("sha256", resolveSigningKey(signingKey)).update(intentHash).digest("hex");
 }
@@ -210,7 +224,7 @@ export function verifySignedIntent(
   }
 
   const expectedSig = signIntentHash(expectedHash, resolvedKey);
-  if (expectedSig !== signedIntent.signature) {
+  if (!timingSafeEqualHex(expectedSig, signedIntent.signature)) {
     return {
       valid: false,
       reason: "Cryptographic signature verification failed (invalid provenance).",

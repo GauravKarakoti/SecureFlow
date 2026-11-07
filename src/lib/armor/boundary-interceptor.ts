@@ -1,5 +1,6 @@
 import { createHmac, createHash } from "node:crypto";
 import { AUTO_REMEDIATION_ARMORIQ_SCOPE, isAllowedAutoRemediationPath } from "./auto-remediation";
+import { timingSafeEqualHex } from "./intent-signing";
 
 export type AgentActionType =
   | "shell.exec"
@@ -145,7 +146,8 @@ export class ArmorIQBoundaryInterceptor {
           // Verify that the proof matches the issued verdict and prevented execution
           const currentHash = computeVerdictHash(command, decision, rule, timestamp);
           const expectedSig = signProofHash(currentHash, this.signingKey);
-          const isAuthentic = currentHash === proofHash && expectedSig === signature;
+          const isAuthentic =
+            currentHash === proofHash && timingSafeEqualHex(expectedSig, signature);
 
           return {
             verified: isAuthentic,
@@ -218,7 +220,7 @@ export class ArmorIQBoundaryInterceptor {
     if (recalculatedHash !== proof.proofHash) return false;
 
     const recalculatedSig = signProofHash(recalculatedHash, resolvedKey);
-    return recalculatedSig === proof.signature;
+    return timingSafeEqualHex(recalculatedSig, proof.signature);
   }
 
   /**
