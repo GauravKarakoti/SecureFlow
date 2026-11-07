@@ -16,6 +16,7 @@ import {
   BENIGN_SECRET_WHITELIST_EXACT,
   UUID_REGEX,
 } from "./entropy.js";
+import { CliUsageError } from "./lib/output-args.js";
 import {
   shouldIgnorePath,
   parseSecureFlowIgnore,
@@ -476,22 +477,34 @@ export function isValidFailOnSeverity(val: string): boolean {
   return ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"].includes(val.toUpperCase());
 }
 
+const FAIL_ON_EXPECTED = "expected one of: CRITICAL, HIGH, MEDIUM, LOW, NONE";
+
 /**
  * Parses `--fail-on=<SEVERITY>` or `--fail-on <SEVERITY>` command line argument.
+ *
+ * A missing or unrecognised value is a usage error, matching `--format`:
+ * silently falling back to the default threshold would let a typo such as
+ * `--fail-on=highh` gate commits on a threshold the user never asked for.
  */
 export function parseFailOnArg(args: string[] = process.argv): FailOnSeverity | null {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (!arg) continue;
     if (arg.startsWith("--fail-on=")) {
-      const parts = arg.split("=");
-      const val = parts[1]?.toUpperCase();
+      const raw = arg.slice("--fail-on=".length);
+      const val = raw.toUpperCase();
       if (val && isValidFailOnSeverity(val)) return val as FailOnSeverity;
+      throw new CliUsageError(`Unknown --fail-on value "${raw}" (${FAIL_ON_EXPECTED})`);
     }
-    if (arg === "--fail-on" && i + 1 < args.length) {
+    if (arg === "--fail-on") {
       const nextArg = args[i + 1];
       const val = nextArg?.toUpperCase();
       if (val && isValidFailOnSeverity(val)) return val as FailOnSeverity;
+      throw new CliUsageError(
+        nextArg === undefined
+          ? `--fail-on requires a value (${FAIL_ON_EXPECTED})`
+          : `Unknown --fail-on value "${nextArg}" (${FAIL_ON_EXPECTED})`,
+      );
     }
   }
   return null;
@@ -511,7 +524,12 @@ export function blockingAiFindings<T extends { severity: string }>(
   if (failOnThreshold === "NONE") return [];
 
   if (failOnThreshold === null) {
-    return aiFindings.filter((f) => f.severity === "HIGH" || f.severity === "CRITICAL");
+    // Normalize case like the explicit-threshold path below: the API response
+    // is cast, not validated, so a lowercase "high" must still block.
+    return aiFindings.filter((f) => {
+      const sev = f.severity?.toUpperCase();
+      return sev === "HIGH" || sev === "CRITICAL";
+    });
   }
 
   const thresholdRank = SEVERITY_RANK[failOnThreshold];
@@ -549,9 +567,10 @@ export function shouldFailScan(
   if (failOnThreshold === "NONE") return false;
 
   if (failOnThreshold === null) {
-    const aiHighOrCritical = aiFindings.filter(
-      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-    ).length;
+    const aiHighOrCritical = aiFindings.filter((f) => {
+      const sev = f.severity?.toUpperCase();
+      return sev === "HIGH" || sev === "CRITICAL";
+    }).length;
     return localViolationCount > 0 || aiHighOrCritical > 0;
   }
 

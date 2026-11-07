@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 export const maxDuration = 60; // optionally increase timeout if not already set
 
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
+import { withRateLimit } from "@/lib/middleware/rate-limit";
 import {
   isPayloadTooLarge,
   isTrackedEvent,
@@ -262,4 +263,10 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   return NextResponse.json({ status: "queued", deliveryId, correlationId }, { status: 202 });
 });
 
-export const POST = handler;
+// Rate-limit the highest-traffic webhook like the GitLab/Bitbucket routes;
+// docs/api.md and openapi.yaml already document 50 requests per 60s and a 429.
+export const POST = withRateLimit(handler, {
+  limit: 50,
+  windowSeconds: 60,
+  keyPrefix: "webhook:github",
+});

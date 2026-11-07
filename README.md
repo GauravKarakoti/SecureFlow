@@ -555,7 +555,7 @@ SecureFlow is open-source and free to self-host. You'll need a Groq API key (fre
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](file:///c:/Users/Moiz/Desktop/secure%20flow/SecureFlow/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ---
 

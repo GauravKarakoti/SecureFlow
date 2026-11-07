@@ -96,30 +96,6 @@ Examples:
 `);
 }
 
-function parseFormatArg(): OutputFormat {
-  const formatIndex = process.argv.findIndex((arg) => arg === "--format");
-  if (formatIndex !== -1) {
-    const valStr = process.argv[formatIndex + 1];
-    if (valStr) {
-      const val = valStr.toLowerCase();
-      if (
-        val === "sarif" ||
-        val === "json" ||
-        val === "text" ||
-        val === "csv" ||
-        val === "html" ||
-        val === "markdown"
-      ) {
-        return val as OutputFormat;
-      }
-      if (val === "md") {
-        return "markdown";
-      }
-    }
-  }
-  return "text";
-}
-
 function parseSeverityArg(): Set<Severity> | null {
   const idx = process.argv.findIndex(
     (arg) => arg === "--severity" || arg.startsWith("--severity="),
@@ -332,7 +308,10 @@ ${textOutput}`);
     console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
   }
 
-  if (unreadable.length > 0 && format === "text") {
+  // Warn on stderr regardless of output format: with --format json|sarif|...
+  // the scan would otherwise silently skip these entries, and stderr cannot
+  // corrupt the structured report on stdout.
+  if (unreadable.length > 0) {
     console.warn(
       `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
         unreadable.length === 1 ? "y" : "ies"
@@ -388,4 +367,14 @@ ${textOutput}`);
   return 0;
 }
 
-main().then((code) => process.exit(code));
+main()
+  .then((code) => process.exit(code))
+  .catch((error: unknown) => {
+    // Last-resort handler: without it an unexpected throw (e.g. an
+    // unwritable -o path) surfaces as a raw UnhandledPromiseRejection
+    // stack and an exit code that depends on Node's rejection mode.
+    console.error(
+      `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  });

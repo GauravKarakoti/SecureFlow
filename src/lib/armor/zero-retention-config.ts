@@ -50,16 +50,41 @@ export function getEnterprisePrivacyHeaders(
 
 /**
  * Validates whether an LLM endpoint URL is self-hosted / local to ensure 100% data residency.
+ *
+ * The hostname is parsed, not substring-matched: substring checks both
+ * false-positive on hostile URLs ("https://127.0.0.1.attacker.com",
+ * "?next=192.168.1.1") and false-negative on most of the 10.0.0.0/8 range.
  */
 export function isLocalEndpoint(url: string): boolean {
   if (!url) return false;
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname === "[::1]"
+  ) {
+    return true;
+  }
+
+  const octets = hostname.split(".");
+  if (octets.length !== 4 || !octets.every((o) => /^\d{1,3}$/.test(o))) {
+    return false;
+  }
+  const [a = 0, b = 0] = octets.map(Number);
   return (
-    url.includes("localhost") ||
-    url.includes("127.0.0.1") ||
-    url.includes("0.0.0.0") ||
-    url.includes("10.0.") ||
-    url.includes("192.168.") ||
-    url.endsWith(".local")
+    a === 127 || // 127.0.0.0/8 loopback
+    a === 10 || // 10.0.0.0/8 private
+    (a === 192 && b === 168) || // 192.168.0.0/16 private
+    (a === 169 && b === 254) || // 169.254.0.0/16 link-local
+    (a === 0 && b === 0) // 0.0.0.x
   );
 }
 
