@@ -8,7 +8,7 @@ vi.mock("@/ai/genkit", () => ({
   getDefaultModelRef: vi.fn(() => PRIMARY),
 }));
 
-vi.mock("../../../cli/src/mcp", () => ({
+vi.mock("../../../cli/src/threat-intel", () => ({
   queryLiveThreatIntelligence: vi.fn(async () => ""),
 }));
 

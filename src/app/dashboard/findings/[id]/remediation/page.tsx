@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { PatchDiffViewer } from "@/components/findings/patch-diff-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, AlertTriangle, GitPullRequest } from "lucide-react";
+import { Loader2, AlertTriangle, GitPullRequest, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export default function RemediationPage() {
@@ -18,12 +18,29 @@ export default function RemediationPage() {
   const [patchData, setPatchData] = useState<{ patchDiff: string; explanation: string } | null>(
     null,
   );
+  // #1513: set when the AI provider was rate limited or unavailable and a retry makes sense.
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   const generatePatch = async () => {
     setLoading(true);
+    setGenerationError(null);
     try {
       const res = await fetch(`/api/findings/${findingId}/remediate`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to generate patch");
+      if (!res.ok) {
+        // #1513: the API reports a retryable AI failure (429 / 503) with a readable message.
+        let body: { error?: unknown; retryable?: unknown } = {};
+        try {
+          body = await res.json();
+        } catch {
+          // Not JSON: fall through to the generic error below.
+        }
+        if (body.retryable === true && typeof body.error === "string") {
+          setGenerationError(body.error);
+          toast.error(body.error);
+          return;
+        }
+        throw new Error("Failed to generate patch");
+      }
 
       const data = await res.json();
       setPatchData({ patchDiff: data.patch.patchDiff, explanation: data.explanation });
@@ -67,14 +84,31 @@ export default function RemediationPage() {
       {!patchData ? (
         <Card className="bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800">
           <CardContent className="py-12 text-center space-y-4">
-            <p className="text-gray-600 dark:text-gray-400">
-              Click the button below to let The Professor analyze the finding and generate a secure
-              code patch.
-            </p>
-            <Button onClick={generatePatch} disabled={loading} size="lg">
-              {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {loading ? "Analyzing..." : "Generate Remediation Patch"}
-            </Button>
+            {generationError ? (
+              <>
+                <div
+                  role="alert"
+                  className="mx-auto max-w-xl rounded-md border border-orange-300 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-200"
+                >
+                  {generationError}
+                </div>
+                <Button onClick={generatePatch} disabled={loading} size="lg">
+                  <RefreshCw className="w-4 h-4 mr-2" aria-hidden="true" />
+                  Retry
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Click the button below to let The Professor analyze the finding and generate a
+                  secure code patch.
+                </p>
+                <Button onClick={generatePatch} disabled={loading} size="lg">
+                  {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {loading ? "Analyzing..." : "Generate Remediation Patch"}
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (

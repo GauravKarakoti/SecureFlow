@@ -14,7 +14,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { withRateLimit, TIERS, buildRateLimitHeaders, secondsUntilReset } from "@/lib/middleware/rate-limit";
+import {
+  withRateLimit,
+  TIERS,
+  buildRateLimitHeaders,
+  secondsUntilReset,
+} from "@/lib/middleware/rate-limit";
 import { checkRateLimitDetailed } from "@/lib/redis";
 import { evaluatePromptSafety } from "@/ai/flows/heist-prompt-guard";
 import { scanner, type FileChange, type ScannerPolicy } from "@/lib/armor/scanner";
@@ -89,7 +94,9 @@ async function handler(req: NextRequest) {
 
   if (policyDescription.length > MAX_POLICY_DESC_LENGTH) {
     return NextResponse.json(
-      { error: `Policy description exceeds maximum length of ${MAX_POLICY_DESC_LENGTH} characters` },
+      {
+        error: `Policy description exceeds maximum length of ${MAX_POLICY_DESC_LENGTH} characters`,
+      },
       { status: 400 },
     );
   }

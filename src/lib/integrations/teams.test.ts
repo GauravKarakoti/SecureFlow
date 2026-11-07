@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  assertTeamsWebhookUrl,
-  buildTeamsAlert,
-  sendTeamsAlert,
-} from "./teams";
+import { assertTeamsWebhookUrl, buildTeamsAlert, sendTeamsAlert } from "./teams";
 import type { TeamsFindingSummary } from "./teams";
 
 // Mock dispatchOutboundWebhook

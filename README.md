@@ -375,6 +375,15 @@ npm run genkit:dev
 2. `docker compose up --build`
 3. App runs at [http://localhost:9002](http://localhost:9002)
 
+### Container Security & Non-Root Execution
+
+SecureFlow's Docker image uses a secure multi-stage build running as an unprivileged user:
+
+- **Non-root execution**: The final runtime container creates and runs under the unprivileged `nextjs` user (`UID 1001`, `GID 1001`), ensuring processes never run as `root` (id verifies non-zero UID).
+- **Multi-stage isolation**: Build tools and dev dependencies are discarded; only the Next.js standalone bundle, public assets, and production client artifacts are included.
+- **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
+- **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
+
 ---
 
 ## 🔑 Environment Variables Reference
@@ -397,7 +406,7 @@ npm run genkit:dev
 | `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
 | `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
-| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings and audit logs (in days, off by default)               |
+| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings, scans, and audit logs (default: unset / keep forever) |
 | `SCAN_CACHE_TTL_SECONDS`  | ⬜       | Scan deduplication cache TTL in seconds (default: `86400` / 24 hours)                         |
 
 ### Trusted proxies and rate limiting
@@ -444,8 +453,9 @@ Cleanup can be executed via the dedicated CLI script:
 - **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
 - **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
 - **CLI Custom Batch Size**: `npm run cleanup -- --batch-size=200 --apply`
+- **Database Purge**: `npm run db:purge` (or `npm run db:purge -- --apply` to purge older findings, scans, and audit entries)
 
-> 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding` and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
+> 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding`, `ScanResult`, and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
 
 ---
 
@@ -462,6 +472,7 @@ Cleanup can be executed via the dedicated CLI script:
 | `npm run db:migrate` | Run Prisma migrations                                                     |
 | `npm run db:push`    | Push schema to DB without migrations                                      |
 | `npm run db:seed`    | Seed default policy templates                                             |
+| `npm run db:purge`   | Purge findings, scans, and audit entries older than DATA_RETENTION_DAYS   |
 | `npm run genkit:dev` | Start Genkit AI development environment                                   |
 | `npm run cleanup`    | Run data retention cleanup (dry-run default; pass `-- --apply` to delete) |
 

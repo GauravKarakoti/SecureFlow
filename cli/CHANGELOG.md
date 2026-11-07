@@ -1,5 +1,11 @@
 # secureflow-cli
 
+## 2.9.0
+
+### Minor Changes
+
+- b784e7c: Add loading.tsx suspense skeleton and server component test suite page.test.tsx for dashboard/policies route.
+
 ## 2.8.1
 
 ### Patch Changes

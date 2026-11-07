@@ -304,6 +304,7 @@ model FindingTriage {
   dismissedById   String?
   note            String?
   resolvedById    String?
+  expiresAt       DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 

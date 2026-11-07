@@ -119,7 +119,10 @@ export async function testTeamsWebhook(url: string): Promise<{ success: boolean;
     });
     const ok = await sendTeamsAlert(url.trim(), testCard);
     if (!ok) {
-      return { success: false, error: "Microsoft Teams endpoint rejected the test payload or timed out." };
+      return {
+        success: false,
+        error: "Microsoft Teams endpoint rejected the test payload or timed out.",
+      };
     }
     return { success: true };
   } catch (err) {

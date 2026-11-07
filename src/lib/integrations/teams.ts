@@ -13,11 +13,7 @@
  *  - Timeouts and fire-and-forget: failure never throws or fails a scan.
  */
 
-import {
-  countBySeverity,
-  SEVERITY_ORDER,
-  type Severity,
-} from "@/lib/severity";
+import { countBySeverity, SEVERITY_ORDER, type Severity } from "@/lib/severity";
 import {
   dispatchOutboundWebhook,
   resolveDispatchConfig,

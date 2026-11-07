@@ -27,7 +27,9 @@ interface TestFinding {
 
 export function TestPolicyPanel({ policies = [] }: { policies?: PolicyOption[] }) {
   const [selectedPolicyId, setSelectedPolicyId] = useState<string>(policies[0]?.id || "custom");
-  const [customDescription, setCustomDescription] = useState<string>(policies[0]?.description || "");
+  const [customDescription, setCustomDescription] = useState<string>(
+    policies[0]?.description || "",
+  );
   const [snippet, setSnippet] = useState<string>("");
   const [filename, setFilename] = useState<string>("example.ts");
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -100,7 +102,9 @@ export function TestPolicyPanel({ policies = [] }: { policies?: PolicyOption[] }
           <CardTitle className="text-xl">Test Policy (Playground)</CardTitle>
         </div>
         <CardDescription>
-          Paste a sample code snippet to verify whether your policy matches vulnerabilities or causes false positives before deploying it. Runs in-memory without saving anything or posting to GitHub.
+          Paste a sample code snippet to verify whether your policy matches vulnerabilities or
+          causes false positives before deploying it. Runs in-memory without saving anything or
+          posting to GitHub.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -158,7 +162,8 @@ export function TestPolicyPanel({ policies = [] }: { policies?: PolicyOption[] }
               aria-label="Target filename"
             />
             <p className="text-xs text-muted-foreground">
-              Useful if testing rules scoped by file type (e.g. <code>.env</code> or <code>.sql</code>).
+              Useful if testing rules scoped by file type (e.g. <code>.env</code> or{" "}
+              <code>.sql</code>).
             </p>
           </div>
         </div>
@@ -207,7 +212,9 @@ export function TestPolicyPanel({ policies = [] }: { policies?: PolicyOption[] }
                         {f.lineStart ? `:${f.lineStart}` : ""}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground pt-1">{f.explanation || f.description}</p>
+                    <p className="text-xs text-muted-foreground pt-1">
+                      {f.explanation || f.description}
+                    </p>
                   </div>
                 ))}
               </div>
