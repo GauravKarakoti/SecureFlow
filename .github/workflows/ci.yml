@@ -266,7 +266,10 @@ jobs:
 
   release:
     name: Release / Publish
-    needs: [quality-gate, cli, test, red-team, e2e]
+    # No `red-team` job exists in this workflow (the red-team suite lives in
+    # ai-eval.yml), and a needs: reference to an unknown job fails workflow
+    # validation — the whole pipeline could not start.
+    needs: [quality-gate, cli, test, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
