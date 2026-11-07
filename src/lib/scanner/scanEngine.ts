@@ -46,6 +46,7 @@ import {
   type GateConfig,
 } from "./gate-config";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
+import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { activeSuppressionWhere } from "../triage/expiry";
 
 /** Maximum files to process in a single batch before yielding. */
@@ -535,8 +536,9 @@ export async function processScanJob(
     }
   }
 
-  // --- Phase 7: Real-time Slack alert for high-severity findings (#936) ---
+  // --- Phase 7: Real-time alerts (Slack & Teams) ---
   if (userId && enrichedFindings.length > 0) {
+    // 1. High-severity Slack alert for findings
     try {
       const owner = await prisma.user.findUnique({
         where: { id: userId },
@@ -553,6 +555,31 @@ export async function processScanJob(
         error: err instanceof Error ? err.message : String(err),
       });
       console.error(`[ScanEngine] Slack notification step failed:`, err);
+    }
+
+    // 2. BLOCKED scan multi-channel notification (Slack & Teams)
+    const isBlockedDecision =
+      decision === "BLOCKED" ||
+      storedPolicyDecision(decision) === "BLOCK";
+
+    if (isBlockedDecision) {
+      try {
+        await notifyBlockedScan({
+          scanJobId,
+          deliveryId: data.deliveryId,
+          correlationId,
+          userId,
+          repositoryFullName,
+          prNumber,
+          findings: enrichedFindings,
+          decision,
+        });
+      } catch (err) {
+        log.error(`[ScanEngine] Blocked scan notification failed:`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        console.error(`[ScanEngine] Blocked scan notification failed:`, err);
+      }
     }
   }
 

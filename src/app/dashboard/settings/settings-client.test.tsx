@@ -6,10 +6,20 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import SettingsClient from "./settings-client";
 
-const { toastSuccessMock, toastErrorMock, updateSlackWebhookMock } = vi.hoisted(() => ({
+const {
+  toastSuccessMock,
+  toastErrorMock,
+  updateSlackWebhookMock,
+  updateTeamsWebhookMock,
+  testSlackWebhookMock,
+  testTeamsWebhookMock,
+} = vi.hoisted(() => ({
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
   updateSlackWebhookMock: vi.fn(),
+  updateTeamsWebhookMock: vi.fn(),
+  testSlackWebhookMock: vi.fn(),
+  testTeamsWebhookMock: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -21,6 +31,10 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/actions/settings", () => ({
   updateSlackWebhook: updateSlackWebhookMock,
+  updateTeamsWebhook: updateTeamsWebhookMock,
+  testSlackWebhook: testSlackWebhookMock,
+  testTeamsWebhook: testTeamsWebhookMock,
+  updateVoiceAlerts: vi.fn(),
 }));
 
 describe("SettingsClient component (#1333)", () => {
@@ -102,6 +116,61 @@ describe("SettingsClient component (#1333)", () => {
     await waitFor(() => {
       expect(updateSlackWebhookMock).toHaveBeenCalledWith("https://hooks.slack.com/services/old");
       expect(toastErrorMock).toHaveBeenCalledWith("Invalid webhook URL format");
+    });
+  });
+
+  it("submits updated Teams webhook URL and allows testing Teams webhook", async () => {
+    updateTeamsWebhookMock.mockResolvedValueOnce({ success: true });
+    testTeamsWebhookMock.mockResolvedValueOnce({ success: true });
+
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialTeamsWebhookUrl="https://outlook.office.com/webhook/test"
+        initialVoiceAlertsEnabled={false}
+      />,
+    );
+
+    const teamsInput = screen.getByPlaceholderText(
+      "https://outlook.office.com/webhook/...",
+    ) as HTMLInputElement;
+    expect(teamsInput.value).toBe("https://outlook.office.com/webhook/test");
+
+    const saveTeamsButton = screen.getByRole("button", { name: /Save Teams Settings/i });
+    fireEvent.click(saveTeamsButton);
+
+    await waitFor(() => {
+      expect(updateTeamsWebhookMock).toHaveBeenCalledWith("https://outlook.office.com/webhook/test");
+      expect(toastSuccessMock).toHaveBeenCalledWith("Teams settings saved successfully.");
+    });
+
+    const testTeamsButton = screen.getByRole("button", { name: /Test Teams Webhook/i });
+    fireEvent.click(testTeamsButton);
+
+    await waitFor(() => {
+      expect(testTeamsWebhookMock).toHaveBeenCalledWith("https://outlook.office.com/webhook/test");
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        "Microsoft Teams test notification sent successfully!",
+      );
+    });
+  });
+
+  it("allows testing Slack webhook", async () => {
+    testSlackWebhookMock.mockResolvedValueOnce({ success: true });
+
+    render(
+      <SettingsClient
+        initialWebhookUrl="https://hooks.slack.com/services/test"
+        initialVoiceAlertsEnabled={false}
+      />,
+    );
+
+    const testSlackButton = screen.getByRole("button", { name: /Test Webhook/i });
+    fireEvent.click(testSlackButton);
+
+    await waitFor(() => {
+      expect(testSlackWebhookMock).toHaveBeenCalledWith("https://hooks.slack.com/services/test");
+      expect(toastSuccessMock).toHaveBeenCalledWith("Slack test notification sent successfully!");
     });
   });
 });

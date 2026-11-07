@@ -47,6 +47,7 @@ import {
 import { logger, sanitizeLogValue } from "@/lib/logger";
 import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
+import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { activeSuppressionWhere } from "../triage/expiry";
@@ -1138,6 +1139,19 @@ export const worker = new Worker<WebhookJobData>(
                   prNumber: pull_request.number,
                   findings: enrichedFindings,
                 });
+
+                if (decision === "BLOCKED") {
+                  await notifyBlockedScan({
+                    scanJobId: `webhook-${deliveryId || Date.now()}`,
+                    deliveryId,
+                    correlationId,
+                    userId,
+                    repositoryFullName: repository.full_name,
+                    prNumber: pull_request.number,
+                    findings: enrichedFindings,
+                    decision,
+                  });
+                }
               } catch (err) {
                 log.error(`[Worker] Slack notification step failed:`, {
                   error: err instanceof Error ? err.message : String(err),
