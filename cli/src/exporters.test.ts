@@ -7,6 +7,7 @@ import {
   CsvExporter,
   HtmlExporter,
   MarkdownExporter,
+  SarifExporter,
   getExporter,
 } from "./exporters.js";
 import {
@@ -448,8 +449,29 @@ describe("getExporter", () => {
     expect(getExporter("html")).toBeInstanceOf(HtmlExporter);
   });
 
+  it("should return SarifExporter for 'sarif'", () => {
+    expect(getExporter("sarif")).toBeInstanceOf(SarifExporter);
+  });
+
+  it("should match formats case-insensitively", () => {
+    expect(getExporter("CSV")).toBeInstanceOf(CsvExporter);
+    expect(getExporter("HTML")).toBeInstanceOf(HtmlExporter);
+    expect(getExporter("SARIF")).toBeInstanceOf(SarifExporter);
+  });
+
   it("should throw an error for unsupported formats", () => {
     expect(() => getExporter("pdf")).toThrow("Unsupported export format: pdf");
+  });
+});
+
+describe("SarifExporter", () => {
+  it("should export valid SARIF through formatSarifJson", () => {
+    const sarif = JSON.parse(new SarifExporter().export(sampleResults));
+    expect(sarif.version).toBe("2.1.0");
+    expect(sarif.runs).toHaveLength(1);
+    expect(sarif.runs[0].results).toHaveLength(
+      sampleResults.reduce((total, r) => total + r.violations.length, 0),
+    );
   });
 });
 
