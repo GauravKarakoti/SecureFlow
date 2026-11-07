@@ -47,11 +47,6 @@ kubectl get servicemonitor -n <namespace>
 # Open Prometheus UI → Status → Targets → search for secureflow
 ```
 
-`src/lib/logger.ts` is the application logger. It is dependency-free on purpose:
-the same module has to run unchanged in the Next.js server runtime, inside the
-standalone Docker image, and in the plain `tsx` worker, and a transport that
-works in one of those and not the others is worse than `console`.
-
 ## Using it
 
 ```ts
