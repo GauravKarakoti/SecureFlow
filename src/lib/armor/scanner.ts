@@ -748,7 +748,7 @@ Format:
             );
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120000);
+            const timeoutId = setTimeout(() => controller.abort(), SCAN_REQUEST_TIMEOUT_MS);
 
             const chatCompletionPromise = groq.chat.completions.create(
               {
@@ -778,8 +778,9 @@ CRITICAL RULES:
               { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
             );
 
+            let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
             const timeoutPromise = new Promise<never>((_, reject) => {
-              setTimeout(
+              raceTimeoutId = setTimeout(
                 () =>
                   reject(
                     new ScannerTimeoutError(
@@ -790,10 +791,17 @@ CRITICAL RULES:
               );
             });
 
-            const chatCompletion = await Promise.race([
-              chatCompletionPromise.finally(() => clearTimeout(timeoutId)),
-              timeoutPromise,
-            ]);
+            let chatCompletion;
+            try {
+              chatCompletion = await Promise.race([
+                chatCompletionPromise.finally(() => clearTimeout(timeoutId)),
+                timeoutPromise,
+              ]);
+            } finally {
+              // Clear the losing race timer: without this every completed
+              // batch left a 120s setTimeout pending in the event loop.
+              if (raceTimeoutId !== undefined) clearTimeout(raceTimeoutId);
+            }
 
             const responseText = chatCompletion.choices[0]?.message?.content || '{"findings": []}';
             const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
