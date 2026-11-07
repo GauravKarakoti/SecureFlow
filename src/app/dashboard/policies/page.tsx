@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { PolicyCard } from "./policy-card"; // <-- Import the new Client Component
+import { TestPolicyPanel } from "./test-policy-panel";
 import { togglePolicy } from "./actions";
 
 // --- Page Component ---
@@ -86,6 +87,15 @@ export default async function PoliciesPage() {
           </pre>
         </CardContent>
       </Card>
+
+      {/* Test Policy Playground Panel */}
+      <TestPolicyPanel
+        policies={templates.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+        }))}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {policiesToRender.length === 0 && (
