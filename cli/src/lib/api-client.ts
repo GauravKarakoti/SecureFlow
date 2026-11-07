@@ -78,8 +78,10 @@ export async function requestAiFileScan(
       throw new Error(`SecureFlow API responded with ${res.status}`);
     }
 
-    const data = (await res.json()) as { findings: AiFinding[] };
-    return data.findings ?? [];
+    const data = (await res.json()) as { findings?: unknown };
+    // The response is cast, not validated: a misbehaving endpoint returning
+    // { findings: "error" } would otherwise hand callers a non-array.
+    return Array.isArray(data.findings) ? (data.findings as AiFinding[]) : [];
   } catch (err) {
     throw new NetworkUnavailableError(err);
   } finally {
