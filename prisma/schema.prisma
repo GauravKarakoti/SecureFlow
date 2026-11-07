@@ -75,6 +75,12 @@ model User {
   slackWebhookUrl String?
 
   /**
+   * Incoming Microsoft Teams webhook URL for real-time alerts on BLOCKED scans.
+   * Optional — null disables Teams notifications for this user.
+   */
+  teamsWebhookUrl String?
+
+  /**
    * Whether the user has opted in to real-time voice alerts for CRITICAL/HIGH findings.
    * Disabled by default — users must explicitly enable (#1307).
    */
