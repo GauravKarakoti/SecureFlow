@@ -66,6 +66,10 @@ jobs:
       - name: Run Typechecker
         run: npm run typecheck
 
+      # Lint OpenAPI specification for schema validity and best practices.
+      - name: Lint OpenAPI specification
+        run: npm run lint:openapi
+
       # Fails when a route handler under src/app/api has no entry in openapi.yaml.
       - name: Verify OpenAPI spec covers every API route
         run: npm run verify:openapi

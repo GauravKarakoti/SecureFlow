@@ -4,12 +4,15 @@ import path from "path";
 import os from "os";
 import {
   documentedPaths,
+  findOpenApiIgnore,
   findOpenApiYaml,
+  isRouteIgnored,
   listApiRoutes,
+  parseIgnoreList,
   verifyOpenApiSync,
 } from "./verify-openapi";
 
-describe("scripts/verify-openapi.ts (#1354)", () => {
+describe("scripts/verify-openapi.ts (#1354, #1538)", () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -47,6 +50,64 @@ describe("scripts/verify-openapi.ts (#1354)", () => {
 
       const found = findOpenApiYaml(isolatedDir);
       expect(found).toBeNull();
+    });
+  });
+
+  describe("findOpenApiIgnore", () => {
+    it("finds .openapiignore in the specified directory", () => {
+      const ignorePath = path.join(tempDir, ".openapiignore");
+      fs.writeFileSync(ignorePath, "/api/internal/*\n", "utf8");
+
+      const found = findOpenApiIgnore(tempDir);
+      expect(found).toBe(ignorePath);
+    });
+
+    it("traverses parent directories to locate .openapiignore", () => {
+      const ignorePath = path.join(tempDir, ".openapiignore");
+      fs.writeFileSync(ignorePath, "/api/internal/*\n", "utf8");
+
+      const subDir = path.join(tempDir, "sub", "child");
+      fs.mkdirSync(subDir, { recursive: true });
+
+      const found = findOpenApiIgnore(subDir);
+      expect(found).toBe(ignorePath);
+    });
+
+    it("returns null if .openapiignore does not exist", () => {
+      expect(findOpenApiIgnore(tempDir)).toBeNull();
+    });
+  });
+
+  describe("parseIgnoreList & isRouteIgnored", () => {
+    it("parses lines and ignores comments and empty lines", () => {
+      const content = `
+# This is a comment
+/api/internal/health
+
+/api/admin/*
+# Another comment
+/api/secret
+`;
+      const patterns = parseIgnoreList(content);
+      expect(patterns).toEqual(["/api/internal/health", "/api/admin/*", "/api/secret"]);
+    });
+
+    it("correctly matches exact routes", () => {
+      const patterns = ["/api/internal/health", "/api/secret"];
+      expect(isRouteIgnored("/api/internal/health", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/internal/health2", patterns)).toBe(false);
+      expect(isRouteIgnored("/api/secret", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/other", patterns)).toBe(false);
+    });
+
+    it("correctly matches wildcard prefix routes", () => {
+      const patterns = ["/api/admin/*", "/api/legacy*"];
+      expect(isRouteIgnored("/api/admin", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/admin/metrics", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/admin/metrics/sub", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/administrator", patterns)).toBe(false);
+      expect(isRouteIgnored("/api/legacy-v1", patterns)).toBe(true);
+      expect(isRouteIgnored("/api/public", patterns)).toBe(false);
     });
   });
 
@@ -139,6 +200,27 @@ describe("scripts/verify-openapi.ts (#1354)", () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining("/api/findings/{id}/remediate"),
       );
+    });
+
+    it("allows undocumented routes if they match .openapiignore", () => {
+      fs.writeFileSync(
+        path.join(tempDir, "openapi.yaml"),
+        "openapi: 3.1.0\npaths:\n  /api/health:\n    get:\n",
+        "utf8",
+      );
+      fs.writeFileSync(
+        path.join(tempDir, ".openapiignore"),
+        "# Internal routes\n/api/internal/*\n",
+        "utf8",
+      );
+
+      for (const route of ["health", "internal/metrics"]) {
+        fs.mkdirSync(path.join(tempDir, "src", "app", "api", route), { recursive: true });
+        fs.writeFileSync(path.join(tempDir, "src", "app", "api", route, "route.ts"), "", "utf8");
+      }
+
+      const isValid = verifyOpenApiSync({ cwd: tempDir, exitOnError: false });
+      expect(isValid).toBe(true);
     });
 
     it("returns false when openapi.yaml is missing paths declaration (schema drift)", () => {
