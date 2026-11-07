@@ -1,6 +1,6 @@
 {
   "name": "secureflow-cli",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "description": "Pre-commit secret logging detector for secure development workflows",
   "main": "./dist/index.js",
   "bin": {
