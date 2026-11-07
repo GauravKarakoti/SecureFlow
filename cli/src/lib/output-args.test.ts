@@ -6,6 +6,7 @@ import {
   parseIgnoreFilePath,
   parseOutputFormat,
   parseOutputPath,
+  parseVoiceArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -87,5 +88,30 @@ describe("parseIgnoreFilePath", () => {
 
   it("is undefined when absent", () => {
     expect(parseIgnoreFilePath(argv())).toBeUndefined();
+  });
+});
+
+describe("parseVoiceArg", () => {
+  it("is false when the flag is absent", () => {
+    expect(parseVoiceArg(argv())).toBe(false);
+    expect(parseVoiceArg(argv("--format", "json"))).toBe(false);
+  });
+
+  it("is true for a bare --voice or -v", () => {
+    expect(parseVoiceArg(argv("--voice"))).toBe(true);
+    expect(parseVoiceArg(argv("-v"))).toBe(true);
+  });
+
+  it("honours explicit boolean-ish values, case-insensitively", () => {
+    expect(parseVoiceArg(argv("--voice=false"))).toBe(false);
+    expect(parseVoiceArg(argv("--voice=0"))).toBe(false);
+    expect(parseVoiceArg(argv("--voice=FALSE"))).toBe(false);
+    expect(parseVoiceArg(argv("--voice=true"))).toBe(true);
+    expect(parseVoiceArg(argv("--voice=1"))).toBe(true);
+  });
+
+  it("first match wins", () => {
+    expect(parseVoiceArg(argv("--voice=false", "--voice"))).toBe(false);
+    expect(parseVoiceArg(argv("--voice", "--voice=false"))).toBe(true);
   });
 });
