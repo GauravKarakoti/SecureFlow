@@ -19,6 +19,7 @@ This document is a deep dive on selected HTTP routes under `src/app/api/`, inclu
    - [Asynchronous SBOM Scan — `POST /api/sbom/scan`](#6-asynchronous-sbom-scan--apisbomscan)
    - [SBOM Scan Status — `GET /api/sbom/scan/status/[jobId]`](#7-sbom-scan-status--apisbomscanstatusjobid)
    - [Real-Time Voice Alerts Stream — `GET /api/voice-alerts/stream`](#8-real-time-voice-alerts-stream--apivoice-alertsstream)
+   - [System Health Check — `GET /api/health`](#9-system-health-check--apihealth)
 6. [Type Reference](#type-reference)
 
 ---
@@ -980,6 +981,78 @@ eventSource.onerror = (err) => {
   console.warn("Voice alert stream disconnected:", err);
 };
 ```
+
+---
+
+### 9. System Health Check — `GET /api/health`
+
+Performs readiness and dependency health checks (PostgreSQL connectivity, Redis connection if configured, and Groq LLM availability). Used for container `HEALTHCHECK` and Kubernetes liveness/readiness probes.
+
+- **URL**: `/api/health`
+- **Method**: `GET`
+- **Authentication**: None required (public monitoring probe). Signed-in admins receive additional component diagnostics without sensitive secrets.
+- **Query parameters**:
+  - `stream` (optional boolean): When `true` (or when `Accept: text/event-stream` is requested), opens a Server-Sent Events stream emitting health updates every 10 seconds.
+
+#### Response: Healthy (`200 OK`)
+
+Returned when all critical infrastructure dependencies are operational:
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-09-19T00:00:00.000Z",
+  "uptime": 1420,
+  "components": [
+    {
+      "name": "PostgreSQL",
+      "status": "healthy",
+      "latencyMs": 4
+    },
+    {
+      "name": "Redis",
+      "status": "healthy",
+      "latencyMs": 2
+    },
+    {
+      "name": "Groq LLM",
+      "status": "healthy",
+      "latencyMs": 48
+    }
+  ]
+}
+```
+
+#### Response: Unhealthy / Outage (`503 Service Unavailable`)
+
+Returned when any required dependency (such as PostgreSQL) is unreachable or down:
+
+```json
+{
+  "status": "down",
+  "timestamp": "2026-09-19T00:00:00.000Z",
+  "uptime": 1420,
+  "components": [
+    {
+      "name": "PostgreSQL",
+      "status": "down",
+      "latencyMs": 10
+    },
+    {
+      "name": "Redis",
+      "status": "healthy",
+      "latencyMs": 2
+    },
+    {
+      "name": "Groq LLM",
+      "status": "healthy",
+      "latencyMs": 48
+    }
+  ]
+}
+```
+
+> 🛡️ **Security Safeguard**: Internal driver error messages and connection strings are stripped from anonymous health responses to prevent information leakage to unauthenticated probes.
 
 ---
 
