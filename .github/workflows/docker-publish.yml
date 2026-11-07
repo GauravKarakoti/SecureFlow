@@ -30,6 +30,7 @@ jobs:
       # Produces tags:
       #   ghcr.io/<owner>/secureflow:latest
       #   ghcr.io/<owner>/secureflow:<short-sha>  (e.g. abc1234)
+      #   ghcr.io/<owner>/secureflow:1.2.3      (from the triggering v*.*.* tag)
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -38,6 +39,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
+            type=semver,pattern={{version}}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
