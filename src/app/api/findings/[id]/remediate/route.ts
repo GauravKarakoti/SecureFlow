@@ -116,6 +116,25 @@ const handler = withErrorHandler(async function POST(
     filePath: finding.fileLocation,
   });
 
+  // #1513: the flow returns a static fallback (empty patch) when the AI provider is
+  // unavailable. Do not store that as a GENERATED patch; tell the client why instead,
+  // so the UI can show a clear message and offer a manual retry.
+  if (aiResult.failureReason) {
+    const rateLimited = aiResult.failureReason === "rate_limit";
+    return NextResponse.json(
+      {
+        success: false,
+        error: aiResult.explanation,
+        code: rateLimited ? "AI_RATE_LIMITED" : "AI_UNAVAILABLE",
+        retryable: true,
+      },
+      {
+        status: rateLimited ? 429 : 503,
+        headers: rateLimited ? { "Retry-After": "60" } : undefined,
+      },
+    );
+  }
+
   const patch = await prisma.remediationPatch.upsert({
     where: { findingId: id },
     update: { patchDiff: aiResult.patchDiff, status: "GENERATED" },
