@@ -68,6 +68,12 @@ export const TIERS = {
     fallbackStrategy: "fail-closed" as FallbackStrategy,
     timeoutMs: 1000,
   },
+  POLICY_TEST: {
+    limit: 15,
+    windowSeconds: 60,
+    fallbackStrategy: "fail-closed" as FallbackStrategy,
+    timeoutMs: 1000,
+  },
 } as const;
 
 /** Seconds remaining until the window rolls over, floored at 1 so we never say "retry in 0s". */
