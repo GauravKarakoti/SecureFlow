@@ -4,6 +4,16 @@ import { getWorkspacePaths, readJsonFile, fileExists } from "./workspace";
 describe("SecureFlow CLI Workspace Integration (#636)", () => {
   const paths = getWorkspacePaths(__dirname);
 
+  it("resolves the workspace paths from the module's own location by default", () => {
+    // The shipped build is ESM ("type": "module"), where __dirname does not
+    // exist — the default call must not rely on it.
+    const defaults = getWorkspacePaths();
+    expect(defaults.cliDir).toBe(paths.cliDir);
+    expect(defaults.rootDir).toBe(paths.rootDir);
+    expect(fileExists(defaults.cliPackageJsonPath)).toBe(true);
+    expect(fileExists(defaults.rootPackageJsonPath)).toBe(true);
+  });
+
   it("verifies cli is properly configured as an npm workspace package", () => {
     const rootPkg = readJsonFile<{ workspaces?: string[] }>(paths.rootPackageJsonPath);
     expect(rootPkg.workspaces).toBeDefined();
