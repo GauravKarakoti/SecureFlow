@@ -135,7 +135,10 @@ export function withRateLimit(
         {
           status: 429,
           headers: {
-            ...buildRateLimitHeaders(result),
+            // Degraded decisions (fallback strategy after a Redis outage) must
+            // not advertise invented X-RateLimit-* values — same rule the
+            // success path below follows.
+            ...(result.degraded ? {} : buildRateLimitHeaders(result)),
             // The real time left in the window, not the full window length. A
             // caller blocked one second into a 60s window was previously told to
             // wait the whole 60 seconds.
