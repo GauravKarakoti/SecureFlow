@@ -23,7 +23,7 @@ IDE agents can retrieve the bundled guidance and inspect reported remediation ou
 │    - Fail-closed prompt injection filter    │
 │    - HMAC-SHA256 execution proof signing    │
 ├──────────────────────────────────────────────┤
-│ 📚 Live Threat Intelligence Knowledge Base   │
+│ 📚 Bundled Threat Intelligence Knowledge Base│
 │    - CVE lookups & CWE categorization        │
 │    - Actionable remediation code patterns   │
 └──────────────────────────────────────────────┘
