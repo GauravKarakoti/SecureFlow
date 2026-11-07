@@ -48,6 +48,8 @@ import {
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { activeSuppressionWhere } from "../triage/expiry";
+import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
+import { getPolicyVersion } from "@/lib/policies/policy-cache";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;
@@ -83,6 +85,7 @@ export interface ScanJobResult {
   verdict: string;
   findings: EnrichedScanFinding[];
   skippedFiles?: Array<{ filename: string; reason: string }>;
+  reusedFromCache?: boolean;
 }
 
 export interface ScanProgress {
@@ -261,69 +264,115 @@ export async function processScanJob(
   log.info(`[ScanEngine] Scanning ${totalFiles} files`);
   console.log(`[ScanEngine] Scanning ${totalFiles} files`);
 
-  // --- Phase 2: Scan files in chunks ---
-  onProgress({
-    phase: "scanning",
-    scannedFiles: 0,
-    totalFiles,
-    vulnerabilitiesFound: 0,
-    progress: 0,
-  });
-
-  const allFindings: EnrichedScanFinding[] = [];
-  const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
-  let scannedFiles = 0;
-
-  for (let i = 0; i < fileChanges.length; i += CHUNK_SIZE) {
-    const chunk = fileChanges.slice(i, i + CHUNK_SIZE);
-
+  // --- Scan Cache Check (Deduplicate synchronize / force-push events) ---
+  let policyVersion = "1.0.0";
+  if (userId) {
     try {
-      const chunkFindings = await scanner.scanPullRequest(
-        chunk,
-        activePolicies as any[],
-        customIgnores,
-        customPlaceholders,
-      );
-      allFindings.push(...chunkFindings);
-      if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
-        allSkippedFiles.push(...scanner.lastSkippedFiles);
-      }
-    } catch (err) {
-      log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
-      // Fail the scan rather than continue: findings from the other chunks would be
-      // evaluated as if these files were clean, and a PR whose risky file sat in this
-      // chunk would pass.
-      throw new ScanIncompleteError(
-        chunk.map((file) => file.filename),
-        err,
-      );
+      policyVersion = await getPolicyVersion(userId);
+    } catch {
+      policyVersion = "1.0.0";
     }
+  }
 
-    scannedFiles = Math.min(i + CHUNK_SIZE, totalFiles);
-    const vulnCount = allFindings.length;
-    const progress = progressPercent(scannedFiles, totalFiles);
+  const cacheHash = computeScanCacheHash({
+    files: fileChanges,
+    activePolicies: (activePolicies as any[]) || [],
+    policyVersion,
+    customIgnores,
+    customPlaceholders,
+  });
+  const cacheKey = scanCacheKey(cacheHash);
+
+  let reusedFromCache = false;
+  let allFindings: EnrichedScanFinding[] = [];
+  const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+
+  const cachedFindings = await getCachedScan(cacheKey);
+  if (cachedFindings) {
+    reusedFromCache = true;
+    allFindings = cachedFindings.map((f) => ({ ...f }));
+    log.info(
+      `[ScanEngine] Reusing ${allFindings.length} scan findings from cache for ${repositoryFullName}#${prNumber}`,
+    );
+    console.log(
+      `[ScanEngine] Reusing ${allFindings.length} scan findings from cache for ${repositoryFullName}#${prNumber}`,
+    );
 
     onProgress({
       phase: "scanning",
-      scannedFiles,
+      scannedFiles: totalFiles,
       totalFiles,
-      vulnerabilitiesFound: vulnCount,
-      progress,
+      vulnerabilitiesFound: allFindings.length,
+      progress: 80,
+    });
+  } else {
+    // --- Phase 2: Scan files in chunks ---
+    onProgress({
+      phase: "scanning",
+      scannedFiles: 0,
+      totalFiles,
+      vulnerabilitiesFound: 0,
+      progress: 0,
     });
 
-    // Update database progress
-    await updateScanJobProgress(scanJobId, {
-      scannedFiles,
-      vulnerabilitiesFound: vulnCount,
-    }).catch(() => {});
+    let scannedFiles = 0;
 
-    // Yield to event loop between chunks
-    if (i + CHUNK_SIZE < fileChanges.length) {
-      await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+    for (let i = 0; i < fileChanges.length; i += CHUNK_SIZE) {
+      const chunk = fileChanges.slice(i, i + CHUNK_SIZE);
+
+      try {
+        const chunkFindings = await scanner.scanPullRequest(
+          chunk,
+          activePolicies as any[],
+          customIgnores,
+          customPlaceholders,
+        );
+        allFindings.push(...chunkFindings);
+        if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
+          allSkippedFiles.push(...scanner.lastSkippedFiles);
+        }
+      } catch (err) {
+        log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
+        // Fail the scan rather than continue: findings from the other chunks would be
+        // evaluated as if these files were clean, and a PR whose risky file sat in this
+        // chunk would pass.
+        throw new ScanIncompleteError(
+          chunk.map((file) => file.filename),
+          err,
+        );
+      }
+
+      scannedFiles = Math.min(i + CHUNK_SIZE, totalFiles);
+      const vulnCount = allFindings.length;
+      const progress = progressPercent(scannedFiles, totalFiles);
+
+      onProgress({
+        phase: "scanning",
+        scannedFiles,
+        totalFiles,
+        vulnerabilitiesFound: vulnCount,
+        progress,
+      });
+
+      // Update database progress
+      await updateScanJobProgress(scanJobId, {
+        scannedFiles,
+        vulnerabilitiesFound: vulnCount,
+      }).catch(() => {});
+
+      // Yield to event loop between chunks
+      if (i + CHUNK_SIZE < fileChanges.length) {
+        await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+      }
     }
+
+    // Persist raw findings in scan cache for subsequent synchronize events
+    await setCachedScan(cacheKey, allFindings).catch((err) => {
+      console.warn("[ScanEngine] Failed to save findings to scan cache:", err);
+    });
   }
 
   // --- Phase 3: Enrich findings with AI explanations ---
@@ -515,7 +564,9 @@ export async function processScanJob(
         await prisma.auditLog.create({
           data: sanitizeAuditLogInput({
             userId,
-            action: "Background Scan Completed",
+            action: reusedFromCache
+              ? "Background Scan Completed (reused from cache)"
+              : "Background Scan Completed",
             resource: `${repositoryFullName}#${prNumber}`,
             decision,
             metadata: {
@@ -525,6 +576,9 @@ export async function processScanJob(
               findingsCount: enrichedFindings.length,
               totalFiles,
               riskScore: storedRiskScore(activeFindings),
+              reusedFromCache,
+              cacheHit: reusedFromCache,
+              cacheStatus: reusedFromCache ? "reused from cache" : "fresh scan",
             },
           }),
         });
@@ -612,5 +666,6 @@ export async function processScanJob(
     verdict: decision,
     findings: enrichedFindings,
     skippedFiles: allSkippedFiles,
+    reusedFromCache,
   };
 }

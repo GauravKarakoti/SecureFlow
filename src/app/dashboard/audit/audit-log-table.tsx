@@ -593,6 +593,18 @@ export default function AuditLogTable({
                                 </span>
                               )}
                               <span className="font-bold text-sm">{log.action}</span>
+                              {(meta.reusedFromCache ||
+                                meta.cacheHit ||
+                                meta.cacheStatus === "reused from cache" ||
+                                (typeof log.action === "string" &&
+                                  log.action.includes("reused from cache"))) && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] text-cyan-400 border-cyan-800/60 font-mono tracking-tight"
+                                >
+                                  reused from cache
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="py-4">

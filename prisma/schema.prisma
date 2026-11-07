@@ -506,3 +506,23 @@ model AudioDebriefCache {
   @@index([lastAccessed(sort: Desc)])
   @@map("audio_debrief_cache")
 }
+
+/**
+ * Scan Cache for Deduplicating Synchronize / Force-Push Events.
+ * Maps diff + active policy set + version hash to stored findings.
+ */
+model ScanCache {
+  id           String    @id @default(cuid())
+  cacheKey     String    @unique
+  findingsJson String    @db.Text
+  hitCount     Int       @default(0)
+  lastAccessed DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  expiresAt    DateTime?
+
+  @@index([cacheKey])
+  @@index([expiresAt])
+  @@map("scan_cache")
+}
+
