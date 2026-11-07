@@ -13,6 +13,7 @@ import { parseUnifiedPatch, renderNumberedLines } from "./diff";
 import { ignoreReasonFor, shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent, maskSecrets } from "./secret-masking";
 import { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 
 export type ScanFinding = {
   type: string;
@@ -579,7 +580,10 @@ export class ArmorIQScanner {
     }
 
     let deadlineHit = false;
-    const deterministicFindings = detectSecretsInFiles(files, combinedPlaceholders);
+    const deterministicFindings = runDeterministicPrecheck(files, {
+      customPlaceholders: combinedPlaceholders,
+      customIgnores: combinedIgnores,
+    });
 
     for (const file of files) {
       if (deadlineExceeded()) {
@@ -1028,7 +1032,7 @@ CRITICAL RULES:
       );
     }
 
-    const combinedFindings = mergeFindings(deterministicFindings, allFindings);
+    const combinedFindings = mergePrecheckWithLlmFindings(deterministicFindings, allFindings);
     const suppressionResult = applyInlineSuppression(combinedFindings, files);
     this.lastSuppressionResult = suppressionResult;
     this.lastSkippedFiles = skippedFiles;
@@ -1038,4 +1042,5 @@ CRITICAL RULES:
 }
 
 export { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+export { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 export const scanner = new ArmorIQScanner();
