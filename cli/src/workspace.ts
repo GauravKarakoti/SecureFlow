@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 export interface WorkspacePaths {
   cliDir: string;
@@ -10,7 +11,11 @@ export interface WorkspacePaths {
   nestedLockPath: string;
 }
 
-export function getWorkspacePaths(baseDir: string = __dirname): WorkspacePaths {
+// __dirname does not exist in the ESM build this package ships ("type":
+// "module"), so derive the default from import.meta.url instead.
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+export function getWorkspacePaths(baseDir: string = moduleDir): WorkspacePaths {
   const cliDir = path.resolve(baseDir, "..");
   const rootDir = path.resolve(cliDir, "..");
 
