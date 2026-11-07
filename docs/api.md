@@ -2,7 +2,7 @@
 
 > _"The Professor only opens the vault through the right doors. Here are the doors."_
 
-This document describes every HTTP route exposed under `src/app/api/`, including the expected request payloads, headers, authentication, and response shapes. Use it as the single source of truth when integrating with SecureFlow programmatically.
+This document is a deep dive on selected HTTP routes under `src/app/api/`, including the expected request payloads, headers, authentication, and response shapes. The complete, CI-verified list of every route is [`openapi.yaml`](../openapi.yaml) (checked by `npm run verify:openapi`); this document adds the narrative detail the spec cannot carry.
 
 ## Table of Contents
 
