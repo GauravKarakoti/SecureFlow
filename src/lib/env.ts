@@ -58,6 +58,7 @@ const envSchema = z.object({
   ELEVENLABS_VOICE_ID_HEIST: z.string().optional(),
   ELEVENLABS_MODEL_ID: z.string().optional(),
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
+  SCAN_CACHE_TTL_SECONDS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

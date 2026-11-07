@@ -867,7 +867,9 @@ export const worker = new Worker<WebhookJobData>(
             await prisma.auditLog.create({
               data: sanitizeAuditLogInput({
                 userId: userId,
-                action: "Policy Evaluation",
+                action: scanResult.reusedFromCache
+                  ? "Policy Evaluation (reused from cache)"
+                  : "Policy Evaluation",
                 resource: `${repository.full_name}#${pull_request.number}`,
                 decision: decision,
                 metadata: {
@@ -875,6 +877,9 @@ export const worker = new Worker<WebhookJobData>(
                   deliveryId,
                   findingsCount: activeFindings.length,
                   suppressedCount: findings.length - activeFindings.length,
+                  reusedFromCache: scanResult.reusedFromCache ?? false,
+                  cacheHit: scanResult.reusedFromCache ?? false,
+                  cacheStatus: scanResult.reusedFromCache ? "reused from cache" : "fresh scan",
                 },
               }),
             });

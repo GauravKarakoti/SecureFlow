@@ -187,3 +187,16 @@ export async function invalidatePolicyCache(userId: string): Promise<void> {
     // Non-fatal: the TTL will expire the stale entry naturally
   }
 }
+
+/**
+ * Returns the current policy version for a user from Redis, or '0' if unset/unavailable.
+ */
+export async function getPolicyVersion(userId: string): Promise<string> {
+  if (!redis || !userId) return "0";
+  try {
+    const ver = await redis.get(policyVersionKey(userId));
+    return ver || "0";
+  } catch {
+    return "0";
+  }
+}

@@ -398,6 +398,7 @@ npm run genkit:dev
 | `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
 | `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings and audit logs (in days, off by default)               |
+| `SCAN_CACHE_TTL_SECONDS`  | ⬜       | Scan deduplication cache TTL in seconds (default: `86400` / 24 hours)                         |
 
 ### Trusted proxies and rate limiting
 
