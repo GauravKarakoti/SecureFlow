@@ -140,7 +140,9 @@ describe("SettingsClient component (#1333)", () => {
     fireEvent.click(saveTeamsButton);
 
     await waitFor(() => {
-      expect(updateTeamsWebhookMock).toHaveBeenCalledWith("https://outlook.office.com/webhook/test");
+      expect(updateTeamsWebhookMock).toHaveBeenCalledWith(
+        "https://outlook.office.com/webhook/test",
+      );
       expect(toastSuccessMock).toHaveBeenCalledWith("Teams settings saved successfully.");
     });
 

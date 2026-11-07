@@ -41,7 +41,7 @@ cli/dist/
 *.md
 !README.md
 docs/
-Money-Heist.pdf
+*.pdf
 *.db
 *.db-journal
 .gguf
