@@ -478,4 +478,45 @@ describe("CLI End-to-End (E2E) Test Suite (#1245)", () => {
       expect(res.stdout).toContain("SecureFlow scan passed");
     });
   });
+
+  describe("8. SBOM and Web3 Explanations Subcommands (#1589)", () => {
+    it("reports an error if secureflow sbom is called without a file", () => {
+      const repoDir = path.join(tempBaseDir, "sbom-cli-repo");
+      initGitRepo(repoDir);
+
+      const res = runCli(["sbom"], repoDir);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain("Please specify a manifest file");
+    });
+
+    it("reports an error if specified SBOM manifest does not exist", () => {
+      const repoDir = path.join(tempBaseDir, "sbom-cli-repo");
+      initGitRepo(repoDir);
+
+      const res = runCli(["sbom", "nonexistent-package.json"], repoDir);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain("File not found");
+    });
+
+    it("runs secureflow explain --web3 and produces smart contract guidance", () => {
+      const repoDir = path.join(tempBaseDir, "web3-cli-repo");
+      initGitRepo(repoDir);
+
+      const contractPath = path.join(repoDir, "Vault.sol");
+      fs.writeFileSync(
+        contractPath,
+        "contract Vault {\n  function withdraw() public {\n    msg.sender.call{value: 10}('');\n  }\n}\n",
+      );
+
+      const res = runCli(
+        ["explain", "--web3", "--file", contractPath, "--finding-type", "Reentrancy"],
+        repoDir,
+      );
+
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("SecureFlow Web3");
+      expect(res.stdout).toContain("Ecosystem: solidity");
+      expect(res.stdout).toContain("Remediation Recommendations");
+    });
+  });
 });

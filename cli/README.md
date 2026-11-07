@@ -115,9 +115,13 @@ Now, every `git commit` automatically triggers a security check on staged files.
 Usage:
   secureflow [options]
   secureflow mcp [options]
+  secureflow sbom <file> [options]
+  secureflow explain --web3 [options]
 
 Commands:
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
+  sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
+  explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
 ```
 
 ### Options & Flags
@@ -127,6 +131,9 @@ Commands:
 | `--fail-on <level>`    |           | `medium`            | Exit with error code `1` if findings meet or exceed severity (`low`, `medium`, `high`, `critical`) |
 | `--format <format>`    |           | `text`              | Output report format: `text`, `json`, `sarif`, `csv`, `html`, `markdown`                           |
 | `--output <path>`      | `-o`      | `stdout`            | Write report to the specified file path                                                            |
+| `--poll`               |           | `false`             | Poll SBOM scan status until background worker processing completes                                 |
+| `--file <path>`        |           |                     | Target file for smart contract analysis with `explain --web3`                                      |
+| `--finding-type <id>`  |           |                     | Vulnerability type (e.g. Reentrancy, Overflow) for `explain --web3`                                |
 | `--voice`              | `-v`      | `false`             | Play an audio debrief of findings in your terminal upon completion                                 |
 | `--local`              |           | `false`             | Skip cloud AI upload and run fully local pattern analysis                                          |
 | `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                              |
@@ -134,6 +141,31 @@ Commands:
 | `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                               |
 | `--verbose`            |           | `false`             | Enable verbose diagnostic logging                                                                  |
 | `--help`               | `-h`      |                     | Display CLI usage instructions and exit                                                            |
+
+---
+
+### 📦 SBOM Scanning (`secureflow sbom`)
+
+Scan third-party dependencies directly against OSV vulnerability databases via background queue processing:
+
+```bash
+# Enqueue a scan for a package.json manifest
+secureflow sbom package.json
+
+# Enqueue and poll until background scan finishes
+secureflow sbom requirements.txt --poll
+```
+
+---
+
+### 🧠 Web3 Security Explanations (`secureflow explain --web3`)
+
+Audit smart contracts (Solidity, Soroban/Rust, Circom, Leo) with domain-specific AI analysis and remediation patterns:
+
+```bash
+# Analyze a Solidity contract for reentrancy vectors
+secureflow explain --web3 --file contracts/Vault.sol --finding-type Reentrancy
+```
 
 ---
 
