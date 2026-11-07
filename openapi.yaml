@@ -1901,6 +1901,27 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/policies/test:
+    post:
+      summary: Test policy endpoint
+      description: A simple endpoint to test policy evaluation.
+      operationId: testPolicy
+      tags:
+        - Policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Policy test results
+        "401":
+          description: Missing or invalid signature
+        "429":
+          description: Rate limit exceeded
+
 tags:
   - name: SBOM
     description: Software Bill of Materials scanning

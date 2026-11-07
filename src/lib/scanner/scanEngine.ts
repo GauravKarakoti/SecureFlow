@@ -558,9 +558,7 @@ export async function processScanJob(
     }
 
     // 2. BLOCKED scan multi-channel notification (Slack & Teams)
-    const isBlockedDecision =
-      decision === "BLOCKED" ||
-      storedPolicyDecision(decision) === "BLOCK";
+    const isBlockedDecision = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
 
     if (isBlockedDecision) {
       try {

@@ -206,7 +206,10 @@ export async function notifyBlockedScan(params: NotifyBlockedScanParams): Promis
           }),
         });
       } catch (logErr) {
-        console.error("[NotificationDispatch] Failed to log Slack notification to audit log:", logErr);
+        console.error(
+          "[NotificationDispatch] Failed to log Slack notification to audit log:",
+          logErr,
+        );
       }
     }
   }
@@ -243,7 +246,10 @@ export async function notifyBlockedScan(params: NotifyBlockedScanParams): Promis
           }),
         });
       } catch (logErr) {
-        console.error("[NotificationDispatch] Failed to log Teams notification to audit log:", logErr);
+        console.error(
+          "[NotificationDispatch] Failed to log Teams notification to audit log:",
+          logErr,
+        );
       }
     }
   }
