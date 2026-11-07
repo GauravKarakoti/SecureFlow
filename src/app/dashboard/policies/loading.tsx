@@ -1,10 +1,18 @@
-import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
+/**
+ * Policies loading skeleton.
+ *
+ * `policies/page.tsx` is an async server component that runs Prisma
+ * queries plus ArmorIQ compilation before rendering, so this mirrors
+ * the page's layout — header, summary card, and rule card grid —
+ * to avoid layout shifts.
+ */
 export default function PoliciesLoading() {
   return (
     <div
-      className="space-y-8 animate-in fade-in duration-500"
+      className="w-full space-y-8 animate-in fade-in duration-500"
       data-testid="policies-loading"
       role="status"
       aria-label="Loading security policies and programmatic rules"
