@@ -26,6 +26,17 @@ describe("Diff chunking & size limits configuration", () => {
     expect(resolveDiffChunkMaxChars("abc")).toBe(DEFAULT_DIFF_CHUNK_MAX_CHARS);
     expect(resolveDiffFileMaxChars("0")).toBe(DEFAULT_DIFF_FILE_MAX_CHARS);
   });
+
+  it("rejects values with trailing junk instead of parsing a prefix", () => {
+    // parseInt would silently turn these into 50000 and 50.
+    expect(resolveDiffFileMaxChars("50000oops")).toBe(DEFAULT_DIFF_FILE_MAX_CHARS);
+    expect(resolveDiffChunkMaxChars("50e3junk")).toBe(DEFAULT_DIFF_CHUNK_MAX_CHARS);
+  });
+
+  it("still accepts plain integers and trims whitespace", () => {
+    expect(resolveDiffFileMaxChars(" 45000 ")).toBe(45000);
+    expect(resolveDiffChunkMaxChars("16000")).toBe(16000);
+  });
 });
 
 describe("scanner.scanPullRequest chunking and skipped files", () => {

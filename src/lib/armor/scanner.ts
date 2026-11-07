@@ -108,15 +108,18 @@ export function getScanModelChain(configured?: string): string[] {
 export const DEFAULT_DIFF_FILE_MAX_CHARS = 50_000;
 export const DEFAULT_DIFF_CHUNK_MAX_CHARS = 32_000;
 
+// Strict parsing, matching parseMaxWebhookBytes: parseInt accepts prefixes,
+// so DIFF_FILE_MAX_CHARS=50000oops or =50e3 would silently parse as 50000/50
+// and quietly change the scan budget.
 export function resolveDiffFileMaxChars(configured?: string): number {
-  const val = configured ?? process.env.DIFF_FILE_MAX_CHARS;
-  const n = val ? parseInt(val, 10) : NaN;
+  const val = (configured ?? process.env.DIFF_FILE_MAX_CHARS)?.trim();
+  const n = val ? Number(val) : NaN;
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_FILE_MAX_CHARS;
 }
 
 export function resolveDiffChunkMaxChars(configured?: string): number {
-  const val = configured ?? process.env.DIFF_CHUNK_MAX_CHARS;
-  const n = val ? parseInt(val, 10) : NaN;
+  const val = (configured ?? process.env.DIFF_CHUNK_MAX_CHARS)?.trim();
+  const n = val ? Number(val) : NaN;
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_CHUNK_MAX_CHARS;
 }
 
