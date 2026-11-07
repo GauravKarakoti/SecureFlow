@@ -197,8 +197,11 @@ export async function fetchAudioSummary(
       }
 
       const data = (await response.json()) as { audioBase64?: string; audio?: string };
-      if (data.audioBase64) {
-        return Buffer.from(data.audioBase64, "base64");
+      // Both field names are part of the declared response contract; a server
+      // sending only `audio` previously degraded to the silent stub.
+      const encoded = data.audioBase64 ?? data.audio;
+      if (encoded) {
+        return Buffer.from(encoded, "base64");
       }
     }
   } catch {
