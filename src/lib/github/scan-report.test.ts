@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { renderScanReportSummary, toBlockquote, toCodeSpan } from "./scan-report";
+import {
+  SECUREFLOW_COMMENT_MARKER,
+  renderScanReportSummary,
+  toBlockquote,
+  toCodeSpan,
+} from "./scan-report";
 
 const finding = (overrides: Record<string, unknown> = {}) => ({
   severity: "HIGH",
@@ -39,6 +44,38 @@ describe("toCodeSpan", () => {
 });
 
 describe("renderScanReportSummary", () => {
+  it("always includes the hidden marker at the top of the comment", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+    });
+
+    expect(body.startsWith(SECUREFLOW_COMMENT_MARKER)).toBe(true);
+  });
+
+  it("includes the scanned commit SHA when provided", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      commitSha: "abc1234567890abcdef",
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scanned commit: `abc1234567890abcdef`");
+  });
+
+  it("omits the scanned commit line when commitSha is not provided", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+    });
+
+    expect(body).not.toContain("Scanned commit:");
+  });
+
   it("keeps a multi-paragraph explanation inside its blockquote", () => {
     const body = renderScanReportSummary({
       findings: [finding({ explanation: "Line one.\n\nThis paragraph used to escape the quote." })],
@@ -99,5 +136,15 @@ describe("renderScanReportSummary", () => {
     });
     expect(body).not.toContain("undefined");
     expect(body).not.toContain("null");
+  });
+
+  it("reports previously dismissed findings count in the summary (#1528)", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      previouslyDismissedCount: 1,
+    });
+    expect(body).toContain("1 previously dismissed");
   });
 });

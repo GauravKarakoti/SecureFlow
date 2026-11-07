@@ -13,6 +13,7 @@ import { parseUnifiedPatch, renderNumberedLines } from "./diff";
 import { ignoreReasonFor, shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent, maskSecrets } from "./secret-masking";
 import { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 
 export type ScanFinding = {
   type: string;
@@ -102,6 +103,29 @@ export function getScanModelChain(configured?: string): string[] {
   const primary = resolveScanModel(configured);
   const fallbacks = SCAN_FALLBACK_MODELS.filter((m) => m !== primary);
   return [primary, ...fallbacks];
+}
+
+export const DEFAULT_DIFF_FILE_MAX_CHARS = 50_000;
+export const DEFAULT_DIFF_CHUNK_MAX_CHARS = 32_000;
+
+// Strict parsing, matching parseMaxWebhookBytes: parseInt accepts prefixes,
+// so DIFF_FILE_MAX_CHARS=50000oops or =50e3 would silently parse as 50000/50
+// and quietly change the scan budget.
+export function resolveDiffFileMaxChars(configured?: string): number {
+  const val = (configured ?? process.env.DIFF_FILE_MAX_CHARS)?.trim();
+  const n = val ? Number(val) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_FILE_MAX_CHARS;
+}
+
+export function resolveDiffChunkMaxChars(configured?: string): number {
+  const val = (configured ?? process.env.DIFF_CHUNK_MAX_CHARS)?.trim();
+  const n = val ? Number(val) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DIFF_CHUNK_MAX_CHARS;
+}
+
+export interface SkippedFile {
+  filename: string;
+  reason: "oversized" | "deadline" | "binary";
 }
 
 // --- Timeout / deadline guards -------------------------------------------------------------
@@ -510,6 +534,7 @@ export class ArmorIQScanner {
   }
 
   public lastSuppressionResult: InlineSuppressionResult | null = null;
+  public lastSkippedFiles: SkippedFile[] = [];
 
   async scanPullRequest(
     files: FileChange[],
@@ -523,8 +548,9 @@ export class ArmorIQScanner {
     let currentBatch = "";
     let currentBatchFiles: string[] = [];
     const allFindings: ScanFinding[] = [];
-    const ABSOLUTE_MAX_FILE_SIZE = 50000;
-    const MAX_COMBINED_LENGTH = 32000;
+    const skippedFiles: SkippedFile[] = [];
+    const ABSOLUTE_MAX_FILE_SIZE = resolveDiffFileMaxChars();
+    const MAX_COMBINED_LENGTH = resolveDiffChunkMaxChars();
 
     let combinedIgnores = [...customIgnores];
     let combinedPlaceholders = [...customPlaceholders];
@@ -557,7 +583,10 @@ export class ArmorIQScanner {
     }
 
     let deadlineHit = false;
-    const deterministicFindings = detectSecretsInFiles(files, combinedPlaceholders);
+    const deterministicFindings = runDeterministicPrecheck(files, {
+      customPlaceholders: combinedPlaceholders,
+      customIgnores: combinedIgnores,
+    });
 
     for (const file of files) {
       if (deadlineExceeded()) {
@@ -565,6 +594,7 @@ export class ArmorIQScanner {
         console.warn(
           `⏱️ Scan deadline (${MAX_TOTAL_SCAN_MS / 1000}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
         );
+        skippedFiles.push({ filename: file.filename, reason: "deadline" });
         break;
       }
 
@@ -592,6 +622,7 @@ export class ArmorIQScanner {
         console.warn(
           `Skipping ${file.filename}: diff exceeds ${ABSOLUTE_MAX_FILE_SIZE} characters.`,
         );
+        skippedFiles.push({ filename: file.filename, reason: "oversized" });
         continue;
       }
 
@@ -720,7 +751,7 @@ Format:
             );
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120000);
+            const timeoutId = setTimeout(() => controller.abort(), SCAN_REQUEST_TIMEOUT_MS);
 
             const chatCompletionPromise = groq.chat.completions.create(
               {
@@ -750,8 +781,9 @@ CRITICAL RULES:
               { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
             );
 
+            let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
             const timeoutPromise = new Promise<never>((_, reject) => {
-              setTimeout(
+              raceTimeoutId = setTimeout(
                 () =>
                   reject(
                     new ScannerTimeoutError(
@@ -762,10 +794,17 @@ CRITICAL RULES:
               );
             });
 
-            const chatCompletion = await Promise.race([
-              chatCompletionPromise.finally(() => clearTimeout(timeoutId)),
-              timeoutPromise,
-            ]);
+            let chatCompletion;
+            try {
+              chatCompletion = await Promise.race([
+                chatCompletionPromise.finally(() => clearTimeout(timeoutId)),
+                timeoutPromise,
+              ]);
+            } finally {
+              // Clear the losing race timer: without this every completed
+              // batch left a 120s setTimeout pending in the event loop.
+              if (raceTimeoutId !== undefined) clearTimeout(raceTimeoutId);
+            }
 
             const responseText = chatCompletion.choices[0]?.message?.content || '{"findings": []}';
             const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
@@ -993,6 +1032,9 @@ CRITICAL RULES:
       console.warn(
         `⏱️ Scan deadline exceeded before the final batch (${currentBatchFiles.join(", ")}) could run — dropped from results.`,
       );
+      for (const fn of currentBatchFiles) {
+        skippedFiles.push({ filename: fn, reason: "deadline" });
+      }
     }
 
     if (deadlineHit) {
@@ -1001,13 +1043,15 @@ CRITICAL RULES:
       );
     }
 
-    const combinedFindings = mergeFindings(deterministicFindings, allFindings);
+    const combinedFindings = mergePrecheckWithLlmFindings(deterministicFindings, allFindings);
     const suppressionResult = applyInlineSuppression(combinedFindings, files);
     this.lastSuppressionResult = suppressionResult;
+    this.lastSkippedFiles = skippedFiles;
 
     return suppressionResult.activeFindings;
   }
 }
 
 export { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+export { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 export const scanner = new ArmorIQScanner();

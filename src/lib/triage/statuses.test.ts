@@ -35,8 +35,8 @@ describe("TRIAGE_STATUSES matches the FindingTriageStatus enum", () => {
 });
 
 describe("SUPPRESSED_STATUSES", () => {
-  it("is the two statuses that take a finding out of enforcement", () => {
-    expect([...SUPPRESSED_STATUSES]).toEqual(["FALSE_POSITIVE", "IGNORED"]);
+  it("is the three statuses that take a finding out of enforcement", () => {
+    expect([...SUPPRESSED_STATUSES]).toEqual(["FALSE_POSITIVE", "IGNORED", "DISMISSED"]);
   });
 
   it("does not include RESOLVED", () => {
@@ -70,6 +70,7 @@ describe("isSuppressedStatus", () => {
   it("accepts the suppressed statuses", () => {
     expect(isSuppressedStatus("FALSE_POSITIVE")).toBe(true);
     expect(isSuppressedStatus("IGNORED")).toBe(true);
+    expect(isSuppressedStatus("DISMISSED")).toBe(true);
   });
 
   it("rejects the ones that stay in enforcement", () => {
@@ -95,7 +96,7 @@ describe("isTriageStatus", () => {
   });
 
   it("rejects anything else", () => {
-    expect(isTriageStatus("DISMISSED")).toBe(false);
+    expect(isTriageStatus("UNKNOWN")).toBe(false);
     expect(isTriageStatus("")).toBe(false);
     expect(isTriageStatus(null)).toBe(false);
   });

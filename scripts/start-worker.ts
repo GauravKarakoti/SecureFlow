@@ -71,7 +71,10 @@ export function startWorkerServer(options: StartWorkerOptions = {}): StartWorker
   dlqAutoRetryWorker.start();
   console.log("🔁 DLQ Auto-Retry Worker started");
 
-  const port = options.port ?? 3000;
+  // Platforms like Render inject PORT; the keep-alive workflow pings the
+  // worker's health endpoint, so binding the wrong port fails health checks.
+  const envPort = Number(process.env.PORT);
+  const port = options.port ?? (Number.isInteger(envPort) && envPort > 0 ? envPort : 3000);
   let server: Server | undefined;
 
   if (options.autoListen !== false) {

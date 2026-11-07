@@ -2,63 +2,9 @@ import { createHmac, createHash } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-
-export interface ThreatIntelligenceEntry {
-  id: string;
-  category: string;
-  description: string;
-  severity: string;
-  cve?: string;
-  remediationGuidance: string;
-}
-
-export const KNOWLEDGE_BASE: ThreatIntelligenceEntry[] = [
-  {
-    id: "CVE-2023-3409",
-    category: "SQL Injection",
-    description:
-      "Improper neutralization of special elements used in an SQL command leads to arbitrary data exfiltration.",
-    severity: "critical",
-    cve: "CVE-2023-3409",
-    remediationGuidance:
-      "Replace string concatenation with parameterized prepared statements or ORM abstractions with strict type casting.",
-  },
-  {
-    id: "CVE-2023-28154",
-    category: "Server-Side Request Forgery",
-    description:
-      "SSRF vulnerability allowing attackers to make arbitrary network requests from the server to internal metadata endpoints or private subnets.",
-    severity: "high",
-    cve: "CVE-2023-28154",
-    remediationGuidance:
-      "Enforce strict allowlists of public protocols (HTTPS only) and disallow loopback (127.0.0.1) or link-local/private IP ranges.",
-  },
-  {
-    id: "SEC-LEAK-001",
-    category: "Secret Logging",
-    description: "Sensitive secrets, tokens, or private keys exposed in runtime application logs.",
-    severity: "high",
-    remediationGuidance:
-      "Mask or redact secret variables prior to logging, or omit credentials entirely from logging sinks.",
-  },
-  {
-    id: "CWE-79",
-    category: "Cross-Site Scripting",
-    description: "Unsanitized user-controlled input rendered directly into DOM or HTML output.",
-    severity: "high",
-    remediationGuidance:
-      "Use context-aware HTML entity encoding or modern reactive framework templating that auto-escapes dynamic values.",
-  },
-  {
-    id: "CWE-94",
-    category: "Prompt Injection",
-    description:
-      "Adversarial override attempting to hijack LLM system instructions or exfiltrate private intent tokens.",
-    severity: "critical",
-    remediationGuidance:
-      "Wrap tool execution behind cryptographic intent verification (ArmorIQ) and apply fail-closed boundary enforcement.",
-  },
-];
+import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
+import { KNOWLEDGE_BASE } from "../threat-intel.js";
+export { queryLiveThreatIntelligence } from "../threat-intel.js";
 
 /**
  * Creates and configures the SecureFlow Threat Intelligence MCP Server.
@@ -255,6 +201,18 @@ export function createThreatIntelMcpServer(): Server {
     return {
       tools: [
         {
+          name: "scan_content",
+          description:
+            "Scan caller-provided source for secret logging with configurable literal entropy sensitivity. Return redacted JSON, SARIF, text, CSV, HTML or Markdown reports; never reads files.",
+          inputSchema: SCAN_CONTENT_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        {
           name: "get_remediation_context",
           description:
             "Summarize caller-provided historical remediation outcomes, optionally by advisory. Returns application rates with explicit sample counts; does not access production data.",
@@ -333,6 +291,29 @@ export function createThreatIntelMcpServer(): Server {
           },
         ],
       };
+    }
+
+    if (name === "scan_content") {
+      try {
+        const summary = scanSuppliedContent(args || {});
+        return {
+          content: [{ type: "text", text: JSON.stringify(summary) }],
+          structuredContent: summary,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error: error instanceof Error ? error.message : "Invalid scan arguments",
+              }),
+            },
+          ],
+        };
+      }
     }
 
     if (name === "get_remediation_context") {
@@ -415,24 +396,6 @@ export function createThreatIntelMcpServer(): Server {
   });
 
   return server;
-}
-
-export async function queryLiveThreatIntelligence(query: string): Promise<string> {
-  const q = query.toLowerCase();
-  const match = KNOWLEDGE_BASE.find(
-    (item) =>
-      item.description.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q) ||
-      (item.cve && item.cve.toLowerCase().includes(q)),
-  );
-
-  if (match) {
-    return `[Threat Intelligence Advisory - ${match.id} (${match.severity.toUpperCase()})]
-Category: ${match.category}
-Guidance: ${match.remediationGuidance}`;
-  }
-
-  return "";
 }
 
 export async function startMcpServer(): Promise<void> {

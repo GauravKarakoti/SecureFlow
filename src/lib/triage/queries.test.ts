@@ -56,7 +56,7 @@ describe("getSuppressedFingerprints", () => {
     const [args] = findMany.mock.calls[0];
     expect(args.where).toEqual({
       repository: { userId: "user-1" },
-      status: { in: ["FALSE_POSITIVE", "IGNORED"] },
+      status: { in: ["FALSE_POSITIVE", "IGNORED", "DISMISSED"] },
       OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
     });
   });

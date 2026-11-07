@@ -28,9 +28,10 @@ import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
+  DISMISSED: "Dismissed",
   RESOLVED: "Resolved",
-  FALSE_POSITIVE: "False positive",
-  IGNORED: "Ignored",
+  FALSE_POSITIVE: "False positive (legacy)",
+  IGNORED: "Ignored (legacy)",
 };
 
 /**

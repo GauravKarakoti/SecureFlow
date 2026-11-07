@@ -93,6 +93,15 @@ Create, toggle, and manage security policies per user or organization — write 
 
 Intelligently ignores non-executable files and mock placeholders to reduce noise.
 
+### 🛡️ Finding Triage & Dismissal
+
+Maintainers can dismiss findings directly from the dashboard:
+
+- **Status & Reason**: Triage findings as `DISMISSED` with a mandatory reason category (`False positive`, `Accepted risk`, or `Won't fix`) and a required explanation note.
+- **Stable Fingerprints**: Findings generate deterministic SHA-256 fingerprints (`repositoryId + fileLocation + type + codeSnippet`) so dismissals reliably persist across commits and subsequent scans.
+- **Scan-time Suppression**: Dismissed findings are automatically suppressed during PR scans—they do not block pull requests or inflate open finding tallies, and are reported as previously dismissed in PR scan summaries.
+- **Audit Trail & Reversal**: Every dismissal and reopening action is logged in the Vault Audit Log with actor identity, timestamp, and notes. Reopening restores findings to `OPEN` status instantly.
+
 ---
 
 ## 🧠 The Blueprint (How It Works)
@@ -129,6 +138,31 @@ Everything visible on the SecureFlow Mission Control Dashboard
 
 ---
 
+## 🔐 Deterministic Secret Pre-Screen
+
+Before a PR diff is sent to the LLM, SecureFlow runs a rule-based secret scan
+(`src/lib/armor/secret-detector.ts`) over the added lines only.
+
+- **Detects:** AWS access key IDs, GitHub tokens, Slack tokens, PEM private key
+  headers, and high-entropy values assigned to secret-named variables
+  (`password`, `secret`, `token`, `apiKey`).
+- **Severity:** every deterministic secret finding is `CRITICAL`.
+- **No false alarms on samples:** values labelled `EXAMPLE` / `changeme`, env
+  lookups, and low-entropy values are not flagged.
+- **Masked everywhere:** stored findings, PR comments and dashboards only show a
+  masked form of the value. The raw secret is never persisted or posted, and it
+  is not part of the request sent to Groq.
+- **Merge and de-duplicate:** if the LLM reports the same file and line as a
+  deterministic finding, only one finding is shown (the deterministic one wins).
+- **Graceful degradation:** if the LLM call fails or times out, the deterministic
+  findings are still saved and reported.
+
+Run its tests:
+
+    npx vitest run src/lib/armor/secret-detector.test.ts src/lib/armor/secret-detector.prescreen.test.ts src/lib/armor/secret-detector.llm-payload.test.ts
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer                  | Technology                                                                                                           |
@@ -149,6 +183,7 @@ secureflow/
 ├── docs/
 │   ├── api.md                   # API route endpoints and specifications
 │   ├── blueprint.md             # Brand, style guidelines, and terminology dictionary
+│   ├── runbook.md               # Operations runbook for diagnosing failed scans and outages
 │   └── security/
 │       └── prompt-injection.md  # Security controls and defenses for LLM prompt injections
 │
@@ -340,6 +375,15 @@ npm run genkit:dev
 2. `docker compose up --build`
 3. App runs at [http://localhost:9002](http://localhost:9002)
 
+### Container Security & Non-Root Execution
+
+SecureFlow's Docker image uses a secure multi-stage build running as an unprivileged user:
+
+- **Non-root execution**: The final runtime container creates and runs under the unprivileged `nextjs` user (`UID 1001`, `GID 1001`), ensuring processes never run as `root` (id verifies non-zero UID).
+- **Multi-stage isolation**: Build tools and dev dependencies are discarded; only the Next.js standalone bundle, public assets, and production client artifacts are included.
+- **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
+- **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
+
 ---
 
 ## 🔑 Environment Variables Reference
@@ -362,6 +406,8 @@ npm run genkit:dev
 | `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
 | `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
 | `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
+| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings, scans, and audit logs (default: unset / keep forever) |
+| `SCAN_CACHE_TTL_SECONDS`  | ⬜       | Scan deduplication cache TTL in seconds (default: `86400` / 24 hours)                         |
 
 ### Trusted proxies and rate limiting
 
@@ -392,22 +438,43 @@ walked from the right past known proxies rather than counting a fixed number of
 hops. IPv4 CIDR blocks and bare addresses are supported; IPv6 entries are matched
 exactly.
 
+### Data retention and automated cleanup
+
+Findings and audit logs accumulate over time. Self-hosters can bound storage growth by configuring `DATA_RETENTION_DAYS`:
+
+```env
+# Optional: Auto-cleanup findings and audit logs older than N days (off by default)
+DATA_RETENTION_DAYS=90
+```
+
+Cleanup can be executed via the dedicated CLI script:
+
+- **CLI Dry Run (default)**: `npm run cleanup` (reports eligible counts without modifying the database)
+- **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
+- **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
+- **CLI Custom Batch Size**: `npm run cleanup -- --batch-size=200 --apply`
+- **Database Purge**: `npm run db:purge` (or `npm run db:purge -- --apply` to purge older findings, scans, and audit entries)
+
+> 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding`, `ScanResult`, and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
+
 ---
 
 ## 📝 Available Scripts
 
-| Script               | Description                                  |
-| -------------------- | -------------------------------------------- |
-| `npm run dev`        | Start dev server on port 9002 with Turbopack |
-| `npm run build`      | Build for production                         |
-| `npm run start`      | Start production server                      |
-| `npm run lint`       | Run ESLint                                   |
-| `npm run typecheck`  | Run TypeScript compiler checks               |
-| `npm run db:gen`     | Generate Prisma Client                       |
-| `npm run db:migrate` | Run Prisma migrations                        |
-| `npm run db:push`    | Push schema to DB without migrations         |
-| `npm run db:seed`    | Seed default policy templates                |
-| `npm run genkit:dev` | Start Genkit AI development environment      |
+| Script               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `npm run dev`        | Start dev server on port 9002 with Turbopack                              |
+| `npm run build`      | Build for production                                                      |
+| `npm run start`      | Start production server                                                   |
+| `npm run lint`       | Run ESLint                                                                |
+| `npm run typecheck`  | Run TypeScript compiler checks                                            |
+| `npm run db:gen`     | Generate Prisma Client                                                    |
+| `npm run db:migrate` | Run Prisma migrations                                                     |
+| `npm run db:push`    | Push schema to DB without migrations                                      |
+| `npm run db:seed`    | Seed default policy templates                                             |
+| `npm run db:purge`   | Purge findings, scans, and audit entries older than DATA_RETENTION_DAYS   |
+| `npm run genkit:dev` | Start Genkit AI development environment                                   |
+| `npm run cleanup`    | Run data retention cleanup (dry-run default; pass `-- --apply` to delete) |
 
 ---
 
@@ -451,6 +518,7 @@ For more in-depth details about the architecture, developer API, and security pr
 - **[AI Security & Prompt Injection Defense](./docs/security/prompt-injection.md)**: Documents the threat vector, policy isolation boundaries, pre-filtering layers, and UI indicators used to protect against LLM prompt injection attacks.
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
+- **[Operator Runbook](./docs/runbook.md)**: Operational troubleshooting guide for scan outages, webhook delivery failures, queue/Redis stalls, Groq rate limits, database pooling errors, and proxy configuration.
 
 ---
 
@@ -499,7 +567,7 @@ SecureFlow is open-source and free to self-host. You'll need a Groq API key (fre
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](file:///c:/Users/Moiz/Desktop/secure%20flow/SecureFlow/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ---
 

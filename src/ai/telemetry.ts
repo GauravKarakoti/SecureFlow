@@ -392,7 +392,10 @@ export async function getAiHealthReport(): Promise<AiHealthReport> {
     totalErrors += errors;
 
     const isPrimary = modelName === primaryModelName;
-    const isLocal = modelName.includes("local") || modelName.startsWith("openai/qwen");
+    // Local models are registered as `openai/${LOCAL_AI_MODEL}` and rendered
+    // as "Local AI: ..." by getModelDisplayName — classify them the same way,
+    // otherwise openai/llama3.1 etc. show a Local badge but isLocal: false.
+    const isLocal = modelName.startsWith("openai/");
 
     modelStatuses.push({
       modelName,

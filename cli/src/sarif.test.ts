@@ -454,6 +454,38 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       }
     });
 
+    it("should not buffer large string values that precede the results array", async () => {
+      // A multi-MB string value before "results" must not be accumulated
+      // char-by-char in the search window — that broke the flat-memory
+      // guarantee this parser exists for.
+      const bigString = "x".repeat(8 * 1024 * 1024);
+      const sarifDoc = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: { driver: { name: "Test", fullDescription: bigString } },
+            results: [
+              {
+                ruleId: "SECUREFLOW-001",
+                message: { text: "found" },
+                locations: [],
+              },
+            ],
+          },
+        ],
+      };
+      const stream = Readable.from([JSON.stringify(sarifDoc)]);
+
+      const results: SarifResult[] = [];
+      for await (const result of streamSarifResults(stream)) {
+        results.push(result);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].ruleId).toBe("SECUREFLOW-001");
+    });
+
     it("should handle empty results array gracefully", async () => {
       const emptySarif = {
         $schema: "https://json.schemastore.org/sarif-2.1.0.json",

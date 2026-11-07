@@ -124,4 +124,22 @@ describe("AI Telemetry & Health Monitoring Engine", () => {
       expect(reportReset.primaryTripped).toBe(false);
     });
   });
+
+  describe("Local Model Classification", () => {
+    it("should flag openai/* models as local, matching their display name", async () => {
+      process.env.LOCAL_AI_MODEL = "llama3.1";
+      try {
+        const report = await getAiHealthReport();
+        const local = report.models.find((m) => m.modelName === "openai/llama3.1");
+        expect(local).toBeDefined();
+        expect(local?.isLocal).toBe(true);
+        expect(local?.displayName).toBe("Local AI: llama3.1");
+
+        const groq = report.models.find((m) => m.modelName.startsWith("groq/"));
+        expect(groq?.isLocal).toBe(false);
+      } finally {
+        delete process.env.LOCAL_AI_MODEL;
+      }
+    });
+  });
 });

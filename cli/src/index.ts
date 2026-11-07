@@ -19,6 +19,9 @@ import {
 import {
   NetworkUnavailableError,
   requestAiFileScan,
+  submitSbomScan,
+  pollSbomScanStatus,
+  requestWeb3Explanation,
   type AiFinding,
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
@@ -70,9 +73,13 @@ SecureFlow CLI - Security analysis tool for staged git files
 Usage:
   secureflow [options]
   secureflow mcp [options]
+  secureflow sbom <file> [options]
+  secureflow explain --web3 [options]
 
 Commands:
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
+  sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
+  explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
 
 Options:
   --verbose              Enable verbose logging
@@ -83,41 +90,24 @@ Options:
   --local                Run scan locally without uploading files externally
   --local-model <tag>    Specify local AI model tag (default: llama3)
   --dry-run              Simulate scan execution without writing files
+  --file <path>          Target file for explain subcommand
+  --finding-type <type>  Vulnerability type identifier for explain subcommand
+  --severity <level>     Severity level (low, medium, high, critical)
+  --poll                 Poll until SBOM scan completion (for sbom command)
   -v, --voice            Play an audio summary debrief of scan findings upon completion
   -h, --help             Show this help message
 
 Examples:
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
+  $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
+  $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
   $ secureflow -v                                  # Run scan and play audio summary debrief
   $ secureflow mcp                                 # Start the Threat Intelligence MCP server over stdio
   $ secureflow --format json -o res.json           # Scan and export results to JSON file
   $ secureflow --fail-on high                      # Fail commit only on high/critical findings
   $ secureflow --local --local-model llama3        # Run completely local scan
 `);
-}
-
-function parseFormatArg(): OutputFormat {
-  const formatIndex = process.argv.findIndex((arg) => arg === "--format");
-  if (formatIndex !== -1) {
-    const valStr = process.argv[formatIndex + 1];
-    if (valStr) {
-      const val = valStr.toLowerCase();
-      if (
-        val === "sarif" ||
-        val === "json" ||
-        val === "text" ||
-        val === "csv" ||
-        val === "html" ||
-        val === "markdown"
-      ) {
-        return val as OutputFormat;
-      }
-      if (val === "md") {
-        return "markdown";
-      }
-    }
-  }
-  return "text";
 }
 
 function parseSeverityArg(): Set<Severity> | null {
@@ -213,6 +203,119 @@ async function main(): Promise<number> {
       console.error(
         `❌ [SecureFlow MCP] Failed to start MCP server: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return 1;
+    }
+  }
+
+  // Handle `secureflow sbom <file>` command (#1589)
+  if (process.argv[2] === "sbom") {
+    const filePath = process.argv[3];
+    if (!filePath || filePath.startsWith("-")) {
+      console.error(
+        "❌ [SecureFlow SBOM] Please specify a manifest file (e.g. secureflow sbom package.json)",
+      );
+      return 1;
+    }
+
+    if (!fs.existsSync(filePath)) {
+      console.error(`❌ [SecureFlow SBOM] File not found: ${filePath}`);
+      return 1;
+    }
+
+    const content = fs.readFileSync(filePath, "utf-8");
+    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+    const shouldPoll = process.argv.includes("--poll");
+
+    try {
+      console.log(
+        `📦 [SecureFlow SBOM] Submitting ${fileName} for dependency vulnerability scan...`,
+      );
+      const submission = await submitSbomScan(fileName, content);
+      console.log(
+        `✅ [SecureFlow SBOM] Scan enqueued successfully! Job ID: ${submission.jobId} (status: ${submission.status})`,
+      );
+
+      if (shouldPoll) {
+        console.log(`⏳ [SecureFlow SBOM] Polling status for job ${submission.jobId}...`);
+        let attempts = 0;
+        const maxAttempts = 10;
+        while (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const statusRes = await pollSbomScanStatus(submission.jobId);
+          if (statusRes.status === "COMPLETED") {
+            const summary = statusRes.result?.summary;
+            console.log(`\n🎉 [SecureFlow SBOM] Scan Complete!`);
+            if (summary) {
+              console.log(`   Total Dependencies: ${summary.totalDependencies}`);
+              console.log(`   Vulnerable: ${summary.vulnerableDependencies}`);
+              console.log(
+                `   Critical: ${summary.criticalCount} | High: ${summary.highCount} | Medium: ${summary.mediumCount} | Low: ${summary.lowCount}`,
+              );
+            }
+            return 0;
+          } else if (statusRes.status === "FAILED") {
+            console.error(`❌ [SecureFlow SBOM] Job failed: ${statusRes.error || "Unknown error"}`);
+            return 1;
+          }
+          attempts++;
+        }
+        console.log(
+          `ℹ️  [SecureFlow SBOM] Scan is still processing. Check status with: /api/sbom/scan/status/${submission.jobId}`,
+        );
+      }
+      return 0;
+    } catch (err) {
+      console.error(`❌ [SecureFlow SBOM] ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+  }
+
+  // Handle `secureflow explain --web3` command (#1589)
+  if (
+    process.argv[2] === "explain" ||
+    (process.argv.includes("explain") && process.argv.includes("--web3"))
+  ) {
+    const fileArgIdx = process.argv.indexOf("--file");
+    const targetFile =
+      fileArgIdx !== -1 && process.argv[fileArgIdx + 1] ? process.argv[fileArgIdx + 1] : undefined;
+    const findingTypeIdx = process.argv.indexOf("--finding-type");
+    const findingType =
+      findingTypeIdx !== -1 && process.argv[findingTypeIdx + 1]
+        ? process.argv[findingTypeIdx + 1]!
+        : "Reentrancy Vulnerability";
+    const severityIdx = process.argv.indexOf("--severity");
+    const severityVal =
+      severityIdx !== -1 && process.argv[severityIdx + 1]
+        ? (process.argv[severityIdx + 1]!.toUpperCase() as any)
+        : "HIGH";
+
+    let codeSnippet = "";
+    if (targetFile && fs.existsSync(targetFile)) {
+      codeSnippet = fs.readFileSync(targetFile, "utf-8");
+    } else {
+      codeSnippet =
+        '// Example contract snippet\nfunction withdraw() external {\n  (bool s, ) = msg.sender.call{value: bal}("");\n  bal = 0;\n}';
+    }
+
+    console.log(`🧠 [SecureFlow Web3] Generating smart contract security explanation...`);
+    try {
+      const explanation = await requestWeb3Explanation({
+        findingType,
+        severity: severityVal || "HIGH",
+        description: `Potential Web3 flaw identified in ${targetFile || "contract"}.`,
+        fileLocation: targetFile || "Contract.sol",
+        codeSnippet,
+      });
+
+      console.log(`\n🛡️ [Ecosystem: ${explanation.ecosystem || "solidity"}]`);
+      console.log(`📝 Explanation:\n   ${explanation.explanation}\n`);
+      console.log(`🔧 Remediation Recommendations:`);
+      explanation.remediationSuggestions.forEach((sug, i) => {
+        console.log(`   ${i + 1}. ${sug}`);
+      });
+      return 0;
+    } catch (err) {
+      console.error(`❌ [SecureFlow Web3] ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
   }
@@ -332,7 +435,10 @@ ${textOutput}`);
     console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
   }
 
-  if (unreadable.length > 0 && format === "text") {
+  // Warn on stderr regardless of output format: with --format json|sarif|...
+  // the scan would otherwise silently skip these entries, and stderr cannot
+  // corrupt the structured report on stdout.
+  if (unreadable.length > 0) {
     console.warn(
       `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
         unreadable.length === 1 ? "y" : "ies"
@@ -388,4 +494,14 @@ ${textOutput}`);
   return 0;
 }
 
-main().then((code) => process.exit(code));
+main()
+  .then((code) => process.exit(code))
+  .catch((error: unknown) => {
+    // Last-resort handler: without it an unexpected throw (e.g. an
+    // unwritable -o path) surfaces as a raw UnhandledPromiseRejection
+    // stack and an exit code that depends on Node's rejection mode.
+    console.error(
+      `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  });

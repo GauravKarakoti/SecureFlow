@@ -6,6 +6,11 @@ export interface WebhookJobData {
   event?: string | null;
   deliveryId?: string | null;
   /**
+   * Correlation ID for distributed tracing across webhook, queue, and worker (#1537).
+   * Defaults to deliveryId or a generated UUID if omitted.
+   */
+  correlationId?: string;
+  /**
    * How many times the DLQ auto-retry worker has requeued this delivery.
    *
    * Carried on the job so that, if it fails again, the worker's `failed`

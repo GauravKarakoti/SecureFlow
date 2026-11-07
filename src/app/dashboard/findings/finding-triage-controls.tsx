@@ -28,17 +28,26 @@ import {
   setFindingStatuses,
   type FindingTriageTarget,
   type TriageStatus,
+  type DismissalReason,
 } from "@/lib/actions/triage";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
+  { value: "DISMISSED", label: "Dismissed" },
   { value: "RESOLVED", label: "Resolved" },
+  { value: "FALSE_POSITIVE", label: "False positive (legacy)" },
+  { value: "IGNORED", label: "Ignored (legacy)" },
+];
+
+const DISMISSAL_REASON_OPTIONS: { value: DismissalReason; label: string }[] = [
   { value: "FALSE_POSITIVE", label: "False positive" },
-  { value: "IGNORED", label: "Ignored" },
+  { value: "ACCEPTED_RISK", label: "Accepted risk" },
+  { value: "WONT_FIX", label: "Won't fix" },
 ];
 
 const STATUS_BADGE: Record<TriageStatus, string> = {
   OPEN: "bg-primary/10 text-primary border-primary/20",
+  DISMISSED: "bg-amber-500/10 text-amber-300 border-amber-500/20",
   RESOLVED: "bg-green-500/10 text-green-400 border-green-500/20",
   FALSE_POSITIVE: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
   IGNORED: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
@@ -105,10 +114,11 @@ function SingleTriageControls({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
+  const [reason, setReason] = useState<DismissalReason>("FALSE_POSITIVE");
   const [note, setNote] = useState(currentNote ?? "");
   const [expirySelection, setExpirySelection] = useState<string>("none");
 
-  const isDismissal = status === "FALSE_POSITIVE" || status === "IGNORED";
+  const isDismissal = status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED";
   const dirty =
     status !== currentStatus ||
     note !== (currentNote ?? "") ||
@@ -119,6 +129,14 @@ function SingleTriageControls({
   const isLapsed = isExpiryLapsed(currentExpiryDate);
 
   const save = () => {
+    if (status === "DISMISSED" && !note.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Reason required",
+        description: "Please provide a reason note when dismissing a finding.",
+      });
+      return;
+    }
     startTransition(async () => {
       try {
         const computedExpiry = isDismissal ? computeExpiryDate(expirySelection) : null;
@@ -126,6 +144,7 @@ function SingleTriageControls({
           repositoryId,
           fingerprint,
           status,
+          reason: status === "DISMISSED" ? reason : undefined,
           note,
           expiresAt: computedExpiry,
         });
@@ -200,6 +219,28 @@ function SingleTriageControls({
         </SelectContent>
       </Select>
 
+      {status === "DISMISSED" && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Dismissal Reason</label>
+          <Select
+            value={reason}
+            onValueChange={(v) => setReason(v as DismissalReason)}
+            disabled={isPending}
+          >
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue placeholder="Select reason" />
+            </SelectTrigger>
+            <SelectContent>
+              {DISMISSAL_REASON_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {isDismissal && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
@@ -221,7 +262,11 @@ function SingleTriageControls({
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder="Optional note (why is this being dismissed / resolved?)"
+        placeholder={
+          status === "DISMISSED"
+            ? "Required note (why is this being dismissed?)"
+            : "Optional note (why is this being resolved?)"
+        }
         rows={2}
         disabled={isPending}
         className="text-sm"
@@ -261,12 +306,24 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        const isDismissal = applyStatus === "FALSE_POSITIVE" || applyStatus === "IGNORED";
+        if (applyStatus === "DISMISSED" && !note.trim()) {
+          toast({
+            variant: "destructive",
+            title: "Reason note required",
+            description: "Please provide a reason note when dismissing findings.",
+          });
+          return;
+        }
+        const isDismissal =
+          applyStatus === "DISMISSED" ||
+          applyStatus === "FALSE_POSITIVE" ||
+          applyStatus === "IGNORED";
         const computedExpiry = isDismissal ? computeExpiryDate(expiryDays) : null;
 
         const result = await setFindingStatuses({
           items: targets,
           status: applyStatus,
+          reason: applyStatus === "DISMISSED" ? "FALSE_POSITIVE" : undefined,
           note,
           expiresAt: computedExpiry,
         });
@@ -343,6 +400,15 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
       />
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setPendingStatus("DISMISSED")}
+          disabled={isPending}
+          className="border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
+        >
+          Dismiss
+        </Button>
         <Button
           size="sm"
           variant="outline"

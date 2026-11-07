@@ -24,7 +24,7 @@ import {
   shouldScanFile,
   generateVoiceSummaryText,
 } from "./scanner.js";
-import { parseVoiceArg } from "./lib/output-args.js";
+import { CliUsageError, parseVoiceArg } from "./lib/output-args.js";
 import {
   isNonInteractiveCiEnvironment,
   getOsAudioCommand,
@@ -305,9 +305,25 @@ describe("parseFailOnArg", () => {
     expect(parseFailOnArg(["node", "index.js", "--fail-on", "low"])).toBe("LOW");
   });
 
-  it("returns null when --fail-on is not specified or invalid", () => {
+  it("returns null when --fail-on is not specified", () => {
     expect(parseFailOnArg(["node", "index.js"])).toBeNull();
-    expect(parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toBeNull();
+  });
+
+  it("throws a usage error for an unrecognised --fail-on= value", () => {
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toThrow(CliUsageError);
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on=INVALID"])).toThrow(
+      'Unknown --fail-on value "INVALID"',
+    );
+  });
+
+  it("throws a usage error when --fail-on has no valid following value", () => {
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on"])).toThrow(CliUsageError);
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on"])).toThrow(
+      "--fail-on requires a value",
+    );
+    expect(() => parseFailOnArg(["node", "index.js", "--fail-on", "bogus"])).toThrow(
+      'Unknown --fail-on value "bogus"',
+    );
   });
 });
 
@@ -316,6 +332,14 @@ describe("shouldFailScan", () => {
     expect(shouldFailScan(1, [], null)).toBe(true);
     expect(shouldFailScan(0, [{ severity: "HIGH" }], null)).toBe(true);
     expect(shouldFailScan(0, [{ severity: "LOW" }], null)).toBe(false);
+  });
+
+  it("matches the default gate on severity case-insensitively", () => {
+    // The AI response is cast, not validated, so a lowercase "high" finding
+    // must still block under the default HIGH/CRITICAL gate.
+    expect(shouldFailScan(0, [{ severity: "high" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "Critical" }], null)).toBe(true);
+    expect(shouldFailScan(0, [{ severity: "medium" }], null)).toBe(false);
   });
 
   it("fails when local violations (HIGH) meet or exceed threshold", () => {
@@ -360,6 +384,12 @@ describe("blockingAiFindings", () => {
     expect(blockingAiFindings(findings, null)).toEqual([
       { severity: "CRITICAL" },
       { severity: "HIGH" },
+    ]);
+  });
+
+  it("matches severity case-insensitively when no threshold is set", () => {
+    expect(blockingAiFindings([{ severity: "high" }, { severity: "low" }], null)).toEqual([
+      { severity: "high" },
     ]);
   });
 

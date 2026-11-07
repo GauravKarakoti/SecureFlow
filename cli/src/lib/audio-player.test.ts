@@ -248,6 +248,24 @@ describe("cli/src/lib/audio-player", () => {
       expect(buffer).toEqual(mockAudioBytes);
     });
 
+    it("honours the declared `audio` fallback field in the scan response", async () => {
+      const mockAudioBytes = Buffer.from("fallback-field-audio");
+      const fetchMock = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ audio: mockAudioBytes.toString("base64") }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const buffer = await fetchAudioSummary("Test summary", {
+        baseUrl: "https://secureflow.test",
+        env: {},
+      });
+
+      expect(buffer).toEqual(mockAudioBytes);
+    });
+
     it("logs warning on ElevenLabs 429 rate limit quota exhaustion", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const fetchMock = vi

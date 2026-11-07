@@ -26,8 +26,51 @@ BigInt.prototype.toJSON = function (this: bigint): string {
   return this.toString();
 };
 
+const mockTriageStore = new Map<string, any>();
+const mockFindingStore = new Map<string, any>();
+
 function createMockPrismaClient() {
   const mockFn = async (model: string, method: string, args: any[]) => {
+    if (model === "findingTriage") {
+      if (method === "upsert") {
+        const createData = args[0]?.create || {};
+        const updateData = args[0]?.update || {};
+        const whereData = args[0]?.where?.repositoryId_fingerprint || {};
+        const repositoryId = createData.repositoryId || whereData.repositoryId || "repo-1";
+        const fingerprint = createData.fingerprint || whereData.fingerprint || "mock-fingerprint-1";
+        const merged = { ...createData, ...updateData, repositoryId, fingerprint };
+        mockTriageStore.set(`${repositoryId}:${fingerprint}`, merged);
+        return {
+          id: "triage-1",
+          status: merged.status || "OPEN",
+          note: merged.note || null,
+          ...merged,
+        };
+      }
+      if (method === "findUnique" || method === "findFirst") {
+        const repoFingerprint = args[0]?.where?.repositoryId_fingerprint;
+        if (repoFingerprint) {
+          const key = `${repoFingerprint.repositoryId}:${repoFingerprint.fingerprint}`;
+          if (mockTriageStore.has(key)) {
+            return mockTriageStore.get(key);
+          }
+        }
+        const findingId = args[0]?.where?.findingId || args[0]?.where?.id;
+        if (findingId && mockTriageStore.has(findingId)) {
+          return mockTriageStore.get(findingId);
+        }
+        return null;
+      }
+      if (method === "findMany") {
+        return Array.from(mockTriageStore.values()).map((v) => ({
+          repositoryId: v.repositoryId || "repo-1",
+          fingerprint: v.fingerprint || "mock-fingerprint-1",
+          status: v.status || "OPEN",
+          note: v.note || null,
+          expiresAt: v.expiresAt || null,
+        }));
+      }
+    }
     if (model === "user") {
       if (method === "count") {
         const rolesFilter = args[0]?.where?.roles;
@@ -169,6 +212,77 @@ function createMockPrismaClient() {
         if (severity === "MEDIUM") return 4;
         if (severity === "LOW") return 8;
         return 15;
+      }
+
+      if (method === "findFirst" || method === "findUnique") {
+        const id = args[0]?.where?.id;
+        const requestedUserId =
+          args[0]?.where?.scanResult?.pullRequest?.repository?.userId || "mock-admin-id";
+        if (id === "finding-2") {
+          return {
+            id: "finding-2",
+            type: "VULNERABILITY",
+            severity: "HIGH",
+            fileLocation: "package.json",
+            lineStart: null,
+            lineEnd: null,
+            codeSnippet: "Dependency: lodash@4.17.20\nPatched: 4.17.21",
+            explanation: "A dependency with a known vulnerability was detected.",
+            remediation: "Update lodash to version 4.17.21 or higher.",
+            promptInjectionSuspected: false,
+            fingerprint: "mock-fingerprint-2",
+            createdAt: new Date(Date.now() - 1000 * 60 * 10),
+            scanResult: {
+              pullRequest: {
+                id: "pr-1",
+                prNumber: 42,
+                repositoryId: "repo-1",
+                repository: {
+                  id: "repo-1",
+                  fullName: "mock-owner/mock-repo",
+                  userId: requestedUserId,
+                },
+              },
+            },
+          };
+        }
+        if (id && id.includes("non-existent")) {
+          return null;
+        }
+        const updatedFinding = mockFindingStore.get(id || "finding-1");
+        return {
+          id: id || "finding-1",
+          type: "SECRET",
+          severity: updatedFinding?.severity || "CRITICAL",
+          fileLocation: "src/config/secrets.ts",
+          lineStart: 10,
+          lineEnd: 10,
+          codeSnippet: "API_SECRET = 'mock-secret'",
+          explanation: "A hardcoded secret was detected.",
+          remediation: "Move the secret to a secure environment variable.",
+          promptInjectionSuspected: false,
+          fingerprint: "mock-fingerprint-1",
+          createdAt: new Date(),
+          scanResult: {
+            pullRequest: {
+              id: "pr-1",
+              prNumber: 42,
+              repositoryId: "repo-1",
+              repository: {
+                id: "repo-1",
+                fullName: "mock-owner/mock-repo",
+                userId: requestedUserId,
+              },
+            },
+          },
+        };
+      }
+
+      if (method === "update") {
+        const id = args[0]?.where?.id;
+        const data = args[0]?.data || {};
+        mockFindingStore.set(id, { ...mockFindingStore.get(id), ...data });
+        return { id, ...data };
       }
 
       if (method === "findMany") {

@@ -31,8 +31,200 @@ export class NetworkUnavailableError extends Error {
   }
 }
 
+export interface SbomSubmitResponse {
+  jobId: string;
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  message?: string;
+}
+
+export interface SbomVulnerability {
+  id: string;
+  pkgName: string;
+  installedVersion: string;
+  fixedVersion?: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  title?: string;
+  description?: string;
+}
+
+export interface SbomStatusResponse {
+  jobId: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+  result?: {
+    summary?: {
+      totalDependencies: number;
+      vulnerableDependencies: number;
+      criticalCount: number;
+      highCount: number;
+      mediumCount: number;
+      lowCount: number;
+    };
+    vulnerabilities?: SbomVulnerability[];
+  };
+  error?: string;
+}
+
+export interface Web3ExplainRequest {
+  findingType: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  description: string;
+  fileLocation: string;
+  codeSnippet: string;
+}
+
+export interface Web3ExplainResponse {
+  explanation: string;
+  remediationSuggestions: string[];
+  ecosystem?: "solidity" | "rust-soroban" | "zk-circuit" | "generic-web3";
+}
+
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_BASE_URL = "https://secure-flow-six.vercel.app";
+
+/**
+ * Submit an SBOM manifest file to POST /api/sbom/scan.
+ */
+export async function submitSbomScan(
+  fileName: string,
+  content: string,
+  baseUrl: string = DEFAULT_BASE_URL,
+  authToken?: string,
+): Promise<SbomSubmitResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    }
+
+    const res = await fetch(`${baseUrl}/api/sbom/scan`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ fileName, content }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      throw new Error(`SecureFlow SBOM API responded with ${res.status}`);
+    }
+
+    return (await res.json()) as SbomSubmitResponse;
+  } catch (err) {
+    throw new NetworkUnavailableError(err);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Poll SBOM scan job status at GET /api/sbom/scan/status/[jobId].
+ */
+export async function pollSbomScanStatus(
+  jobId: string,
+  baseUrl: string = DEFAULT_BASE_URL,
+  authToken?: string,
+): Promise<SbomStatusResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  try {
+    const headers: Record<string, string> = {};
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    }
+
+    const res = await fetch(`${baseUrl}/api/sbom/scan/status/${encodeURIComponent(jobId)}`, {
+      method: "GET",
+      headers,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      throw new Error(`SecureFlow SBOM status API responded with ${res.status}`);
+    }
+
+    return (await res.json()) as SbomStatusResponse;
+  } catch (err) {
+    throw new NetworkUnavailableError(err);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Request Web3 / Smart Contract security explanation.
+ */
+export async function requestWeb3Explanation(
+  request: Web3ExplainRequest,
+  baseUrl: string = DEFAULT_BASE_URL,
+  authToken?: string,
+): Promise<Web3ExplainResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    }
+
+    const res = await fetch(`${baseUrl}/api/explain/web3`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      // Local fallback explanation if endpoint isn't deployed on target host
+      return generateLocalWeb3Explanation(request);
+    }
+
+    return (await res.json()) as Web3ExplainResponse;
+  } catch {
+    // Graceful offline fallback
+    return generateLocalWeb3Explanation(request);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Fallback Web3 explanation generator when offline or API is unavailable.
+ */
+export function generateLocalWeb3Explanation(request: Web3ExplainRequest): Web3ExplainResponse {
+  const isSolidity =
+    request.fileLocation.endsWith(".sol") ||
+    request.findingType.toLowerCase().includes("reentrancy");
+  const isRust =
+    request.fileLocation.endsWith(".rs") ||
+    request.findingType.toLowerCase().includes("soroban") ||
+    request.findingType.toLowerCase().includes("solana");
+  const isZk =
+    request.fileLocation.endsWith(".circom") ||
+    request.fileLocation.endsWith(".leo") ||
+    request.findingType.toLowerCase().includes("zk");
+
+  const ecosystem = isSolidity
+    ? "solidity"
+    : isRust
+      ? "rust-soroban"
+      : isZk
+        ? "zk-circuit"
+        : "generic-web3";
+
+  return {
+    ecosystem,
+    explanation: `[SecureFlow Web3] Detected potential ${request.severity} vulnerability (${request.findingType}) in ${request.fileLocation}. Ensure state changes precede external calls and access controls are strictly validated.`,
+    remediationSuggestions: [
+      "Follow Checks-Effects-Interactions (CEI) pattern to prevent reentrancy.",
+      "Employ OpenZeppelin or equivalent audited contracts for access control and math validation.",
+      "Ensure all circuit signals are strictly constrained with proper range checks.",
+    ],
+  };
+}
 
 /**
  * Whether a staged file may be uploaded to the hosted AI scanner.
@@ -78,8 +270,10 @@ export async function requestAiFileScan(
       throw new Error(`SecureFlow API responded with ${res.status}`);
     }
 
-    const data = (await res.json()) as { findings: AiFinding[] };
-    return data.findings ?? [];
+    const data = (await res.json()) as { findings?: unknown };
+    // The response is cast, not validated: a misbehaving endpoint returning
+    // { findings: "error" } would otherwise hand callers a non-array.
+    return Array.isArray(data.findings) ? (data.findings as AiFinding[]) : [];
   } catch (err) {
     throw new NetworkUnavailableError(err);
   } finally {

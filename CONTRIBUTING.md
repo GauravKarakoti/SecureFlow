@@ -344,6 +344,34 @@ npx prettier --write .
 npx prettier --check .
 ```
 
+### OpenAPI Specification & Linting
+
+When adding or updating HTTP API routes under `src/app/api/`:
+
+- Every public API route handler must be documented in `openapi.yaml`.
+- Run the Spectral linter to validate OpenAPI conformity:
+  ```bash
+  npm run lint:openapi
+  ```
+- Run the OpenAPI route coverage check:
+  ```bash
+  npm run verify:openapi
+  ```
+
+#### Ignoring Internal Routes (`.openapiignore`)
+
+If a route is private, internal, or intentionally unexposed in the public OpenAPI schema, list it in `.openapiignore` located at the root of the repository.
+
+**Ignore List Format**:
+
+- One route path or prefix pattern per line (e.g., `/api/internal/health` or `/api/internal/*`).
+- Lines beginning with `#` are treated as comments and ignored.
+- Blank lines are ignored.
+- **Exact match**: `/api/example` ignores only `/api/example`.
+- **Wildcard prefix**: `/api/internal/*` ignores `/api/internal` and any nested subroutes (e.g., `/api/internal/stats`).
+
+CI verifies both `npm run lint:openapi` and `npm run verify:openapi`; adding an undocumented public route without documenting it or adding it to `.openapiignore` will cause CI to fail.
+
 ---
 
 ## 📚 Documentation Standards
@@ -393,23 +421,56 @@ npx vitest
 ```typescript
 // Example unit test (Vitest)
 import { describe, it, expect } from "vitest";
-import { scanForSecrets } from "@/lib/armor/scanner";
+import { detectSecretsInAddedLines } from "@/lib/armor/secret-detector";
 
-describe("scanForSecrets", () => {
-  it("should detect hardcoded API keys", () => {
-    const code = 'const apiKey = "sk-1234567890";';
-    const findings = scanForSecrets(code);
+// Build synthetic keys at runtime so secret scanners do not flag this file.
+const FAKE_AWS_KEY = "AKIA" + "Q7XM2PLKD93HTRWN";
+
+describe("detectSecretsInAddedLines", () => {
+  it("should detect hardcoded AWS access keys in added lines", () => {
+    const lines = [{ number: 10, content: `const key = '${FAKE_AWS_KEY}';` }];
+    const findings = detectSecretsInAddedLines("config/aws.ts", lines);
     expect(findings).toHaveLength(1);
-    expect(findings[0].type).toBe("HARDCODED_SECRET");
+    expect(findings[0].type).toBe("Secret");
+    expect(findings[0].severity).toBe("CRITICAL");
+    // Findings are redacted: the snippet keeps a prefix, not the full key.
+    expect(findings[0].codeSnippet).not.toContain(FAKE_AWS_KEY);
   });
 });
 ```
 
-### Integration Tests
+### Integration & E2E Tests
 
 - Test API endpoints
 - Test database operations
 - Test GitHub integration
+- Run end-to-end suite with Playwright:
+  ```bash
+  npm run test:e2e
+  ```
+
+### Accessibility (a11y) Tests
+
+Accessibility automated testing runs via `@axe-core/playwright` across all primary Mission Control dashboard pages (`/dashboard`, `/dashboard/findings`, `/dashboard/analytics`, `/dashboard/policies`, `/dashboard/audit`, `/admin`).
+
+The accessibility checks flag any **serious** or **critical** WCAG violations (e.g. contrast, missing accessible names/labels, keyboard trap/focus issues).
+
+To run the accessibility suite locally:
+
+```bash
+# Run all dashboard accessibility tests
+npm run test:a11y
+
+# Or run via playwright directly
+npx playwright test e2e/dashboard-accessibility.spec.ts
+```
+
+#### Known Exceptions Allow-list
+
+If an existing UI element has a known accessibility issue that cannot be resolved immediately, document and allow-list it in `KNOWN_A11Y_EXCEPTIONS` in `e2e/dashboard-accessibility.spec.ts`:
+
+- Each exception **must** specify `ruleId`, optional `selector`, a descriptive `reason`, and a link to the follow-up issue (`issue: "https://github.com/..."`).
+- CI automatically runs the accessibility tests as part of the E2E test job and fails on new unexempted serious or critical violations.
 
 ---
 

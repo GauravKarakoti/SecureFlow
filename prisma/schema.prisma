@@ -25,6 +25,13 @@ enum FindingTriageStatus {
   RESOLVED
   FALSE_POSITIVE
   IGNORED
+  DISMISSED
+}
+
+enum DismissalReason {
+  FALSE_POSITIVE
+  ACCEPTED_RISK
+  WONT_FIX
 }
 
 enum PolicyDecision {
@@ -66,6 +73,12 @@ model User {
    * Optional — null disables Slack notifications for this user (#936).
    */
   slackWebhookUrl String?
+
+  /**
+   * Incoming Microsoft Teams webhook URL for real-time alerts on BLOCKED scans.
+   * Optional — null disables Teams notifications for this user.
+   */
+  teamsWebhookUrl String?
 
   /**
    * Whether the user has opted in to real-time voice alerts for CRITICAL/HIGH findings.
@@ -281,15 +294,19 @@ model RemediationPatch {
 }
 
 model FindingTriage {
-  id           String              @id @default(cuid())
-  repositoryId String
-  repository   Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  fingerprint  String
-  status       FindingTriageStatus @default(OPEN)
-  note         String?
-  resolvedById String?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  id              String              @id @default(cuid())
+  repositoryId    String
+  repository      Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  fingerprint     String
+  status          FindingTriageStatus @default(OPEN)
+  dismissalReason DismissalReason?
+  dismissedAt     DateTime?
+  dismissedById   String?
+  note            String?
+  resolvedById    String?
+  expiresAt       DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
@@ -489,3 +506,23 @@ model AudioDebriefCache {
   @@index([lastAccessed(sort: Desc)])
   @@map("audio_debrief_cache")
 }
+
+/**
+ * Scan Cache for Deduplicating Synchronize / Force-Push Events.
+ * Maps diff + active policy set + version hash to stored findings.
+ */
+model ScanCache {
+  id           String    @id @default(cuid())
+  cacheKey     String    @unique
+  findingsJson String    @db.Text
+  hitCount     Int       @default(0)
+  lastAccessed DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  expiresAt    DateTime?
+
+  @@index([cacheKey])
+  @@index([expiresAt])
+  @@map("scan_cache")
+}
+

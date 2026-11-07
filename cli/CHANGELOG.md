@@ -1,5 +1,42 @@
 # secureflow-cli
 
+## 2.10.0
+
+### Minor Changes
+
+- 4951070: Add comprehensive rendering, skeleton layout, and aria-busy accessibility unit tests for Admin Portal loading states across admin, logs, queue, and users.
+- 783e8da: Add SBOM scanning (`secureflow sbom <file>`) and Web3 smart contract explanation (`secureflow explain --web3`) subcommands with background job status polling and local resilience fallbacks.
+- 79b099d: Implement deterministic secret pre-scanner (`src/lib/armor/precheck.ts`) running prior to LLM analysis for fast, offline-resilient credential detection and redaction.
+
+## 2.9.0
+
+### Minor Changes
+
+- b784e7c: Add loading.tsx suspense skeleton and server component test suite page.test.tsx for dashboard/policies route.
+
+## 2.8.1
+
+### Patch Changes
+
+- adeef61: Added dedicated resilience, circuit-breaker, and provider outage test suites for `/api/findings/[id]/explain-stream`, `/api/findings/[id]/audio-debrief`, `/api/voice-alerts/stream`, and `/api/heist-transmission` (#1553).
+- 7a4ee45: Added comprehensive Playwright E2E test suite in `e2e/cli-scan-triage.spec.ts` covering CLI scan uploads (`/api/cli/scan`), findings validation, and dashboard finding triage dismissal persistence on reload (#1555).
+- 6fff754: Reject conflicting Helm secret providers in schema validation and template rendering, including existing Secret references combined with controller-managed secrets.
+
+## 2.8.0
+
+### Minor Changes
+
+- 3ec7145: Finding Triage & Dismissal (#1528):
+
+  - Added `DISMISSED` triage status with dismissal reason categories (`FALSE_POSITIVE`, `ACCEPTED_RISK`, `WONT_FIX`).
+  - Enforced required reason notes on dismissal actions.
+  - Supported stable fingerprint-based scan-time suppression so dismissed findings do not block pull requests or Check Runs.
+  - Added previously dismissed findings reporting in pull request comment summaries.
+  - Recorded full audit trail in Vault Logs with actor, finding, dismissal reason, note, and timestamp.
+  - Added dashboard triage controls for dismissing and reopening findings.
+
+- 0006f70: Expose read-only MCP source scanning with bounded entropy sensitivity and redacted SARIF, JSON, text, CSV, HTML and Markdown exports.
+
 ## 2.7.0
 
 ### Minor Changes

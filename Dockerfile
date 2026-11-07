@@ -138,9 +138,9 @@ USER nextjs
 
 EXPOSE 9002
 
-# Liveness probe — Next.js always responds at `/`
+# Liveness probe — Next.js responds with component health at `/api/health`
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:9002/ || exit 1
+  CMD wget -q --spider http://127.0.0.1:9002/api/health || exit 1
 
 # entrypoint.sh runs `prisma migrate deploy` then `exec node server.js`.
 ENTRYPOINT ["./entrypoint.sh"]

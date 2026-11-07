@@ -66,6 +66,14 @@ jobs:
       - name: Run Typechecker
         run: npm run typecheck
 
+      # Lint OpenAPI specification for schema validity and best practices.
+      - name: Lint OpenAPI specification
+        run: npm run lint:openapi
+
+      # Fails when a route handler under src/app/api has no entry in openapi.yaml.
+      - name: Verify OpenAPI spec covers every API route
+        run: npm run verify:openapi
+
       - name: Build Application
         run: npm run build
         # `next build` evaluates src/lib/env.ts while collecting page data, and
@@ -258,7 +266,10 @@ jobs:
 
   release:
     name: Release / Publish
-    needs: [quality-gate, cli, test, red-team, e2e]
+    # No `red-team` job exists in this workflow (the red-team suite lives in
+    # ai-eval.yml), and a needs: reference to an unknown job fails workflow
+    # validation — the whole pipeline could not start.
+    needs: [quality-gate, cli, test, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

@@ -573,7 +573,11 @@ export async function* streamSarifResults(
               state = State.WAITING_ARRAY_OPEN;
             }
             searchWindow = "";
-          } else {
+          } else if (searchWindow.length < "results".length) {
+            // Only the "results" comparison matters, so cap the window:
+            // accumulating every char of a large string value before the
+            // results key (e.g. a big fullDescription) was O(n²) and broke
+            // the flat-memory guarantee this parser exists for.
             searchWindow += char;
           }
         } else {

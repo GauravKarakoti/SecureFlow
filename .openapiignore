@@ -1,0 +1,9 @@
+# Ignore list for internal API routes excluded from openapi.yaml
+#
+# Format:
+# - One route path or prefix pattern per line (e.g. `/api/internal/*` or `/api/health/ping`)
+# - Lines starting with `#` are comments
+# - Blank lines are ignored
+# - Exact match: `/api/internal/route`
+# - Prefix wildcard: `/api/internal/*` matches any subroute under `/api/internal/`
+
