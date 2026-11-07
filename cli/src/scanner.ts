@@ -524,7 +524,12 @@ export function blockingAiFindings<T extends { severity: string }>(
   if (failOnThreshold === "NONE") return [];
 
   if (failOnThreshold === null) {
-    return aiFindings.filter((f) => f.severity === "HIGH" || f.severity === "CRITICAL");
+    // Normalize case like the explicit-threshold path below: the API response
+    // is cast, not validated, so a lowercase "high" must still block.
+    return aiFindings.filter((f) => {
+      const sev = f.severity?.toUpperCase();
+      return sev === "HIGH" || sev === "CRITICAL";
+    });
   }
 
   const thresholdRank = SEVERITY_RANK[failOnThreshold];
@@ -562,9 +567,10 @@ export function shouldFailScan(
   if (failOnThreshold === "NONE") return false;
 
   if (failOnThreshold === null) {
-    const aiHighOrCritical = aiFindings.filter(
-      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
-    ).length;
+    const aiHighOrCritical = aiFindings.filter((f) => {
+      const sev = f.severity?.toUpperCase();
+      return sev === "HIGH" || sev === "CRITICAL";
+    }).length;
     return localViolationCount > 0 || aiHighOrCritical > 0;
   }
 
