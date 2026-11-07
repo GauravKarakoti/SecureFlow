@@ -25,7 +25,11 @@ function flagUrl(argv: readonly string[], flag: string): string | undefined {
 
 function flagValue(argv: readonly string[], flag: string): string | undefined {
   const idx = argv.indexOf(flag);
-  return idx === -1 ? undefined : argv[idx + 1];
+  if (idx === -1) return undefined;
+  const next = argv[idx + 1];
+  // A following flag is not a value: `--local-model --verbose` must not set
+  // the model to "--verbose" (and swallow the flag).
+  return next !== undefined && !next.startsWith("--") ? next : undefined;
 }
 
 function hasFlag(argv: readonly string[], flag: string): boolean {
