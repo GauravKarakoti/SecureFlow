@@ -117,8 +117,10 @@ export function isBenignSecretCandidate(token: string): boolean {
  * Evaluates whether an identifier or value has sufficient entropy and characteristics
  * to be considered a genuine secret rather than a false positive.
  *
- * For tokens with length >= 16:
- * - If entropy < 2.5, it is considered too low-entropy (likely English/dictionary text or repeated chars).
+ * - Tokens shorter than 8 characters return false (too short to judge).
+ * - Benign-looking candidates (placeholders, repeated chars) return false.
+ * - Otherwise the token's Shannon entropy must be >= minEntropy (default 2.8);
+ *   below that it is likely English/dictionary text or repeated characters.
  */
 export function hasHighEntropy(token: string, minEntropy = 2.8): boolean {
   if (!token || token.length < 8) return false;
