@@ -241,7 +241,7 @@ export class ArmorIQBoundaryInterceptor {
       rawType === "exec" ||
       rawType === "spawn" ||
       /shell\.exec\b/.test(prompt) ||
-      /\b(rm\s+-rf|rmdir|mkfs|dd\s+if=|chmod\s+777|curl\s+http|wget\s+http|nc\s+-e|bash\s+-c)\b/i.test(
+      /\b(rm\s+-rf|rmdir|mkfs|dd\s+if=\S|chmod\s+777|curl\s+http|wget\s+http|nc\s+-e|bash\s+-c)\b/i.test(
         rawCommand || prompt,
       )
     ) {
