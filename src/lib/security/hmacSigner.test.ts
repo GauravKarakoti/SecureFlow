@@ -107,6 +107,13 @@ describe("parseTimestamp", () => {
     expect(parseTimestamp("abc")).toBeNull();
     expect(parseTimestamp("NaN")).toBeNull();
   });
+
+  it("rejects non-decimal forms that Number() would accept", () => {
+    // Same rules as the signed t= field: no hex, exponent or fractional input.
+    expect(parseTimestamp("0x10")).toBeNull();
+    expect(parseTimestamp("1e3")).toBeNull();
+    expect(parseTimestamp("12.5")).toBeNull();
+  });
 });
 
 describe("isWithinReplayWindow", () => {

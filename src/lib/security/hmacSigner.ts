@@ -280,8 +280,13 @@ export function parseTimestamp(timestampHeader: string | null | undefined): numb
   const trimmed = timestampHeader.trim();
   if (!trimmed) return null;
 
+  // Integer seconds only, matching the signed `t=` field parser above:
+  // Number() would accept '0x10', '1e3' and '12.5' — and the header and the
+  // signed field are supposed to be the same number under the same rules.
+  if (!/^-?\d+$/.test(trimmed)) return null;
+
   const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed)) return null;
+  if (!Number.isSafeInteger(parsed)) return null;
 
   // Convert seconds to milliseconds
   return parsed * 1000;
