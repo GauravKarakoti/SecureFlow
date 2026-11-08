@@ -8,7 +8,7 @@ vi.mock("@/ai/genkit", () => ({
 }));
 
 // Keep the live threat-intel lookup out of the test.
-vi.mock("../../../cli/src/threat-intel", () => ({
+vi.mock("../../../cli/src/mcp", () => ({
   queryLiveThreatIntelligence: vi.fn(async () => ""),
 }));
 
