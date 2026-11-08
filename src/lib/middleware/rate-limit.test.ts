@@ -47,6 +47,7 @@ function decision(overrides: Partial<RateLimitResult> = {}): RateLimitResult {
     limit: 50,
     remaining: 49,
     resetAt: 1_800_000_000_000,
+    degraded: false,
     ...overrides,
   };
 }
