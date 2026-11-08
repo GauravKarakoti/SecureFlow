@@ -230,6 +230,16 @@ export default function JobExplorer() {
                       <tr
                         className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
                         onClick={() => toggleExpand(job.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleExpand(job.id);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={isExpanded}
+                        aria-label={`${isExpanded ? "Collapse" : "Expand"} details for job ${job.id}`}
                       >
                         <td className="px-6 py-4 text-center">
                           {isExpanded ? (
