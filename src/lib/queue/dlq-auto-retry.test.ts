@@ -126,6 +126,11 @@ describe("isRetryDue", () => {
   it("returns false when the scheduled time is in the future", () => {
     expect(isRetryDue("2026-01-01T12:00:01.000Z")).toBe(false);
   });
+
+  it("treats an unparseable schedule as due instead of wedging forever", () => {
+    expect(isRetryDue("not-a-date")).toBe(true);
+    expect(isRetryDue("2026-13-99")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
