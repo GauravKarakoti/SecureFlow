@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { loadThreatFeedDatasetMock, syncThreatFeedsMock } = vi.hoisted(() => ({
@@ -59,9 +60,13 @@ describe("scripts/sync-threat-feed.ts (#1330)", () => {
 
     expect(syncThreatFeedsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        outputPath: expect.stringContaining("tmp_dry_run_feed.json"),
+        // Dry runs write to the OS temp dir, never the repo root.
+        outputPath: expect.stringMatching(/secureflow-dry-run-feed-.*\.json$/),
       }),
     );
+    const calledPath = syncThreatFeedsMock.mock.calls[0][0].outputPath;
+    expect(path.isAbsolute(calledPath)).toBe(true);
+    expect(calledPath.startsWith(process.cwd())).toBe(false);
 
     process.argv = originalArgv;
   });
