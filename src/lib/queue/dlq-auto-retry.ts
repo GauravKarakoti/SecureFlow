@@ -80,7 +80,12 @@ export function dlqRetryStateFor(
 /** True when a job's scheduled retry time has elapsed. */
 export function isRetryDue(nextRetryAt: string | null | undefined): boolean {
   if (!nextRetryAt) return true; // no schedule set → eligible immediately
-  return new Date(nextRetryAt) <= new Date();
+  const at = Date.parse(nextRetryAt);
+  // An unparseable schedule previously compared as NaN <= now → false on
+  // every poll, wedging the entry forever without consuming a retry attempt.
+  // Fail toward retry, matching the null/undefined semantics.
+  if (Number.isNaN(at)) return true;
+  return at <= Date.now();
 }
 
 // ---------------------------------------------------------------------------
