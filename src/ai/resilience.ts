@@ -132,7 +132,10 @@ export function isRateLimitError(err: unknown): boolean {
 
   return (
     status === 429 ||
-    msg.includes("429") ||
+    // Word boundary: substring matching flagged any message containing the
+    // digits "429" (byte counts like "4294967295", ids like "14290") as a
+    // rate limit, triggering pointless backoff retries and failovers.
+    /\b429\b/.test(msg) ||
     msg.includes("rate limit") ||
     msg.includes("ratelimit") ||
     msg.includes("quota exceeded")
