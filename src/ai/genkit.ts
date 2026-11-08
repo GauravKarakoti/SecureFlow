@@ -177,8 +177,13 @@ export async function withAiTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   options: AiTimeoutOptions<T> = {},
 ): Promise<T> {
+  // Validate the env override: AI_TIMEOUT_MS="-5000" is truthy, so
+  // setTimeout(-5000) fired immediately and every AI operation instantly
+  // rejected; a non-numeric value silently fell back to the default.
+  const envTimeout = Number(process.env.AI_TIMEOUT_MS);
   const timeoutMs =
-    options.timeoutMs ?? (Number(process.env.AI_TIMEOUT_MS) || DEFAULT_AI_TIMEOUT_MS);
+    options.timeoutMs ??
+    (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_AI_TIMEOUT_MS);
   const controller = new AbortController();
 
   let timer: NodeJS.Timeout | undefined;
