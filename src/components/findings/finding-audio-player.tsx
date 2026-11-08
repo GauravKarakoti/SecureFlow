@@ -167,15 +167,37 @@ export function FindingAudioPlayer({
     }
   };
 
+  const seekTo = (newTime: number) => {
+    const clamped = Math.max(0, Math.min(duration, newTime));
+    setCurrentTime(clamped);
+    if (audioRef.current) {
+      audioRef.current.currentTime = clamped;
+    }
+  };
+
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressBarRef.current || duration <= 0) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const newTime = pos * duration;
+    seekTo(pos * duration);
+  };
 
-    setCurrentTime(newTime);
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
+  // ARIA sliders must be keyboard-operable: arrows step, Home/End jump.
+  const handleSeekKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (duration <= 0) return;
+    const step = Math.max(1, duration / 20); // 5% steps, at least 1s
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      seekTo(currentTime - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      seekTo(currentTime + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      seekTo(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      seekTo(duration);
     }
   };
 
@@ -274,6 +296,8 @@ export function FindingAudioPlayer({
               <div
                 ref={progressBarRef}
                 onClick={handleSeek}
+                onKeyDown={handleSeekKeyDown}
+                tabIndex={0}
                 className="group relative flex h-7 items-center cursor-pointer select-none"
                 role="slider"
                 aria-label="Audio scrubber"
