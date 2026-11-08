@@ -116,14 +116,6 @@ export { isLocalModelEnabled };
  */
 export const defaultModel = configuredGroqModel() ?? toGenkitGroqModel(DEFAULT_GROQ_MODEL_ID);
 
-export const availableGroqModels = [
-  "groq/llama-3.1-8b-instant",
-  "groq/llama-3.1-70b-versatile",
-  "groq/llama3-70b-8192",
-  "groq/llama3-8b-8192",
-  "groq/mixtral-8x7b-32768",
-] as const;
-
 export const securityExplanationModel = gptOssx20b;
 
 /**
