@@ -1,12 +1,7 @@
 import "dotenv/config";
 import { getVulnerabilityMetadata } from "../../database/vulnerabilityDb";
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
-import {
-  getAiInstance,
-  getDefaultModelRef,
-  ai,
-  getSecurityExplanationModelChain,
-} from "@/ai/genkit";
+import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 
 import {
@@ -208,7 +203,11 @@ export async function* streamDeveloperSecurityExplanations(
             // failures (429, timeouts) through the stream and `response`. Pull the first
             // chunk here so those failures reach withRetry and the model fallback chain
             // instead of escaping them.
-            const { stream, response } = ai.generateStream({
+            // Route through getAiInstance(), not the Groq-only module
+            // instance: in local mode the model chain returns openai/<model>
+            // refs that the Groq-plugin instance cannot resolve (NOT_FOUND),
+            // so every streaming explanation failed in local deployments.
+            const { stream, response } = getAiInstance().generateStream({
               model: activeModel as any,
               system: SYSTEM_PROMPT,
               prompt,
