@@ -47,7 +47,9 @@ beforeEach(() => {
     class extends MockAudioContext {
       constructor() {
         super();
-        lastContext = this;
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        const self = this;
+        lastContext = self;
       }
     },
   );

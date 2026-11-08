@@ -50,7 +50,7 @@ describe("withGitHubAccessTokenCapture", () => {
   });
 
   it("does not leak the token to code running outside the scope", async () => {
-    let outside: Promise<{ result: null; accessToken: string | null }> | undefined;
+    let outside: Promise<{ result: void | null; accessToken: string | null }> | undefined;
     await withGitHubAccessTokenCapture(async () => {
       captureGitHubAccessToken("inside-token");
       outside = withGitHubAccessTokenCapture(async () => {});
