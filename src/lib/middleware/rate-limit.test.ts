@@ -55,6 +55,9 @@ function decision(overrides: Partial<RateLimitResult> = {}): RateLimitResult {
 const config = { limit: 50, windowSeconds: 60, keyPrefix: "test" };
 const okHandler = vi.fn(async () => NextResponse.json({ ok: true }));
 
+// withRateLimit only forwards the request; the runtime mock ignores it.
+const req = {} as unknown as NextRequest;
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -81,7 +84,7 @@ describe("buildRateLimitHeaders", () => {
 describe("withRateLimit", () => {
   it("passes allowed requests through and advertises the measured budget", async () => {
     checkRateLimitDetailed.mockResolvedValue(decision());
-    const res: any = await withRateLimit(okHandler, config)(new NextRequest() as any);
+    const res: any = await withRateLimit(okHandler, config)(req);
 
     expect(okHandler).toHaveBeenCalledOnce();
     expect(res.status).toBe(200);
@@ -99,7 +102,7 @@ describe("withRateLimit", () => {
     checkRateLimitDetailed.mockResolvedValue(
       decision({ allowed: false, remaining: 0, resetAt: Date.now() + 30_000 }),
     );
-    const res: any = await withRateLimit(okHandler, config)(new NextRequest() as any);
+    const res: any = await withRateLimit(okHandler, config)(req);
 
     expect(res.status).toBe(429);
     expect(res.body).toMatchObject({ error: "Too Many Requests" });
@@ -118,7 +121,7 @@ describe("withRateLimit", () => {
     const res: any = await withRateLimit(okHandler, {
       ...config,
       fallbackStrategy: "fail-closed",
-    })(new NextRequest() as any);
+    })(req);
 
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBeTruthy();
@@ -129,7 +132,7 @@ describe("withRateLimit", () => {
 
   it("does not advertise invented headers on a degraded allow either", async () => {
     checkRateLimitDetailed.mockResolvedValue(decision({ degraded: true }));
-    const res: any = await withRateLimit(okHandler, config)(new NextRequest() as any);
+    const res: any = await withRateLimit(okHandler, config)(req);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-RateLimit-Limit")).toBeNull();
@@ -137,7 +140,7 @@ describe("withRateLimit", () => {
 
   it("fails open when the limiter throws and the strategy is fail-open", async () => {
     checkRateLimitDetailed.mockRejectedValue(new Error("redis down"));
-    const res: any = await withRateLimit(okHandler, config)(new NextRequest() as any);
+    const res: any = await withRateLimit(okHandler, config)(req);
     expect(res.status).toBe(200);
     expect(okHandler).toHaveBeenCalledOnce();
   });
@@ -147,7 +150,7 @@ describe("withRateLimit", () => {
     const res: any = await withRateLimit(okHandler, {
       ...config,
       fallbackStrategy: "fail-closed",
-    })(new NextRequest() as any);
+    })(req);
 
     expect(res.status).toBe(429);
     expect(res.headers.get("X-RateLimit-Limit")).toBeNull();
