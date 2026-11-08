@@ -212,7 +212,7 @@ export function isRateLimitError(err: unknown): boolean {
   return (
     status === 429 ||
     /rate_limit|rate-limit|too_many_requests/i.test(code) ||
-    /429|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
+    /\b429\b|rate limit|quota|resource_exhausted|too many requests|overloaded/i.test(msg)
   );
 }
 

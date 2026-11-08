@@ -21,6 +21,12 @@ describe("error classifiers", () => {
     expect(isRateLimitError(null)).toBe(false);
   });
 
+  it("does not flag messages that merely contain the digits 429", () => {
+    expect(isRateLimitError(new Error("Processed 14290 findings"))).toBe(false);
+    expect(isRateLimitError(new Error("Buffer size 4294967295 exceeded"))).toBe(false);
+    expect(isRateLimitError(new Error("HTTP 429 Too Many Requests"))).toBe(true);
+  });
+
   it("detects timeout / transient network errors", () => {
     expect(isTimeoutError({ status: 503 })).toBe(true);
     expect(isTimeoutError({ status: 504 })).toBe(true);
