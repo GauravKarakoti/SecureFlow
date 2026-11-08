@@ -92,7 +92,7 @@ Cookie: next-auth.session-token=<jwt>
 
 ## Rate Limiting
 
-Selected routes are wrapped in `withRateLimit` (see `src/lib/middleware/rateLimit.ts`). Limits are keyed by the requester's IP (extracted from `x-forwarded-for`) and enforced via Upstash Redis when configured, falling back to in-memory otherwise.
+Selected routes are wrapped in `withRateLimit` (see `src/lib/middleware/rate-limit.ts`). Limits are keyed by the requester's IP (extracted from `x-forwarded-for`) and enforced via Upstash Redis when configured, falling back to in-memory otherwise.
 
 When the limit is exceeded, the route returns:
 
@@ -204,7 +204,7 @@ Cookie: next-auth.session-token=<jwt>
 ```
 
 **Auth**: Requires an authenticated session **and** the `ADMIN` role.
-**Rate limit**: None (admin-only).
+**Rate limit**: `TIERS.ADMIN` via `withRateLimit` — 30 requests per 60s per IP, fail-closed (`keyPrefix: "admin:export"`).
 **Query params**: None.
 **Body**: None.
 
@@ -482,7 +482,7 @@ Accept: text/event-stream
 ```
 
 **Auth**: Requires an authenticated session. The finding must belong to a scan result, on a pull request, on a repository owned by the signed-in user (ownership checked via Prisma relation traversal).
-**Rate limit**: None.
+**Rate limit**: `TIERS.AI_STREAM` per IP (20 req/60s) plus a per-user `TIERS.AI_STREAM_USER` guard (10 req/60s), both fail-closed.
 **Runtime**: `force-dynamic`.
 
 #### Path parameters
@@ -585,7 +585,7 @@ GET /api/og/heist?project=The%20Royal%20Mint&score=92&rank=S&findingsCount=3
 ```
 
 **Auth**: None (public — must be reachable by social crawlers).
-**Rate limit**: None.
+**Rate limit**: `TIERS.STANDARD` per IP via `withRateLimit` (`keyPrefix: "og:heist:ip"`).
 **Runtime**: `edge` (Vercel Edge Runtime, via `next/og`).
 
 #### Query parameters
