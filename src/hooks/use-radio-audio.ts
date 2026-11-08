@@ -41,6 +41,10 @@ export function useRadioAudio() {
     if (enabledRef.current) {
       enabledRef.current = false;
       setEnabled(false);
+      // Suspend the AudioContext too: toggling off only flipped state, so the
+      // context kept running (holding an audio thread and counting against
+      // the browser's AudioContext budget) until unmount.
+      void ctxRef.current?.suspend().catch(() => {});
       return;
     }
     const ctx = ensureContext();
