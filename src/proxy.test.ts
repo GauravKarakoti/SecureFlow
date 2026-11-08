@@ -54,6 +54,18 @@ describe("Next.js RBAC Middleware Guarding", () => {
     expect(res?.status).toBe(200); // NextResponse.next()
   });
 
+  it("does not guard routes that merely share a prefix with /admin or /dashboard", async () => {
+    // Segment-boundary matching: /adminhelp, /api/administered-reports and
+    // /dashboards are NOT admin/dashboard routes and must pass through.
+    for (const path of ["/adminhelp", "/api/administered-reports", "/dashboards"]) {
+      const req = new NextRequest(`http://localhost${path}`) as MockAuthRequest;
+      req.auth = null;
+
+      const res = await middleware(req);
+      expect(res?.status).toBe(200);
+    }
+  });
+
   it("redirects unauthenticated users attempting to access /admin/* to /login", async () => {
     const req = new NextRequest("http://localhost/admin/users") as MockAuthRequest;
     req.auth = null;
