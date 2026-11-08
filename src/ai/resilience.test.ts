@@ -1,4 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const recordModelExecution = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("./telemetry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./telemetry")>();
+  return {
+    ...actual,
+    recordModelExecution: (...args: unknown[]) => recordModelExecution(...args),
+    recordFailoverEvent: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 import {
   computeBackoffDelay,
   isRateLimitError,
@@ -6,7 +18,9 @@ import {
   executeWithFallbackAndRetry,
   getModelCircuitBreaker,
   resetModelCircuitBreakers,
+  tripModelCircuitBreaker,
   CircuitState,
+  CircuitBreakerError,
 } from "./resilience";
 
 const rateLimit = () => Object.assign(new Error("Too many requests"), { status: 429 });
@@ -59,6 +73,7 @@ describe("executeWithFallbackAndRetry", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetModelCircuitBreakers();
+    recordModelExecution.mockClear();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -250,6 +265,28 @@ describe("executeWithFallbackAndRetry", () => {
       expect(op.mock.calls.some(([m]) => m === "primary")).toBe(false); // primary skipped
       expect(second.stats.modelUsed).toBe("secondary");
       expect(onModelSwitch).toHaveBeenCalledWith("primary", "secondary", expect.anything(), 0);
+    });
+  });
+
+  describe("last-model OPEN breaker", () => {
+    it("fails fast without spinning the retry loop or phantom telemetry", async () => {
+      // Regression: with no fallback models, an OPEN breaker skipped the
+      // fast-fail guard, breaker.execute() threw instantly, and the retry
+      // loop spun maxRetriesPerModel times recording phantom failures.
+      tripModelCircuitBreaker("primary");
+      const op = vi.fn().mockResolvedValue("ok");
+
+      await expect(
+        executeWithFallbackAndRetry(op, {
+          primaryModel: "primary",
+          fallbackModels: [],
+          retryConfig: { ...baseRetry, maxRetriesPerModel: 3 },
+        }),
+      ).rejects.toBeInstanceOf(CircuitBreakerError);
+
+      expect(op).not.toHaveBeenCalled();
+      // Exactly one recorded attempt — not one per retry spin.
+      expect(recordModelExecution).toHaveBeenCalledTimes(1);
     });
   });
 });

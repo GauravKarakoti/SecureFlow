@@ -296,7 +296,14 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
           await delay(waitTime);
         } else {
           // Attempt limit reached for current model, circuit breaker tripped, or non-retryable error
-          if (mIdx < models.length - 1) {
+          if (mIdx >= models.length - 1) {
+            // Last model: stop spinning. Without this break, an OPEN breaker
+            // (or a retryable failure that tripped it mid-loop) made
+            // breaker.execute() throw instantly and the loop spun
+            // maxRetries times, writing a phantom telemetry failure per spin.
+            break;
+          }
+          {
             fallbackSwitches++;
             const nextModel = models[mIdx + 1];
             console.warn(
