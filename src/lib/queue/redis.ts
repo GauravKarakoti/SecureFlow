@@ -46,5 +46,8 @@ export async function closeQueueRedis(): Promise<void> {
         redis.disconnect();
       }
     }
+    // Clear the dev singleton so a hot-reloaded module does not reuse the
+    // closed client.
+    globalForRedis.queueRedis = undefined;
   }
 }

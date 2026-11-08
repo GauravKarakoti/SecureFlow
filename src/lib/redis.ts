@@ -285,5 +285,10 @@ export async function closeRedis(): Promise<void> {
     } catch {
       redisInstance.disconnect();
     }
+    // Clear the dev singleton too: after an HMR reload the re-executed module
+    // would otherwise hand out the closed client from globalThis, and every
+    // command would reject with "Connection is closed".
+    redisInstance = null;
+    globalForRedis.rateLimitRedis = undefined;
   }
 }
