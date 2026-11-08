@@ -37,7 +37,7 @@ The server operates locally via `stdio` using `@modelcontextprotocol/sdk`, requi
 
 The server registers four tools exposed via `ListToolsRequestSchema`:
 
-### `scan_content`
+### 1. `scan_content`
 
 Scan one caller-supplied source file without opening files, executing code or making
 network requests. The existing secret-logging detector always runs. An additional
@@ -91,7 +91,7 @@ concatenation, escaped strings, or resolved variable values. High entropy is a
 heuristic, not proof of a secret. CLI binary/type exclusions and its benign-value
 whitelist still apply; one finding per console-call line is returned.
 
-### 1. `query_threat_intelligence`
+### 2. `query_threat_intelligence`
 
 Searches the threat intelligence knowledge base for security advisories matching keywords, vulnerability classes, or CVE IDs.
 
@@ -100,7 +100,7 @@ Searches the threat intelligence knowledge base for security advisories matching
   - `intentToken` (`string`, _optional_): Cryptographic intent token declaring an approved plan for ArmorIQ verification.
 - **Returns**: A JSON array of matching `ThreatIntelligenceEntry` objects containing `id`, `category`, `description`, `severity`, `cve`, and `remediationGuidance`. If no direct match is found, representative defensive advisories are returned.
 
-### 2. `lookup_cve`
+### 3. `lookup_cve`
 
 Retrieves detailed vulnerability information, severity rating, and concrete remediation instructions for an exact CVE or CWE identifier.
 
@@ -111,7 +111,7 @@ Retrieves detailed vulnerability information, severity rating, and concrete reme
 
 ---
 
-### 3. `get_remediation_context`
+### 4. `get_remediation_context`
 
 Summarizes a caller-supplied snapshot of remediation attempts. Each history row
 represents one attempt's latest status, not multiple updates of the same attempt.
