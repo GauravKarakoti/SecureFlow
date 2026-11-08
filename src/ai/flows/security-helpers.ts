@@ -3,9 +3,19 @@ import type { AISecurityExplanationInput } from "./security-explanation-schemas"
 import { isAtLeast } from "@/lib/severity";
 import { env } from "@/lib/env";
 
-const _groq = new Groq({
-  apiKey: env.GROQ_API_KEY!,
-});
+// Lazy singleton: groq-sdk throws at construction time when GROQ_API_KEY is
+// absent, so a module-level client crashed any context that merely imported
+// the pure helpers here (tests, air-gapped local-model deployments).
+let _groq: Groq | null = null;
+
+function getGroqClient(): Groq {
+  if (!_groq) {
+    _groq = new Groq({
+      apiKey: env.GROQ_API_KEY!,
+    });
+  }
+  return _groq;
+}
 
 /**
  * Secondary lightweight LLM check for prompt injection.
@@ -18,7 +28,7 @@ const _groq = new Groq({
  */
 async function llmInjectionCheck(text: string): Promise<boolean> {
   try {
-    const response = await _groq.chat.completions.create(
+    const response = await getGroqClient().chat.completions.create(
       {
         // Same unset default as DEFAULT_SCAN_MODEL; llama-3.1-8b-instant is shut down.
         model: env.GROQ_MODEL || "openai/gpt-oss-20b",
