@@ -396,7 +396,6 @@ export function loadThreatFeedPayloads(options?: { customPath?: string }): Threa
 export async function syncThreatFeeds(options?: {
   sources?: ThreatFeedSource[];
   outputPath?: string;
-  force?: boolean;
 }): Promise<SyncResult> {
   const sources = options?.sources || DEFAULT_THREAT_FEED_SOURCES;
   const outputPath = options?.outputPath || DEFAULT_FEED_PATH;
