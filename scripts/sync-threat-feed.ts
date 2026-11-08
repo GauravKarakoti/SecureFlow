@@ -11,6 +11,8 @@
  *   npx tsx scripts/sync-threat-feed.ts --out custom-path.json
  */
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   DEFAULT_FEED_PATH,
@@ -45,10 +47,23 @@ async function main() {
   const initialDataset = loadThreatFeedDataset(outputPath);
   const initialCount = (initialDataset.payloads || []).length;
 
-  const result = await syncThreatFeeds({
-    outputPath: isDryRun ? path.resolve(process.cwd(), "tmp_dry_run_feed.json") : outputPath,
-    sources: DEFAULT_THREAT_FEED_SOURCES,
-  });
+  // Dry runs must not leave a committable artifact in the repo root —
+  // write to the OS temp dir and remove the file afterwards.
+  const dryRunPath = isDryRun
+    ? path.join(os.tmpdir(), `secureflow-dry-run-feed-${process.pid}.json`)
+    : undefined;
+
+  let result;
+  try {
+    result = await syncThreatFeeds({
+      outputPath: dryRunPath ?? outputPath,
+      sources: DEFAULT_THREAT_FEED_SOURCES,
+    });
+  } finally {
+    if (dryRunPath) {
+      fs.rmSync(dryRunPath, { force: true });
+    }
+  }
 
   if (!isQuiet) {
     console.log("\n📊 Synchronization Summary:");
