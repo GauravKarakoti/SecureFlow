@@ -1,4 +1,7 @@
 import { redis } from "@/lib/redis";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger({ context: { component: "webhook-dedup" } });
 
 /**
  * 24 hours in seconds (86,400s).
@@ -58,10 +61,12 @@ export async function recordWebhookDelivery(
       recorded: isNew,
     };
   } catch (error) {
-    console.warn(
-      `[WEBHOOK_DEDUPE] Redis error checking delivery ${deliveryId}; processing normally.`,
+    // Structured logger (migration #563): honors LOG_LEVEL, sanitizes CR/LF in
+    // the delivery id, and scrubs credentials on the attached error.
+    log.warn("[WEBHOOK_DEDUPE] Redis error checking delivery; processing normally.", {
+      deliveryId,
       error,
-    );
+    });
     return { isDuplicate: false, recorded: false };
   }
 }

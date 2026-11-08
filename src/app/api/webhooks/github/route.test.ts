@@ -22,6 +22,19 @@ const {
   mockRedisSet: vi.fn(),
 }));
 
+const logWarnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/logger", () => {
+  const logger = {
+    warn: (...args: unknown[]) => logWarnMock(...args),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: () => logger,
+  };
+  return { logger, createLogger: () => logger };
+});
+
 vi.mock("@/lib/redis", () => ({
   redis: {
     set: mockRedisSet,
@@ -546,12 +559,10 @@ describe("GitHub webhook route", () => {
       expect(await res.json()).toMatchObject({ status: "queued", deliveryId });
       expect(addWebhookJob).toHaveBeenCalledOnce();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`[WEBHOOK_DEDUPE] Redis error checking delivery ${deliveryId}`),
-        expect.any(Error),
+      expect(logWarnMock).toHaveBeenCalledWith(
+        expect.stringContaining("[WEBHOOK_DEDUPE] Redis error checking delivery"),
+        expect.objectContaining({ deliveryId, error: expect.any(Error) }),
       );
-
-      warnSpy.mockRestore();
     });
 
     it("does not record delivery in Redis if signature verification fails", async () => {

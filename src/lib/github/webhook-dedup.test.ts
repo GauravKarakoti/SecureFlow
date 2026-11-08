@@ -1,3 +1,15 @@
+const logWarnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/logger", () => ({
+  createLogger: () => ({
+    warn: (...args: unknown[]) => logWarnMock(...args),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  }),
+}));
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockDefaultRedisSet = vi.hoisted(() => vi.fn());
@@ -141,7 +153,6 @@ describe("webhook-dedup", () => {
     });
 
     it("fails open and logs warning when Redis set rejects", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const mockClient = {
         set: vi.fn().mockRejectedValue(new Error("ECONNREFUSED: Redis down")),
       };
@@ -149,11 +160,13 @@ describe("webhook-dedup", () => {
       const result = await recordWebhookDelivery("del-redis-down", mockClient);
 
       expect(result).toEqual({ isDuplicate: false, recorded: false });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[WEBHOOK_DEDUPE] Redis error checking delivery del-redis-down"),
-        expect.any(Error),
+      expect(logWarnMock).toHaveBeenCalledWith(
+        expect.stringContaining("[WEBHOOK_DEDUPE] Redis error checking delivery"),
+        expect.objectContaining({
+          deliveryId: "del-redis-down",
+          error: expect.any(Error),
+        }),
       );
-      warnSpy.mockRestore();
     });
 
     it("returns isDuplicate: false when delivery ID is empty or invalid", async () => {
