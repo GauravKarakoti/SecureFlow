@@ -103,8 +103,11 @@ export default auth(async function middleware(
   }
 
   // 2. RBAC Admin Route Guarding (/admin/* and /api/admin/*)
-  const isAdminWebRoute = request.nextUrl.pathname.startsWith("/admin");
-  const isAdminApiRoute = request.nextUrl.pathname.startsWith("/api/admin");
+  // Match on segment boundaries: bare startsWith also captured unrelated
+  // paths like /adminhelp or /api/administered-reports.
+  const pathname = request.nextUrl.pathname;
+  const isAdminWebRoute = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isAdminApiRoute = pathname === "/api/admin" || pathname.startsWith("/api/admin/");
 
   if (isAdminWebRoute || isAdminApiRoute) {
     if (isMockAuthEnabled()) {
@@ -154,8 +157,8 @@ export default auth(async function middleware(
   }
 
   // 3. Codename Onboarding Interception ("The Naming Ceremony") (#185)
-  const isCodenameSetupRoute = request.nextUrl.pathname === "/setup/codename";
-  const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
+  const isCodenameSetupRoute = pathname === "/setup/codename";
+  const isDashboardRoute = pathname === "/dashboard" || pathname.startsWith("/dashboard/");
 
   if (isMockAuthEnabled()) {
     const mockSession = request.cookies.get("mock-session")?.value;
