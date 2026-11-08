@@ -219,6 +219,18 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
                   <React.Fragment key={l.id}>
                     <tr
                       onClick={() => hasMeta && setExpanded(isOpen ? null : l.id)}
+                      onKeyDown={(e) => {
+                        if (hasMeta && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault();
+                          setExpanded(isOpen ? null : l.id);
+                        }
+                      }}
+                      tabIndex={hasMeta ? 0 : undefined}
+                      role={hasMeta ? "button" : undefined}
+                      aria-expanded={hasMeta ? isOpen : undefined}
+                      aria-label={
+                        hasMeta ? `${isOpen ? "Collapse" : "Expand"} log metadata` : undefined
+                      }
                       className={`border-b border-border/50 transition-colors ${
                         hasMeta ? "cursor-pointer hover:bg-muted/50" : "hover:bg-muted/30"
                       }`}
