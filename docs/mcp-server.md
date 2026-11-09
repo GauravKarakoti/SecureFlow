@@ -35,7 +35,7 @@ The server operates locally via `stdio` using `@modelcontextprotocol/sdk`, requi
 
 ## Available MCP Tools
 
-The server registers six tools exposed via `ListToolsRequestSchema`:
+The server registers tools exposed via `ListToolsRequestSchema`:
 
 ### 1. `scan_content`
 
@@ -195,9 +195,9 @@ Example tool call:
 }
 ```
 
-### 6. `generate_remediation_patch`
+### 6. `generate_remediation_patch` / `generate-remediation-patch`
 
-Triggers AI remediation patch generation for a specific security finding via the SecureFlow platform API (`POST /api/findings/[id]/remediate`).
+Triggers AI remediation patch generation for a specific security finding via the SecureFlow platform API (`POST /api/findings/[id]/remediate`). Both snake_case (`generate_remediation_patch`) and kebab-case (`generate-remediation-patch`) are supported.
 
 - **Parameters**:
   - `findingId` (`string`, **required**): The ID of the finding to remediate.
@@ -219,12 +219,64 @@ Example tool call:
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "generate_remediation_patch",
+    "name": "generate-remediation-patch",
     "arguments": {
       "findingId": "finding-cwe-89-sqli",
       "baseUrl": "https://secure-flow-six.vercel.app"
     }
   }
+}
+```
+
+### 7. `web3_security_explanations` / `web3-security-explanations`
+
+Generates specialized AI security explanations and remediation recommendations for Web3 smart contracts and Zero-Knowledge (ZK) circuits (`POST /api/explain/web3`). Understands Solidity / EVM reentrancy and delegatecall risks, Rust / Soroban / Solana CPI and ownership hazards, and ZK Circom / Aleo Leo under-constrained signals and soundness bugs. If the remote endpoint is unreachable or in offline mode, automatically executes an internal heuristic analyzer for graceful degradation. Both snake_case and kebab-case tool names are registered and callable.
+
+- **Parameters**:
+  - `findingType` (`string`, **required**): Type of Web3/ZK vulnerability (e.g., `"reentrancy"`, `"under-constrained-signal"`, `"soroban-auth-bypass"`, `"unsafe-arithmetic"`).
+  - `severity` (`string`, **required**): Severity level: `"LOW"`, `"MEDIUM"`, `"HIGH"`, or `"CRITICAL"`.
+  - `description` (`string`, **required**): Detailed explanation of the vulnerability context or detected flaw.
+  - `fileLocation` (`string`, **required**): Path to the smart contract or circuit file (e.g., `"contracts/Vault.sol"`, `"circuits/withdraw.circom"`, `"src/lib.rs"`).
+  - `codeSnippet` (`string`, **required**): The vulnerable code or circuit definition snippet.
+  - `baseUrl` (`string`, _optional_): Custom base URL for the SecureFlow platform (defaults to production endpoint `https://secure-flow-six.vercel.app`).
+  - `authToken` (`string`, _optional_): Authentication bearer token if required.
+  - `intentToken` (`string`, _optional_): Cryptographic intent token declaring an approved plan for ArmorIQ verification.
+- **Returns**: A JSON payload containing Web3 explanation details:
+  - `ecosystem`: Detected ecosystem (`"solidity"`, `"rust-soroban"`, `"zk-circuit"`, or `"generic-web3"`).
+  - `explanation`: Comprehensive technical explanation of the vulnerability and attack vector.
+  - `remediationSuggestions`: Actionable mitigation steps (e.g., CEI pattern, ReentrancyGuard, non-malleability range checks).
+
+Example tool call:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "web3-security-explanations",
+    "arguments": {
+      "findingType": "reentrancy",
+      "severity": "CRITICAL",
+      "description": "State variable updated after low-level external call",
+      "fileLocation": "contracts/Vault.sol",
+      "codeSnippet": "msg.sender.call{value: balance}(''); balances[msg.sender] = 0;"
+    }
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "ecosystem": "solidity",
+  "explanation": "[SecureFlow Web3] Detected potential CRITICAL vulnerability (reentrancy) in contracts/Vault.sol. Ensure state changes precede external calls and access controls are strictly validated.",
+  "remediationSuggestions": [
+    "Follow Checks-Effects-Interactions (CEI) pattern to prevent reentrancy.",
+    "Employ OpenZeppelin or equivalent audited contracts for access control and math validation.",
+    "Ensure all circuit signals are strictly constrained with proper range checks."
+  ]
 }
 ```
 

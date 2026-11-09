@@ -6,7 +6,7 @@ import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
 import { KNOWLEDGE_BASE, queryLiveThreatIntelligence } from "../threat-intel.js";
 import { generateSarifReport } from "../sarif.js";
 import type { FileScanResult, Severity, Violation } from "../scanner.js";
-import { generateRemediationPatch } from "../lib/api-client.js";
+import { generateRemediationPatch, requestWeb3Explanation, type Web3ExplainRequest } from "../lib/api-client.js";
 export { queryLiveThreatIntelligence } from "../threat-intel.js";
 
 /**
@@ -209,6 +209,47 @@ export const GENERATE_REMEDIATION_PATCH_SCHEMA = {
     },
   },
   required: ["findingId"],
+  additionalProperties: false,
+};
+
+export const WEB3_SECURITY_EXPLANATIONS_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    findingType: {
+      type: "string",
+      description: "Type of Web3/ZK vulnerability (e.g., 'reentrancy', 'under-constrained-signal', 'unsafe-arithmetic')",
+    },
+    severity: {
+      type: "string",
+      enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      description: "Finding severity level",
+    },
+    description: {
+      type: "string",
+      description: "Detailed description of the finding or threat context",
+    },
+    fileLocation: {
+      type: "string",
+      description: "File path or contract location (e.g., 'contracts/Vault.sol', 'circuits/withdraw.circom')",
+    },
+    codeSnippet: {
+      type: "string",
+      description: "Vulnerable code snippet or smart contract segment to explain",
+    },
+    baseUrl: {
+      type: "string",
+      description: "Optional SecureFlow base URL (defaults to production endpoint)",
+    },
+    authToken: {
+      type: "string",
+      description: "Optional authentication bearer token for the platform API",
+    },
+    intentToken: {
+      type: "string",
+      description: "Optional ArmorIQ cryptographic intent token declaring approved plan",
+    },
+  },
+  required: ["findingType", "severity", "description", "fileLocation", "codeSnippet"],
   additionalProperties: false,
 };
 
@@ -426,6 +467,42 @@ export function createThreatIntelMcpServer(): Server {
             openWorldHint: true,
           },
         },
+        {
+          name: "generate-remediation-patch",
+          description:
+            "Request AI-powered remediation patch generation for a specific finding ID via the SecureFlow platform API (alias for generate_remediation_patch).",
+          inputSchema: GENERATE_REMEDIATION_PATCH_SCHEMA,
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+          },
+        },
+        {
+          name: "web3_security_explanations",
+          description:
+            "Generate specialized AI explanations and remediation suggestions for Web3, smart contract, and zero-knowledge circuit vulnerabilities (Solidity/EVM, Rust/Soroban/Solana, ZK Circom/Leo).",
+          inputSchema: WEB3_SECURITY_EXPLANATIONS_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: true,
+          },
+        },
+        {
+          name: "web3-security-explanations",
+          description:
+            "Generate specialized AI explanations and remediation suggestions for Web3, smart contract, and zero-knowledge circuit vulnerabilities (alias for web3_security_explanations).",
+          inputSchema: WEB3_SECURITY_EXPLANATIONS_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: true,
+          },
+        },
       ],
     };
   });
@@ -589,7 +666,7 @@ export function createThreatIntelMcpServer(): Server {
       }
     }
 
-    if (name === "generate_remediation_patch") {
+    if (name === "generate_remediation_patch" || name === "generate-remediation-patch") {
       const findingId = typeof args?.findingId === "string" ? args.findingId.trim() : "";
       if (!findingId) {
         return {
@@ -639,6 +716,79 @@ export function createThreatIntelMcpServer(): Server {
                 code: "REMEDIATION_FAILED",
                 error:
                   error instanceof Error ? error.message : "Failed to generate remediation patch",
+              }),
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === "web3_security_explanations" || name === "web3-security-explanations") {
+      const findingType = typeof args?.findingType === "string" ? args.findingType.trim() : "";
+      const rawSeverity = typeof args?.severity === "string" ? args.severity.toUpperCase().trim() : "";
+      const description = typeof args?.description === "string" ? args.description.trim() : "";
+      const fileLocation = typeof args?.fileLocation === "string" ? args.fileLocation.trim() : "";
+      const codeSnippet = typeof args?.codeSnippet === "string" ? args.codeSnippet.trim() : "";
+
+      const validSeverities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+      if (
+        !findingType ||
+        !rawSeverity ||
+        !validSeverities.includes(rawSeverity) ||
+        !description ||
+        !fileLocation ||
+        !codeSnippet
+      ) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error:
+                  "web3_security_explanations requires findingType, valid severity (LOW, MEDIUM, HIGH, CRITICAL), description, fileLocation, and codeSnippet",
+              }),
+            },
+          ],
+        };
+      }
+
+      try {
+        const web3Request: Web3ExplainRequest = {
+          findingType,
+          severity: rawSeverity as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+          description,
+          fileLocation,
+          codeSnippet,
+        };
+
+        const baseUrl = typeof args?.baseUrl === "string" ? args.baseUrl : undefined;
+        const authToken = typeof args?.authToken === "string" ? args.authToken : undefined;
+
+        const result = await requestWeb3Explanation(web3Request, baseUrl, authToken);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          structuredContent: result,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "EXPLANATION_FAILED",
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to generate Web3 security explanation",
               }),
             },
           ],
