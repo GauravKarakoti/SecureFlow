@@ -6,22 +6,13 @@
  */
 
 import { looksBinary, shouldScanFile } from "../scanner.js";
+import {
+  cliScanResponseSchema,
+  type AiFinding,
+  type StagedFileForAiScan,
+} from "../contracts/index.js";
 
-export interface StagedFileForAiScan {
-  path: string;
-  content: string;
-}
-
-/** Mirrors `ScanFinding` from src/lib/armor/scanner.ts. */
-export interface AiFinding {
-  type: string;
-  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  description: string;
-  fileLocation: string;
-  codeSnippet: string;
-  lineStart?: number;
-  lineEnd?: number;
-}
+export type { StagedFileForAiScan, AiFinding };
 
 export class NetworkUnavailableError extends Error {
   constructor(cause?: unknown) {
@@ -270,10 +261,14 @@ export async function requestAiFileScan(
       throw new Error(`SecureFlow API responded with ${res.status}`);
     }
 
-    const data = (await res.json()) as { findings?: unknown };
-    // The response is cast, not validated: a misbehaving endpoint returning
-    // { findings: "error" } would otherwise hand callers a non-array.
-    return Array.isArray(data.findings) ? (data.findings as AiFinding[]) : [];
+    const rawData: unknown = await res.json();
+    const parsed = cliScanResponseSchema.safeParse(rawData);
+    if (!parsed.success) {
+      return Array.isArray((rawData as { findings?: unknown })?.findings)
+        ? ((rawData as { findings: AiFinding[] }).findings)
+        : [];
+    }
+    return parsed.data.findings;
   } catch (err) {
     throw new NetworkUnavailableError(err);
   } finally {

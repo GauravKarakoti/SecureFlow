@@ -28,44 +28,25 @@ import {
 import { checkRateLimitDetailed } from "@/lib/redis";
 import { scanner, type FileChange } from "@/lib/armor/scanner";
 import { readBoundedRequestBody } from "@/lib/request-body";
+import {
+  MAX_FILES_PER_REQUEST,
+  MAX_FILE_CONTENT_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_SCAN_REQUEST_BYTES,
+  cliScanRequestSchema,
+  cliScanResponseSchema,
+  type CliScanRequest,
+  type CliScanResponse,
+} from "secureflow-cli/contracts";
 
-export const MAX_FILES_PER_REQUEST = 100;
-export const MAX_FILE_CONTENT_LENGTH = 512 * 1024; // 512 KB
-export const MAX_PATH_LENGTH = 1024;
-
-/**
- * Maximum allowed HTTP request body size (10 MB aggregate limit).
- * Bounds in-memory body buffering for unauthenticated CLI scan requests (#1103).
- */
-export const MAX_SCAN_REQUEST_BYTES = 10 * 1024 * 1024;
-
-/**
- * The request body, checked per entry with strict size and type boundaries.
- */
-const cliScanRequestSchema = z.object({
-  files: z
-    .array(
-      z.object({
-        path: z
-          .string({ message: "each file needs a non-empty string `path`" })
-          .min(1, "each file needs a non-empty string `path`")
-          .max(MAX_PATH_LENGTH, `each file path must not exceed ${MAX_PATH_LENGTH} characters`),
-        content: z
-          .string({ message: "each file needs a string `content`" })
-          .max(
-            MAX_FILE_CONTENT_LENGTH,
-            `file content exceeds maximum size of ${MAX_FILE_CONTENT_LENGTH} characters`,
-          ),
-      }),
-    )
-    .min(1, `"files" array cannot be empty`)
-    .max(
-      MAX_FILES_PER_REQUEST,
-      `"files" array cannot contain more than ${MAX_FILES_PER_REQUEST} files per request`,
-    ),
-  voice: z.boolean().optional(),
-  summaryText: z.string().optional(),
-});
+export {
+  MAX_FILES_PER_REQUEST,
+  MAX_FILE_CONTENT_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_SCAN_REQUEST_BYTES,
+  cliScanRequestSchema,
+  cliScanResponseSchema,
+};
 
 /**
  * Wraps full file content as a unified diff whose every line is "added",

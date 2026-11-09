@@ -113,7 +113,8 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^14.0.3",
     "ws": "^8.22.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "secureflow-cli": "^2.10.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
@@ -143,7 +144,6 @@
     "postcss": "^8",
     "prettier": "^3.9.10",
     "prisma": "^7.10.1",
-    "secureflow-cli": "^2.10.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.15",
     "typescript": "^6",
