@@ -1,5 +1,11 @@
 # secureflow-cli
 
+## 2.11.0
+
+### Minor Changes
+
+- 6d63a45: Add fallback and VRAM pressure test suites for streaming AI flows (heist-message-stream and security-explanation-stream).
+
 ## 2.10.0
 
 ### Minor Changes

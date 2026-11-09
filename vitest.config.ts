@@ -41,6 +41,7 @@ export default defineConfig({
       "@": import.meta.dirname + "/src",
       __mocks__: import.meta.dirname + "/__mocks__",
       zod: import.meta.dirname + "/node_modules/@genkit-ai/core/node_modules/zod/index.js",
+      "secureflow-cli/contracts": import.meta.dirname + "/cli/src/contracts/index.ts",
     },
   },
 });

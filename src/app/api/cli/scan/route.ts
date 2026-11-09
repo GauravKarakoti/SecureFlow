@@ -16,7 +16,6 @@
 import { getOrSynthesize } from "@/lib/audio-cache";
 import { resolveVoiceId, streamSpeech } from "@/lib/elevenlabs";
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { auth } from "@/auth";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import {
@@ -35,8 +34,6 @@ import {
   MAX_SCAN_REQUEST_BYTES,
   cliScanRequestSchema,
   cliScanResponseSchema,
-  type CliScanRequest,
-  type CliScanResponse,
 } from "secureflow-cli/contracts";
 
 export {
