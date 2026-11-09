@@ -2,9 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Shield,
-  Lock,
   ArrowRight,
-  CheckCircle,
   Search,
   Cpu,
   ChevronDown,
@@ -13,6 +11,7 @@ import {
   GitMerge,
   GitBranch,
   Trophy,
+  Terminal,
 } from "lucide-react";
 import Image from "next/image";
 import { LoginButton } from "@/components/ui/login-button";
@@ -56,6 +55,15 @@ export default async function LandingPage() {
           >
             <Trophy className="w-4 h-4" />
             Leaderboard
+          </Link>
+          <Link
+            href="https://www.npmjs.com/package/secureflow-cli"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-muted-foreground hover:text-primary transition-colors"
+          >
+            <Terminal className="w-4 h-4" />
+            CLI
           </Link>
           <LoginButton />
           <Link href={process.env.GITHUB_APP_URL || "/setup"}>
