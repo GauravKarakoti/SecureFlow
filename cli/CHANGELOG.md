@@ -1,5 +1,12 @@
 # secureflow-cli
 
+## 2.12.0
+
+### Minor Changes
+
+- 11fe32b: Support expiring inline suppression directives (`// secureflow-ignore[expires=YYYY-MM-DD]: reason`) with clock injection, boundary validation, and PR report updates.
+- c5cf964: Expand MCP server with threat intelligence lookup, OASIS SARIF v2.1.0 export, and AI remediation patch generation tools (#1682).
+
 ## 2.11.0
 
 ### Minor Changes

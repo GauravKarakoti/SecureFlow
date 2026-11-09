@@ -7,6 +7,7 @@ import {
 } from "./inline-suppression";
 import type { ScanFinding, FileChange } from "./scanner";
 import { renderScanReportSummary } from "@/lib/github/scan-report";
+import { Severity } from "../severity";
 
 describe("INLINE_DIRECTIVE_REGEX", () => {
   it("matches // secureflow-ignore: <reason>", () => {
