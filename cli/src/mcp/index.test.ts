@@ -192,19 +192,27 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
       const response = await client.listTools();
 
       expect(response.tools).toBeDefined();
-      expect(response.tools.length).toBe(4);
+      expect(response.tools.length).toBe(6);
 
       const toolNames = response.tools.map((t) => t.name);
       expect(toolNames).toContain("query_threat_intelligence");
       expect(toolNames).toContain("lookup_cve");
       expect(toolNames).toContain("get_remediation_context");
       expect(toolNames).toContain("scan_content");
+      expect(toolNames).toContain("export_sarif");
+      expect(toolNames).toContain("generate_remediation_patch");
 
       const queryTool = response.tools.find((t) => t.name === "query_threat_intelligence");
       expect(queryTool?.inputSchema.required).toContain("query");
 
       const lookupTool = response.tools.find((t) => t.name === "lookup_cve");
       expect(lookupTool?.inputSchema.required).toContain("cveId");
+
+      const exportSarifTool = response.tools.find((t) => t.name === "export_sarif");
+      expect(exportSarifTool?.inputSchema.required).toContain("results");
+
+      const patchTool = response.tools.find((t) => t.name === "generate_remediation_patch");
+      expect(patchTool?.inputSchema.required).toContain("findingId");
     });
 
     describe("scan_content tool (#1556)", () => {
@@ -528,6 +536,209 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
         expect(errorPayload.code).toBe("ARMORIQ_INTENT_VERIFICATION_FAILED");
         expect(errorPayload.enforcement).toBe("FAIL_CLOSED");
         expect(errorPayload.error).toContain("Action blocked by ArmorIQ");
+      });
+    });
+
+    describe("export_sarif tool (#1682)", () => {
+      it("exports valid OASIS SARIF v2.1.0 document from scan results", async () => {
+        const response = await client.callTool({
+          name: "export_sarif",
+          arguments: {
+            toolVersion: "1.2.3",
+            results: [
+              {
+                path: "src/db.ts",
+                violations: [
+                  {
+                    ruleId: "SECUREFLOW-001",
+                    reason: "SQL Injection",
+                    line: 42,
+                    column: 5,
+                    text: "db.query('SELECT * FROM users WHERE id = ' + id)",
+                    severity: "critical",
+                  },
+                ],
+              },
+            ],
+          },
+        });
+
+        expect(response.isError).toBeFalsy();
+        const content = getTextContent(response);
+        const sarif = JSON.parse(content[0]!.text);
+
+        expect(sarif.$schema).toContain("sarif-2.1.0.json");
+        expect(sarif.version).toBe("2.1.0");
+        expect(sarif.runs).toHaveLength(1);
+        expect(sarif.runs[0].tool.driver.name).toBe("SecureFlow CLI");
+        expect(sarif.runs[0].tool.driver.semanticVersion).toBe("1.2.3");
+        expect(sarif.runs[0].results).toHaveLength(1);
+        expect(sarif.runs[0].results[0].ruleId).toMatch(/^SECUREFLOW-/);
+        expect(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+          "src/db.ts",
+        );
+        expect(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine).toBe(42);
+      });
+
+      it("handles multiple files and clean files without violations", async () => {
+        const response = await client.callTool({
+          name: "export_sarif",
+          arguments: {
+            results: [
+              { path: "src/clean.ts", violations: [] },
+              {
+                path: "src/auth.ts",
+                violations: [
+                  {
+                    reason: "environment variable",
+                    line: 10,
+                    text: "console.log(process.env.API_KEY)",
+                  },
+                ],
+              },
+            ],
+          },
+        });
+
+        expect(response.isError).toBeFalsy();
+        const content = getTextContent(response);
+        const sarif = JSON.parse(content[0]!.text);
+        expect(sarif.runs[0].results).toHaveLength(1);
+        expect(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+          "src/auth.ts",
+        );
+      });
+
+      it("rejects invalid or malformed arguments", async () => {
+        const invalidInputs = [
+          {},
+          { results: "not an array" },
+          { results: [{ path: "" }] },
+          { results: [{ path: "src/foo.ts", violations: "not an array" }] },
+          { results: [{ path: "src/foo.ts", violations: [{ reason: "", line: 0 }] }] },
+          { results: [], unknownProperty: true },
+        ];
+
+        for (const input of invalidInputs) {
+          const response = await client.callTool({
+            name: "export_sarif",
+            arguments: input,
+          });
+
+          expect(response.isError).toBe(true);
+          const content = getTextContent(response);
+          const errorPayload = JSON.parse(content[0]!.text);
+          expect(errorPayload.code).toBe("INVALID_ARGUMENTS");
+        }
+      });
+    });
+
+    describe("generate_remediation_patch tool (#1682)", () => {
+      it("rejects empty or missing findingId", async () => {
+        const response = await client.callTool({
+          name: "generate_remediation_patch",
+          arguments: { findingId: "   " },
+        });
+
+        expect(response.isError).toBe(true);
+        const content = getTextContent(response);
+        const errorPayload = JSON.parse(content[0]!.text);
+        expect(errorPayload.code).toBe("INVALID_ARGUMENTS");
+        expect(errorPayload.error).toContain("findingId must be a non-empty string");
+      });
+
+      it("handles network failure gracefully returning REMEDIATION_FAILED", async () => {
+        const response = await client.callTool({
+          name: "generate_remediation_patch",
+          arguments: {
+            findingId: "finding-offline-test",
+            baseUrl: "http://127.0.0.1:54321", // non-existent local port
+            timeoutMs: 1500,
+          },
+        });
+
+        expect(response.isError).toBe(true);
+        const content = getTextContent(response);
+        const errorPayload = JSON.parse(content[0]!.text);
+        expect(errorPayload.code).toBe("REMEDIATION_FAILED");
+        expect(errorPayload.error).toContain("SecureFlow API unreachable");
+      });
+
+      it("calls api-client and returns successful patch response when server responds 200", async () => {
+        // Mock global fetch for testing the remediation endpoint
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url: string | URL | Request) => {
+          if (String(url).includes("/api/findings/finding-100/remediate")) {
+            return new Response(
+              JSON.stringify({
+                success: true,
+                patch: {
+                  id: "patch-100",
+                  findingId: "finding-100",
+                  patchDiff: "--- a/src/db.ts\n+++ b/src/db.ts\n- old\n+ new",
+                  status: "GENERATED",
+                },
+                explanation: "Sanitized SQL query with prepared statement",
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          return new Response("Not Found", { status: 404 });
+        };
+
+        try {
+          const response = await client.callTool({
+            name: "generate_remediation_patch",
+            arguments: {
+              findingId: "finding-100",
+              baseUrl: "http://localhost:3000",
+              authToken: "test-auth-token",
+            },
+          });
+
+          expect(response.isError).toBeFalsy();
+          const content = getTextContent(response);
+          const data = JSON.parse(content[0]!.text);
+          expect(data.success).toBe(true);
+          expect(data.patch.id).toBe("patch-100");
+          expect(data.patch.status).toBe("GENERATED");
+          expect(data.explanation).toContain("Sanitized SQL query");
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+
+      it("handles 429 rate limit or AI unavailable response from platform API", async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => {
+          return new Response(
+            JSON.stringify({
+              error: "AI Provider Rate Limit Exceeded",
+              code: "AI_RATE_LIMITED",
+              retryable: true,
+            }),
+            { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60" } },
+          );
+        };
+
+        try {
+          const response = await client.callTool({
+            name: "generate_remediation_patch",
+            arguments: {
+              findingId: "finding-rate-limited",
+              baseUrl: "http://localhost:3000",
+            },
+          });
+
+          expect(response.isError).toBe(true);
+          const content = getTextContent(response);
+          const data = JSON.parse(content[0]!.text);
+          expect(data.success).toBe(false);
+          expect(data.code).toBe("AI_RATE_LIMITED");
+          expect(data.retryable).toBe(true);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
       });
     });
 
