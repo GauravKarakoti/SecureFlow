@@ -33,6 +33,7 @@ export interface SuppressedFindingReport {
   fileLocation: string;
   line?: number;
   reason: string;
+  expires?: string;
 }
 
 export interface RejectedSuppressionReport {
@@ -142,7 +143,8 @@ export function renderScanReportSummary({
     body += `### 🔕 Suppressed Findings (${suppressedFindings.length})\n\n`;
     for (const s of suppressedFindings) {
       const loc = s.line ? `${s.fileLocation}:${s.line}` : s.fileLocation;
-      body += `- ${severityBadge(s.severity)} | **${s.type}** in ${toCodeSpan(loc)} — reason: ${s.reason}\n`;
+      const expiryText = s.expires ? ` (expires ${s.expires})` : "";
+      body += `- ${severityBadge(s.severity)} | **${s.type}** in ${toCodeSpan(loc)} — reason: ${s.reason}${expiryText}\n`;
     }
     body += `\n`;
   }

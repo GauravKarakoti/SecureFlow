@@ -490,3 +490,239 @@ describe("Complete 4-finding fixture demo and scan report rendering", () => {
     expect(report).toContain("[REDACTED_BY_THE_PROFESSOR]");
   });
 });
+
+describe("Expiring suppressions (#1685)", () => {
+  const finding = (overrides: Partial<ScanFinding> = {}): ScanFinding => ({
+    type: "HIGH_ENTROPY_TOKEN",
+    severity: "HIGH" as Severity,
+    description: "High entropy token detected in config.",
+    fileLocation: "src/auth.ts",
+    codeSnippet: 'const token = "mock-high-entropy-token";',
+    lineStart: 12,
+    lineEnd: 12,
+    ...overrides,
+  });
+
+  const makePatch = (
+    directiveComment: string,
+    lineContent: string = 'const token = "mock-high-entropy-token";',
+  ) => ["@@ -10,3 +10,4 @@", " const a = 1;", `+${directiveComment}`, `+${lineContent}`].join("\n");
+
+  it("Case 1: Happy path - HIGH finding, directive with a future expiry is suppressed and expiry appears in report", () => {
+    const fixedNow = new Date("2026-06-01T12:00:00Z");
+    const patch = makePatch("// secureflow-ignore[expires=2026-12-31]: temporary test mock token");
+    const file: FileChange = { filename: "src/auth.ts", patch };
+
+    const result = applyInlineSuppression([finding()], [file], { now: fixedNow });
+
+    expect(result.activeFindings).toHaveLength(0);
+    expect(result.suppressedFindings).toHaveLength(1);
+    expect(result.suppressedFindings[0].expires).toBe("2026-12-31");
+    expect(result.suppressedFindings[0].reason).toBe("temporary test mock token");
+    expect(result.rejectedSuppressions).toHaveLength(0);
+
+    const report = renderScanReportSummary({
+      findings: [],
+      totalFindings: 1,
+      inlineCount: 0,
+      suppressedFindings: result.suppressedFindings,
+      rejectedSuppressions: result.rejectedSuppressions,
+    });
+
+    expect(report).toContain("🔕 **1** finding(s) suppressed via inline directives.");
+    expect(report).toContain("HIGH_ENTROPY_TOKEN");
+    expect(report).toContain("reason: temporary test mock token (expires 2026-12-31)");
+  });
+
+  it("Case 2: Expired - directive with past expiry keeps finding active and states expiry date in rejection", () => {
+    const fixedNow = new Date("2026-06-01T12:00:00Z");
+    const patch = makePatch("// secureflow-ignore[expires=2026-01-15]: legacy temporary exception");
+    const file: FileChange = { filename: "src/auth.ts", patch };
+
+    const result = applyInlineSuppression([finding()], [file], { now: fixedNow });
+
+    expect(result.activeFindings).toHaveLength(1);
+    expect(result.suppressedFindings).toHaveLength(0);
+    expect(result.rejectedSuppressions).toHaveLength(1);
+    expect(result.rejectedSuppressions[0].reason).toContain("Suppression expired on 2026-01-15");
+
+    const report = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      suppressedFindings: result.suppressedFindings,
+      rejectedSuppressions: result.rejectedSuppressions,
+    });
+
+    expect(report).toContain("⚠️ **1** inline suppression directive(s) rejected or ignored.");
+    expect(report).toContain("Suppression expired on 2026-01-15");
+  });
+
+  it("Case 3: Boundary - honoured through whole expiry date in UTC, then expired from next UTC day onward", () => {
+    const patch = makePatch("# secureflow-ignore[expires=2026-06-15]: python pipeline mock");
+    const file: FileChange = { filename: "src/auth.ts", patch };
+
+    // During the expiry day at 23:59:59.000 UTC
+    const sameDayBeforeMidnight = new Date("2026-06-15T23:59:59.000Z");
+    const resultActive = applyInlineSuppression([finding()], [file], {
+      now: sameDayBeforeMidnight,
+    });
+    expect(resultActive.activeFindings).toHaveLength(0);
+    expect(resultActive.suppressedFindings).toHaveLength(1);
+    expect(resultActive.rejectedSuppressions).toHaveLength(0);
+
+    // One second into the next UTC day (2026-06-16T00:00:00.001Z)
+    const nextDayUtc = new Date("2026-06-16T00:00:00.001Z");
+    const resultExpired = applyInlineSuppression([finding()], [file], { now: nextDayUtc });
+    expect(resultExpired.activeFindings).toHaveLength(1);
+    expect(resultExpired.suppressedFindings).toHaveLength(0);
+    expect(resultExpired.rejectedSuppressions).toHaveLength(1);
+    expect(resultExpired.rejectedSuppressions[0].reason).toBe("Suppression expired on 2026-06-15");
+  });
+
+  it("Case 4: Failure - invalid calendar dates (2026-02-31, 2026-13-45) and relative strings (tomorrow) are ignored without throwing", () => {
+    const fixedNow = new Date("2026-06-01T12:00:00Z");
+
+    const invalidDates = ["2026-02-31", "2026-13-45", "tomorrow", "2026/06/15", "invalid-date"];
+
+    for (const invalidDate of invalidDates) {
+      const patch = makePatch(`// secureflow-ignore[expires=${invalidDate}]: invalid date test`);
+      const file: FileChange = { filename: "src/auth.ts", patch };
+
+      expect(() => {
+        const result = applyInlineSuppression([finding()], [file], { now: fixedNow });
+        expect(result.activeFindings).toHaveLength(1);
+        expect(result.suppressedFindings).toHaveLength(0);
+        expect(result.rejectedSuppressions).toHaveLength(1);
+        expect(result.rejectedSuppressions[0].reason).toContain(
+          `Suppression ignored: invalid expiry date "${invalidDate}" (must be YYYY-MM-DD)`,
+        );
+      }).not.toThrow();
+    }
+  });
+
+  it("Case 5: Regression - directives without [expires=...] continue to behave without expiration", () => {
+    const farFuture = new Date("2035-01-01T00:00:00Z");
+    const patch = makePatch("// secureflow-ignore: timeless acceptable exception");
+    const file: FileChange = { filename: "src/auth.ts", patch };
+
+    const result = applyInlineSuppression([finding()], [file], { now: farFuture });
+
+    expect(result.activeFindings).toHaveLength(0);
+    expect(result.suppressedFindings).toHaveLength(1);
+    expect(result.suppressedFindings[0].expires).toBeUndefined();
+    expect(result.suppressedFindings[0].reason).toBe("timeless acceptable exception");
+  });
+
+  it("Case 6: Complete fixture demo with four directives (future, expired, boundary, malformed) and report rendering", () => {
+    const fixedNow = new Date("2026-06-15T12:00:00Z");
+
+    const patch = [
+      "@@ -10,12 +10,16 @@",
+      " const init = true;",
+      "+// secureflow-ignore[expires=2026-12-31]: future valid suppression",
+      "+const key1 = 'future-secret';",
+      "+// secureflow-ignore[expires=2026-01-01]: past expired suppression",
+      "+const key2 = 'expired-secret';",
+      "+# secureflow-ignore[expires=2026-06-15]: boundary active today",
+      "+const key3 = 'boundary-secret';",
+      "+// secureflow-ignore[expires=tomorrow]: malformed relative date",
+      "+const key4 = 'malformed-secret';",
+    ].join("\n");
+
+    const file: FileChange = { filename: "src/app/secrets.ts", patch };
+
+    const f1 = finding({
+      type: "FUTURE_KEY",
+      lineStart: 12,
+      lineEnd: 12,
+      fileLocation: "src/app/secrets.ts",
+    });
+    const f2 = finding({
+      type: "EXPIRED_KEY",
+      lineStart: 14,
+      lineEnd: 14,
+      fileLocation: "src/app/secrets.ts",
+    });
+    const f3 = finding({
+      type: "BOUNDARY_KEY",
+      lineStart: 16,
+      lineEnd: 16,
+      fileLocation: "src/app/secrets.ts",
+    });
+    const f4 = finding({
+      type: "MALFORMED_KEY",
+      lineStart: 18,
+      lineEnd: 18,
+      fileLocation: "src/app/secrets.ts",
+    });
+
+    const result = applyInlineSuppression([f1, f2, f3, f4], [file], { now: fixedNow });
+
+    // 2 active (expired + malformed), 2 suppressed (future + boundary active today)
+    expect(result.activeFindings).toHaveLength(2);
+    expect(result.activeFindings.map((f) => f.type)).toEqual(["EXPIRED_KEY", "MALFORMED_KEY"]);
+
+    expect(result.suppressedFindings).toHaveLength(2);
+    expect(result.suppressedFindings.map((s) => s.type)).toEqual(["FUTURE_KEY", "BOUNDARY_KEY"]);
+
+    expect(result.rejectedSuppressions).toHaveLength(2);
+    expect(result.rejectedSuppressions[0].reason).toContain("Suppression expired on 2026-01-01");
+    expect(result.rejectedSuppressions[1].reason).toContain('invalid expiry date "tomorrow"');
+
+    const report = renderScanReportSummary({
+      findings: result.activeFindings.map((f) => ({
+        severity: f.severity,
+        type: f.type,
+        fileLocation: f.fileLocation,
+        explanation: f.description,
+      })),
+      totalFindings: 4,
+      inlineCount: 0,
+      suppressedFindings: result.suppressedFindings,
+      rejectedSuppressions: result.rejectedSuppressions,
+    });
+
+    // Verify rendered PR comment output
+    expect(report).toContain("🔕 **2** finding(s) suppressed via inline directives.");
+    expect(report).toContain("⚠️ **2** inline suppression directive(s) rejected or ignored.");
+    expect(report).toContain("reason: future valid suppression (expires 2026-12-31)");
+    expect(report).toContain("reason: boundary active today (expires 2026-06-15)");
+    expect(report).toContain("Suppression expired on 2026-01-01");
+    expect(report).toContain('invalid expiry date "tomorrow"');
+  });
+
+  it("handles whitespace variations inside [expires=...] attributes gracefully", () => {
+    const fixedNow = new Date("2026-06-01T12:00:00Z");
+    const patch = makePatch("// secureflow-ignore [ expires = 2026-12-31 ] : spaced expiry test");
+    const file: FileChange = { filename: "src/auth.ts", patch };
+
+    const result = applyInlineSuppression([finding()], [file], { now: fixedNow });
+    expect(result.activeFindings).toHaveLength(0);
+    expect(result.suppressedFindings).toHaveLength(1);
+    expect(result.suppressedFindings[0].expires).toBe("2026-12-31");
+    expect(result.suppressedFindings[0].reason).toBe("spaced expiry test");
+  });
+
+  it("handles directives placed on lineStart directly versus lineStart - 1 with expiry", () => {
+    const fixedNow = new Date("2026-06-01T12:00:00Z");
+    const patch = [
+      "@@ -10,4 +10,6 @@",
+      " const before = 1;",
+      "+const findingA = 'direct-line'; // secureflow-ignore[expires=2026-12-31]: direct line match",
+      "+// secureflow-ignore[expires=2026-12-31]: preceding line match",
+      "+const findingB = 'preceding-line';",
+      " const after = 2;",
+    ].join("\n");
+
+    const file: FileChange = { filename: "src/auth.ts", patch };
+    const fA = finding({ lineStart: 11, lineEnd: 11, codeSnippet: "findingA" });
+    const fB = finding({ lineStart: 13, lineEnd: 13, codeSnippet: "findingB" });
+
+    const result = applyInlineSuppression([fA, fB], [file], { now: fixedNow });
+    expect(result.activeFindings).toHaveLength(0);
+    expect(result.suppressedFindings).toHaveLength(2);
+    expect(result.suppressedFindings[0].expires).toBe("2026-12-31");
+    expect(result.suppressedFindings[1].expires).toBe("2026-12-31");
+  });
+});
