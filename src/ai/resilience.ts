@@ -10,17 +10,44 @@ import {
   CircuitBreaker,
   CircuitBreakerError,
   CircuitState,
+  RedisCircuitBreakerStateStore,
   type CircuitBreakerOptions,
+  type CircuitBreakerStateStore,
 } from "@/lib/utils/circuit-breaker";
+import { redis } from "@/lib/redis";
 import { recordModelExecution, recordFailoverEvent } from "./telemetry";
 
-export { CircuitBreaker, CircuitBreakerError, CircuitState, type CircuitBreakerOptions };
+export {
+  CircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+  RedisCircuitBreakerStateStore,
+  type CircuitBreakerOptions,
+  type CircuitBreakerStateStore,
+};
 
 /**
  * Default per-attempt timeout. Long enough for a cloud completion, short
  * enough that a wedged local model does not pin a worker indefinitely.
  */
 export const DEFAULT_ATTEMPT_TIMEOUT_MS = 15_000;
+
+/**
+ * Shared Redis circuit breaker state store across multi-replica pods (#1699).
+ * If Redis is not configured (or during local mode), gracefully degrades to in-memory fallback.
+ */
+let sharedRedisBreakerStore: CircuitBreakerStateStore | null = null;
+
+export function getSharedCircuitBreakerStore(): CircuitBreakerStateStore | null {
+  if (!sharedRedisBreakerStore && redis) {
+    sharedRedisBreakerStore = new RedisCircuitBreakerStateStore(redis, "circuit_breaker:ai:");
+  }
+  return sharedRedisBreakerStore;
+}
+
+export function setSharedCircuitBreakerStore(store: CircuitBreakerStateStore | null): void {
+  sharedRedisBreakerStore = store;
+}
 
 /**
  * Global registry of circuit breakers per AI model.
@@ -34,12 +61,14 @@ export function getModelCircuitBreaker(
   const key = String(modelName).trim();
   let breaker = modelCircuitBreakers.get(key);
   if (!breaker) {
-    breaker = new CircuitBreaker(
-      options ?? {
-        failureThreshold: 3,
-        resetTimeoutMs: 30_000,
-      },
-    );
+    const store =
+      options?.store !== undefined ? options.store : (getSharedCircuitBreakerStore() ?? undefined);
+    breaker = new CircuitBreaker({
+      failureThreshold: options?.failureThreshold ?? 3,
+      resetTimeoutMs: options?.resetTimeoutMs ?? 30_000,
+      key: options?.key ?? `model:${key}`,
+      store,
+    });
     modelCircuitBreakers.set(key, breaker);
   }
   return breaker;
