@@ -265,7 +265,7 @@ export async function requestAiFileScan(
     const parsed = cliScanResponseSchema.safeParse(rawData);
     if (!parsed.success) {
       return Array.isArray((rawData as { findings?: unknown })?.findings)
-        ? ((rawData as { findings: AiFinding[] }).findings)
+        ? (rawData as { findings: AiFinding[] }).findings
         : [];
     }
     return parsed.data.findings;
