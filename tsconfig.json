@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "secureflow-cli/contracts": ["./cli/src/contracts/index.ts"]
     }
   },
   "include": [
