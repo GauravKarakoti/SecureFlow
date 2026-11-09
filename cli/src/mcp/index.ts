@@ -3,7 +3,10 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
-import { KNOWLEDGE_BASE } from "../threat-intel.js";
+import { KNOWLEDGE_BASE, queryLiveThreatIntelligence } from "../threat-intel.js";
+import { generateSarifReport } from "../sarif.js";
+import type { FileScanResult, Severity, Violation } from "../scanner.js";
+import { generateRemediationPatch } from "../lib/api-client.js";
 export { queryLiveThreatIntelligence } from "../threat-intel.js";
 
 /**
@@ -138,6 +141,142 @@ const STATUSES = ["APPLIED", "FAILED", "PENDING", "GENERATED"] as const;
 type Status = (typeof STATUSES)[number];
 const ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
 
+export const EXPORT_SARIF_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    results: {
+      type: "array",
+      description: "List of file scan results containing path and violations to convert to SARIF.",
+      items: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path scanned" },
+          violations: {
+            type: "array",
+            description: "List of violations detected in the file",
+            items: {
+              type: "object",
+              properties: {
+                ruleId: { type: "string" },
+                reason: { type: "string" },
+                line: { type: "integer" },
+                column: { type: "integer" },
+                text: { type: "string" },
+                severity: { type: "string" },
+              },
+              required: ["reason", "line", "text"],
+            },
+          },
+        },
+        required: ["path", "violations"],
+      },
+    },
+    toolVersion: {
+      type: "string",
+      description: "Optional semantic tool version string (defaults to 0.1.0)",
+    },
+    intentToken: {
+      type: "string",
+      description: "Optional ArmorIQ cryptographic intent token declaring approved plan",
+    },
+  },
+  required: ["results"],
+  additionalProperties: false,
+};
+
+export const GENERATE_REMEDIATION_PATCH_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    findingId: {
+      type: "string",
+      description: "Identifier of the finding to generate an AI remediation patch for",
+    },
+    baseUrl: {
+      type: "string",
+      description: "Optional SecureFlow base URL (defaults to production endpoint)",
+    },
+    authToken: {
+      type: "string",
+      description: "Optional authentication bearer token for the platform API",
+    },
+    timeoutMs: {
+      type: "integer",
+      description: "Timeout in milliseconds for the AI remediation patch request",
+    },
+    intentToken: {
+      type: "string",
+      description: "Optional ArmorIQ cryptographic intent token declaring approved plan",
+    },
+  },
+  required: ["findingId"],
+  additionalProperties: false,
+};
+
+/** Convert caller-supplied scan results into OASIS SARIF v2.1.0 format. */
+export function exportScanResultsToSarif(args: Record<string, unknown>) {
+  if (Object.keys(args).some((key) => !["results", "toolVersion", "intentToken"].includes(key))) {
+    throw new Error("Unknown export_sarif argument");
+  }
+  if (!Array.isArray(args.results)) {
+    throw new Error("results must be an array of FileScanResult objects");
+  }
+  const toolVersion = typeof args.toolVersion === "string" ? args.toolVersion : undefined;
+
+  const validResults: FileScanResult[] = [];
+  for (const item of args.results) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Each result in results must be an object");
+    }
+    const r = item as Record<string, unknown>;
+    if (typeof r.path !== "string" || !r.path.trim()) {
+      throw new Error("Each result item requires a valid non-empty path");
+    }
+    if (!Array.isArray(r.violations)) {
+      throw new Error(`Violations for ${r.path} must be an array`);
+    }
+
+    const violations = r.violations.map((vItem: unknown, idx: number) => {
+      if (!vItem || typeof vItem !== "object" || Array.isArray(vItem)) {
+        throw new Error(`Violation at index ${idx} in ${r.path} must be an object`);
+      }
+      const v = vItem as Record<string, unknown>;
+      if (typeof v.reason !== "string" || !v.reason.trim()) {
+        throw new Error(`Violation in ${r.path} missing non-empty reason`);
+      }
+      if (typeof v.line !== "number" || !Number.isInteger(v.line) || v.line < 1) {
+        throw new Error(`Violation in ${r.path} requires an integer line >= 1`);
+      }
+      if (typeof v.text !== "string") {
+        throw new Error(`Violation in ${r.path} requires a string snippet text`);
+      }
+      const violation: Violation = {
+        line: v.line,
+        text: v.text,
+        reason: v.reason,
+      };
+      if (typeof v.severity === "string") {
+        const upper = v.severity.toUpperCase();
+        if (upper === "CRITICAL" || upper === "HIGH" || upper === "MEDIUM" || upper === "LOW") {
+          violation.severity = upper as Severity;
+        }
+      }
+      return violation;
+    });
+
+    validResults.push({
+      path: r.path,
+      violations,
+    });
+  }
+
+  const sarifOptions: { toolVersion?: string } = {};
+  if (toolVersion) {
+    sarifOptions.toolVersion = toolVersion;
+  }
+  const sarifDoc = generateSarifReport(validResults, sarifOptions);
+  return sarifDoc;
+}
+
 /** Aggregate bounded caller-supplied history, without inventing production evidence. */
 function summarizeRemediationHistory(args: Record<string, unknown>) {
   if (Object.keys(args).some((key) => !["history", "advisoryId", "intentToken"].includes(key))) {
@@ -263,6 +402,30 @@ export function createThreatIntelMcpServer(): Server {
             required: ["cveId"],
           },
         },
+        {
+          name: "export_sarif",
+          description:
+            "Export CLI or caller-provided file scan findings into standardized OASIS SARIF v2.1.0 report format for CI/CD or security dashboard ingestion.",
+          inputSchema: EXPORT_SARIF_SCHEMA,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        {
+          name: "generate_remediation_patch",
+          description:
+            "Request AI-powered remediation patch generation for a specific finding ID via the SecureFlow platform API.",
+          inputSchema: GENERATE_REMEDIATION_PATCH_SCHEMA,
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+          },
+        },
       ],
     };
   });
@@ -348,6 +511,8 @@ export function createThreatIntelMcpServer(): Server {
           (item.cve && item.cve.toLowerCase().includes(query)),
       );
 
+      const liveSummary = await queryLiveThreatIntelligence(String(args?.query || ""));
+
       return {
         content: [
           {
@@ -359,6 +524,10 @@ export function createThreatIntelMcpServer(): Server {
             ),
           },
         ],
+        structuredContent: {
+          matches: matches.length > 0 ? matches : KNOWLEDGE_BASE.slice(0, 2),
+          liveSummary: liveSummary || null,
+        },
       };
     }
 
@@ -390,6 +559,91 @@ export function createThreatIntelMcpServer(): Server {
           },
         ],
       };
+    }
+
+    if (name === "export_sarif") {
+      try {
+        const sarifDoc = exportScanResultsToSarif(args || {});
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(sarifDoc, null, 2),
+            },
+          ],
+          structuredContent: sarifDoc,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error: error instanceof Error ? error.message : "Invalid SARIF export arguments",
+              }),
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === "generate_remediation_patch") {
+      const findingId = typeof args?.findingId === "string" ? args.findingId.trim() : "";
+      if (!findingId) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "INVALID_ARGUMENTS",
+                error: "findingId must be a non-empty string",
+              }),
+            },
+          ],
+        };
+      }
+
+      try {
+        const patchOptions: { baseUrl?: string; authToken?: string; timeoutMs?: number } = {};
+        if (typeof args?.baseUrl === "string") {
+          patchOptions.baseUrl = args.baseUrl;
+        }
+        if (typeof args?.authToken === "string") {
+          patchOptions.authToken = args.authToken;
+        }
+        if (typeof args?.timeoutMs === "number") {
+          patchOptions.timeoutMs = args.timeoutMs;
+        }
+        const result = await generateRemediationPatch(findingId, patchOptions);
+
+        return {
+          isError: !result.success,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          structuredContent: result,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                code: "REMEDIATION_FAILED",
+                error:
+                  error instanceof Error ? error.message : "Failed to generate remediation patch",
+              }),
+            },
+          ],
+        };
+      }
     }
 
     throw new Error(`Unknown tool: ${name}`);

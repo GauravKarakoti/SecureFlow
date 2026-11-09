@@ -35,7 +35,7 @@ The server operates locally via `stdio` using `@modelcontextprotocol/sdk`, requi
 
 ## Available MCP Tools
 
-The server registers four tools exposed via `ListToolsRequestSchema`:
+The server registers six tools exposed via `ListToolsRequestSchema`:
 
 ### 1. `scan_content`
 
@@ -153,6 +153,80 @@ The input JSON Schema is defined in
 `[0, 1]`. That rate is `null` when no matching attempt is completed. Pending and
 generated patches are counted but excluded from the denominator. Application
 success is a reported operational outcome, not proof of vulnerability resolution.
+
+### 5. `export_sarif`
+
+Exports caller-supplied file scan findings into standardized OASIS SARIF v2.1.0 format, fully validated for GitHub Advanced Security, GitLab Security Dashboards, and automated CI/CD pipeline ingestion.
+
+- **Parameters**:
+  - `results` (`array`, **required**): Array of scan result objects, each containing:
+    - `path` (`string`, **required**): File path where violations occurred.
+    - `violations` (`array`, **required**): List of violation objects with `reason` (`string`), `line` (`integer >= 1`), `text` (`string`), and optional `ruleId`, `column`, `severity`.
+  - `toolVersion` (`string`, _optional_): Custom semantic tool version string (defaults to `"0.1.0"`).
+  - `intentToken` (`string`, _optional_): Cryptographic intent token declaring an approved plan for ArmorIQ verification.
+- **Returns**: A valid OASIS SARIF v2.1.0 JSON document structure with tool driver metadata, rule definitions, and mapped results.
+
+Example tool call:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "export_sarif",
+    "arguments": {
+      "toolVersion": "1.0.0",
+      "results": [
+        {
+          "path": "src/api/auth.ts",
+          "violations": [
+            {
+              "ruleId": "SECUREFLOW-001",
+              "reason": "environment variable",
+              "line: 42,
+              "text": "console.log(process.env.SECRET_KEY)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+### 6. `generate_remediation_patch`
+
+Triggers AI remediation patch generation for a specific security finding via the SecureFlow platform API (`POST /api/findings/[id]/remediate`).
+
+- **Parameters**:
+  - `findingId` (`string`, **required**): The ID of the finding to remediate.
+  - `baseUrl` (`string`, _optional_): Custom base URL for the SecureFlow platform (defaults to production endpoint `https://secure-flow-six.vercel.app`).
+  - `authToken` (`string`, _optional_): Authentication bearer token if required by the target environment.
+  - `timeoutMs` (`integer`, _optional_): Timeout in milliseconds for patch generation (defaults to 15,000ms).
+  - `intentToken` (`string`, _optional_): Cryptographic intent token declaring an approved plan for ArmorIQ verification.
+- **Returns**: A JSON payload containing remediation results:
+  - `success`: Boolean indicating if patch generation completed.
+  - `patch`: Object containing `id`, `findingId`, `patchDiff` (unified diff format), and `status` (`"GENERATED"`).
+  - `explanation`: AI explanation of the applied security fixes.
+  - On failure or rate limit: returns error code, explanation, and `retryable: true` flag.
+
+Example tool call:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "generate_remediation_patch",
+    "arguments": {
+      "findingId": "finding-cwe-89-sqli",
+      "baseUrl": "https://secure-flow-six.vercel.app"
+    }
+  }
+}
+```
 
 ## JSON-RPC contract
 
