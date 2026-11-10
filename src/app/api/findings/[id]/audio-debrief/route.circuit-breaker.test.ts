@@ -35,9 +35,14 @@ const {
 
 vi.mock("@/auth", () => ({ auth: authMock }));
 
-vi.mock("@/lib/redis", () => ({
-  checkRateLimit: checkRateLimitMock,
-}));
+vi.mock("@/lib/redis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/redis")>();
+  return {
+    ...actual,
+    checkRateLimitDetailed: checkRateLimitMock,
+    redis: { client: true }, // Add mock redis client if required by shared breaker store
+  };
+});
 
 vi.mock("@/lib/prisma", () => ({
   default: {

@@ -761,7 +761,8 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
                 patch: {
                   id: "patch-alias-101",
                   findingId: "finding-alias-101",
-                  patchDiff: "--- a/contracts/Vault.sol\n+++ b/contracts/Vault.sol\n@@ -1,1 +1,2 @@\n+nonReentrant",
+                  patchDiff:
+                    "--- a/contracts/Vault.sol\n+++ b/contracts/Vault.sol\n@@ -1,1 +1,2 @@\n+nonReentrant",
                   status: "GENERATED",
                 },
                 explanation: "Added nonReentrant modifier to prevent reentrancy",
