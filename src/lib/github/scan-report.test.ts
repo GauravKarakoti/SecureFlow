@@ -100,6 +100,16 @@ describe("renderScanReportSummary", () => {
     expect(body).toContain("Move it to an environment variable.");
   });
 
+  it("includes finding permalink link when finding id is provided", () => {
+    const body = renderScanReportSummary({
+      findings: [finding({ id: "finding-xyz" })],
+      totalFindings: 1,
+      inlineCount: 0,
+    });
+
+    expect(body).toContain("🔗 [View Finding Details](/dashboard/findings/finding-xyz)");
+  });
+
   it("mentions inline annotations only when some findings were posted inline", () => {
     const withInline = renderScanReportSummary({
       findings: [finding()],

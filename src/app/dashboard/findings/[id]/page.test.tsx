@@ -5,10 +5,11 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-const { authMock, findFirstMock, findUniqueMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
+const { authMock, findFirstMock, findUniqueMock, auditLogFindManyMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
   findFirstMock: vi.fn(),
   findUniqueMock: vi.fn(),
+  auditLogFindManyMock: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT: ${url}`);
   }),
@@ -22,6 +23,7 @@ vi.mock("@/lib/prisma", () => ({
   default: {
     finding: { findFirst: findFirstMock },
     findingTriage: { findUnique: findUniqueMock },
+    auditLog: { findMany: auditLogFindManyMock },
   },
 }));
 vi.mock("next/navigation", () => ({ redirect: redirectMock, notFound: notFoundMock }));
@@ -101,6 +103,7 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
       status: "OPEN",
       note: "Initial pending triage",
     });
+    auditLogFindManyMock.mockResolvedValue([]);
   });
 
   it("redirects unauthenticated visitors to sign in without querying the database", async () => {
@@ -239,5 +242,56 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
       "href",
       "/dashboard/findings/finding-1/remediation",
     );
+  });
+
+  it("redacts sensitive secrets in the displayed code snippet", async () => {
+    findFirstMock.mockResolvedValue({
+      ...baseFinding,
+      codeSnippet: 'const apiKey = "sk-ant-api03-abcdef1234567890abcdef12345678901234";',
+    });
+
+    await renderPage();
+
+    expect(screen.queryByText(/sk-ant-api03/)).not.toBeInTheDocument();
+    expect(screen.getByText(/REDACTED/i)).toBeInTheDocument();
+  });
+
+  it("displays line numbers and policy decision when present", async () => {
+    findFirstMock.mockResolvedValue({
+      ...baseFinding,
+      lineStart: 12,
+      lineEnd: 24,
+      scanResult: {
+        ...baseFinding.scanResult,
+        policyDecision: "BLOCK",
+      },
+    });
+
+    await renderPage();
+
+    expect(screen.getByText("Policy: BLOCK")).toBeInTheDocument();
+    expect(screen.getAllByText("(Lines 12-24)")).toHaveLength(2);
+  });
+
+  it("renders status history and audit trail when log events exist", async () => {
+    auditLogFindManyMock.mockResolvedValue([
+      {
+        id: "audit-1",
+        action: "finding.patch",
+        resource: "finding:finding-1",
+        decision: "ALLOW",
+        metadata: { triageStatus: "RESOLVED", note: "False positive verified" },
+        timestamp: new Date("2026-11-10T12:00:00Z"),
+        user: { name: "Alice Security", email: "alice@example.com" },
+      },
+    ]);
+
+    await renderPage();
+
+    expect(screen.getByText("Status History & Audit Trail")).toBeInTheDocument();
+    expect(screen.getByText("Status:")).toBeInTheDocument();
+    expect(screen.getByText("RESOLVED")).toBeInTheDocument();
+    expect(screen.getByText(/False positive verified/)).toBeInTheDocument();
+    expect(screen.getByText(/by Alice Security/)).toBeInTheDocument();
   });
 });

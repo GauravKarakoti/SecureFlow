@@ -19,6 +19,7 @@ export { SECUREFLOW_COMMENT_MARKER };
  */
 
 export interface ScanReportFinding {
+  id?: string;
   severity: unknown;
   type: string;
   fileLocation: string;
@@ -99,6 +100,7 @@ export function renderScanReportSummary({
   previouslyDismissedCount = 0,
   commitSha,
 }: ScanReportSummaryInput): string {
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
 
   if (commitSha) {
@@ -129,6 +131,9 @@ export function renderScanReportSummary({
 
   for (const f of findings) {
     body += `#### ${severityBadge(f.severity)} | **${f.type}** in ${toCodeSpan(f.fileLocation)}\n`;
+    if (f.id) {
+      body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${f.id})\n\n`;
+    }
     if (f.promptInjectionSuspected) {
       body += INJECTION_WARNING(f.severity);
     }

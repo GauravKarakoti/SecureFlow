@@ -113,6 +113,16 @@ describe("FindingsClient Component (#633)", () => {
     expect(screen.getByText("Resolved")).toBeInTheDocument();
   });
 
+  it("links each finding to its permalink detail page", () => {
+    render(<FindingsClient {...defaultProps} />);
+
+    const link1 = screen.getByRole("link", { name: "View finding f-1 details" });
+    expect(link1).toHaveAttribute("href", "/dashboard/findings/f-1");
+
+    const link2 = screen.getByRole("link", { name: "View finding f-2 details" });
+    expect(link2).toHaveAttribute("href", "/dashboard/findings/f-2");
+  });
+
   it("renders empty state when findings array is empty", () => {
     render(
       <FindingsClient
