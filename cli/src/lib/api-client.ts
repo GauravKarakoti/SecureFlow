@@ -69,6 +69,37 @@ export interface Web3ExplainResponse {
   ecosystem?: "solidity" | "rust-soroban" | "zk-circuit" | "generic-web3";
 }
 
+export interface ExplainStreamChunk {
+  type: "chunk" | "done" | "error";
+  content?: string;
+  text?: string;
+  cached?: boolean;
+  error?: string;
+}
+
+export interface ExplainFindingRequest {
+  findingId: string;
+  findingType?: string;
+  severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  description?: string;
+  fileLocation?: string;
+  codeSnippet?: string;
+}
+
+export interface AudioDebriefOptions {
+  findingId?: string;
+  summaryText?: string;
+  baseUrl?: string;
+  authToken?: string;
+  timeoutMs?: number;
+}
+
+export interface AudioDebriefResponse {
+  audioBuffer: Buffer;
+  contentType: string;
+  source: "network" | "local_fallback";
+}
+
 export interface RemediationPatchResponse {
   success: boolean;
   patch?: {
@@ -270,6 +301,201 @@ export async function requestWeb3Explanation(
 /**
  * Fallback Web3 explanation generator when offline or API is unavailable.
  */
+/**
+ * Generates an offline local-model text explanation for a finding (#1701).
+ * Used when circuit breakers trip, API endpoints are unreachable, or local mode is enabled.
+ */
+export function generateLocalFindingExplanation(request: ExplainFindingRequest): string {
+  const findingType = request.findingType || "Security Finding";
+  const severity = request.severity || "MEDIUM";
+  const location = request.fileLocation ? ` in \`${request.fileLocation}\`` : "";
+  const desc = request.description ? `\n\n**Issue Context:** ${request.description}` : "";
+  const snippet = request.codeSnippet ? `\n\n\`\`\`\n${request.codeSnippet}\n\`\`\`` : "";
+
+  return (
+    `[SecureFlow Offline Local Mode] Security Analysis for ${findingType} (${severity})${location}` +
+    desc +
+    snippet +
+    `\n\n**Local Remediation Recommendations:**\n` +
+    `1. Sanitize, validate, and constrain all external inputs.\n` +
+    `2. Apply the principle of least privilege and strict boundary validation.\n` +
+    `3. Replace ad-hoc secret logging or concatenation with safe parameterized abstractions.`
+  );
+}
+
+/**
+ * Creates a silent audio frame fallback buffer when offline or remote audio debrief times out (#1701).
+ */
+export function createOfflineAudioFallbackBuffer(): Buffer {
+  return Buffer.from([
+    0xff, 0xfb, 0x10, 0xc4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  ]);
+}
+
+/**
+ * Requests an audio debrief for a finding or summary text, with seamless local-model
+ * and offline fallback when circuit breakers trip or network drops (#1701).
+ */
+export async function requestAudioDebriefWithFallback(
+  options: AudioDebriefOptions,
+): Promise<AudioDebriefResponse> {
+  const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (options.authToken) {
+      headers["Authorization"] = `Bearer ${options.authToken}`;
+    }
+
+    const endpoint = options.findingId
+      ? `${baseUrl}/api/findings/${encodeURIComponent(options.findingId)}/audio-debrief`
+      : `${baseUrl}/api/cli/scan`;
+
+    const fetchInit: RequestInit = {
+      method: options.findingId ? "GET" : "POST",
+      headers,
+      signal: controller.signal,
+    };
+    if (!options.findingId) {
+      fetchInit.body = JSON.stringify({
+        voice: true,
+        summaryText: options.summaryText || "Scan completed",
+      });
+    }
+
+    const res = await fetch(endpoint, fetchInit);
+
+    if (!res.ok) {
+      // Fast-failover to local offline fallback buffer
+      return {
+        audioBuffer: createOfflineAudioFallbackBuffer(),
+        contentType: "audio/mpeg",
+        source: "local_fallback",
+      };
+    }
+
+    const contentType = res.headers.get("content-type") || "audio/mpeg";
+    if (contentType.includes("audio")) {
+      const arrayBuf = await res.arrayBuffer();
+      return {
+        audioBuffer: Buffer.from(arrayBuf),
+        contentType,
+        source: "network",
+      };
+    }
+
+    const data = (await res.json().catch(() => null)) as {
+      audioBase64?: string;
+      audio?: string;
+    } | null;
+    const encoded = data?.audioBase64 ?? data?.audio;
+    if (encoded) {
+      return {
+        audioBuffer: Buffer.from(encoded, "base64"),
+        contentType: "audio/mpeg",
+        source: "network",
+      };
+    }
+
+    return {
+      audioBuffer: createOfflineAudioFallbackBuffer(),
+      contentType: "audio/mpeg",
+      source: "local_fallback",
+    };
+  } catch {
+    // Network drop or timeout: return local fallback
+    return {
+      audioBuffer: createOfflineAudioFallbackBuffer(),
+      contentType: "audio/mpeg",
+      source: "local_fallback",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Requests an explanation stream from /api/findings/[id]/explain-stream with automatic
+ * local-model degradation on circuit trip or connection failure (#1701).
+ */
+export async function* requestExplainStreamWithFallback(
+  request: ExplainFindingRequest,
+  options?: {
+    baseUrl?: string;
+    authToken?: string;
+    timeoutMs?: number;
+  },
+): AsyncGenerator<ExplainStreamChunk, void, unknown> {
+  const baseUrl = options?.baseUrl || DEFAULT_BASE_URL;
+  const timeoutMs = options?.timeoutMs ?? 7_000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const headers: Record<string, string> = { Accept: "text/event-stream" };
+    if (options?.authToken) {
+      headers["Authorization"] = `Bearer ${options.authToken}`;
+    }
+
+    const res = await fetch(
+      `${baseUrl}/api/findings/${encodeURIComponent(request.findingId)}/explain-stream`,
+      {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      },
+    );
+
+    if (!res.ok || !res.body) {
+      // Remote circuit breaker tripped or returned error: degrade to local offline explanation
+      const localExplanation = generateLocalFindingExplanation(request);
+      yield { type: "chunk", text: localExplanation, cached: false };
+      yield { type: "done", content: localExplanation };
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data: ")) {
+            try {
+              const parsed = JSON.parse(trimmed.slice(6)) as ExplainStreamChunk;
+              yield parsed;
+            } catch {
+              // Ignore parse error on malformed frame
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } catch {
+    // Timeout or network unavailable: degrade seamlessly to offline local explanation
+    const localExplanation = generateLocalFindingExplanation(request);
+    yield { type: "chunk", text: localExplanation, cached: false };
+    yield { type: "done", content: localExplanation };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function generateLocalWeb3Explanation(request: Web3ExplainRequest): Web3ExplainResponse {
   const isSolidity =
     request.fileLocation.endsWith(".sol") ||

@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
-import type { StagedFileForAiScan } from "./api-client.js";
+import {
+  type StagedFileForAiScan,
+  requestAudioDebriefWithFallback,
+  createOfflineAudioFallbackBuffer,
+} from "./api-client.js";
 
 const DEFAULT_BASE_URL = "https://secure-flow-six.vercel.app";
 
@@ -176,33 +180,15 @@ export async function fetchAudioSummary(
     }
   }
 
-  // 2. Fetch from /api/cli/scan
+  // 2. Fetch from /api/cli/scan via requestAudioDebriefWithFallback (#1701)
   try {
-    const baseUrl = options?.baseUrl || DEFAULT_BASE_URL;
-    const response = await fetch(`${baseUrl}/api/cli/scan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        files: options?.files || [],
-        voice: true,
-        summaryText,
-      }),
-    });
-
-    if (response.ok) {
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("audio")) {
-        const arrayBuf = await response.arrayBuffer();
-        return Buffer.from(arrayBuf);
-      }
-
-      const data = (await response.json()) as { audioBase64?: string; audio?: string };
-      // Both field names are part of the declared response contract; a server
-      // sending only `audio` previously degraded to the silent stub.
-      const encoded = data.audioBase64 ?? data.audio;
-      if (encoded) {
-        return Buffer.from(encoded, "base64");
-      }
+    const debriefOptions: { baseUrl?: string; summaryText?: string } = { summaryText };
+    if (options?.baseUrl) {
+      debriefOptions.baseUrl = options.baseUrl;
+    }
+    const debrief = await requestAudioDebriefWithFallback(debriefOptions);
+    if (debrief?.source === "network" && debrief.audioBuffer && debrief.audioBuffer.length > 0) {
+      return debrief.audioBuffer;
     }
   } catch {
     // Graceful degradation

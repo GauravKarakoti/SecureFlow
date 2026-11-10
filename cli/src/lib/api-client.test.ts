@@ -231,3 +231,180 @@ describe("requestWeb3Explanation (#1589)", () => {
     expect(res.remediationSuggestions.length).toBeGreaterThan(0);
   });
 });
+
+describe("requestAudioDebriefWithFallback & requestExplainStreamWithFallback (#1701)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe("requestAudioDebriefWithFallback", () => {
+    it("returns network audio buffer when remote audio-debrief succeeds", async () => {
+      const mockAudio = Buffer.from("remote-audio-binary-data");
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(mockAudio, {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestAudioDebriefWithFallback } = await import("./api-client.js");
+      const res = await requestAudioDebriefWithFallback({
+        findingId: "f-123",
+        baseUrl: "https://secureflow.test",
+      });
+
+      expect(res.source).toBe("network");
+      expect(res.contentType).toBe("audio/mpeg");
+      expect(res.audioBuffer.toString()).toBe("remote-audio-binary-data");
+    });
+
+    it("parses base64 audio when returned in JSON from scan endpoint", async () => {
+      const mockBase64 = Buffer.from("base64-audio").toString("base64");
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ audioBase64: mockBase64 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestAudioDebriefWithFallback } = await import("./api-client.js");
+      const res = await requestAudioDebriefWithFallback({
+        summaryText: "Critical secrets detected",
+        baseUrl: "https://secureflow.test",
+      });
+
+      expect(res.source).toBe("network");
+      expect(res.audioBuffer.toString()).toBe("base64-audio");
+    });
+
+    it("falls back to local offline audio buffer when endpoint fails or circuit trips (503/500)", async () => {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "Service Unavailable" }), {
+            status: 503,
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestAudioDebriefWithFallback } = await import("./api-client.js");
+      const res = await requestAudioDebriefWithFallback({
+        findingId: "f-tripped",
+        baseUrl: "https://secureflow.test",
+      });
+
+      expect(res.source).toBe("local_fallback");
+      expect(res.audioBuffer).toBeDefined();
+      expect(res.audioBuffer.length).toBeGreaterThan(0);
+    });
+
+    it("falls back to local offline audio buffer on network timeout or connection drop", async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error("ETIMEDOUT");
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestAudioDebriefWithFallback } = await import("./api-client.js");
+      const res = await requestAudioDebriefWithFallback({
+        findingId: "f-timeout",
+        baseUrl: "https://secureflow.test",
+        timeoutMs: 100,
+      });
+
+      expect(res.source).toBe("local_fallback");
+      expect(res.audioBuffer).toBeDefined();
+    });
+  });
+
+  describe("requestExplainStreamWithFallback", () => {
+    it("streams chunks from remote SSE explain-stream when healthy", async () => {
+      const sseBody = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('data: {"type":"chunk","text":"Step 1"}\n\n'));
+          controller.enqueue(encoder.encode('data: {"type":"chunk","text":"Step 2"}\n\n'));
+          controller.enqueue(encoder.encode('data: {"type":"done","content":"Done"}\n\n'));
+          controller.close();
+        },
+      });
+
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(sseBody, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestExplainStreamWithFallback } = await import("./api-client.js");
+      const chunks = [];
+      for await (const chunk of requestExplainStreamWithFallback({
+        findingId: "finding-42",
+        findingType: "SQL Injection",
+      })) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toHaveLength(3);
+      expect(chunks[0]).toEqual({ type: "chunk", text: "Step 1" });
+      expect(chunks[1]).toEqual({ type: "chunk", text: "Step 2" });
+      expect(chunks[2]).toEqual({ type: "done", content: "Done" });
+    });
+
+    it("seamlessly degrades to local-model offline explanation when remote endpoint returns 503 or circuit breaker trips", async () => {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "Circuit Breaker OPEN" }), {
+            status: 503,
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestExplainStreamWithFallback } = await import("./api-client.js");
+      const chunks = [];
+      for await (const chunk of requestExplainStreamWithFallback({
+        findingId: "f-sqli",
+        findingType: "SQL Injection",
+        severity: "CRITICAL",
+        fileLocation: "src/auth.ts",
+        description: "Raw SQL query concatenation",
+        codeSnippet: "db.query('SELECT * FROM users WHERE id = ' + id)",
+      })) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toHaveLength(2);
+      expect(chunks[0].type).toBe("chunk");
+      expect(chunks[0].text).toContain("[SecureFlow Offline Local Mode]");
+      expect(chunks[0].text).toContain("SQL Injection (CRITICAL)");
+      expect(chunks[0].text).toContain("src/auth.ts");
+      expect(chunks[1].type).toBe("done");
+      expect(chunks[1].content).toContain("Local Remediation Recommendations");
+    });
+
+    it("seamlessly degrades to local-model offline explanation when network connection drops", async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error("Network offline: ECONNREFUSED");
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { requestExplainStreamWithFallback } = await import("./api-client.js");
+      const chunks = [];
+      for await (const chunk of requestExplainStreamWithFallback({
+        findingId: "f-offline",
+        findingType: "Hardcoded Credential",
+        severity: "HIGH",
+      })) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toHaveLength(2);
+      expect(chunks[0].text).toContain("[SecureFlow Offline Local Mode]");
+      expect(chunks[1].type).toBe("done");
+    });
+  });
+});
