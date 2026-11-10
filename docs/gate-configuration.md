@@ -62,3 +62,56 @@ Gate: block on HIGH+, review on MEDIUM+ (from base branch)
 ```
 
 When default thresholds apply, the check-run output remains standard.
+
+## Path-scoped rules (`gate.paths`)
+
+A maintainer can hold some directories to a stricter or looser gate than the rest of the
+repository by adding an optional `paths` array to `gate` in `.secureflow.json`:
+
+```json
+{
+  "gate": {
+    "blockOn": "CRITICAL",
+    "paths": [
+      { "glob": "infra/**", "blockOn": "MEDIUM" },
+      { "glob": "tests/**", "blockOn": "NONE", "reviewOn": "NONE" }
+    ]
+  }
+}
+```
+
+Each rule has a `glob` and an optional `blockOn` and/or `reviewOn` (the `blockAt` / `reviewAt`
+aliases and the levels `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE` work as for the global gate).
+
+### Matching
+
+A finding matches a rule when its file path matches the rule's glob. Globs behave like
+`.secureflowignore` patterns (the same matcher is used, case-insensitive):
+
+- a glob containing a `/`, such as `infra/**`, is anchored at the repository root;
+- a glob without a `/`, such as `*.tf`, matches at any depth.
+
+The finding's path is normalised first: backslashes become `/`, a trailing `:line` suffix and a
+leading `./` or `/` are removed, so `./infra/main.tf` and `infra/main.tf:12` match like
+`infra/main.tf`.
+
+### Precedence
+
+For `blockOn` and `reviewOn` separately: the first matching path rule (in file order) that sets
+the key, then a matching type override, then the global value. A key a level leaves unset falls
+through to the next level.
+
+### Safe failure
+
+A malformed rule (missing or non-string `glob`, unknown level) is skipped with a warning and the
+other valid rules still apply. Invalid JSON, or a `paths` value that is not an array, never fails
+a scan; the default gate (or the rest of the config) is used.
+
+### Trust and scope
+
+- Rules are read from the pull request's **base branch** only, as for the rest of the gate. A PR
+  that edits `paths` on its own branch does not change its own verdict.
+- Only the verdict changes. Findings under a relaxed path are still recorded and shown.
+- When path rules are active, the check-run gate summary line says so
+  (for example `Gate: block on CRITICAL+, review on MEDIUM+, 2 path rules active (from base branch)`),
+  and a config with `paths` is never treated as the default gate.

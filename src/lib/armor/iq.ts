@@ -1,9 +1,9 @@
 import { ArmorIQClient, IntentToken } from "@armoriq/sdk";
-import { ScanFinding } from "./scanner";
+import { compileIgnorePatterns, type ScanFinding } from "./scanner";
 import prisma from "@/lib/prisma";
 import { z } from "zod";
 import { isAtLeast, parseSeverity, type Severity } from "@/lib/severity";
-import type { GateConfig, GateLevel } from "@/lib/scanner/gate-config";
+import type { GateConfig, GateLevel, GatePathRule } from "@/lib/scanner/gate-config";
 import { DEFAULT_GATE_CONFIG } from "@/lib/scanner/gate-config";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "./armoriq-breaker";
 
@@ -20,6 +20,59 @@ const armorIQConfig = armorIQConfigSchema.parse({
 });
 
 export type PolicyResult = "PASS" | "REVIEW REQUIRED" | "BLOCKED";
+
+// ---- path-scoped gate rules (#1557) ----
+
+/**
+ * Normalises a finding's file path before it is matched against `gate.paths` globs:
+ * backslashes become `/`, a trailing `:line` or `:line:col` suffix is dropped, and a
+ * leading `./` or `/` is removed, so `./infra/a.tf`, `/infra/a.tf` and `infra/a.tf:12`
+ * all match the same rule as `infra/a.tf`.
+ */
+export function normalizeGatePath(fileLocation: unknown): string {
+  if (typeof fileLocation !== "string") return "";
+  let path = fileLocation.trim().replace(/\\/g, "/");
+  path = path.replace(/:\d+(?::\d+)?$/, "");
+  while (path.startsWith("./")) path = path.slice(2);
+  return path.replace(/^\/+/, "");
+}
+
+type GateKey = "blockOn" | "reviewOn";
+
+interface CompiledPathRule {
+  rule: GatePathRule;
+  regex: RegExp;
+}
+
+/**
+ * Compiles each rule's glob with the scanner's own `compileIgnorePatterns`, so it matches
+ * the way `.secureflowignore` does. A glob that cannot be compiled is skipped, never thrown.
+ */
+function compilePathRules(rules: GatePathRule[] | undefined): CompiledPathRule[] {
+  const compiled: CompiledPathRule[] = [];
+  for (const rule of rules ?? []) {
+    try {
+      const [regex] = compileIgnorePatterns([rule.glob]);
+      if (regex) compiled.push({ rule, regex });
+    } catch {
+      // A bad rule must never fail a scan.
+    }
+  }
+  return compiled;
+}
+
+/** For one key, the first matching rule (in file order) that sets it wins. */
+function pathRuleLevel(
+  compiled: CompiledPathRule[],
+  path: string,
+  key: GateKey,
+): GateLevel | undefined {
+  for (const { rule, regex } of compiled) {
+    const level = rule[key];
+    if (level !== undefined && regex.test(path)) return level;
+  }
+  return undefined;
+}
 
 export class ArmorIQPolicyEngine {
   /**
@@ -55,18 +108,26 @@ export class ArmorIQPolicyEngine {
     const globalReview = config.reviewOn;
     const overrides = config.overrides ?? [];
 
+    const compiledPathRules = compilePathRules(config.paths);
+
+    // #1557: for each key, a matching path rule wins, then a matching type override,
+    // then the global value. A key a level leaves unset falls through to the next one.
     const getFindingGate = (finding: ScanFinding): { blockOn: GateLevel; reviewOn: GateLevel } => {
+      const path = compiledPathRules.length > 0 ? normalizeGatePath(finding.fileLocation) : "";
+
+      let typeBlock: GateLevel | undefined;
+      let typeReview: GateLevel | undefined;
       if (overrides.length > 0 && finding.type) {
         const typeNormalized = finding.type.trim().toUpperCase();
         const match = overrides.find((o) => o.type.trim().toUpperCase() === typeNormalized);
-        if (match) {
-          return {
-            blockOn: match.blockOn ?? globalBlock,
-            reviewOn: match.reviewOn ?? globalReview,
-          };
-        }
+        typeBlock = match?.blockOn;
+        typeReview = match?.reviewOn;
       }
-      return { blockOn: globalBlock, reviewOn: globalReview };
+
+      return {
+        blockOn: pathRuleLevel(compiledPathRules, path, "blockOn") ?? typeBlock ?? globalBlock,
+        reviewOn: pathRuleLevel(compiledPathRules, path, "reviewOn") ?? typeReview ?? globalReview,
+      };
     };
 
     // Check BLOCKED condition across all findings
