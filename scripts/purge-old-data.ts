@@ -2,6 +2,8 @@
  * Database Old Data Purge Script
  *
  * Purges findings, scan records, and audit entries older than DATA_RETENTION_DAYS in batches.
+ * Note: `scripts/retention.ts` (`npm run retention`) is the primary unified retention
+ * runner covering all data models with configurable `--days`, `--only`, and `--apply`.
  *
  * Options:
  *   --dry-run (default)   Count and print records eligible for deletion without deleting.
@@ -12,8 +14,10 @@
 
 import prisma from "../src/lib/prisma";
 import { parseDataRetentionDays } from "../src/lib/retention/cleanup";
+import { calculateRetentionCutoff } from "../src/lib/retention/policy";
+import { DEFAULT_BATCH_SIZE } from "../src/lib/retention/purge";
 
-export const DEFAULT_PURGE_BATCH_SIZE = 500;
+export const DEFAULT_PURGE_BATCH_SIZE = DEFAULT_BATCH_SIZE;
 
 export interface PurgeOptions {
   dryRun?: boolean;
@@ -36,7 +40,7 @@ export interface PurgeResult {
 }
 
 export function calculateDateCutoff(days: number, now: Date = new Date()): Date {
-  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return calculateRetentionCutoff(days, now);
 }
 
 export function parsePurgeArgs(argv: string[]): {

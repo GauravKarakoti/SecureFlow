@@ -2,6 +2,8 @@
  * Data Retention Cleanup CLI.
  *
  * Deletes older findings and audit logs in batches when DATA_RETENTION_DAYS is configured.
+ * Note: `scripts/retention.ts` (`npm run retention`) is the primary unified retention
+ * runner covering all data models with configurable `--days`, `--only`, and `--apply`.
  *
  * Usage:
  *   npm run cleanup                     # Dry-run — reports counts, deletes nothing

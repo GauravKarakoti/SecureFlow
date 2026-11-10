@@ -119,23 +119,64 @@ export interface ResolvedRetention extends RetentionRule {
 }
 
 /**
+ * Calculate the cutoff Date before which rows are eligible for deletion/redaction.
+ */
+export function calculateRetentionCutoff(days: number, now: Date = new Date()): Date {
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
+/**
  * Resolve the whole policy against an environment.
  *
  * `now` is injected so the cutoffs are deterministic in tests, and so every rule
  * in one run shares a single reference time — otherwise a slow run could compute
  * cutoffs milliseconds apart and produce results that are awkward to reason
  * about after the fact.
+ *
+ * `overrideDays` explicitly forces a unified retention window across all rules.
+ * When `overrideDays` is unset, `env.DATA_RETENTION_DAYS` serves as a unified
+ * fallback for any rule whose specific environment variable is unset.
  */
 export function resolveRetentionPolicy(
   env: Record<string, string | undefined> = process.env,
   now: Date = new Date(),
+  overrideDays?: number,
 ): ResolvedRetention[] {
+  let fallbackDays: number | null = null;
+  if (overrideDays !== undefined) {
+    if (
+      !Number.isInteger(overrideDays) ||
+      overrideDays < MIN_RETENTION_DAYS ||
+      overrideDays > MAX_RETENTION_DAYS
+    ) {
+      throw new RetentionConfigError(
+        `Retention days must be a whole number between ${MIN_RETENTION_DAYS} and ${MAX_RETENTION_DAYS}, got ${overrideDays}.`,
+      );
+    }
+    fallbackDays = overrideDays;
+  } else if (env.DATA_RETENTION_DAYS !== undefined && env.DATA_RETENTION_DAYS.trim() !== "") {
+    const parsed = Number(env.DATA_RETENTION_DAYS.trim());
+    if (!Number.isInteger(parsed) || parsed < MIN_RETENTION_DAYS || parsed > MAX_RETENTION_DAYS) {
+      throw new RetentionConfigError(
+        `DATA_RETENTION_DAYS must be between ${MIN_RETENTION_DAYS} and ${MAX_RETENTION_DAYS} days, got "${env.DATA_RETENTION_DAYS}".`,
+      );
+    }
+    fallbackDays = parsed;
+  }
+
   return RETENTION_RULES.map((rule) => {
-    const days = parseRetentionDays(rule, env[rule.envVar]);
+    const raw = overrideDays !== undefined ? String(overrideDays) : env[rule.envVar];
+    const days =
+      overrideDays !== undefined
+        ? overrideDays
+        : raw !== undefined && raw.trim() !== ""
+          ? parseRetentionDays(rule, raw)
+          : (fallbackDays ?? rule.defaultDays);
+
     return {
       ...rule,
       days,
-      cutoff: new Date(now.getTime() - days * 24 * 60 * 60 * 1000),
+      cutoff: calculateRetentionCutoff(days, now),
     };
   });
 }
@@ -145,8 +186,11 @@ export function retentionFor(
   target: PurgeTarget,
   env: Record<string, string | undefined> = process.env,
   now: Date = new Date(),
+  overrideDays?: number,
 ): ResolvedRetention {
-  const found = resolveRetentionPolicy(env, now).find((rule) => rule.target === target);
+  const found = resolveRetentionPolicy(env, now, overrideDays).find(
+    (rule) => rule.target === target,
+  );
   if (!found) throw new RetentionConfigError(`Unknown retention target "${target}".`);
   return found;
 }
