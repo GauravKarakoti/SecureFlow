@@ -24,10 +24,18 @@ export interface GateOverride {
   reviewOn?: GateLevel;
 }
 
+/** Path-scoped gate rule (#1557). The first matching rule in file order wins per key. */
+export interface GatePathRule {
+  glob: string;
+  blockOn?: GateLevel;
+  reviewOn?: GateLevel;
+}
+
 export interface GateConfig {
   blockOn: GateLevel;
   reviewOn: GateLevel;
   overrides?: GateOverride[];
+  paths?: GatePathRule[];
 }
 
 export interface SecureFlowConfig {
@@ -76,7 +84,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   const sameBlock = gate.blockOn === DEFAULT_GATE_CONFIG.blockOn;
   const sameReview = gate.reviewOn === DEFAULT_GATE_CONFIG.reviewOn;
   const noOverrides = !gate.overrides || gate.overrides.length === 0;
-  return sameBlock && sameReview && noOverrides;
+  // #1557: a config with path rules is never the default gate.
+  const noPaths = !gate.paths || gate.paths.length === 0;
+  return sameBlock && sameReview && noOverrides && noPaths;
 }
 
 /**
@@ -99,6 +109,12 @@ export function formatGateSummaryLine(gate?: GateConfig | null): string | null {
     parts.push(`review on ${gate.reviewOn}+`);
   }
 
+  // #1557: tell the reader that path rules are active.
+  const pathRuleCount = gate.paths?.length ?? 0;
+  if (pathRuleCount > 0) {
+    parts.push(`${pathRuleCount} path rule${pathRuleCount === 1 ? "" : "s"} active`);
+  }
+
   return `Gate: ${parts.join(", ")} (from base branch)`;
 }
 
@@ -110,6 +126,66 @@ function isNotFound(error: unknown): boolean {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Parses one `gate.paths` entry (#1557). A malformed rule (not an object, a missing or
+ * non-string glob, or an unknown level) is skipped with a warning, never thrown.
+ */
+function parsePathRule(raw: unknown, label: string): GatePathRule | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    console.warn(`[GateConfig] ${label} must be an object; skipping this rule.`);
+    return null;
+  }
+
+  const rule = raw as Record<string, unknown>;
+  if (typeof rule.glob !== "string" || !rule.glob.trim()) {
+    console.warn(`[GateConfig] ${label} needs a non-empty string 'glob'; skipping this rule.`);
+    return null;
+  }
+
+  const parsedRule: GatePathRule = { glob: rule.glob.trim() };
+
+  const rawBlock = rule.blockOn ?? rule.blockAt;
+  if (rawBlock !== undefined) {
+    const level = parseGateLevel(rawBlock);
+    if (level === null) {
+      console.warn(
+        `[GateConfig] ${label} has unknown blockOn '${String(rawBlock)}'; skipping this rule.`,
+      );
+      return null;
+    }
+    parsedRule.blockOn = level;
+  }
+
+  const rawReview = rule.reviewOn ?? rule.reviewAt;
+  if (rawReview !== undefined) {
+    const level = parseGateLevel(rawReview);
+    if (level === null) {
+      console.warn(
+        `[GateConfig] ${label} has unknown reviewOn '${String(rawReview)}'; skipping this rule.`,
+      );
+      return null;
+    }
+    parsedRule.reviewOn = level;
+  }
+
+  return parsedRule;
+}
+
+function parsePathRules(rawPaths: unknown): GatePathRule[] {
+  if (rawPaths === undefined || rawPaths === null) return [];
+  if (!Array.isArray(rawPaths)) {
+    console.warn(`[GateConfig] 'gate.paths' in ${SECUREFLOW_CONFIG_FILE} must be an array.`);
+    return [];
+  }
+
+  const rules: GatePathRule[] = [];
+  rawPaths.forEach((raw, index) => {
+    const rule = parsePathRule(raw, `gate.paths[${index}]`);
+    if (rule) rules.push(rule);
+  });
+  return rules;
 }
 
 /**
@@ -192,10 +268,15 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #1557: only add `paths` when there is at least one valid rule, so a config
+  // without paths parses exactly as before.
+  const paths = parsePathRules(gateObj.paths);
+
   return {
     blockOn,
     reviewOn,
     overrides,
+    ...(paths.length > 0 ? { paths } : {}),
   };
 }
 
