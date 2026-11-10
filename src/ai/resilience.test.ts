@@ -18,6 +18,7 @@ import {
   executeWithFallbackAndRetry,
   getModelCircuitBreaker,
   resetModelCircuitBreakers,
+  resetModelCircuitBreaker,
   tripModelCircuitBreaker,
   CircuitState,
   CircuitBreakerError,
@@ -293,6 +294,109 @@ describe("executeWithFallbackAndRetry", () => {
       expect(op).not.toHaveBeenCalled();
       // Exactly one recorded attempt — not one per retry spin.
       expect(recordModelExecution).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Multi-replica Redis Circuit-Breaker State Sharing (#1699)", () => {
+    let mockStorage: Map<string, string>;
+    let mockRedis: any;
+
+    beforeEach(async () => {
+      mockStorage = new Map();
+      mockRedis = {
+        get: vi.fn(async (key: string) => mockStorage.get(key) ?? null),
+        set: vi.fn(async (key: string, value: string) => {
+          mockStorage.set(key, value);
+          return "OK";
+        }),
+        del: vi.fn(async (key: string) => {
+          mockStorage.delete(key);
+          return 1;
+        }),
+      };
+
+      const { RedisCircuitBreakerStateStore } = await import("@/lib/utils/circuit-breaker");
+      const { setSharedCircuitBreakerStore } = await import("./resilience");
+      setSharedCircuitBreakerStore(
+        new RedisCircuitBreakerStateStore(mockRedis, "circuit_breaker:test:"),
+      );
+      resetModelCircuitBreakers();
+    });
+
+    afterEach(async () => {
+      const { setSharedCircuitBreakerStore } = await import("./resilience");
+      setSharedCircuitBreakerStore(null);
+      resetModelCircuitBreakers();
+    });
+
+    it("shares tripped model circuit breaker state across simulated pod replicas", async () => {
+      // Simulate Pod 1 tripping the breaker for model-alpha
+      tripModelCircuitBreaker("model-alpha");
+      expect(getModelCircuitBreaker("model-alpha").getState()).toBe(CircuitState.OPEN);
+
+      // Verify it was stored in Redis
+      expect(mockRedis.set).toHaveBeenCalled();
+      const rawStored = mockStorage.get("circuit_breaker:test:model:model-alpha");
+      expect(rawStored).toBeDefined();
+      const parsed = JSON.parse(rawStored!);
+      expect(parsed.state).toBe(CircuitState.OPEN);
+
+      // Simulate Pod 2 in another container by resetting the in-memory map
+      resetModelCircuitBreakers();
+
+      // In Pod 2, getModelCircuitBreaker creates a new instance wired to the same shared Redis store
+      const pod2Breaker = getModelCircuitBreaker("model-alpha");
+
+      // Initially closed in memory until sync or execute
+      await pod2Breaker.syncFromStore();
+      expect(pod2Breaker.getState()).toBe(CircuitState.OPEN);
+
+      // Executing on Pod 2 fast-fails immediately
+      await expect(pod2Breaker.execute(async () => "result")).rejects.toThrow(CircuitBreakerError);
+    });
+
+    it("fast-fails executeWithFallbackAndRetry on a replica when primary breaker is tripped remotely", async () => {
+      // Trip the primary model remotely
+      tripModelCircuitBreaker("shared-primary");
+
+      // Clear local memory to simulate a fresh pod replica
+      resetModelCircuitBreakers();
+
+      // Before execute, sync the primary breaker from store
+      await getModelCircuitBreaker("shared-primary").syncFromStore();
+
+      const op = vi.fn(async (m: string) =>
+        m === "shared-primary" ? "primary-ok" : "fallback-ok",
+      );
+      const onModelSwitch = vi.fn();
+
+      const result = await executeWithFallbackAndRetry(op, {
+        primaryModel: "shared-primary",
+        fallbackModels: ["shared-secondary"],
+        onModelSwitch,
+      });
+
+      // Primary was skipped due to remote OPEN state
+      expect(op).toHaveBeenCalledTimes(1);
+      expect(op).toHaveBeenCalledWith("shared-secondary", 1);
+      expect(result.stats.modelUsed).toBe("shared-secondary");
+      expect(onModelSwitch).toHaveBeenCalled();
+    });
+
+    it("resets shared circuit breaker state across replicas when reset is called", async () => {
+      tripModelCircuitBreaker("model-recovering");
+      expect(mockStorage.has("circuit_breaker:test:model:model-recovering")).toBe(true);
+
+      // Reset remotely
+      resetModelCircuitBreaker("model-recovering");
+      expect(mockRedis.del).toHaveBeenCalledWith("circuit_breaker:test:model:model-recovering");
+      expect(mockStorage.has("circuit_breaker:test:model:model-recovering")).toBe(false);
+
+      // Simulate Pod 2 checking recovery
+      resetModelCircuitBreakers();
+      const replicaBreaker = getModelCircuitBreaker("model-recovering");
+      await replicaBreaker.syncFromStore();
+      expect(replicaBreaker.getState()).toBe(CircuitState.CLOSED);
     });
   });
 });
