@@ -65,9 +65,14 @@ const mockCheckRateLimitDetailed = vi.hoisted(() =>
   })),
 );
 
-vi.mock("@/lib/redis", () => ({
-  checkRateLimitDetailed: mockCheckRateLimitDetailed,
-}));
+vi.mock("@/lib/redis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/redis")>();
+  return {
+    ...actual,
+    checkRateLimitDetailed: mockCheckRateLimitDetailed,
+    redis: { client: true },
+  };
+});
 
 vi.mock("@/lib/middleware/rate-limit", () => ({
   TIERS: {

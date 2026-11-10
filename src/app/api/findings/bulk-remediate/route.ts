@@ -26,11 +26,6 @@ type BoundedBody = { text: string } | { tooLarge: true } | { unreadable: true };
 
 /**
  * Read a request body without buffering more than `limit` bytes.
- *
- * `Content-Length` is advisory: chunked requests omit it, and a client can send
- * a smaller value than the bytes that follow. The stream is therefore the
- * authority. The reader is cancelled as soon as the running byte count crosses
- * the cap, so an oversized upload is not accumulated in memory first.
  */
 async function readBoundedBody(req: NextRequest, limit: number): Promise<BoundedBody> {
   if (!req.body) return { text: "" };

@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 2.13.0
+
+### Minor Changes
+
+- 774bb2a: expose Web3 explanations and AI remediation patch tools in CLI MCP server (#1698)
+- d1135f1: Add offline local-model and silent audio fallback for audio-debrief and explain-stream when cloud APIs or circuit breakers trip (#1701).
+- d67ead6: Back circuit breaker state store with Redis across multi-replica Kubernetes pods with graceful in-memory fallback (#1699).
+
 ## 2.12.0
 
 ### Minor Changes

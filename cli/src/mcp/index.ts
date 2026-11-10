@@ -6,7 +6,11 @@ import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
 import { KNOWLEDGE_BASE, queryLiveThreatIntelligence } from "../threat-intel.js";
 import { generateSarifReport } from "../sarif.js";
 import type { FileScanResult, Severity, Violation } from "../scanner.js";
-import { generateRemediationPatch, requestWeb3Explanation, type Web3ExplainRequest } from "../lib/api-client.js";
+import {
+  generateRemediationPatch,
+  requestWeb3Explanation,
+  type Web3ExplainRequest,
+} from "../lib/api-client.js";
 export { queryLiveThreatIntelligence } from "../threat-intel.js";
 
 /**
@@ -217,7 +221,8 @@ export const WEB3_SECURITY_EXPLANATIONS_SCHEMA = {
   properties: {
     findingType: {
       type: "string",
-      description: "Type of Web3/ZK vulnerability (e.g., 'reentrancy', 'under-constrained-signal', 'unsafe-arithmetic')",
+      description:
+        "Type of Web3/ZK vulnerability (e.g., 'reentrancy', 'under-constrained-signal', 'unsafe-arithmetic')",
     },
     severity: {
       type: "string",
@@ -230,7 +235,8 @@ export const WEB3_SECURITY_EXPLANATIONS_SCHEMA = {
     },
     fileLocation: {
       type: "string",
-      description: "File path or contract location (e.g., 'contracts/Vault.sol', 'circuits/withdraw.circom')",
+      description:
+        "File path or contract location (e.g., 'contracts/Vault.sol', 'circuits/withdraw.circom')",
     },
     codeSnippet: {
       type: "string",
@@ -725,7 +731,8 @@ export function createThreatIntelMcpServer(): Server {
 
     if (name === "web3_security_explanations" || name === "web3-security-explanations") {
       const findingType = typeof args?.findingType === "string" ? args.findingType.trim() : "";
-      const rawSeverity = typeof args?.severity === "string" ? args.severity.toUpperCase().trim() : "";
+      const rawSeverity =
+        typeof args?.severity === "string" ? args.severity.toUpperCase().trim() : "";
       const description = typeof args?.description === "string" ? args.description.trim() : "";
       const fileLocation = typeof args?.fileLocation === "string" ? args.fileLocation.trim() : "";
       const codeSnippet = typeof args?.codeSnippet === "string" ? args.codeSnippet.trim() : "";

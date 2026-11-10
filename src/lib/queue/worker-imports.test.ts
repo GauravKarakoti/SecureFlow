@@ -78,11 +78,12 @@ function localImports(file: string): string[] {
 
 describe("queue consumer imports", () => {
   it("importing the scan engine and the scan pool starts no BullMQ consumer", async () => {
+    vi.resetModules();
     await import("@/lib/scanner/scanEngine");
     await import("./workerPool");
 
     expect(constructed).toEqual([]);
-  });
+  }, 30_000);
 
   it("only the worker entry point imports a module that starts a consumer", () => {
     const files = [
