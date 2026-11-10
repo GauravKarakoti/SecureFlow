@@ -179,6 +179,80 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  prisma-drift-check:
+    name: Prisma Schema Drift Check
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d shadow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/shadow
+      SHADOW_DATABASE_URL: postgresql://ci:ci@localhost:5432/shadow
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Fail on unmigrated schema changes
+        run: |
+          set +e
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Schema drift detected. Run 'npx prisma migrate dev --name <change>' and commit the new migration."
+            exit 1
+          fi
+          exit "$code"
+
+  helm-migration-check:
+    name: Helm Migration Job Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint helm/secureflow
+
+      - name: Render migration job
+        run: |
+          helm template secureflow helm/secureflow \
+            --show-only templates/migration-job.yaml > /tmp/migration-job.yaml
+          cat /tmp/migration-job.yaml
+          grep -q "migrate" /tmp/migration-job.yaml
+          grep -q "deploy" /tmp/migration-job.yaml
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -269,7 +343,7 @@ jobs:
     # No `red-team` job exists in this workflow (the red-team suite lives in
     # ai-eval.yml), and a needs: reference to an unknown job fails workflow
     # validation — the whole pipeline could not start.
-    needs: [quality-gate, cli, test, e2e]
+    needs: [quality-gate, cli, test, e2e, prisma-drift-check, helm-migration-check]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
