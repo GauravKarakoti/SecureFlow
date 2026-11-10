@@ -74,6 +74,15 @@ jobs:
       - name: Verify OpenAPI spec covers every API route
         run: npm run verify:openapi
 
+      # Enforce ArmorIQ policy guardrails and intent verification quality gate (#1710).
+      - name: Enforce ArmorIQ Policy Guardrails
+        run: npm run verify:armoriq
+        env:
+          ARMORIQ_PROOF_SIGNING_KEY: ci-test-armoriq-proof-signing-key
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+
       - name: Build Application
         run: npm run build
         # `next build` evaluates src/lib/env.ts while collecting page data, and

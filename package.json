@@ -48,7 +48,8 @@
     "ngrok": "ngrok http 9002",
     "secureflow": "npx secureflow",
     "lint:openapi": "spectral lint openapi.yaml --fail-severity=error",
-    "verify:openapi": "tsx scripts/verify-openapi.ts"
+    "verify:openapi": "tsx scripts/verify-openapi.ts",
+    "verify:armoriq": "tsx scripts/armoriq-verify.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.8.23",
