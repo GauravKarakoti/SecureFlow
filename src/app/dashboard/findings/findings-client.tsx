@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download } from "lucide-react";
+import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -305,6 +306,16 @@ export default function FindingsClient({
                             >
                               {theme.label}
                             </Badge>
+                            <Link
+                              href={`/dashboard/findings/${finding.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10"
+                              title="View finding permalink"
+                              aria-label={`View finding ${finding.id} details`}
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Details</span>
+                            </Link>
                           </div>
                         </AccordionTrigger>
                       </div>

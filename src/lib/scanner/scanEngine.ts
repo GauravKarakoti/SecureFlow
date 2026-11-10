@@ -505,8 +505,14 @@ export async function processScanJob(
           body += `🛡️ **${suppressedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
         }
 
+        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+
         enrichedFindings.forEach((f) => {
           body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
+          const findingId = (f as any).id;
+          if (findingId) {
+            body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
           if (f.promptInjectionSuspected) {
             body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.**\n\n`;
           }
