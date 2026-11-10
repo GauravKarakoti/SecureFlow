@@ -1,8 +1,17 @@
 import "dotenv/config";
 import { getVulnerabilityMetadata } from "../../database/vulnerabilityDb";
-import { __internal, isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
+import { __internal, withRetry } from "./security-helpers";
 import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
-import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
+
+
+import {
+  runModelChain,
+  buildExplanationResult,
+  shouldCacheExplanation,
+  extractTokenUsage,
+  toUserFacingError,
+} from "./security-explanation-core";
+
 
 import {
   AISecurityExplanationApiSchema,
@@ -123,7 +132,7 @@ Provide a concise explanation, architectural impact, and immediate remediation s
   }
 }
 
-const { detectPromptInjection, contradictsSeverity, buildPrompt } = __internal;
+const { detectPromptInjection, buildPrompt } = __internal;
 
 /** Streamed while the explanation text is still arriving (typewriter-style UI). */
 export type StreamExplanationChunkEvent = { type: "chunk"; explanation: string };
@@ -187,142 +196,87 @@ export async function* streamDeveloperSecurityExplanations(
       yield { type: "done", result: cached };
       return;
     }
-    let streamResult: {
-      iterator: AsyncIterator<any>;
-      first: IteratorResult<any>;
-      response: Promise<any>;
-    } | null = null;
-    let activeModel = modelChain[0];
-
-    for (let i = 0; i < modelChain.length; i++) {
-      activeModel = modelChain[i];
-      try {
-        streamResult = await withRetry(
+    
+    const streamResult = await runModelChain(
+      modelChain,
+      (activeModel) =>
+        withRetry(
           async () => {
-            // Genkit's generateStream() returns synchronously and only reports provider
-            // failures (429, timeouts) through the stream and `response`. Pull the first
-            // chunk here so those failures reach withRetry and the model fallback chain
-            // instead of escaping them.
-            // Route through getAiInstance(), not the Groq-only module
-            // instance: in local mode the model chain returns openai/<model>
-            // refs that the Groq-plugin instance cannot resolve (NOT_FOUND),
-            // so every streaming explanation failed in local deployments.
-            const { stream, response } = getAiInstance().generateStream({
-              model: activeModel as any,
-              system: SYSTEM_PROMPT,
-              prompt,
-              ...(signal ? { abortSignal: signal } : {}),
-              output: {
-                format: "json",
-                schema: AISecurityExplanationApiSchema,
-              },
-              config: {
-                maxOutputTokens: 3000,
-                temperature: 0.1,
-              },
-            });
-            // Observed below; without this a failed attempt that we retry leaves an
-            // unhandled rejection behind.
+            const { stream, response } =
+              getAiInstance().generateStream({
+                model: activeModel as any,
+                system: SYSTEM_PROMPT,
+                prompt,
+                ...(signal ? { abortSignal: signal } : {}),
+                output: {
+                  format: "json",
+                  schema: AISecurityExplanationApiSchema,
+                },
+                config: {
+                  maxOutputTokens: 3000,
+                  temperature: 0.1,
+                },
+              });
+
             response.catch(() => {});
+
             const iterator = stream[Symbol.asyncIterator]();
             const first = await iterator.next();
+
             return { iterator, first, response };
           },
           {
-            initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
+            initialDelayMs:
+              process.env.NODE_ENV === "test" ? 10 : 100,
           },
-        );
-        break;
-      } catch (modelErr) {
-        if (isInsufficientMemoryError(modelErr)) {
-          // Not retryable: the same model fails the same way. Try the next
-          // (smaller) local model, or surface one actionable message.
-          if (i < modelChain.length - 1) {
-            console.warn(
-              `[AI_FALLBACK] Model ${String(activeModel)} does not fit in GPU memory. Switching to smaller model: ${String(modelChain[i + 1])}`,
-            );
-            continue;
-          }
-          throw new InsufficientVRAMError(modelChain.map((m) => getModelId(m)));
-        }
-        if (i < modelChain.length - 1 && (isRateLimitError(modelErr) || isTimeoutError(modelErr))) {
-          console.warn(
-            `[AI_FALLBACK] Model ${String(activeModel)} failed (${String(modelErr)}). Switching to fallback model: ${String(modelChain[i + 1])}`,
-          );
-          continue;
-        }
-        throw modelErr;
-      }
-    }
+        ),
+    );
 
-    const { iterator, response } = streamResult!;
+    const activeModel = streamResult.model;
+    const { iterator, first, response } = streamResult.value; 
 
     let lastExplanation = "";
-    for (let next = streamResult!.first; !next.done; next = await iterator.next()) {
-      // Stop pulling from the model as soon as the caller has disconnected.
+    
+    for (let next = first; !next.done; next = await iterator.next()) {
       if (signal?.aborted) return;
-      const partial = next.value.output as Partial<AISecurityExplanationOutput> | undefined;
-      if (partial?.explanation && partial.explanation !== lastExplanation) {
+
+      const partial = next.value.output as
+        | Partial<AISecurityExplanationOutput>
+        | undefined;
+
+      if (
+        partial?.explanation &&
+        partial.explanation !== lastExplanation
+      ) {
         lastExplanation = partial.explanation;
-        yield { type: "chunk", explanation: lastExplanation };
-      }
-    }
 
-    const finalResponse = await response;
-    let parsedContent: Partial<AISecurityExplanationOutput> = {};
-    let usedParseFallback = false;
-
-    if (finalResponse.output) {
-      parsedContent = finalResponse.output as AISecurityExplanationOutput;
-    } else {
-      try {
-        const withoutThoughts = finalResponse.text.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
-        const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
-
-        if (!jsonMatch) {
-          throw new Error("No JSON object found in response");
-        }
-
-        parsedContent = JSON.parse(jsonMatch[0]);
-      } catch (error) {
-        console.error("Failed to parse stream explanation JSON:", error);
-        console.error("RAW STREAM OUTPUT WAS:\n", finalResponse.text);
-
-        usedParseFallback = true;
-
-        parsedContent = {
-          explanation: "Signal lost. The Professor is recalculating.",
-          remediationSuggestions:
-            "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
+        yield {
+          type: "chunk",
+          explanation: lastExplanation,
         };
       }
     }
 
-    const explanation: string =
-      parsedContent.explanation || lastExplanation || "No explanation provided.";
-    const consistencyFlagged = contradictsSeverity(validatedInput.severity, explanation);
 
-    const result = AISecurityExplanationOutputSchema.parse({
-      explanation,
-      remediationSuggestions:
-        parsedContent.remediationSuggestions || "No remediation suggestions provided.",
-      promptInjectionSuspected: injectionPreFilterFlagged || consistencyFlagged,
+    const finalResponse = await response;
+    const { result, usedParseFallback } = buildExplanationResult({
+      input: validatedInput,
+      finalResponse,
+      lastExplanation,
+      injectionPreFilterFlagged,
     });
 
-    // Only cache real answers from the primary model. Never the "Signal lost"
-    // placeholder, and never a fallback model's output, which would otherwise
-    // be served for the full TTL. Fire-and-forget: the helper swallows its own errors.
-    if (!usedParseFallback && activeModel === modelChain[0]) {
+    if (
+      shouldCacheExplanation({
+        usedParseFallback,
+        model: activeModel,
+        models: modelChain,
+      })
+    ) {
       void setCachedExplanation(cacheKey, result);
     }
 
-    let tokenUsage: TokenUsage | undefined;
-    if (finalResponse?.usage) {
-      const inputTokens = finalResponse.usage.inputTokens ?? 0;
-      const outputTokens = finalResponse.usage.outputTokens ?? 0;
-      const totalTokens = finalResponse.usage.totalTokens ?? inputTokens + outputTokens;
-      tokenUsage = { inputTokens, outputTokens, totalTokens };
-    }
+    const tokenUsage = extractTokenUsage(finalResponse);
 
     // The final, fully-validated explanation is always the authoritative text, even if it
     // differs slightly from the last streamed partial (e.g. the partial JSON parser dropped a
@@ -333,18 +287,9 @@ export async function* streamDeveloperSecurityExplanations(
       ...(tokenUsage ? { usage: tokenUsage } : {}),
     };
   } catch (err) {
-    const isRateLimit = isRateLimitError(err);
-    const isTimeout = isTimeoutError(err);
-    const message = isRateLimit
-      ? "AI provider rate limit reached (429). Please wait a moment and try again."
-      : isTimeout
-        ? "AI provider connection timed out. Please try again."
-        : err instanceof Error
-          ? err.message
-          : "AI generation failed.";
     yield {
       type: "error",
-      message,
+      message: toUserFacingError(err),
     };
   }
 }

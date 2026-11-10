@@ -1,6 +1,5 @@
 "use server";
 
-import "dotenv/config";
 import {
   __internal,
   evaluateForInjection,
@@ -30,6 +29,12 @@ import {
   getModelId,
   setCachedExplanation,
 } from "@/lib/explanation-cache";
+import {
+  runModelChain,
+  buildExplanationResult,
+  shouldCacheExplanation,
+} from "./security-explanation-core";
+
 
 const { contradictsSeverity, buildPrompt } = __internal;
 
@@ -94,126 +99,109 @@ export async function developerReceivesAISecurityExplanations(
     evaluateForInjection(validatedInput.description),
   ]);
   const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
-
   const prompt = buildPrompt(validatedInput);
 
-  let responseText: string | undefined;
-  let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
+  
+const modelsToTry: unknown[] = getSecurityExplanationModelChain();
+let selectedModel: unknown = modelsToTry[0];
 
-  try {
-    // Route to model chain (local or cloud). When primary model hits 429 rate limits,
-    // timeouts, or out-of-memory errors, fallback to secondary/tertiary models (#1182).
-    const modelsToTry: unknown[] = getSecurityExplanationModelChain();
-    let res: { text: string } | undefined;
-    for (let i = 0; i < modelsToTry.length; i++) {
-      const candidate = modelsToTry[i];
-      try {
-        res = await withRetry(
-          () =>
-            activeAi.generate({
-              model: candidate as any,
-              system: SYSTEM_PROMPT,
-              prompt,
-              config: {
-                maxOutputTokens: 3000,
-                temperature: 0.1,
-              },
-            }),
-          {
-            initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
-          },
-        );
-        usedFallbackModel = i > 0;
-        break;
-      } catch (modelErr) {
-        if (isInsufficientMemoryError(modelErr)) {
-          if (i < modelsToTry.length - 1) {
-            console.warn(
-              `[LOCAL_AI] Model ${getModelId(candidate)} does not fit in GPU memory. Trying smaller model: ${getModelId(modelsToTry[i + 1])}`,
-            );
-            continue;
-          }
-          throw new InsufficientVRAMError(modelsToTry.map((m) => getModelId(m)));
-        }
-        if (
-          i < modelsToTry.length - 1 &&
-          (isRateLimitError(modelErr) || isTimeoutError(modelErr))
-        ) {
-          console.warn(
-            `[AI_FALLBACK] Model ${getModelId(candidate)} rate-limited or timed out. Switching to fallback model: ${getModelId(modelsToTry[i + 1])}`,
-          );
-          void recordAiFallbackEvent({
-            fromModel: getModelId(candidate),
-            toModel: getModelId(modelsToTry[i + 1]),
-            reason: isRateLimitError(modelErr) ? "rate_limit" : "timeout",
-          });
-          continue;
-        }
-        throw modelErr;
+
+let responseText: string | undefined;
+let parsedContent:
+  | { explanation?: string; remediationSuggestions?: string }
+  | undefined;
+
+try {
+  const { value: res, model } = await runModelChain(
+    modelsToTry,
+    (candidate) =>
+      withRetry(
+        () =>
+          activeAi.generate({
+            model: candidate as any,
+            system: SYSTEM_PROMPT,
+            prompt,
+            config: {
+              maxOutputTokens: 3000,
+              temperature: 0.1,
+            },
+          }),
+        {
+          initialDelayMs: 100,
+        },
+      ),
+    ({ from, to, reason }) => {
+      if (reason === "rate_limit" || reason === "timeout") {
+        void recordAiFallbackEvent({
+          fromModel: getModelId(from),
+          toModel: getModelId(to),
+          reason,
+        });
       }
-    }
-    if (!res) throw new InsufficientVRAMError(modelsToTry.map((m) => getModelId(m)));
-    responseText = res.text;
-  } catch (genError) {
-    if (isInsufficientMemoryError(genError)) {
-      const message =
-        genError instanceof InsufficientVRAMError
-          ? genError.message
-          : insufficientVramMessage([getModelId(activeModel)]);
-      // One actionable line, deliberately without the stack trace.
-      console.warn(`[LOCAL_AI] ${message}`);
-      parsedContent = {
-        explanation: message,
-        remediationSuggestions:
-          "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
-      };
-    } else if (isRateLimitError(genError)) {
-      console.warn("Groq API rate limit reached after retries:", genError);
-      parsedContent = {
-        explanation:
-          "Groq API rate limit reached (429). The Professor will retry transmission shortly.",
-        remediationSuggestions:
-          "Rate limit active: review static scanner details or wait a moment before re-evaluating.",
-      };
-    } else if (isTimeoutError(genError)) {
-      console.warn("Groq API connection timed out after retries:", genError);
-      parsedContent = {
-        explanation: "Groq API connection timed out. The Professor is standing by.",
-        remediationSuggestions:
-          "Connection timed out: verify model availability and inspect the vulnerability manually.",
-      };
-    } else {
-      console.error("AI generation failed after retries:", genError);
-      parsedContent = {
-        explanation: "Signal lost. The Professor is recalculating.",
-        remediationSuggestions:
-          "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
-      };
-    }
+    },
+  );
+
+  selectedModel = model;
+  usedFallbackModel = model !== modelsToTry[0];
+  responseText = (res as { text: string }).text;
+} catch (genError) {
+  if (isInsufficientMemoryError(genError)) {
+    const message =
+      genError instanceof InsufficientVRAMError
+        ? genError.message
+        : insufficientVramMessage([getModelId(activeModel)]);
+
+    console.warn(`[LOCAL_AI] ${message}`);
+
+    parsedContent = {
+      explanation: message,
+      remediationSuggestions:
+        "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
+    };
+  } else if (isRateLimitError(genError)) {
+    console.warn("AI provider rate limit reached:", genError);
+
+    parsedContent = {
+      explanation:
+        "Groq API rate limit reached (429). The Professor will retry transmission shortly.",
+      remediationSuggestions:
+        "Rate limit active: review static scanner details or wait a moment before re-evaluating.",
+    };
+  } else if (isTimeoutError(genError)) {
+    console.warn("AI provider connection timed out:", genError);
+
+    parsedContent = {
+      explanation:
+        "Groq API connection timed out. The Professor is standing by.",
+      remediationSuggestions:
+        "Connection timed out: verify model availability and inspect the vulnerability manually.",
+    };
+  } else {
+    console.error("AI generation failed:", genError);
+
+    parsedContent = {
+      explanation: "Signal lost. The Professor is recalculating.",
+      remediationSuggestions:
+        "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
+    };
   }
+}
 
-  if (responseText && !parsedContent) {
-    try {
-      const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
-      const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
+if (responseText && !parsedContent) {
+  const { result, usedParseFallback } = buildExplanationResult({
+    input: validatedInput,
+    finalResponse: { text: responseText },
+    injectionPreFilterFlagged,
+  });
 
-      if (!jsonMatch) {
-        throw new Error("No JSON object found in response");
-      }
+  parsedContent = result;
+  cacheable = shouldCacheExplanation({
+    usedParseFallback,
+    model: selectedModel,
+    models: modelsToTry,
+});
+}
 
-      parsedContent = JSON.parse(jsonMatch[0]);
-      cacheable = !usedFallbackModel;
-    } catch (error) {
-      console.error("Failed to parse explanation JSON:", error);
-      console.error("RAW OUTPUT WAS:\n", responseText);
-
-      parsedContent = {
-        explanation: "Signal lost. The Professor is recalculating.",
-        remediationSuggestions:
-          "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
-      };
-    }
-  }
 
   const explanation: string = parsedContent?.explanation || "No explanation provided.";
 
