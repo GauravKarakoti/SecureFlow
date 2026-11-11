@@ -35,7 +35,6 @@ import {
   shouldCacheExplanation,
 } from "./security-explanation-core";
 
-
 const { contradictsSeverity, buildPrompt } = __internal;
 
 /**
@@ -101,107 +100,101 @@ export async function developerReceivesAISecurityExplanations(
   const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
   const prompt = buildPrompt(validatedInput);
 
-  
-const modelsToTry: unknown[] = getSecurityExplanationModelChain();
-let selectedModel: unknown = modelsToTry[0];
+  const modelsToTry: unknown[] = getSecurityExplanationModelChain();
+  let selectedModel: unknown = modelsToTry[0];
 
+  let responseText: string | undefined;
+  let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
-let responseText: string | undefined;
-let parsedContent:
-  | { explanation?: string; remediationSuggestions?: string }
-  | undefined;
+  try {
+    const { value: res, model } = await runModelChain(
+      modelsToTry,
+      (candidate) =>
+        withRetry(
+          () =>
+            activeAi.generate({
+              model: candidate as any,
+              system: SYSTEM_PROMPT,
+              prompt,
+              config: {
+                maxOutputTokens: 3000,
+                temperature: 0.1,
+              },
+            }),
+          {
+            initialDelayMs: 100,
+          },
+        ),
+      ({ from, to, reason }) => {
+        if (reason === "rate_limit" || reason === "timeout") {
+          void recordAiFallbackEvent({
+            fromModel: getModelId(from),
+            toModel: getModelId(to),
+            reason,
+          });
+        }
+      },
+    );
 
-try {
-  const { value: res, model } = await runModelChain(
-    modelsToTry,
-    (candidate) =>
-      withRetry(
-        () =>
-          activeAi.generate({
-            model: candidate as any,
-            system: SYSTEM_PROMPT,
-            prompt,
-            config: {
-              maxOutputTokens: 3000,
-              temperature: 0.1,
-            },
-          }),
-        {
-          initialDelayMs: 100,
-        },
-      ),
-    ({ from, to, reason }) => {
-      if (reason === "rate_limit" || reason === "timeout") {
-        void recordAiFallbackEvent({
-          fromModel: getModelId(from),
-          toModel: getModelId(to),
-          reason,
-        });
-      }
-    },
-  );
+    selectedModel = model;
+    usedFallbackModel = model !== modelsToTry[0];
+    responseText = (res as { text: string }).text;
+  } catch (genError) {
+    if (isInsufficientMemoryError(genError)) {
+      const message =
+        genError instanceof InsufficientVRAMError
+          ? genError.message
+          : insufficientVramMessage([getModelId(activeModel)]);
 
-  selectedModel = model;
-  usedFallbackModel = model !== modelsToTry[0];
-  responseText = (res as { text: string }).text;
-} catch (genError) {
-  if (isInsufficientMemoryError(genError)) {
-    const message =
-      genError instanceof InsufficientVRAMError
-        ? genError.message
-        : insufficientVramMessage([getModelId(activeModel)]);
+      console.warn(`[LOCAL_AI] ${message}`);
 
-    console.warn(`[LOCAL_AI] ${message}`);
+      parsedContent = {
+        explanation: message,
+        remediationSuggestions:
+          "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
+      };
+    } else if (isRateLimitError(genError)) {
+      console.warn("AI provider rate limit reached:", genError);
 
-    parsedContent = {
-      explanation: message,
-      remediationSuggestions:
-        "AI explanation unavailable on this hardware: review the static scanner details, or use a smaller local model.",
-    };
-  } else if (isRateLimitError(genError)) {
-    console.warn("AI provider rate limit reached:", genError);
+      parsedContent = {
+        explanation:
+          "Groq API rate limit reached (429). The Professor will retry transmission shortly.",
+        remediationSuggestions:
+          "Rate limit active: review static scanner details or wait a moment before re-evaluating.",
+      };
+    } else if (isTimeoutError(genError)) {
+      console.warn("AI provider connection timed out:", genError);
 
-    parsedContent = {
-      explanation:
-        "Groq API rate limit reached (429). The Professor will retry transmission shortly.",
-      remediationSuggestions:
-        "Rate limit active: review static scanner details or wait a moment before re-evaluating.",
-    };
-  } else if (isTimeoutError(genError)) {
-    console.warn("AI provider connection timed out:", genError);
+      parsedContent = {
+        explanation: "Groq API connection timed out. The Professor is standing by.",
+        remediationSuggestions:
+          "Connection timed out: verify model availability and inspect the vulnerability manually.",
+      };
+    } else {
+      console.error("AI generation failed:", genError);
 
-    parsedContent = {
-      explanation:
-        "Groq API connection timed out. The Professor is standing by.",
-      remediationSuggestions:
-        "Connection timed out: verify model availability and inspect the vulnerability manually.",
-    };
-  } else {
-    console.error("AI generation failed:", genError);
-
-    parsedContent = {
-      explanation: "Signal lost. The Professor is recalculating.",
-      remediationSuggestions:
-        "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
-    };
+      parsedContent = {
+        explanation: "Signal lost. The Professor is recalculating.",
+        remediationSuggestions:
+          "Adjust the plan: lock down the perimeter manually and review the intercepted payload.",
+      };
+    }
   }
-}
 
-if (responseText && !parsedContent) {
-  const { result, usedParseFallback } = buildExplanationResult({
-    input: validatedInput,
-    finalResponse: { text: responseText },
-    injectionPreFilterFlagged,
-  });
+  if (responseText && !parsedContent) {
+    const { result, usedParseFallback } = buildExplanationResult({
+      input: validatedInput,
+      finalResponse: { text: responseText },
+      injectionPreFilterFlagged,
+    });
 
-  parsedContent = result;
-  cacheable = shouldCacheExplanation({
-    usedParseFallback,
-    model: selectedModel,
-    models: modelsToTry,
-});
-}
-
+    parsedContent = result;
+    cacheable = shouldCacheExplanation({
+      usedParseFallback,
+      model: selectedModel,
+      models: modelsToTry,
+    });
+  }
 
   const explanation: string = parsedContent?.explanation || "No explanation provided.";
 

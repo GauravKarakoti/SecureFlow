@@ -413,10 +413,15 @@ async function main(): Promise<number> {
   // affects the text output/exit code today -- JSON/SARIF export stays
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
-  const aiSpinner = format === "text" && stagedForAi.length > 0 ? new TerminalSpinner("Running AI security inspection").start() : null;
+  const aiSpinner =
+    format === "text" && stagedForAi.length > 0
+      ? new TerminalSpinner("Running AI security inspection").start()
+      : null;
   const aiFindings = await runAiScanIfAvailable(stagedForAi);
   if (aiSpinner) {
-    aiSpinner.succeed(`AI inspection completed (${aiFindings.length} finding${aiFindings.length === 1 ? "" : "s"})`);
+    aiSpinner.succeed(
+      `AI inspection completed (${aiFindings.length} finding${aiFindings.length === 1 ? "" : "s"})`,
+    );
   }
   const filteredAiFindings = severityFilter
     ? aiFindings.filter((f) => severityFilter.has(f.severity))

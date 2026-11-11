@@ -58,7 +58,8 @@ export const DEFAULT_POLICY_RULES: PolicyRuleDefinition[] = [
   {
     id: "SEC-POL-001",
     name: "Adversarial Prompt Injection Detection",
-    description: "Detects prompt injection attempts in PR titles, descriptions, and agent instructions",
+    description:
+      "Detects prompt injection attempts in PR titles, descriptions, and agent instructions",
     severity: "CRITICAL",
     category: "PROMPT_INJECTION",
     evaluate: (ctx) => {
@@ -96,7 +97,8 @@ export const DEFAULT_POLICY_RULES: PolicyRuleDefinition[] = [
   {
     id: "SEC-POL-003",
     name: "Untrusted Supply Chain Lockfile Tampering",
-    description: "Requires explicit review and approval when package lockfiles are modified without changesets",
+    description:
+      "Requires explicit review and approval when package lockfiles are modified without changesets",
     severity: "HIGH",
     category: "SUPPLY_CHAIN",
     evaluate: (ctx) => {
@@ -104,9 +106,7 @@ export const DEFAULT_POLICY_RULES: PolicyRuleDefinition[] = [
       const hasLockfile = files.some((f) =>
         /(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|cargo\.lock)$/i.test(f),
       );
-      const hasChangesetOrPackage = files.some((f) =>
-        /(\.changeset\/|package\.json)$/i.test(f),
-      );
+      const hasChangesetOrPackage = files.some((f) => /(\.changeset\/|package\.json)$/i.test(f));
       if (hasLockfile && !hasChangesetOrPackage) {
         return {
           violated: true,
@@ -119,7 +119,8 @@ export const DEFAULT_POLICY_RULES: PolicyRuleDefinition[] = [
   {
     id: "SEC-POL-004",
     name: "Critical Infrastructure Modification Guardrail",
-    description: "Flags changes modifying Kubernetes manifests, Dockerfiles, or cloud deployment templates",
+    description:
+      "Flags changes modifying Kubernetes manifests, Dockerfiles, or cloud deployment templates",
     severity: "MEDIUM",
     category: "INFRASTRUCTURE",
     evaluate: (ctx) => {
@@ -144,13 +145,17 @@ export class ArmorIQGuardrailService {
 
   constructor(options?: { client?: ArmorIQClient; customRules?: PolicyRuleDefinition[] }) {
     this.client = options?.client ?? ArmorIQService.getClient();
-    this.rules = options?.customRules ? [...DEFAULT_POLICY_RULES, ...options.customRules] : DEFAULT_POLICY_RULES;
+    this.rules = options?.customRules
+      ? [...DEFAULT_POLICY_RULES, ...options.customRules]
+      : DEFAULT_POLICY_RULES;
   }
 
   /**
    * Verify cryptographic intent token if supplied with the context.
    */
-  async verifyIntent(token?: string): Promise<{ verified: boolean; reason?: string; proofHash?: string | null }> {
+  async verifyIntent(
+    token?: string,
+  ): Promise<{ verified: boolean; reason?: string; proofHash?: string | null }> {
     if (!token) {
       return { verified: false, reason: "No intent token provided" };
     }
@@ -158,7 +163,9 @@ export class ArmorIQGuardrailService {
     try {
       if (this.client) {
         const anyClient = this.client as unknown as {
-          verifyIntentToken?: (t: string) => Promise<{ allowed: boolean; justification?: string; proofHash?: string | null }>;
+          verifyIntentToken?: (
+            t: string,
+          ) => Promise<{ allowed: boolean; justification?: string; proofHash?: string | null }>;
           verifyToken?: (t: unknown) => Promise<boolean>;
         };
 
@@ -166,7 +173,9 @@ export class ArmorIQGuardrailService {
           const result = await anyClient.verifyIntentToken(token);
           return {
             verified: result.allowed,
-            reason: result.justification || (result.allowed ? "Verified by ArmorIQ" : "Action blocked by ArmorIQ"),
+            reason:
+              result.justification ||
+              (result.allowed ? "Verified by ArmorIQ" : "Action blocked by ArmorIQ"),
             proofHash: result.proofHash,
           };
         } else if (typeof anyClient.verifyToken === "function") {

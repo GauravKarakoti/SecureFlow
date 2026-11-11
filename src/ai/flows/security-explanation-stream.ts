@@ -3,7 +3,6 @@ import { getVulnerabilityMetadata } from "../../database/vulnerabilityDb";
 import { __internal, withRetry } from "./security-helpers";
 import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
 
-
 import {
   runModelChain,
   buildExplanationResult,
@@ -11,7 +10,6 @@ import {
   extractTokenUsage,
   toUserFacingError,
 } from "./security-explanation-core";
-
 
 import {
   AISecurityExplanationApiSchema,
@@ -196,58 +194,49 @@ export async function* streamDeveloperSecurityExplanations(
       yield { type: "done", result: cached };
       return;
     }
-    
-    const streamResult = await runModelChain(
-      modelChain,
-      (activeModel) =>
-        withRetry(
-          async () => {
-            const { stream, response } =
-              getAiInstance().generateStream({
-                model: activeModel as any,
-                system: SYSTEM_PROMPT,
-                prompt,
-                ...(signal ? { abortSignal: signal } : {}),
-                output: {
-                  format: "json",
-                  schema: AISecurityExplanationApiSchema,
-                },
-                config: {
-                  maxOutputTokens: 3000,
-                  temperature: 0.1,
-                },
-              });
 
-            response.catch(() => {});
+    const streamResult = await runModelChain(modelChain, (activeModel) =>
+      withRetry(
+        async () => {
+          const { stream, response } = getAiInstance().generateStream({
+            model: activeModel as any,
+            system: SYSTEM_PROMPT,
+            prompt,
+            ...(signal ? { abortSignal: signal } : {}),
+            output: {
+              format: "json",
+              schema: AISecurityExplanationApiSchema,
+            },
+            config: {
+              maxOutputTokens: 3000,
+              temperature: 0.1,
+            },
+          });
 
-            const iterator = stream[Symbol.asyncIterator]();
-            const first = await iterator.next();
+          response.catch(() => {});
 
-            return { iterator, first, response };
-          },
-          {
-            initialDelayMs:
-              process.env.NODE_ENV === "test" ? 10 : 100,
-          },
-        ),
+          const iterator = stream[Symbol.asyncIterator]();
+          const first = await iterator.next();
+
+          return { iterator, first, response };
+        },
+        {
+          initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100,
+        },
+      ),
     );
 
     const activeModel = streamResult.model;
-    const { iterator, first, response } = streamResult.value; 
+    const { iterator, first, response } = streamResult.value;
 
     let lastExplanation = "";
-    
+
     for (let next = first; !next.done; next = await iterator.next()) {
       if (signal?.aborted) return;
 
-      const partial = next.value.output as
-        | Partial<AISecurityExplanationOutput>
-        | undefined;
+      const partial = next.value.output as Partial<AISecurityExplanationOutput> | undefined;
 
-      if (
-        partial?.explanation &&
-        partial.explanation !== lastExplanation
-      ) {
+      if (partial?.explanation && partial.explanation !== lastExplanation) {
         lastExplanation = partial.explanation;
 
         yield {
@@ -256,7 +245,6 @@ export async function* streamDeveloperSecurityExplanations(
         };
       }
     }
-
 
     const finalResponse = await response;
     const { result, usedParseFallback } = buildExplanationResult({

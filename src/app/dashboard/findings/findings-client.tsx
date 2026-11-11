@@ -4,7 +4,15 @@ import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ShieldAlert, Info, CheckCircle2, AlertOctagon, Terminal, Download, ExternalLink } from "lucide-react";
+import {
+  ShieldAlert,
+  Info,
+  CheckCircle2,
+  AlertOctagon,
+  Terminal,
+  Download,
+  ExternalLink,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
