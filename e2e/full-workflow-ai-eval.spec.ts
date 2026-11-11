@@ -1,5 +1,9 @@
 import { expect, test } from "./fixtures";
-import { signGithub, githubPullRequestPayload, githubPushPayload } from "./helpers/webhook-fixtures";
+import {
+  signGithub,
+  githubPullRequestPayload,
+  githubPushPayload,
+} from "./helpers/webhook-fixtures";
 
 test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline (#1714)", () => {
   test.describe("Authentication Flow & Guarded Navigation", () => {
@@ -38,7 +42,9 @@ test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline
       await page.goto("/dashboard/policies");
 
       // Verify header and description
-      await expect(page.getByRole("heading", { name: "The Rules" })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: "The Rules" })).toBeVisible({
+        timeout: 15_000,
+      });
       await expect(
         page.getByText("Toggle automated guardrails used to protect your main branch."),
       ).toBeVisible();
@@ -57,7 +63,9 @@ test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline
         const stateBefore = await firstSwitch.getAttribute("aria-checked");
         await firstSwitch.click();
         const expectedAfter = stateBefore === "true" ? "false" : "true";
-        await expect(firstSwitch).toHaveAttribute("aria-checked", expectedAfter, { timeout: 5_000 });
+        await expect(firstSwitch).toHaveAttribute("aria-checked", expectedAfter, {
+          timeout: 5_000,
+        });
       }
     });
   });
@@ -178,8 +186,12 @@ test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline
       page,
     }) => {
       await page.goto("/dashboard/ai-health");
-      await expect(page.getByRole("heading", { name: /AI Health/i })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText(/Provider Status/i).or(page.getByText(/Inference/i))).toBeVisible();
+      await expect(page.getByRole("heading", { name: /AI Health/i })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(
+        page.getByText(/Provider Status/i).or(page.getByText(/Inference/i)),
+      ).toBeVisible();
     });
 
     test("verifies Security Audit table and ArmorIQ compliance evidence filters", async ({
@@ -297,11 +309,11 @@ test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline
       }
     });
 
-    test("evaluates compliance pack selection and taxonomy export controls", async ({
-      page,
-    }) => {
+    test("evaluates compliance pack selection and taxonomy export controls", async ({ page }) => {
       await page.goto("/dashboard/policies");
-      await expect(page.getByRole("heading", { name: "The Rules" })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: "The Rules" })).toBeVisible({
+        timeout: 15_000,
+      });
 
       // Verify policy rule categories are visible
       await expect(page.getByText("Programmatic Rule Set")).toBeVisible();
@@ -321,9 +333,7 @@ test.describe("End-to-End Authentication, Scan Config, Remediation & AI Pipeline
       expect([400, 404, 500]).toContain(res.status());
     });
 
-    test("validates rate limiting behavior on rapid remediation requests", async ({
-      request,
-    }) => {
+    test("validates rate limiting behavior on rapid remediation requests", async ({ request }) => {
       // Fire multiple requests concurrently to ensure resilience
       const requests = Array.from({ length: 5 }).map(() =>
         request.post("/api/findings/bulk-remediate", {

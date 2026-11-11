@@ -189,7 +189,9 @@ export function formatTuiScanSummary(
   }
 
   if (tableRows.length === 0) {
-    return colors.green("\n✨ No security violations or secret logging detected in staged files.\n");
+    return colors.green(
+      "\n✨ No security violations or secret logging detected in staged files.\n",
+    );
   }
 
   const table = renderWarningTable(tableRows);

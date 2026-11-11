@@ -28,7 +28,10 @@ export function collectGitContext(): PolicyEvaluationContext {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "ignore"],
       });
-      changedFiles = diffOutput.split("\n").map((s) => s.trim()).filter(Boolean);
+      changedFiles = diffOutput
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
     } catch {
       // Fallback: check status or staged files
       try {
@@ -52,7 +55,10 @@ export function collectGitContext(): PolicyEvaluationContext {
         stdio: ["ignore", "pipe", "ignore"],
         maxBuffer: 1024 * 1024 * 5,
       });
-      diffSnippets = patchOutput.split("\n").filter((l) => l.startsWith("+")).slice(0, 500);
+      diffSnippets = patchOutput
+        .split("\n")
+        .filter((l) => l.startsWith("+"))
+        .slice(0, 500);
     } catch {
       diffSnippets = [];
     }
@@ -79,7 +85,9 @@ export async function runArmorIQCheck(options: CliCheckOptions = {}) {
 
   console.log("🛡️  Evaluating ArmorIQ Intent & Policy Guardrails (#1710)...");
   if (context.changedFiles && context.changedFiles.length > 0) {
-    console.log(`📁 Files evaluated (${context.changedFiles.length}): ${context.changedFiles.slice(0, 5).join(", ")}${context.changedFiles.length > 5 ? "..." : ""}`);
+    console.log(
+      `📁 Files evaluated (${context.changedFiles.length}): ${context.changedFiles.slice(0, 5).join(", ")}${context.changedFiles.length > 5 ? "..." : ""}`,
+    );
   }
 
   const result = await guardrails.evaluatePullRequest(context, {

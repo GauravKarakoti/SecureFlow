@@ -2,7 +2,16 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Terminal, Wrench, Shield, History, Clock, FileCode } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Terminal,
+  Wrench,
+  Shield,
+  History,
+  Clock,
+  FileCode,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -194,7 +203,9 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
             <div className="space-y-4">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
                 <Terminal className="w-3 h-3" /> Source Context
-                {lineInfo && <span className="text-xs font-mono text-primary/80 lowercase">({lineInfo})</span>}
+                {lineInfo && (
+                  <span className="text-xs font-mono text-primary/80 lowercase">({lineInfo})</span>
+                )}
               </h4>
               <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
                 {maskedSnippet || "Code snippet unavailable."}
@@ -234,12 +245,18 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                         </Badge>
                         {metadata.triageStatus && (
                           <span className="text-foreground font-medium">
-                            Status: <Badge variant="secondary" className="text-[10px]">{metadata.triageStatus}</Badge>
+                            Status:{" "}
+                            <Badge variant="secondary" className="text-[10px]">
+                              {metadata.triageStatus}
+                            </Badge>
                           </span>
                         )}
                         {metadata.severity && (
                           <span className="text-muted-foreground">
-                            Severity: <span className="font-semibold text-foreground">{metadata.severity}</span>
+                            Severity:{" "}
+                            <span className="font-semibold text-foreground">
+                              {metadata.severity}
+                            </span>
                           </span>
                         )}
                       </div>

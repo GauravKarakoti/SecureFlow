@@ -1,4 +1,3 @@
-
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
@@ -17,10 +16,7 @@ export interface TokenUsage {
   totalTokens?: number;
 }
 
-export type FallbackReason =
-  | "rate_limit"
-  | "timeout"
-  | "insufficient_memory";
+export type FallbackReason = "rate_limit" | "timeout" | "insufficient_memory";
 
 export function prepareExplanation(input: AISecurityExplanationInput) {
   return {
@@ -39,20 +35,14 @@ export function extractTokenUsage(
   return {
     inputTokens,
     outputTokens,
-    totalTokens:
-      response.usage.totalTokens ?? inputTokens + outputTokens,
+    totalTokens: response.usage.totalTokens ?? inputTokens + outputTokens,
   };
 }
 
 export async function runModelChain<TModel, TResult>(
   models: TModel[],
   attempt: (model: TModel) => Promise<TResult>,
-  onFallback?: (info: {
-    from: TModel;
-    to: TModel;
-    reason: FallbackReason;
-    error: unknown;
-  }) => void,
+  onFallback?: (info: { from: TModel; to: TModel; reason: FallbackReason; error: unknown }) => void,
 ): Promise<{ value: TResult; model: TModel }> {
   if (!models.length) {
     throw new Error("Model chain is empty.");
@@ -70,9 +60,7 @@ export async function runModelChain<TModel, TResult>(
     } catch (error) {
       if (isInsufficientMemoryError(error)) {
         if (next === undefined) {
-          throw new InsufficientVRAMError(
-            models.map((m) => getModelId(m as any)),
-          );
+          throw new InsufficientVRAMError(models.map((m) => getModelId(m as any)));
         }
 
         console.warn(
@@ -89,17 +77,10 @@ export async function runModelChain<TModel, TResult>(
         continue;
       }
 
-      if (
-        next !== undefined &&
-        (isRateLimitError(error) || isTimeoutError(error))
-      ) {
-        const reason = isRateLimitError(error)
-          ? "rate_limit"
-          : "timeout";
+      if (next !== undefined && (isRateLimitError(error) || isTimeoutError(error))) {
+        const reason = isRateLimitError(error) ? "rate_limit" : "timeout";
 
-        console.warn(
-          `[AI_FALLBACK] Model ${String(model)} failed. Switching to ${String(next)}`,
-        );
+        console.warn(`[AI_FALLBACK] Model ${String(model)} failed. Switching to ${String(next)}`);
 
         onFallback?.({
           from: model,
@@ -127,12 +108,7 @@ export function buildExplanationResult(args: {
   injectionPreFilterFlagged: boolean;
   lastExplanation?: string;
 }) {
-  const {
-    input,
-    finalResponse,
-    injectionPreFilterFlagged,
-    lastExplanation = "",
-  } = args;
+  const { input, finalResponse, injectionPreFilterFlagged, lastExplanation = "" } = args;
 
   let parsed: Partial<AISecurityExplanationOutput> = {};
   let usedParseFallback = false;
@@ -166,19 +142,13 @@ export function buildExplanationResult(args: {
     }
   }
 
-  const explanation =
-    parsed.explanation ||
-    lastExplanation ||
-    "No explanation provided.";
+  const explanation = parsed.explanation || lastExplanation || "No explanation provided.";
 
   const result = AISecurityExplanationOutputSchema.parse({
     explanation,
-    remediationSuggestions:
-      parsed.remediationSuggestions ||
-      "No remediation suggestions provided.",
+    remediationSuggestions: parsed.remediationSuggestions || "No remediation suggestions provided.",
     promptInjectionSuspected:
-      injectionPreFilterFlagged ||
-      contradictsSeverity(input.severity, explanation),
+      injectionPreFilterFlagged || contradictsSeverity(input.severity, explanation),
   });
 
   return {
@@ -192,10 +162,7 @@ export function shouldCacheExplanation(args: {
   model: unknown;
   models: unknown[];
 }): boolean {
-  return (
-    !args.usedParseFallback &&
-    args.model === args.models[0]
-  );
+  return !args.usedParseFallback && args.model === args.models[0];
 }
 
 export function toUserFacingError(error: unknown): string {
@@ -207,7 +174,5 @@ export function toUserFacingError(error: unknown): string {
     return "AI provider connection timed out. Please try again.";
   }
 
-  return error instanceof Error
-    ? error.message
-    : "AI generation failed.";
+  return error instanceof Error ? error.message : "AI generation failed.";
 }
