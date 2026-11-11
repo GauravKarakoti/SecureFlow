@@ -9,11 +9,14 @@
  *   npx tsx scripts/sync-threat-feed.ts
  *   npx tsx scripts/sync-threat-feed.ts --dry-run
  *   npx tsx scripts/sync-threat-feed.ts --out custom-path.json
+ *   npx tsx scripts/sync-threat-feed.ts --kev
+ *   npx tsx scripts/sync-threat-feed.ts --kev --dry-run
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { syncCisaKevCatalog } from "../cli/src/threat-intel-feed";
 import {
   DEFAULT_FEED_PATH,
   DEFAULT_THREAT_FEED_SOURCES,
@@ -30,6 +33,30 @@ async function main() {
     outIndex !== -1 && args[outIndex + 1]
       ? path.resolve(process.cwd(), args[outIndex + 1])
       : DEFAULT_FEED_PATH;
+
+  const syncKev =
+    args.includes("--kev") || args.includes("--vulnerability-advisories");
+
+  if (syncKev) {
+    if (!isQuiet) {
+      console.log("SecureFlow CISA Known Exploited Vulnerabilities Sync");
+      console.log("=====================================================");
+      console.log(`Dry Run Mode: ${isDryRun ? "YES (No writes)" : "NO"}`);
+      console.log("Source: CISA Known Exploited Vulnerabilities Catalog");
+    }
+
+    const result = await syncCisaKevCatalog({ dryRun: isDryRun });
+
+    if (!isQuiet) {
+      console.log(`Catalog version: ${result.catalogVersion}`);
+      console.log(`Date released: ${result.dateReleased}`);
+      console.log(`Total vulnerabilities: ${result.totalVulnerabilities}`);
+      console.log(`New vulnerabilities: ${result.newlyAdded}`);
+      console.log(isDryRun ? "Dry run completed; no data was saved." : "Catalog synchronized.");
+    }
+
+    return 0;
+  }
 
   if (!isQuiet) {
     console.log("🛡️  SecureFlow Red-Team Threat Feed Synchronizer");

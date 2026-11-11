@@ -1,24 +1,26 @@
-export async function queryLiveThreatIntelligence(query: string): Promise<string> {
-  const q = query.trim().toLowerCase();
-  if (!q) {
-    // An empty query would substring-match every knowledge-base entry and
-    // fabricate an advisory, so return no result instead.
-    return "";
-  }
-  const match = KNOWLEDGE_BASE.find(
-    (item) =>
-      item.description.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q) ||
-      (item.cve && item.cve.toLowerCase().includes(q)),
-  );
+import {
+  lookupCisaKevEntry,
+  lookupOsvAdvisory,
+  searchCisaKevCatalog,
+  type CisaKevVulnerability,
+} from "./threat-intel-feed.js";
 
-  if (match) {
-    return `[Threat Intelligence Advisory - ${match.id} (${match.severity.toUpperCase()})]
-Category: ${match.category}
-Guidance: ${match.remediationGuidance}`;
-  }
+export interface ThreatIntelligenceEntry {
+  id: string;
+  category: string;
+  description: string;
+  severity: string;
+  cve?: string;
+  remediationGuidance: string;
+}
 
-  return "";
+export interface ThreatIntelligenceSearchResult extends ThreatIntelligenceEntry {
+  source: "CISA KEV" | "BUNDLED";
+  knownExploited: boolean | null;
+  dateAdded?: string;
+  dueDate?: string;
+  vendorProject?: string;
+  product?: string;
 }
 
 export const KNOWLEDGE_BASE: ThreatIntelligenceEntry[] = [
@@ -69,11 +71,172 @@ export const KNOWLEDGE_BASE: ThreatIntelligenceEntry[] = [
   },
 ];
 
-export interface ThreatIntelligenceEntry {
-  id: string;
-  category: string;
-  description: string;
-  severity: string;
-  cve?: string;
-  remediationGuidance: string;
+function mapKevEntry(item: CisaKevVulnerability): ThreatIntelligenceSearchResult {
+  return {
+    id: item.cveID,
+    cve: item.cveID,
+    category: item.vulnerabilityName,
+    description: item.shortDescription,
+    severity: "not-provided",
+    remediationGuidance: item.requiredAction,
+    source: "CISA KEV",
+    knownExploited: true,
+    dateAdded: item.dateAdded,
+    dueDate: item.dueDate,
+    vendorProject: item.vendorProject,
+    product: item.product,
+  };
+}
+
+function mapBundledEntry(
+  item: ThreatIntelligenceEntry,
+): ThreatIntelligenceSearchResult {
+  return {
+    ...item,
+    source: "BUNDLED",
+    knownExploited: null,
+  };
+}
+
+/**
+ * Search CISA's synchronized KEV catalog and the bundled offline knowledge base.
+ * The absence of a CVE from KEV is not evidence that it is harmless.
+ */
+export async function searchThreatIntelligence(
+  query: string,
+  limit = 20,
+): Promise<ThreatIntelligenceSearchResult[]> {
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized || normalized.length > 200) return [];
+
+  let liveMatches: CisaKevVulnerability[] = [];
+
+  try {
+    liveMatches = await searchCisaKevCatalog(normalized, limit);
+  } catch {
+    // The bundled knowledge base remains available during feed/cache outages.
+  }
+
+  const bundledMatches = KNOWLEDGE_BASE.filter(
+    (item) =>
+      item.id.toLowerCase().includes(normalized) ||
+      item.description.toLowerCase().includes(normalized) ||
+      item.category.toLowerCase().includes(normalized) ||
+      (item.cve?.toLowerCase().includes(normalized) ?? false),
+  );
+
+  const results = new Map<string, ThreatIntelligenceSearchResult>();
+
+  for (const item of bundledMatches) {
+    results.set(item.id, mapBundledEntry(item));
+  }
+
+  for (const item of liveMatches) {
+    const existing = results.get(item.cveID);
+    const liveEntry = mapKevEntry(item);
+
+    results.set(
+      item.cveID,
+      existing
+        ? {
+            ...liveEntry,
+            category: existing.category,
+            severity: existing.severity,
+          }
+        : liveEntry,
+    );
+  }
+
+  return [...results.values()].slice(0, Math.max(1, Math.min(limit, 50)));
+}
+
+/**
+ * Look up an individual CVE through OSV and CISA KEV.
+ * Falls back to the bundled record when live services are unavailable or
+ * do not contain the identifier.
+ */
+export async function lookupThreatIntelligenceById(
+  identifier: string,
+): Promise<Record<string, unknown> | null> {
+  const normalized = identifier.trim().toUpperCase();
+
+  if (!normalized || normalized.length > 100) return null;
+
+  const bundled = KNOWLEDGE_BASE.find(
+    (item) =>
+      item.id.toUpperCase() === normalized ||
+      item.cve?.toUpperCase() === normalized,
+  );
+
+  if (!/^CVE-\d{4}-\d{4,19}$/.test(normalized)) {
+    return bundled
+      ? { ...bundled, source: "BUNDLED", knownExploited: false }
+      : null;
+  }
+
+  const [osvResult, kevResult] = await Promise.allSettled([
+    lookupOsvAdvisory(normalized),
+    lookupCisaKevEntry(normalized),
+  ]);
+
+  const osv = osvResult.status === "fulfilled" ? osvResult.value : null;
+  const kev = kevResult.status === "fulfilled" ? kevResult.value : null;
+  const liveLookupUnavailable =
+    osvResult.status === "rejected" || kevResult.status === "rejected";
+
+  if (osv || kev) {
+    return {
+      id: osv?.id ?? normalized,
+      cve: normalized,
+      aliases: osv?.aliases ?? [],
+      summary: osv?.summary ?? kev?.vulnerabilityName ?? bundled?.category,
+      category: bundled?.category ?? kev?.vulnerabilityName ?? "Vulnerability",
+      details: osv?.details ?? kev?.shortDescription,
+      published: osv?.published,
+      modified: osv?.modified,
+      severity: bundled?.severity ?? "unknown",
+      affected: osv?.affected ?? [],
+      source: osv && kev ? "OSV + CISA KEV" : osv ? "OSV" : "CISA KEV",
+      knownExploited: kev ? true : kevResult.status === "fulfilled" ? false : null,
+      cisaKev: kev,
+      remediationGuidance:
+        kev?.requiredAction ?? bundled?.remediationGuidance ??
+        "Review the advisory's affected versions and apply the vendor-provided security update.",
+      liveLookupUnavailable,
+    };
+  }
+
+  if (bundled) {
+    return {
+      ...bundled,
+      source: "BUNDLED",
+      knownExploited: liveLookupUnavailable ? null : false,
+      liveLookupUnavailable,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Backwards-compatible formatted lookup used by existing CLI consumers.
+ */
+export async function queryLiveThreatIntelligence(
+  query: string,
+): Promise<string> {
+  const q = query.trim();
+
+  if (!q) return "";
+
+  const matches = await searchThreatIntelligence(q, 1);
+  const match = matches[0];
+
+  if (!match) return "";
+
+  return `[Threat Intelligence Advisory - ${match.id} (${match.severity.toUpperCase()})]
+Category: ${match.category}
+Source: ${match.source}
+Known exploited: ${match.knownExploited}
+Guidance: ${match.remediationGuidance}`;
 }

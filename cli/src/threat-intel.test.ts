@@ -1,5 +1,25 @@
-import { describe, expect, it } from "vitest";
-import { KNOWLEDGE_BASE, queryLiveThreatIntelligence } from "./threat-intel.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  searchCisaKevCatalog: vi.fn(),
+  lookupCisaKevEntry: vi.fn(),
+  lookupOsvAdvisory: vi.fn(),
+}));
+
+vi.mock("./threat-intel-feed.js", () => mocks);
+
+import {
+  KNOWLEDGE_BASE,
+  lookupThreatIntelligenceById,
+  queryLiveThreatIntelligence,
+  searchThreatIntelligence,
+} from "./threat-intel.js";
+
+beforeEach(() => {
+  mocks.searchCisaKevCatalog.mockReset().mockResolvedValue([]);
+  mocks.lookupCisaKevEntry.mockReset().mockResolvedValue(null);
+  mocks.lookupOsvAdvisory.mockReset().mockResolvedValue(null);
+});
 
 describe("queryLiveThreatIntelligence", () => {
   it("returns an empty string for an empty query", async () => {
@@ -36,5 +56,72 @@ describe("queryLiveThreatIntelligence", () => {
       const result = await queryLiveThreatIntelligence(entry.cve ?? entry.category);
       expect(result).toContain(entry.id);
     }
+  });
+});
+
+describe("live threat intelligence integration", () => {
+  it("returns synchronized CISA KEV records with exploited status", async () => {
+    mocks.searchCisaKevCatalog.mockResolvedValueOnce([
+      {
+        cveID: "CVE-2024-12345",
+        vendorProject: "Example Vendor",
+        product: "Example Product",
+        vulnerabilityName: "Remote Code Execution",
+        dateAdded: "2024-01-01",
+        shortDescription: "Remote code execution vulnerability.",
+        requiredAction: "Apply the vendor security update.",
+        dueDate: "2024-02-01",
+      },
+    ]);
+
+    const results = await searchThreatIntelligence("CVE-2024-12345");
+
+    expect(results[0]).toMatchObject({
+      id: "CVE-2024-12345",
+      source: "CISA KEV",
+      knownExploited: true,
+    });
+  });
+
+  it("combines OSV details with CISA known-exploited status", async () => {
+    mocks.lookupOsvAdvisory.mockResolvedValueOnce({
+      id: "CVE-2024-12345",
+      summary: "Example vulnerability",
+      aliases: [],
+      severity: [{ type: "CVSS_V3", score: "9.8" }],
+    });
+
+    mocks.lookupCisaKevEntry.mockResolvedValueOnce({
+      cveID: "CVE-2024-12345",
+      vendorProject: "Example Vendor",
+      product: "Example Product",
+      vulnerabilityName: "Remote Code Execution",
+      dateAdded: "2024-01-01",
+      shortDescription: "Remote code execution vulnerability.",
+      requiredAction: "Apply the vendor security update.",
+      dueDate: "2024-02-01",
+    });
+
+    const result = await lookupThreatIntelligenceById("cve-2024-12345");
+
+    expect(result).toMatchObject({
+      id: "CVE-2024-12345",
+      source: "OSV + CISA KEV",
+      knownExploited: true,
+    });
+  });
+
+  it("falls back to the bundled knowledge base when live lookups fail", async () => {
+    mocks.lookupOsvAdvisory.mockRejectedValueOnce(new Error("OSV unavailable"));
+    mocks.lookupCisaKevEntry.mockRejectedValueOnce(new Error("CISA unavailable"));
+
+    const result = await lookupThreatIntelligenceById("CVE-2023-3409");
+
+    expect(result).toMatchObject({
+      id: "CVE-2023-3409",
+      source: "BUNDLED",
+      knownExploited: null,
+      liveLookupUnavailable: true,
+    });
   });
 });
