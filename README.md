@@ -447,13 +447,13 @@ Findings and audit logs accumulate over time. Self-hosters can bound storage gro
 DATA_RETENTION_DAYS=90
 ```
 
-Cleanup can be executed via the dedicated CLI script:
+Retention operations can be executed via the unified CLI script:
 
-- **CLI Dry Run (default)**: `npm run cleanup` (reports eligible counts without modifying the database)
-- **CLI Applied Deletion**: `npm run cleanup -- --apply` (deletes older findings and audit logs in batches)
-- **CLI Custom Window**: `npm run cleanup -- --days=30 --apply`
-- **CLI Custom Batch Size**: `npm run cleanup -- --batch-size=200 --apply`
-- **Database Purge**: `npm run db:purge` (or `npm run db:purge -- --apply` to purge older findings, scans, and audit entries)
+- **CLI Dry Run (default)**: `npm run retention` (reports eligible counts without modifying the database)
+- **CLI Applied Deletion**: `npm run retention -- --apply` (purges eligible older records in batches)
+- **CLI Custom Window**: `npm run retention -- --days=30 --apply`
+- **CLI Custom Batch Size**: `npm run retention -- --batch-size=200 --apply`
+- **CLI Target Isolation**: `npm run retention -- --only=auditLog --apply`
 
 > 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding`, `ScanResult`, and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
 
@@ -461,20 +461,19 @@ Cleanup can be executed via the dedicated CLI script:
 
 ## 📝 Available Scripts
 
-| Script               | Description                                                               |
-| -------------------- | ------------------------------------------------------------------------- |
-| `npm run dev`        | Start dev server on port 9002 with Turbopack                              |
-| `npm run build`      | Build for production                                                      |
-| `npm run start`      | Start production server                                                   |
-| `npm run lint`       | Run ESLint                                                                |
-| `npm run typecheck`  | Run TypeScript compiler checks                                            |
-| `npm run db:gen`     | Generate Prisma Client                                                    |
-| `npm run db:migrate` | Run Prisma migrations                                                     |
-| `npm run db:push`    | Push schema to DB without migrations                                      |
-| `npm run db:seed`    | Seed default policy templates                                             |
-| `npm run db:purge`   | Purge findings, scans, and audit entries older than DATA_RETENTION_DAYS   |
-| `npm run genkit:dev` | Start Genkit AI development environment                                   |
-| `npm run cleanup`    | Run data retention cleanup (dry-run default; pass `-- --apply` to delete) |
+| Script               | Description                                                                  |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `npm run dev`        | Start dev server on port 9002 with Turbopack                                 |
+| `npm run build`      | Build for production                                                         |
+| `npm run start`      | Start production server                                                      |
+| `npm run lint`       | Run ESLint                                                                   |
+| `npm run typecheck`  | Run TypeScript compiler checks                                               |
+| `npm run db:gen`     | Generate Prisma Client                                                       |
+| `npm run db:migrate` | Run Prisma migrations                                                        |
+| `npm run db:push`    | Push schema to DB without migrations                                         |
+| `npm run db:seed`    | Seed default policy templates                                                |
+| `npm run genkit:dev` | Start Genkit AI development environment                                      |
+| `npm run retention`  | Unified data retention runner (dry-run default; pass `-- --apply` to delete) |
 
 ---
 
