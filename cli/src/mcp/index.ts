@@ -592,9 +592,10 @@ export function createThreatIntelMcpServer(): Server {
 
       const result = {
         matches,
-        liveSummary: liveMatches.length > 0
-          ? `Found ${liveMatches.length} synchronized CISA KEV record(s).`
-          : null,
+        liveSummary:
+          liveMatches.length > 0
+            ? `Found ${liveMatches.length} synchronized CISA KEV record(s).`
+            : null,
       };
 
       return {
@@ -609,8 +610,7 @@ export function createThreatIntelMcpServer(): Server {
     }
 
     if (name === "lookup_cve") {
-      const cveId =
-        typeof args?.cveId === "string" ? args.cveId.trim().toUpperCase() : "";
+      const cveId = typeof args?.cveId === "string" ? args.cveId.trim().toUpperCase() : "";
 
       const match = await lookupThreatIntelligenceById(cveId);
 

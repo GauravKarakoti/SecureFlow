@@ -1,10 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { homedir } from "node:os";
-import {
-  getThreatIntelCache,
-  setThreatIntelCache,
-} from "./threat-intel-cache.js";
+import { getThreatIntelCache, setThreatIntelCache } from "./threat-intel-cache.js";
 
 export const CISA_KEV_FEED_URL =
   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
@@ -72,9 +69,10 @@ function isVulnerability(value: unknown): value is CisaKevVulnerability {
     return false;
   }
 
-  if (value.cwes !== undefined &&
-      (!Array.isArray(value.cwes) ||
-       !value.cwes.every((item) => typeof item === "string"))) {
+  if (
+    value.cwes !== undefined &&
+    (!Array.isArray(value.cwes) || !value.cwes.every((item) => typeof item === "string"))
+  ) {
     return false;
   }
 
@@ -98,7 +96,9 @@ function isCisaKevCatalog(value: unknown): value is CisaKevCatalog {
 /**
  * Load the last synchronized catalog from Redis or the local data file.
  */
-export async function loadCisaKevCatalog(options: { populateCache?: boolean } = {}): Promise<CisaKevCatalog | null> {
+export async function loadCisaKevCatalog(
+  options: { populateCache?: boolean } = {},
+): Promise<CisaKevCatalog | null> {
   try {
     const cached = await getThreatIntelCache<unknown>(CATALOG_CACHE_KEY);
 
@@ -144,9 +144,7 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
   });
 
   if (!response.ok) {
-    throw new Error(
-      `CISA KEV feed returned HTTP ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`CISA KEV feed returned HTTP ${response.status} ${response.statusText}`);
   }
 
   const payload: unknown = await response.json();
@@ -155,13 +153,9 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
     throw new Error("CISA KEV feed returned an invalid or incomplete catalog");
   }
 
-  const previousIds = new Set(
-    (previous?.vulnerabilities ?? []).map((item) => item.cveID),
-  );
+  const previousIds = new Set((previous?.vulnerabilities ?? []).map((item) => item.cveID));
 
-  const newlyAdded = payload.vulnerabilities.filter(
-    (item) => !previousIds.has(item.cveID),
-  ).length;
+  const newlyAdded = payload.vulnerabilities.filter((item) => !previousIds.has(item.cveID)).length;
 
   if (!dryRun) {
     await fs.mkdir(path.dirname(CISA_KEV_DATA_PATH), { recursive: true });
@@ -169,11 +163,7 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
     const temporaryPath = `${CISA_KEV_DATA_PATH}.${process.pid}.tmp`;
 
     try {
-      await fs.writeFile(
-        temporaryPath,
-        JSON.stringify(payload, null, 2) + "\n",
-        "utf8",
-      );
+      await fs.writeFile(temporaryPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 
       await fs.rename(temporaryPath, CISA_KEV_DATA_PATH);
     } catch (error) {
@@ -181,11 +171,7 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
       throw error;
     }
 
-    await setThreatIntelCache(
-      CATALOG_CACHE_KEY,
-      payload,
-      CATALOG_TTL_SECONDS,
-    );
+    await setThreatIntelCache(CATALOG_CACHE_KEY, payload, CATALOG_TTL_SECONDS);
   }
 
   return {
@@ -224,16 +210,12 @@ export async function searchCisaKevCatalog(
         ...(item.cwes ?? []),
       ];
 
-      return searchable.some((field) =>
-        field.toLowerCase().includes(normalized),
-      );
+      return searchable.some((field) => field.toLowerCase().includes(normalized));
     })
     .slice(0, Math.max(1, Math.min(limit, 50)));
 }
 
-export async function lookupCisaKevEntry(
-  cveId: string,
-): Promise<CisaKevVulnerability | null> {
+export async function lookupCisaKevEntry(cveId: string): Promise<CisaKevVulnerability | null> {
   const normalized = cveId.trim().toUpperCase();
 
   if (!/^CVE-\d{4}-\d{4,19}$/.test(normalized)) return null;
@@ -241,16 +223,10 @@ export async function lookupCisaKevEntry(
   const catalog = await loadCisaKevCatalog();
 
   if (!catalog) {
-    throw new Error(
-      "CISA KEV catalog unavailable. Run the vulnerability feed sync first.",
-    );
+    throw new Error("CISA KEV catalog unavailable. Run the vulnerability feed sync first.");
   }
 
-  return (
-    catalog.vulnerabilities.find(
-      (item) => item.cveID.toUpperCase() === normalized,
-    ) ?? null
-  );
+  return catalog.vulnerabilities.find((item) => item.cveID.toUpperCase() === normalized) ?? null;
 }
 
 export interface OsvLiveAdvisory {
@@ -265,20 +241,14 @@ export interface OsvLiveAdvisory {
 }
 
 function isOsvLiveAdvisory(value: unknown): value is OsvLiveAdvisory {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    /^CVE-\d{4}-\d{4,19}$/i.test(value.id)
-  );
+  return isRecord(value) && typeof value.id === "string" && /^CVE-\d{4}-\d{4,19}$/i.test(value.id);
 }
 
 /**
  * Fetch an individual CVE from OSV.dev, using Redis before making a network call.
  * Throws on network/API failures so callers can distinguish outages from 404s.
  */
-export async function lookupOsvAdvisory(
-  cveId: string,
-): Promise<OsvLiveAdvisory | null> {
+export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory | null> {
   const normalized = cveId.trim().toUpperCase();
 
   if (!/^CVE-\d{4}-\d{4,19}$/.test(normalized)) return null;
@@ -288,20 +258,15 @@ export async function lookupOsvAdvisory(
   const cached = await getThreatIntelCache<unknown>(cacheKey);
   if (isOsvLiveAdvisory(cached)) return cached;
 
-  const response = await fetch(
-    `https://api.osv.dev/v1/vulns/${encodeURIComponent(normalized)}`,
-    {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    },
-  );
+  const response = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(normalized)}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 
   if (response.status === 404) return null;
 
   if (!response.ok) {
-    throw new Error(
-      `OSV lookup failed: HTTP ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`OSV lookup failed: HTTP ${response.status} ${response.statusText}`);
   }
 
   const payload: unknown = await response.json();

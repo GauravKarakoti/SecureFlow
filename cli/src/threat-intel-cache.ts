@@ -1,4 +1,4 @@
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 
 const CACHE_PREFIX = "secureflow:threat-intel:v1:";
 const DEFAULT_TTL_SECONDS = 60 * 60;

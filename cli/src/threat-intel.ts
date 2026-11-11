@@ -88,9 +88,7 @@ function mapKevEntry(item: CisaKevVulnerability): ThreatIntelligenceSearchResult
   };
 }
 
-function mapBundledEntry(
-  item: ThreatIntelligenceEntry,
-): ThreatIntelligenceSearchResult {
+function mapBundledEntry(item: ThreatIntelligenceEntry): ThreatIntelligenceSearchResult {
   return {
     ...item,
     source: "BUNDLED",
@@ -164,15 +162,11 @@ export async function lookupThreatIntelligenceById(
   if (!normalized || normalized.length > 100) return null;
 
   const bundled = KNOWLEDGE_BASE.find(
-    (item) =>
-      item.id.toUpperCase() === normalized ||
-      item.cve?.toUpperCase() === normalized,
+    (item) => item.id.toUpperCase() === normalized || item.cve?.toUpperCase() === normalized,
   );
 
   if (!/^CVE-\d{4}-\d{4,19}$/.test(normalized)) {
-    return bundled
-      ? { ...bundled, source: "BUNDLED", knownExploited: false }
-      : null;
+    return bundled ? { ...bundled, source: "BUNDLED", knownExploited: false } : null;
   }
 
   const [osvResult, kevResult] = await Promise.allSettled([
@@ -182,8 +176,7 @@ export async function lookupThreatIntelligenceById(
 
   const osv = osvResult.status === "fulfilled" ? osvResult.value : null;
   const kev = kevResult.status === "fulfilled" ? kevResult.value : null;
-  const liveLookupUnavailable =
-    osvResult.status === "rejected" || kevResult.status === "rejected";
+  const liveLookupUnavailable = osvResult.status === "rejected" || kevResult.status === "rejected";
 
   if (osv || kev) {
     return {
@@ -201,7 +194,8 @@ export async function lookupThreatIntelligenceById(
       knownExploited: kev ? true : kevResult.status === "fulfilled" ? false : null,
       cisaKev: kev,
       remediationGuidance:
-        kev?.requiredAction ?? bundled?.remediationGuidance ??
+        kev?.requiredAction ??
+        bundled?.remediationGuidance ??
         "Review the advisory's affected versions and apply the vendor-provided security update.",
       liveLookupUnavailable,
     };
@@ -222,9 +216,7 @@ export async function lookupThreatIntelligenceById(
 /**
  * Backwards-compatible formatted lookup used by existing CLI consumers.
  */
-export async function queryLiveThreatIntelligence(
-  query: string,
-): Promise<string> {
+export async function queryLiveThreatIntelligence(query: string): Promise<string> {
   const q = query.trim();
 
   if (!q) return "";

@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 3.1.0
+
+### Minor Changes
+
+- 3be7865: integrate ArmorIQ intent verification hooks and granular policy guardrails in CI (#1710)
+- 5656a5f: add interactive TUI warning tables, progress spinners, and --init husky ergonomics (#1712)
+- 69d2f56: add end-to-end Playwright testing and AI evaluation pipeline (#1714)
+
 ## 2.13.0
 
 ### Minor Changes
