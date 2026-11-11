@@ -34,8 +34,7 @@ async function main() {
       ? path.resolve(process.cwd(), args[outIndex + 1])
       : DEFAULT_FEED_PATH;
 
-  const syncKev =
-    args.includes("--kev") || args.includes("--vulnerability-advisories");
+  const syncKev = args.includes("--kev") || args.includes("--vulnerability-advisories");
 
   if (syncKev) {
     if (!isQuiet) {

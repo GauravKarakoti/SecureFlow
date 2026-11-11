@@ -1,11 +1,13 @@
 import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { loadThreatFeedDatasetMock, syncThreatFeedsMock, syncCisaKevCatalogMock } = vi.hoisted(() => ({
-  loadThreatFeedDatasetMock: vi.fn(),
-  syncThreatFeedsMock: vi.fn(),
-  syncCisaKevCatalogMock: vi.fn(),
-}));
+const { loadThreatFeedDatasetMock, syncThreatFeedsMock, syncCisaKevCatalogMock } = vi.hoisted(
+  () => ({
+    loadThreatFeedDatasetMock: vi.fn(),
+    syncThreatFeedsMock: vi.fn(),
+    syncCisaKevCatalogMock: vi.fn(),
+  }),
+);
 
 vi.mock("../src/lib/security/threat-feed", () => ({
   DEFAULT_FEED_PATH: "/mock/default/threat-feed.json",
@@ -45,7 +47,6 @@ describe("scripts/sync-threat-feed.ts (#1330)", () => {
       },
     });
   });
-
 
   it("supports CISA KEV synchronization in dry-run mode", async () => {
     const originalArgv = process.argv;
