@@ -1,9 +1,10 @@
 import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { loadThreatFeedDatasetMock, syncThreatFeedsMock } = vi.hoisted(() => ({
+const { loadThreatFeedDatasetMock, syncThreatFeedsMock, syncCisaKevCatalogMock } = vi.hoisted(() => ({
   loadThreatFeedDatasetMock: vi.fn(),
   syncThreatFeedsMock: vi.fn(),
+  syncCisaKevCatalogMock: vi.fn(),
 }));
 
 vi.mock("../src/lib/security/threat-feed", () => ({
@@ -16,12 +17,22 @@ vi.mock("../src/lib/security/threat-feed", () => ({
   syncThreatFeeds: syncThreatFeedsMock,
 }));
 
+vi.mock("../cli/src/threat-intel-feed", () => ({
+  syncCisaKevCatalog: syncCisaKevCatalogMock,
+}));
+
 import { syncThreatFeedMain } from "./sync-threat-feed";
 
 describe("scripts/sync-threat-feed.ts (#1330)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     loadThreatFeedDatasetMock.mockReturnValue({ payloads: [{ id: "p1" }, { id: "p2" }] });
+    syncCisaKevCatalogMock.mockResolvedValue({
+      catalogVersion: "test",
+      totalVulnerabilities: 10,
+      newlyAdded: 2,
+      dateReleased: "2026-11-11T00:00:00.000Z",
+    });
     syncThreatFeedsMock.mockResolvedValue({
       success: true,
       totalPayloads: 5,
@@ -33,6 +44,22 @@ describe("scripts/sync-threat-feed.ts (#1330)", () => {
         PROMPT_LEAKAGE: 2,
       },
     });
+  });
+
+
+  it("supports CISA KEV synchronization in dry-run mode", async () => {
+    const originalArgv = process.argv;
+    process.argv = ["node", "scripts/sync-threat-feed.ts", "--kev", "--dry-run", "--quiet"];
+
+    try {
+      const exitCode = await syncThreatFeedMain();
+
+      expect(exitCode).toBe(0);
+      expect(syncCisaKevCatalogMock).toHaveBeenCalledWith({ dryRun: true });
+      expect(syncThreatFeedsMock).not.toHaveBeenCalled();
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 
   it("executes threat feed synchronization in default mode", async () => {

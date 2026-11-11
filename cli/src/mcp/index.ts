@@ -3,7 +3,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
-import { KNOWLEDGE_BASE, queryLiveThreatIntelligence } from "../threat-intel.js";
+import { lookupThreatIntelligenceById, searchThreatIntelligence } from "../threat-intel.js";
 import { generateSarifReport } from "../sarif.js";
 import type { FileScanResult, Severity, Violation } from "../scanner.js";
 import {
@@ -413,7 +413,7 @@ export function createThreatIntelMcpServer(): Server {
         {
           name: "query_threat_intelligence",
           description:
-            "Search the bundled advisory examples for security context and remediation recommendations. Does not query a live CVE service.",
+            "Search the synchronized CISA Known Exploited Vulnerabilities catalog and bundled offline examples. Absence from CISA KEV does not mean a vulnerability is safe.",
           inputSchema: {
             type: "object",
             properties: {
@@ -433,7 +433,7 @@ export function createThreatIntelMcpServer(): Server {
         {
           name: "lookup_cve",
           description:
-            "Look up detailed threat advisory, severity, and remediation guidance for a specific CVE or CWE ID.",
+            "Look up an individual CVE using OSV advisory data and the synchronized CISA KEV catalog, with bundled offline fallback.",
           inputSchema: {
             type: "object",
             properties: {
@@ -586,39 +586,33 @@ export function createThreatIntelMcpServer(): Server {
     }
 
     if (name === "query_threat_intelligence") {
-      const query = String(args?.query || "").toLowerCase();
-      const matches = KNOWLEDGE_BASE.filter(
-        (item) =>
-          item.description.toLowerCase().includes(query) ||
-          item.category.toLowerCase().includes(query) ||
-          (item.cve && item.cve.toLowerCase().includes(query)),
-      );
+      const query = typeof args?.query === "string" ? args.query : "";
+      const matches = await searchThreatIntelligence(query);
+      const liveMatches = matches.filter((item) => item.source !== "BUNDLED");
 
-      const liveSummary = await queryLiveThreatIntelligence(String(args?.query || ""));
+      const result = {
+        matches,
+        liveSummary: liveMatches.length > 0
+          ? `Found ${liveMatches.length} synchronized CISA KEV record(s).`
+          : null,
+      };
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(
-              matches.length > 0 ? matches : KNOWLEDGE_BASE.slice(0, 2),
-              null,
-              2,
-            ),
+            text: JSON.stringify(matches, null, 2),
           },
         ],
-        structuredContent: {
-          matches: matches.length > 0 ? matches : KNOWLEDGE_BASE.slice(0, 2),
-          liveSummary: liveSummary || null,
-        },
+        structuredContent: result,
       };
     }
 
     if (name === "lookup_cve") {
-      const cveId = String(args?.cveId || "").toUpperCase();
-      const match = KNOWLEDGE_BASE.find(
-        (item) => item.id.toUpperCase() === cveId || (item.cve && item.cve.toUpperCase() === cveId),
-      );
+      const cveId =
+        typeof args?.cveId === "string" ? args.cveId.trim().toUpperCase() : "";
+
+      const match = await lookupThreatIntelligenceById(cveId);
 
       if (match) {
         return {
@@ -628,6 +622,7 @@ export function createThreatIntelMcpServer(): Server {
               text: JSON.stringify(match, null, 2),
             },
           ],
+          structuredContent: match,
         };
       }
 
@@ -637,7 +632,8 @@ export function createThreatIntelMcpServer(): Server {
             type: "text",
             text: JSON.stringify({
               error: `No advisory found for ID: ${cveId}`,
-              recommendation: "Apply defensive programming practices and input sanitization.",
+              recommendation:
+                "Verify the identifier and consult the vendor security advisory. Absence from CISA KEV does not indicate that a vulnerability is safe.",
             }),
           },
         ],
