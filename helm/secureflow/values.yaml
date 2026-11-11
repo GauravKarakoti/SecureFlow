@@ -309,7 +309,7 @@ retention:
     repository: secureflow/app
     pullPolicy: IfNotPresent
     tag: ""
-  command: ["node", "/app/scripts/retention.js"]
+  command: ["node", "/app/scripts/retention.js", "--apply"]
   resources:
     limits:
       cpu: 500m

@@ -55,6 +55,18 @@ describe("scripts/retention.ts - CLI and Data Deletion Boundaries (#1330)", () =
       expect(() => parseArgs(["--batch-size=abc"])).toThrow(/whole number/);
     });
 
+    it("parses valid --days flag", () => {
+      const options = parseArgs(["--days=45"]);
+      expect(options.days).toBe(45);
+    });
+
+    it("rejects invalid or out-of-range --days values", () => {
+      expect(() => parseArgs(["--days=0"])).toThrow(/between 1 and 3650/);
+      expect(() => parseArgs(["--days=-5"])).toThrow(/between 1 and 3650/);
+      expect(() => parseArgs(["--days=4000"])).toThrow(/between 1 and 3650/);
+      expect(() => parseArgs(["--days=abc"])).toThrow(/whole number/);
+    });
+
     it("recognizes --help and -h flags", () => {
       expect(parseArgs(["--help"]).help).toBe(true);
       expect(parseArgs(["-h"]).help).toBe(true);
@@ -116,6 +128,55 @@ describe("scripts/retention.ts - CLI and Data Deletion Boundaries (#1330)", () =
       const expectedWebhookCutoff = new Date(fixedNow.getTime() - 30 * 24 * 60 * 60 * 1000);
       expect(webhookRule.cutoff.toISOString()).toBe(expectedWebhookCutoff.toISOString());
     });
+
+    it("honours DATA_RETENTION_DAYS as a unified fallback across targets", () => {
+      const fixedNow = new Date("2026-10-15T12:00:00.000Z");
+      const resolved = resolveRetentionPolicy({ DATA_RETENTION_DAYS: "45" }, fixedNow);
+
+      for (const rule of resolved) {
+        expect(rule.days).toBe(45);
+        const expected = new Date(fixedNow.getTime() - 45 * 24 * 60 * 60 * 1000);
+        expect(rule.cutoff.toISOString()).toBe(expected.toISOString());
+      }
+    });
+
+    it("allows specific env vars to override DATA_RETENTION_DAYS", () => {
+      const fixedNow = new Date("2026-10-15T12:00:00.000Z");
+      const resolved = resolveRetentionPolicy(
+        {
+          DATA_RETENTION_DAYS: "45",
+          AUDIT_LOG_RETENTION_DAYS: "120",
+        },
+        fixedNow,
+      );
+
+      const auditRule = resolved.find((r) => r.target === "auditLog")!;
+      expect(auditRule.days).toBe(120);
+
+      const webhookRule = resolved.find((r) => r.target === "webhookEvent")!;
+      expect(webhookRule.days).toBe(45);
+    });
+
+    it("rejects invalid DATA_RETENTION_DAYS", () => {
+      expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "0" })).toThrow(
+        RetentionConfigError,
+      );
+      expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "abc" })).toThrow(
+        RetentionConfigError,
+      );
+      expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "4000" })).toThrow(
+        RetentionConfigError,
+      );
+    });
+
+    it("honours explicit overrideDays across all targets", () => {
+      const fixedNow = new Date("2026-10-15T12:00:00.000Z");
+      const resolved = resolveRetentionPolicy({}, fixedNow, 60);
+
+      for (const rule of resolved) {
+        expect(rule.days).toBe(60);
+      }
+    });
   });
 
   describe("Execution & Error Exit Codes (runRetentionCli)", () => {
@@ -154,8 +215,18 @@ describe("scripts/retention.ts - CLI and Data Deletion Boundaries (#1330)", () =
       expect(code).toBe(2);
     });
 
+    it("returns exit code 2 on invalid --days argument", async () => {
+      const code = await runRetentionCli(["--days=0"], mockPrisma);
+      expect(code).toBe(2);
+    });
+
     it("returns exit code 0 on successful dry run", async () => {
       const code = await runRetentionCli(["--dry-run", "--only=webhookEvent"], mockPrisma);
+      expect(code).toBe(0);
+    });
+
+    it("returns exit code 0 on successful dry run with --days flag", async () => {
+      const code = await runRetentionCli(["--days=30", "--only=webhookEvent"], mockPrisma);
       expect(code).toBe(0);
     });
   });

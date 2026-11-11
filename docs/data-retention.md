@@ -177,8 +177,8 @@ DATA_RETENTION_DAYS=90
 ```
 
 - When unset: retention deletion is disabled.
-- When set: older findings and audit logs can be cleaned up in batches via CLI (`npm run cleanup -- --apply`).
-- **Dry-run mode**: `npm run cleanup` reports counts of affected records and deletes nothing.
+- When set: older findings and audit logs can be cleaned up in batches via CLI (`npm run retention -- --apply`).
+- **Dry-run mode**: `npm run retention` reports counts of affected records and deletes nothing.
 - **Safety guarantee**: The cleanup never touches users, repositories, or policies.
 
 ---
