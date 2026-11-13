@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const execSyncMock = vi.fn();
+vi.mock("node:child_process", () => ({
+  execSync: (...args: unknown[]) => execSyncMock(...args),
+}));
+vi.mock("child_process", () => ({
+  execSync: (...args: unknown[]) => execSyncMock(...args),
+}));
+
 import {
   colors,
   TerminalSpinner,
@@ -147,6 +156,7 @@ describe("cli/src/lib/tui (#1712)", () => {
     let tempDir: string;
 
     beforeEach(() => {
+      execSyncMock.mockReset();
       tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-husky-test-"));
     });
 
@@ -186,6 +196,60 @@ describe("cli/src/lib/tui (#1712)", () => {
       const res = initHuskyPreCommitHook(tempDir);
       expect(res.success).toBe(true);
       expect(res.message).toContain("already configured");
+    });
+
+    it("runs npm init --y when package.json does not exist, runs npx husky init, and updates pre-commit (#1731)", () => {
+      const commandsExecuted: string[] = [];
+      const mockExec = vi.fn((cmd: string) => {
+        commandsExecuted.push(cmd);
+        if (cmd === "npx husky init") {
+          // Simulate husky init creating .husky/pre-commit with default npm test
+          const huskyDir = path.join(tempDir, ".husky");
+          if (!fs.existsSync(huskyDir)) fs.mkdirSync(huskyDir, { recursive: true });
+          fs.writeFileSync(path.join(huskyDir, "pre-commit"), "npm test\n", { mode: 0o755 });
+        }
+      });
+
+      const res = initHuskyPreCommitHook(tempDir, mockExec);
+
+      expect(res.success).toBe(true);
+      expect(mockExec).toHaveBeenCalledWith("npm init --y", expect.objectContaining({ cwd: tempDir }));
+      expect(mockExec).toHaveBeenCalledWith("npx husky init", expect.objectContaining({ cwd: tempDir }));
+      expect(commandsExecuted).toEqual(["npm init --y", "npx husky init"]);
+
+      const hookContent = fs.readFileSync(res.hookPath, "utf-8");
+      expect(hookContent).toContain("npm test");
+      expect(hookContent).toContain("npx secureflow");
+    });
+
+    it("skips npm init --y when package.json already exists (#1731)", () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: "existing-pkg" }));
+
+      const commandsExecuted: string[] = [];
+      const mockExec = vi.fn((cmd: string) => {
+        commandsExecuted.push(cmd);
+      });
+
+      const res = initHuskyPreCommitHook(tempDir, mockExec);
+
+      expect(res.success).toBe(true);
+      expect(commandsExecuted).not.toContain("npm init --y");
+      expect(commandsExecuted).toContain("npx husky init");
+      expect(fs.existsSync(res.hookPath)).toBe(true);
+    });
+
+    it("handles exec failure gracefully and ensures pre-commit hook is still created (#1731)", () => {
+      const mockExec = vi.fn(() => {
+        throw new Error("Command failed: npx not available");
+      });
+
+      const res = initHuskyPreCommitHook(tempDir, mockExec);
+
+      expect(res.success).toBe(true);
+      expect(fs.existsSync(res.hookPath)).toBe(true);
+      const content = fs.readFileSync(res.hookPath, "utf-8");
+      expect(content).toContain("npx secureflow");
     });
   });
 });

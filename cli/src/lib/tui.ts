@@ -9,6 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import type { FileScanResult, Violation } from "../scanner.js";
 import type { AiFinding } from "./api-client.js";
 
@@ -203,18 +204,71 @@ export function formatTuiScanSummary(
   return `${summaryBanner}\n${table}\n`;
 }
 
-/**
- * Automatically initializes and installs local husky pre-commit hooks (.husky/pre-commit).
- */
-export function initHuskyPreCommitHook(targetDir: string = process.cwd()): {
+export interface InitHookResult {
   success: boolean;
   message: string;
   hookPath: string;
-} {
+}
+
+export type CommandExecutor = (
+  command: string,
+  options: { cwd: string; stdio?: any },
+) => void | string | Buffer;
+
+export interface InitHuskyOptions {
+  execFn?: CommandExecutor;
+}
+
+/**
+ * Automatically initializes and installs local husky pre-commit hooks (.husky/pre-commit) (#1712, #1731).
+ *
+ * Sequence:
+ * 1. Runs `npm init --y` if package.json does not already exist.
+ * 2. Runs `npx husky init`.
+ * 3. Updates the `.husky/pre-commit` file with `npx secureflow`.
+ */
+export function initHuskyPreCommitHook(
+  targetDir: string = process.cwd(),
+  optionsOrExecFn?: CommandExecutor | InitHuskyOptions,
+): InitHookResult {
   try {
+    const execFn: CommandExecutor =
+      typeof optionsOrExecFn === "function"
+        ? optionsOrExecFn
+        : (optionsOrExecFn?.execFn ?? execSync);
+
     const huskyDir = path.join(targetDir, ".husky");
     const preCommitPath = path.join(huskyDir, "pre-commit");
 
+    if (fs.existsSync(preCommitPath)) {
+      const existing = fs.readFileSync(preCommitPath, "utf-8");
+      if (existing.includes("secureflow")) {
+        return {
+          success: true,
+          message: "SecureFlow is already configured in .husky/pre-commit hook",
+          hookPath: preCommitPath,
+        };
+      }
+    }
+
+    // 1. Run npm init --y if not already exist (#1731)
+    const pkgJsonPath = path.join(targetDir, "package.json");
+    if (!fs.existsSync(pkgJsonPath)) {
+      try {
+        execFn("npm init --y", { cwd: targetDir, stdio: "ignore" });
+      } catch (err) {
+        // Continue if npm init --y encountered an issue
+      }
+    }
+
+    // 2. Run npx husky init (#1731)
+    try {
+      execFn("npx husky init", { cwd: targetDir, stdio: "ignore" });
+    } catch (err) {
+      // Continue to pre-commit hook update if npx husky init encountered an issue
+    }
+
+    // 3. Then update the pre-commit file with npx secureflow (#1731)
     if (!fs.existsSync(huskyDir)) {
       fs.mkdirSync(huskyDir, { recursive: true });
     }
