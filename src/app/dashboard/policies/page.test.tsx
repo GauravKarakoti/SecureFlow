@@ -20,6 +20,9 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
+  useRouter: () => ({
+    refresh: vi.fn(),
+  }),
 }));
 
 vi.mock("@/lib/prisma", () => ({
