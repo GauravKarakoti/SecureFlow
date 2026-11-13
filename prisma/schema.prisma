@@ -63,10 +63,11 @@ model User {
   accounts      Account[]
   sessions      Session[]
 
-  repositories  Repository[]
-  policyToggles UserPolicyToggle[]
-  roles         UserRole[]
-  auditLogs     AuditLog[]
+  repositories   Repository[]
+  policyToggles  UserPolicyToggle[]
+  policyVersions PolicyVersion[]
+  roles          UserRole[]
+  auditLogs      AuditLog[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -158,22 +159,22 @@ model Repository {
 }
 
 model PolicyTemplate {
-  id          String          @id @default(cuid())
-  name        String
-  description String
-  severity    FindingSeverity @default(HIGH)
-  action      String          @default("REVIEW REQUIRED")
-  rules       Json
+  id             String          @id @default(cuid())
+  name           String
+  description    String
+  severity       FindingSeverity @default(HIGH)
+  action         String          @default("REVIEW REQUIRED")
+  rules          Json
   isDefault      Boolean         @default(false)
   complianceTags String[]        @default([])
 
   activeToggles UserPolicyToggle[]
+  versions      PolicyVersion[]
   createdAt     DateTime           @default(now())
 
   @@index([isDefault])
   @@index([severity])
 }
-
 
 model UserPolicyToggle {
   id               String  @id @default(cuid())
@@ -189,6 +190,25 @@ model UserPolicyToggle {
   @@unique([userId, policyTemplateId])
   @@index([userId])
   @@index([policyTemplateId])
+}
+
+model PolicyVersion {
+  id               String          @id @default(cuid())
+  policyTemplateId String
+  userId           String
+  versionNumber    Int
+  name             String
+  description      String          @db.Text
+  severity         FindingSeverity
+  action           String
+  rules            Json?
+  createdAt        DateTime        @default(now())
+
+  template PolicyTemplate @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)
+  editor   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([policyTemplateId, versionNumber(sort: Desc)])
+  @@index([userId])
 }
 
 model PullRequest {
@@ -239,24 +259,23 @@ model ScanResult {
 }
 
 model Finding {
-  id                       String            @id @default(cuid())
+  id                       String                  @id @default(cuid())
   scanResultId             String
-  scanResult               ScanResult        @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
+  scanResult               ScanResult              @relation(fields: [scanResultId], references: [id], onDelete: Cascade)
   type                     FindingType
   severity                 FindingSeverity
   fileLocation             String
   lineStart                Int?
   lineEnd                  Int?
-  codeSnippet              String?           @db.Text
-  explanation              String?           @db.Text
-  remediation              String?           @db.Text
-  promptInjectionSuspected Boolean           @default(false)
-  fingerprint              String            @default("")
-  complianceTags           String[]          @default([])
-  createdAt                DateTime          @default(now())
+  codeSnippet              String?                 @db.Text
+  explanation              String?                 @db.Text
+  remediation              String?                 @db.Text
+  promptInjectionSuspected Boolean                 @default(false)
+  fingerprint              String                  @default("")
+  complianceTags           String[]                @default([])
+  createdAt                DateTime                @default(now())
   remediationPatch         RemediationPatch?
   armorIQLogs              ArmorIQEnforcementLog[]
-
 
   @@index([scanResultId])
   // Analytics date windows and newest-first findings within a scan (#1515).
@@ -267,7 +286,6 @@ model Finding {
   // per-bucket counts filter on (scanResultId, severity) together.
   // Retain the equality prefix for counts, then serve the bucket's date order.
   @@index([scanResultId, severity, createdAt(sort: Desc)])
-
   @@index([severity])
   @@index([type])
   @@index([createdAt(sort: Desc)])
@@ -411,26 +429,26 @@ enum ScanJobStatus {
 }
 
 model ScanJob {
-  id                   String          @id @default(cuid())
+  id                   String                  @id @default(cuid())
   repositoryId         String?
-  repository           Repository?     @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  repository           Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
   pullRequestId        String?
-  pullRequest          PullRequest?    @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
-  status               ScanJobStatus   @default(PENDING)
-  totalFiles           Int             @default(0)
-  scannedFiles         Int             @default(0)
-  vulnerabilitiesFound Int             @default(0)
+  pullRequest          PullRequest?            @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  status               ScanJobStatus           @default(PENDING)
+  totalFiles           Int                     @default(0)
+  scannedFiles         Int                     @default(0)
+  vulnerabilitiesFound Int                     @default(0)
   riskScore            Int?
   policyDecision       PolicyDecision?
   error                String?
-  queuedAt             DateTime        @default(now())
+  queuedAt             DateTime                @default(now())
   startedAt            DateTime?
   processingToken      String?
   leaseExpiresAt       DateTime?
   completedAt          DateTime?
   armorIQLogs          ArmorIQEnforcementLog[]
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   @@index([status])
   @@index([repositoryId])
@@ -457,23 +475,23 @@ model AuditEventLedger {
 }
 
 model ArmorIQEnforcementLog {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   scanJobId     String?
-  scanJob       ScanJob?  @relation(fields: [scanJobId], references: [id], onDelete: SetNull)
+  scanJob       ScanJob? @relation(fields: [scanJobId], references: [id], onDelete: SetNull)
   findingId     String?
-  finding       Finding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  finding       Finding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
   agentId       String
   toolName      String
-  decision      String    // "ALLOW", "BLOCK", "HOLD"
+  decision      String // "ALLOW", "BLOCK", "HOLD"
   ruleMatched   String?
-  justification String?   @db.Text
+  justification String?  @db.Text
   proofHash     String?
   signature     String?
   intentId      String?
-  frameworks    String[]  @default(["SOC 2", "ISO 27001"])
-  privacyLevel  String    @default("REDACTED")
-  timestamp     DateTime  @default(now())
-  createdAt     DateTime  @default(now())
+  frameworks    String[] @default(["SOC 2", "ISO 27001"])
+  privacyLevel  String   @default("REDACTED")
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
 
   @@index([scanJobId])
   @@index([findingId])
@@ -481,27 +499,26 @@ model ArmorIQEnforcementLog {
   @@index([timestamp(sort: Desc)])
 }
 
-
 /**
  * Persistent Audio Debrief Cache for ElevenLabs Text-to-Speech (#1377).
  * Maps generated vulnerability auditory debriefs to content hashes
  * to eliminate duplicate ElevenLabs synthesis costs and prevent latency spikes.
  */
 model AudioDebriefCache {
-  id            String    @id @default(cuid())
-  findingId     String?
-  contentHash   String    @unique
-  audioBase64   String    @db.Text
-  format        String    @default("audio/mpeg")
-  fileSize      Int       @default(0)
-  durationSec   Float?
-  source        String    @default("elevenlabs")
-  storageUrl    String?
-  hitCount      Int       @default(0)
-  lastAccessed  DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  expiresAt     DateTime?
+  id           String    @id @default(cuid())
+  findingId    String?
+  contentHash  String    @unique
+  audioBase64  String    @db.Text
+  format       String    @default("audio/mpeg")
+  fileSize     Int       @default(0)
+  durationSec  Float?
+  source       String    @default("elevenlabs")
+  storageUrl   String?
+  hitCount     Int       @default(0)
+  lastAccessed DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  expiresAt    DateTime?
 
   @@index([findingId])
   @@index([contentHash])
@@ -528,4 +545,3 @@ model ScanCache {
   @@index([expiresAt])
   @@map("scan_cache")
 }
-
