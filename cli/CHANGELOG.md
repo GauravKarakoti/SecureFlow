@@ -1,5 +1,11 @@
 # secureflow-cli
 
+## 3.2.0
+
+### Minor Changes
+
+- 7a77aea: feat(cli): [NSoC_2026] design beautiful terminal greeting for secureflow --init (#1732)
+
 ## 3.1.0
 
 ### Minor Changes

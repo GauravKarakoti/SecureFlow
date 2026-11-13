@@ -283,7 +283,9 @@ export function formatInitGreeting(
 
   const asciiBanner = bannerLines.map((line) => colors.cyan(colors.bold(line))).join("\n");
   const subtitle = colors.gray(`  🛡️  Zero-Config Git Pre-Commit Security Engine  •  v${version}`);
-  const divider = colors.gray("─────────────────────────────────────────────────────────────────────────");
+  const divider = colors.gray(
+    "─────────────────────────────────────────────────────────────────────────",
+  );
 
   let statusSection: string;
   if (result.success) {
@@ -302,12 +304,44 @@ export function formatInitGreeting(
     ].join("\n");
   }
 
-  const boxTop = colors.gray("┌─ Active Protections ──────────────────────────────────────────────────┐");
-  const boxL1  = colors.gray("│") + "  • " + colors.bold("Secret Detection") + "      " + colors.gray("API keys, tokens, private keys, passwords") + "    " + colors.gray("│");
-  const boxL2  = colors.gray("│") + "  • " + colors.bold("AI Security Review") + "    " + colors.gray("Vulnerability detection & code guardrails") + "    " + colors.gray("│");
-  const boxL3  = colors.gray("│") + "  • " + colors.bold("Web3 Smart Contracts") + "  " + colors.gray("Reentrancy, overflow & access vulnerability") + "  " + colors.gray("│");
-  const boxL4  = colors.gray("│") + "  • " + colors.bold("Threat Intelligence") + "   " + colors.gray("Live CVE advisories & pattern scoring") + "        " + colors.gray("│");
-  const boxBot = colors.gray("└───────────────────────────────────────────────────────────────────────┘");
+  const boxTop = colors.gray(
+    "┌─ Active Protections ──────────────────────────────────────────────────┐",
+  );
+  const boxL1 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Secret Detection") +
+    "      " +
+    colors.gray("API keys, tokens, private keys, passwords") +
+    "    " +
+    colors.gray("│");
+  const boxL2 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("AI Security Review") +
+    "    " +
+    colors.gray("Vulnerability detection & code guardrails") +
+    "    " +
+    colors.gray("│");
+  const boxL3 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Web3 Smart Contracts") +
+    "  " +
+    colors.gray("Reentrancy, overflow & access vulnerability") +
+    "  " +
+    colors.gray("│");
+  const boxL4 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Threat Intelligence") +
+    "   " +
+    colors.gray("Live CVE advisories & pattern scoring") +
+    "        " +
+    colors.gray("│");
+  const boxBot = colors.gray(
+    "└───────────────────────────────────────────────────────────────────────┘",
+  );
 
   const nextStepsSection = [
     colors.bold(colors.yellow("🚀 Next Steps:")),
