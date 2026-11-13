@@ -1918,6 +1918,63 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/policies/export:
+    get:
+      summary: Export policies as versioned JSON
+      description: Downloads all of the signed-in user's configured policies in versioned JSON format.
+      operationId: exportPolicies
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Policies exported successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+
+  /api/policies/import/preview:
+    post:
+      summary: Preview policy bundle import
+      description: Validates an uploaded policy bundle and previews changes against existing templates.
+      operationId: previewPolicyImport
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Preview of creations and updates
+        "400":
+          description: Invalid policy format or schema violation
+        "401":
+          description: Unauthorized
+        "413":
+          description: Payload exceeds 1 MB limit
+
+  /api/policies/import:
+    post:
+      summary: Apply policy bundle import
+      description: Validates and imports a policy bundle within a transaction, updating templates and user toggles.
+      operationId: importPolicies
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Policies imported successfully
+        "400":
+          description: Invalid policy format or schema violation
+        "401":
+          description: Unauthorized
+        "413":
+          description: Payload exceeds 1 MB limit
+
   /api/policies/test:
     post:
       summary: Test policy endpoint
