@@ -4,6 +4,7 @@ import { useState } from "react";
 import { DashboardSidebar, DashboardHeader, MobileDrawer } from "@/components/dashboard-nav";
 import { useSession } from "next-auth/react";
 import { VoiceAlertProvider } from "@/components/audio/voice-alert-provider";
+import { CommandPalette } from "@/components/command-palette";
 
 export function DashboardClientLayout({
   children,
@@ -23,6 +24,9 @@ export function DashboardClientLayout({
 
         {/* Mobile Slide-out Drawer */}
         <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+
+        {/* Global Command Palette (Ctrl/Cmd + K) */}
+        <CommandPalette />
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">

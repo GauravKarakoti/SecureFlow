@@ -215,12 +215,17 @@ export type CommandExecutor = (
   options: { cwd: string; stdio?: any },
 ) => void | string | Buffer;
 
+export interface InitGreetingOptions {
+  version?: string;
+  repoUrl?: string;
+}
+
 export interface InitHuskyOptions {
   execFn?: CommandExecutor;
 }
 
 /**
- * Automatically initializes and installs local husky pre-commit hooks (.husky/pre-commit) (#1712, #1731).
+ * Automatically initializes and installs local husky pre-commit hooks (.husky/pre-commit).
  *
  * Sequence:
  * 1. Runs `npm init --y` if package.json does not already exist.
@@ -308,4 +313,120 @@ export function initHuskyPreCommitHook(
       hookPath: "",
     };
   }
+}
+
+/**
+ * Formats a terminal greeting banner and onboarding guide for `secureflow --init` (#1732).
+ */
+export function formatInitGreeting(
+  result: InitHookResult,
+  options: InitGreetingOptions = {},
+): string {
+  const version = options.version || "3.1.0";
+  const repoUrl = options.repoUrl || "https://github.com/GauravKarakoti/SecureFlow";
+
+  const bannerLines = [
+    "   ____                            _____ _               ",
+    "  / ___|  ___  ___ _   _ _ __ ___ |  ___| | _____      __",
+    "  \\___ \\ / _ \\/ __| | | | '__/ _ \\| |_  | |/ _ \\ \\ /\\ / /",
+    "   ___) |  __/ (__| |_| | | |  __/|  _| | | (_) \\ V  V / ",
+    "  |____/ \\___|\\___|\\__,_|_|  \\___||_|   |_|\\___/ \\_/\\_/  ",
+  ];
+
+  const asciiBanner = bannerLines.map((line) => colors.cyan(colors.bold(line))).join("\n");
+  const subtitle = colors.gray(`  🛡️  Zero-Config Git Pre-Commit Security Engine  •  v${version}`);
+  const divider = colors.gray(
+    "─────────────────────────────────────────────────────────────────────────",
+  );
+
+  let statusSection: string;
+  if (result.success) {
+    const isAlreadyConfigured = result.message.toLowerCase().includes("already configured");
+    const statusIcon = isAlreadyConfigured ? "ℹ️ " : "✅";
+
+    statusSection = [
+      `${statusIcon} ${colors.bold(colors.green(`[SecureFlow Init] ${result.message}`))}`,
+      `   ${colors.bold("📁 Hook Location:")} ${colors.cyan(result.hookPath || ".husky/pre-commit")}`,
+      `   ${colors.bold("⚡ Trigger Script:")} ${colors.magenta("npx secureflow")}${isAlreadyConfigured ? colors.dim(" (active)") : ""}`,
+    ].join("\n");
+  } else {
+    statusSection = [
+      `❌ ${colors.bold(colors.red(`[SecureFlow Init] ${result.message}`))}`,
+      `   ${colors.yellow("💡 Troubleshooting:")} Ensure you have write permissions and are in the root of a git repository.`,
+    ].join("\n");
+  }
+
+  const boxTop = colors.gray(
+    "┌─ Active Protections ──────────────────────────────────────────────────┐",
+  );
+  const boxL1 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Secret Detection") +
+    "      " +
+    colors.gray("API keys, tokens, private keys, passwords") +
+    "    " +
+    colors.gray("│");
+  const boxL2 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("AI Security Review") +
+    "    " +
+    colors.gray("Vulnerability detection & code guardrails") +
+    "    " +
+    colors.gray("│");
+  const boxL3 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Web3 Smart Contracts") +
+    "  " +
+    colors.gray("Reentrancy, overflow & access vulnerability") +
+    "  " +
+    colors.gray("│");
+  const boxL4 =
+    colors.gray("│") +
+    "  • " +
+    colors.bold("Threat Intelligence") +
+    "   " +
+    colors.gray("Live CVE advisories & pattern scoring") +
+    "        " +
+    colors.gray("│");
+  const boxBot = colors.gray(
+    "└───────────────────────────────────────────────────────────────────────┘",
+  );
+
+  const nextStepsSection = [
+    colors.bold(colors.yellow("🚀 Next Steps:")),
+    `   ${colors.cyan("1.")} Stage changes:       ${colors.gray("git add <files>")}`,
+    `   ${colors.cyan("2.")} Commit files:        ${colors.gray('git commit -m "feat: new feature"')}\n      ${colors.dim("⤷ SecureFlow will automatically scan staged files before committing.")}`,
+    `   ${colors.cyan("3.")} Manual audit:        ${colors.gray("npx secureflow")} ${colors.dim("(run anytime on pending changes)")}`,
+    `   ${colors.cyan("4.")} Explore all options:  ${colors.gray("npx secureflow --help")}`,
+  ].join("\n");
+
+  const footer = [
+    divider,
+    `📖 ${colors.bold("Documentation:")} ${colors.blue(repoUrl)}`,
+    `✨ ${colors.dim("Happy & secure coding with SecureFlow!")}`,
+  ].join("\n");
+
+  return [
+    "",
+    asciiBanner,
+    subtitle,
+    divider,
+    "",
+    statusSection,
+    "",
+    boxTop,
+    boxL1,
+    boxL2,
+    boxL3,
+    boxL4,
+    boxBot,
+    "",
+    nextStepsSection,
+    "",
+    footer,
+    "",
+  ].join("\n");
 }

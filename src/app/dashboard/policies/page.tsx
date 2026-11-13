@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { PolicyCard } from "./policy-card"; // <-- Import the new Client Component
 import { TestPolicyPanel } from "./test-policy-panel";
+import { PolicyExportImport } from "./policy-export-import";
 import { togglePolicy } from "./actions";
 
 // --- Page Component ---
@@ -54,6 +55,7 @@ export default async function PoliciesPage() {
             Toggle automated guardrails used to protect your main branch.
           </p>
         </div>
+        <PolicyExportImport />
       </div>
 
       <Card className="glass-card bg-primary/5 border-primary/20">
