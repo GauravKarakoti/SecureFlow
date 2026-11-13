@@ -92,6 +92,7 @@ describe("cli/src/lib/tui (#1712)", () => {
             fileLocation: "src/db.ts",
             lineStart: 45,
             description: "Unsanitized user input in query",
+            codeSnippet: "db.query(input)",
           },
         ],
       );
