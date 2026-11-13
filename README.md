@@ -75,7 +75,7 @@ Generates precise explanations and concrete code fixes for each security finding
 
 ### 📊 Mission Control Dashboard
 
-View all your repositories, PRs, findings, and audit logs in one unified command center.
+View all your repositories, PRs, findings, and audit logs in one unified command center. Includes a keyboard-accessible **Command Palette** (`Ctrl+K` or `⌘K`) for rapid navigation and quick actions across sections.
 
 ### 💬 GitHub PR Comments
 
