@@ -1,5 +1,11 @@
 # secureflow-cli
 
+## 3.3.0
+
+### Minor Changes
+
+- 6486f3b: feat(cli): [NSoC_2026] upgrade secureflow --init to run npm init and husky init before hook setup (#1731)
+
 ## 3.2.0
 
 ### Minor Changes

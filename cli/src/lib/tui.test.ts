@@ -215,8 +215,14 @@ describe("cli/src/lib/tui (#1712)", () => {
       const res = initHuskyPreCommitHook(tempDir, mockExec);
 
       expect(res.success).toBe(true);
-      expect(mockExec).toHaveBeenCalledWith("npm init --y", expect.objectContaining({ cwd: tempDir }));
-      expect(mockExec).toHaveBeenCalledWith("npx husky init", expect.objectContaining({ cwd: tempDir }));
+      expect(mockExec).toHaveBeenCalledWith(
+        "npm init --y",
+        expect.objectContaining({ cwd: tempDir }),
+      );
+      expect(mockExec).toHaveBeenCalledWith(
+        "npx husky init",
+        expect.objectContaining({ cwd: tempDir }),
+      );
       expect(commandsExecuted).toEqual(["npm init --y", "npx husky init"]);
 
       const hookContent = fs.readFileSync(res.hookPath, "utf-8");
