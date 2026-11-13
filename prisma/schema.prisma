@@ -321,14 +321,16 @@ model FindingTriage {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String
-  resource  String
-  decision  String?
-  metadata  Json?
-  timestamp DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action       String
+  resource     String
+  decision     String?
+  metadata     Json?
+  timestamp    DateTime @default(now())
+  previousHash String?
+  entryHash    String?
 
   @@index([userId])
   @@index([userId, timestamp(sort: Desc)])
@@ -338,6 +340,7 @@ model AuditLog {
   @@index([userId, action])
   @@index([userId, decision])
   @@index([action, timestamp(sort: Desc)])
+  @@index([entryHash])
 }
 
 model WebhookEvent {

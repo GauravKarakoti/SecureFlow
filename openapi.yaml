@@ -1640,6 +1640,23 @@ paths:
         "401":
           description: Not signed in
 
+  /api/admin/audit/verify:
+    get:
+      summary: Verify audit log cryptographic hash chain
+      description: Walks the tamper-evident hash chain and verifies integrity. Admin only.
+      operationId: verifyAuditChain
+      tags:
+        - Admin
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Audit log chain integrity verified and valid
+        "401":
+          description: Not authenticated or missing ADMIN role
+        "409":
+          description: Audit log chain integrity violation or corruption detected
+
   /api/admin/ai-health:
     get:
       summary: AI provider health telemetry
