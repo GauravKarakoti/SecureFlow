@@ -9,6 +9,13 @@ const isDockerBuild = process.env.DOCKER_BUILD === "true";
 const nextConfig: NextConfig = {
   ...(isDockerBuild ? { output: "standalone" as const } : {}),
 
+  turbopack: {
+    resolveAlias: {
+      "./threat-intel-feed.js": "./cli/src/threat-intel-feed.ts",
+      "./threat-intel-cache.js": "./cli/src/threat-intel-cache.ts",
+    },
+  },
+
   // Trace Prisma client artifacts into the standalone output
   outputFileTracingIncludes: {
     "/*": ["./node_modules/.prisma/client/**/*"],

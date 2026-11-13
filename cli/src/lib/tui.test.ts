@@ -237,7 +237,9 @@ describe("cli/src/lib/tui (#1712)", () => {
       });
 
       expect(greeting).toContain("ℹ️");
-      expect(greeting).toContain("[SecureFlow Init] SecureFlow is already configured in .husky/pre-commit hook");
+      expect(greeting).toContain(
+        "[SecureFlow Init] SecureFlow is already configured in .husky/pre-commit hook",
+      );
       expect(greeting).toContain("/workspace/.husky/pre-commit");
       expect(greeting).toContain("(active)");
     });
