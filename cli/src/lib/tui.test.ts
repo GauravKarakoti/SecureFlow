@@ -6,6 +6,7 @@ import {
   renderWarningTable,
   formatTuiScanSummary,
   initHuskyPreCommitHook,
+  formatInitGreeting,
   type TableRow,
 } from "./tui.js";
 import fs from "node:fs";
@@ -186,6 +187,88 @@ describe("cli/src/lib/tui (#1712)", () => {
       const res = initHuskyPreCommitHook(tempDir);
       expect(res.success).toBe(true);
       expect(res.message).toContain("already configured");
+    });
+  });
+
+  describe("formatInitGreeting (#1732)", () => {
+    it("renders ASCII banner, subtitle, protections, and next steps for new installation", () => {
+      const greeting = formatInitGreeting({
+        success: true,
+        message: "Successfully created .husky/pre-commit hook configured with SecureFlow audit",
+        hookPath: ".husky/pre-commit",
+      });
+
+      // ASCII banner
+      expect(greeting).toContain("____");
+      expect(greeting).toContain("SecureFlow");
+      expect(greeting).toContain("Zero-Config Git Pre-Commit Security Engine");
+      expect(greeting).toContain("v3.1.0");
+
+      // Status & Hook
+      expect(greeting).toContain("[SecureFlow Init] Successfully created .husky/pre-commit hook");
+      expect(greeting).toContain("Hook Location:");
+      expect(greeting).toContain(".husky/pre-commit");
+      expect(greeting).toContain("npx secureflow");
+
+      // Active Protections
+      expect(greeting).toContain("Active Protections");
+      expect(greeting).toContain("Secret Detection");
+      expect(greeting).toContain("AI Security Review");
+      expect(greeting).toContain("Web3 Smart Contracts");
+      expect(greeting).toContain("Threat Intelligence");
+
+      // Next Steps
+      expect(greeting).toContain("Next Steps:");
+      expect(greeting).toContain("git add <files>");
+      expect(greeting).toContain('git commit -m "feat: new feature"');
+      expect(greeting).toContain("npx secureflow --help");
+
+      // Footer
+      expect(greeting).toContain("Documentation:");
+      expect(greeting).toContain("https://github.com/GauravKarakoti/SecureFlow");
+    });
+
+    it("renders informational status when hook is already configured", () => {
+      const greeting = formatInitGreeting({
+        success: true,
+        message: "SecureFlow is already configured in .husky/pre-commit hook",
+        hookPath: "/workspace/.husky/pre-commit",
+      });
+
+      expect(greeting).toContain("ℹ️");
+      expect(greeting).toContain("[SecureFlow Init] SecureFlow is already configured in .husky/pre-commit hook");
+      expect(greeting).toContain("/workspace/.husky/pre-commit");
+      expect(greeting).toContain("(active)");
+    });
+
+    it("renders troubleshooting guidance and error details on failure", () => {
+      const greeting = formatInitGreeting({
+        success: false,
+        message: "Failed to configure husky pre-commit hook: EACCES permission denied",
+        hookPath: "",
+      });
+
+      expect(greeting).toContain("❌");
+      expect(greeting).toContain("Failed to configure husky pre-commit hook: EACCES");
+      expect(greeting).toContain("Troubleshooting:");
+      expect(greeting).toContain("Ensure you have write permissions");
+    });
+
+    it("supports custom version and repository URL options", () => {
+      const greeting = formatInitGreeting(
+        {
+          success: true,
+          message: "Created hook",
+          hookPath: ".husky/pre-commit",
+        },
+        {
+          version: "4.0.0-beta",
+          repoUrl: "https://custom-repo.example.com/docs",
+        },
+      );
+
+      expect(greeting).toContain("v4.0.0-beta");
+      expect(greeting).toContain("https://custom-repo.example.com/docs");
     });
   });
 });

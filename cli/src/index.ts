@@ -38,6 +38,7 @@ import {
   TerminalSpinner,
   formatTuiScanSummary,
   initHuskyPreCommitHook,
+  formatInitGreeting,
   colors,
 } from "./lib/tui.js";
 
@@ -196,12 +197,12 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 async function main(): Promise<number> {
   if (process.argv.includes("--init")) {
     const result = initHuskyPreCommitHook();
+    const greeting = formatInitGreeting(result);
     if (result.success) {
-      console.log(`✅ [SecureFlow Init] ${result.message}`);
-      console.log(`📁 Configured hook: ${result.hookPath}`);
+      console.log(greeting);
       return 0;
     } else {
-      console.error(`❌ [SecureFlow Init] ${result.message}`);
+      console.error(greeting);
       return 1;
     }
   }
