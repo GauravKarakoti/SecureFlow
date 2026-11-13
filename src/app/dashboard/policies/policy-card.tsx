@@ -1,12 +1,15 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
+import { useState, useOptimistic, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Lock, AlertCircle, ShieldCheck, FileKey2, ScanLine } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Lock, AlertCircle, ShieldCheck, FileKey2, ScanLine, History, Edit3 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { PolicyHistoryModal } from "./policy-history-modal";
+import { PolicyEditModal } from "./policy-edit-modal";
 
 export function PolicyCard({
   id,
@@ -25,6 +28,8 @@ export function PolicyCard({
   );
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   /**
    * Send the state the user asked for.
@@ -153,7 +158,7 @@ export function PolicyCard({
         </div>
       </CardContent>
 
-      <CardFooter className="relative z-[1] pt-4 flex items-center justify-between border-t border-foreground/10 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-auto bg-background/30">
+      <CardFooter className="relative z-[1] pt-3 pb-3 flex items-center justify-between border-t border-foreground/10 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-auto bg-background/30">
         <div className="flex items-center gap-1.5">
           <AlertCircle
             className={`w-3 h-3 ${severity === "CRITICAL" && optimisticActive ? "text-red-400" : ""}`}
@@ -161,8 +166,47 @@ export function PolicyCard({
           />
           {severity}
         </div>
-        <span className="font-mono text-[9px] text-muted-foreground/70">SECUREFLOW // RULE</span>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
+            onClick={() => setIsEditOpen(true)}
+            aria-label={`Edit ${title}`}
+          >
+            <Edit3 className="w-3 h-3 mr-1" />
+            Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
+            onClick={() => setIsHistoryOpen(true)}
+            aria-label={`History for ${title}`}
+          >
+            <History className="w-3 h-3 mr-1" />
+            History
+          </Button>
+        </div>
       </CardFooter>
+
+      <PolicyEditModal
+        policyId={id}
+        policyName={title}
+        currentDescription={description}
+        currentSeverity={severity}
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+      />
+
+      <PolicyHistoryModal
+        policyId={id}
+        policyName={title}
+        currentDescription={description}
+        currentSeverity={severity}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+      />
     </Card>
   );
 }
