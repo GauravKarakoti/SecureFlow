@@ -23,6 +23,7 @@ Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are valid
 ### Relevant Environment Variables
 
 - `GITHUB_WEBHOOK_SECRET` _(Required)_: The secret string configured in the GitHub App settings used to verify the HMAC-SHA256 signature in the `X-Hub-Signature-256` header.
+- `GITHUB_WEBHOOK_SECRET_PREVIOUS` _(Optional)_: The previous webhook secret during rotation. Allows zero-downtime secret rotation while GitHub delivers queued or retried payloads signed with the old secret.
 - `GITHUB_WEBHOOK_MAX_BYTES` _(Optional, default: `5242880` / 5 MB)_: Maximum allowable byte length for inbound webhook payloads. Exceeding requests are rejected immediately with HTTP 413.
 - `GITHUB_APP_ID` _(Required)_: Numeric GitHub App ID used for authenticating API operations.
 - `GITHUB_PRIVATE_KEY` _(Required)_: RSA private key (`.pem`) used to generate installation access tokens.
@@ -85,23 +86,42 @@ Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are valid
 
 ### Fix
 
-1. **Synchronize Webhook Secret**:
+1. **Rotate Webhook Secret (Zero-Downtime Rotation)**:
+   - When rotating the webhook secret in GitHub App settings, use `GITHUB_WEBHOOK_SECRET_PREVIOUS` to avoid dropping in-flight or retried webhook deliveries:
+     1. Generate a new secret:
+        ```bash
+        openssl rand -hex 20
+        ```
+     2. Update the application environment to accept both the new secret and the current one as previous:
+        ```env
+        GITHUB_WEBHOOK_SECRET="<new_secret>"
+        GITHUB_WEBHOOK_SECRET_PREVIOUS="<old_secret>"
+        ```
+     3. Redeploy or restart SecureFlow.
+     4. Update **Webhook Secret** in GitHub App Settings (**General &rarr; Webhook secret**) to the `<new_secret>`.
+     5. Monitor server logs to confirm traffic transitions to the new secret:
+        - When a delivery matches the previous secret, SecureFlow logs:
+          `GitHub webhook signature verified using previous secret`.
+        - When deliveries exclusively match the new secret:
+          `GitHub webhook signature verified using current secret`.
+     6. Once no deliveries match `previous` and all pending deliveries/retries have cleared, remove `GITHUB_WEBHOOK_SECRET_PREVIOUS` from the environment and redeploy.
+2. **Synchronize Webhook Secret (Initial Setup / Manual Sync)**:
    - Generate a strong, clean secret if needed:
      ```bash
      openssl rand -hex 20
      ```
    - Update **Webhook Secret** in GitHub App Settings (**General &rarr; Webhook secret**).
    - Update `GITHUB_WEBHOOK_SECRET="<secret>"` in your `.env` or cloud secret manager, then redeploy/restart the service.
-2. **Redeliver Failed Events via GitHub UI**:
+3. **Redeliver Failed Events via GitHub UI**:
    - Open **GitHub App &rarr; Advanced &rarr; Recent Deliveries**.
    - Select the failed delivery and click the **Redeliver** button.
    - _Why this works safely_: SecureFlow assigns BullMQ jobs a deterministic ID based on the delivery GUID (`jobId: webhookJobId(deliveryId)`) and specifies `replaceFailed: true`. Redelivering a previously failed webhook replaces the dead job and processes the scan cleanly without creating duplicates.
-3. **Adjust Payload Size Cap (if HTTP 413)**:
+4. **Adjust Payload Size Cap (if HTTP 413)**:
    - If large PR diffs legitimately trigger HTTP 413, increase `GITHUB_WEBHOOK_MAX_BYTES` in `.env`:
      ```env
      GITHUB_WEBHOOK_MAX_BYTES=10485760   # 10 MB
      ```
-4. **Update Expired Tunnel / Ingress URL**:
+5. **Update Expired Tunnel / Ingress URL**:
    - For local development with ngrok:
      ```bash
      ngrok http 9002

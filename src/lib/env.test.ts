@@ -96,6 +96,7 @@ describe("environment validation (src/lib/env.ts)", () => {
       ...validEnv,
       GROQ_API_KEY: "", // invalid empty string
       GITHUB_PRIVATE_KEY: "malformed-secret-private-key-data-123456789",
+      GITHUB_WEBHOOK_SECRET_PREVIOUS: "", // tests redaction on secret env var
       AUTH_SECRET: "",
     };
 
@@ -107,6 +108,14 @@ describe("environment validation (src/lib/env.ts)", () => {
       expect(err.message).toContain("GITHUB_PRIVATE_KEY");
       expect(err.message).toContain("[value redacted]");
     }
+  });
+
+  it("allows GITHUB_WEBHOOK_SECRET_PREVIOUS to be set or omitted", () => {
+    const withoutPrevious = { ...validEnv };
+    expect(validateEnv(withoutPrevious).GITHUB_WEBHOOK_SECRET_PREVIOUS).toBeUndefined();
+
+    const withPrevious = { ...validEnv, GITHUB_WEBHOOK_SECRET_PREVIOUS: "prev-secret-123" };
+    expect(validateEnv(withPrevious).GITHUB_WEBHOOK_SECRET_PREVIOUS).toBe("prev-secret-123");
   });
 
   it("allows optional variables to be omitted", () => {
