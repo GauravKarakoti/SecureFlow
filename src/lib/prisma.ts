@@ -106,12 +106,14 @@ function createMockPrismaClient() {
         ];
       }
       if (method === "findUnique") {
+        const id = args[0]?.where?.id || "mock-admin-id";
+        const isAdmin = id === "mock-admin-id";
         return {
-          id: args[0]?.where?.id || "mock-admin-id",
-          name: "Mock Admin",
-          email: "admin@secureflow.test",
-          codename: "Professor",
-          roles: [{ role: { name: "ADMIN" } }],
+          id,
+          name: isAdmin ? "Mock Admin" : "Rio Developer",
+          email: isAdmin ? "admin@secureflow.test" : "rio@secureflow.test",
+          codename: isAdmin ? "Professor" : "Rio",
+          roles: [{ role: { name: isAdmin ? "ADMIN" : "USER" } }],
         };
       }
       if (method === "delete") {
@@ -160,31 +162,46 @@ function createMockPrismaClient() {
     }
 
     if (model === "auditLog") {
-      if (method === "count") return 8;
+      const mockLogs = [
+        {
+          id: "log-1",
+          userId: "mock-admin-id",
+          action: "UPDATE_ROLE",
+          resource: "user:user-2",
+          decision: "ALLOW",
+          metadata: { role: "ADMIN" },
+          timestamp: new Date(),
+        },
+        {
+          id: "log-2",
+          userId: "mock-admin-id",
+          action: "DELETE_USER",
+          resource: "user:user-3",
+          decision: "ALLOW",
+          metadata: {},
+          timestamp: new Date(Date.now() - 1000 * 60 * 5),
+        },
+      ];
+      const where = args[0]?.where || {};
+      const filteredLogs = mockLogs.filter((log) => {
+        if (where.action && log.action !== where.action) return false;
+        if (where.userId && log.userId !== where.userId) return false;
+        if (Array.isArray(where.OR)) {
+          const matches = where.OR.some((condition: any) => {
+            const [field, filter] = Object.entries(condition)[0] || [];
+            const value = field ? String((log as any)[field] ?? "").toLowerCase() : "";
+            return value.includes(String((filter as any)?.contains ?? "").toLowerCase());
+          });
+          if (!matches) return false;
+        }
+        return true;
+      });
+      if (method === "count") return filteredLogs.length;
       if (method === "findMany") {
         if (args[0]?.select?.action && Object.keys(args[0]?.select || {}).length === 1) {
           return [{ action: "UPDATE_ROLE" }, { action: "DELETE_USER" }, { action: "ADD_REPO" }];
         }
-        return [
-          {
-            id: "log-1",
-            userId: "mock-admin-id",
-            action: "UPDATE_ROLE",
-            resource: "user:user-2",
-            decision: "ALLOW",
-            metadata: { role: "ADMIN" },
-            timestamp: new Date(),
-          },
-          {
-            id: "log-2",
-            userId: "mock-admin-id",
-            action: "DELETE_USER",
-            resource: "user:user-3",
-            decision: "ALLOW",
-            metadata: {},
-            timestamp: new Date(Date.now() - 1000 * 60 * 5),
-          },
-        ];
+        return filteredLogs;
       }
       if (method === "groupBy") {
         return [
@@ -216,7 +233,8 @@ function createMockPrismaClient() {
 
       if (method === "findFirst" || method === "findUnique") {
         const id = args[0]?.where?.id;
-        const requestedUserId = args[0]?.where?.scanResult?.pullRequest?.repository?.userId || "mock-admin-id";
+        const requestedUserId =
+          args[0]?.where?.scanResult?.pullRequest?.repository?.userId || "mock-admin-id";
         if (id === "finding-2") {
           return {
             id: "finding-2",
@@ -376,7 +394,10 @@ function createMockPrismaClient() {
   const handler = {
     get(target: any, prop: string): any {
       if (prop === "$transaction") {
-        return async (promises: any[]) => Promise.all(promises);
+        return async (operation: any) =>
+          typeof operation === "function"
+            ? operation(new Proxy({}, handler))
+            : Promise.all(operation);
       }
       if (prop === "then") return undefined;
 

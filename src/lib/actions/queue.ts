@@ -240,7 +240,31 @@ export async function getQueueJobs(state: QueueJobState, limit = 200) {
   // not, so with NEXT_PUBLIC_MOCK_DB set the page rendered its metrics and then
   // threw the moment the jobs table opened, reaching for a Redis connection
   // that was never configured.
-  if (isMockMode()) return [];
+  if (isMockMode()) {
+    if (process.env.E2E_MOCK_QUEUE_JOB === "true" && state === "waiting") {
+      return [
+        {
+          id: "mock-queue-job-1",
+          name: "process-webhook",
+          data: {
+            event: "pull_request",
+            deliveryId: "e2e-queue-delivery-001",
+            payload: {
+              action: "opened",
+              repository: { full_name: "mock-owner/queue-test-repo" },
+            },
+          },
+          timestamp: Date.now(),
+          processedOn: null,
+          finishedOn: null,
+          progress: null,
+          attemptsMade: 0,
+          failedReason: null,
+        },
+      ].slice(0, limit);
+    }
+    return [];
+  }
 
   const bounded = Math.min(Math.max(limit, 1), DLQ_READ_LIMIT);
   const jobs = await webhookQueue.getJobs([state], 0, bounded - 1);
