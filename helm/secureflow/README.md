@@ -1,6 +1,6 @@
 # SecureFlow Kubernetes Helm Chart
 
-Official Helm chart for deploying and scaling **SecureFlow** — the AI-powered security scanner and developer workflow platform — in a Kubernetes cluster.
+Official Helm chart for deploying and scaling **SecureFlow** â€” the AI-powered security scanner and developer workflow platform â€” in a Kubernetes cluster.
 
 ---
 
@@ -21,6 +21,50 @@ This chart provisions and orchestrates the complete SecureFlow topology:
 ---
 
 ## Quickstart
+
+### Worker egress isolation
+
+`networkPolicy.enabled: true` now isolates worker **outbound** traffic as well
+as protecting PostgreSQL/Redis ingress. External egress is denied by default.
+Workers retain TCP access to same-release PostgreSQL/Redis pods when those
+components are enabled, and UDP/TCP DNS access to the selected DNS pods:
+
+```yaml
+networkPolicy:
+  enabled: true
+  workerEgress:
+    externalCIDRs: ["1.1.1.1/32"] # Example only; replace with actual provider/webhook IP ranges.
+    externalPorts: [443]
+    dns:
+      namespace: kube-system
+      podLabels:
+        k8s-app: kube-dns
+      ports: [53]
+```
+
+Use the smallest stable destination ranges for GitHub, LLM providers and outbound
+webhooks. This is an IP allowlist, not an FQDN allowlist: DNS changes require an
+operator update. Only canonical IPv4 CIDRs are supported; IPv6 external traffic
+remains denied. Private, loopback, link-local, shared-address, reserved and known
+metadata ranges cannot be allowed directly. Broader CIDRs automatically exclude
+contained protected ranges, including `169.254.0.0/16`, `100.64.0.0/10` and Azure's
+`168.63.129.16/32`. Avoid `0.0.0.0/0`: although protected ranges are excluded, it
+permits every other public destination on the configured ports.
+
+Enable this only after configuring the actual dependencies. External databases
+and Redis are **not** automatically allowed; deployments using them need an
+operator-reviewed, narrowly scoped additional policy. Publicly addressed cluster
+services also need explicit review of the allowlist. The chart does not discover
+cluster address ranges or provider IPs. Adjust DNS selectors/ports for your DNS
+deployment; NodeLocal/host-network DNS may require a CNI-specific policy.
+
+Enforcement requires a NetworkPolicy-capable CNI. Kubernetes policies are
+additive: another policy selecting workers can widen access, so audit the
+combined policy set. NAT/service translation and node/host-network behavior vary
+by CNI; verify allowed provider calls and blocked metadata/private destinations
+in your staging cluster before rollout. Rendered-chart tests verify configuration
+and selectors, not live packet enforcement. See the upstream
+[NetworkPolicy documentation](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
 
 ### 1. Add and inspect the chart
 
