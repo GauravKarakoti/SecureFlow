@@ -1,4 +1,6 @@
-﻿version: 2
+
+version: 2
+
 updates:
   # Root project dependencies (Next.js web app)
   - package-ecosystem: "npm"
@@ -6,10 +8,12 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
+
     ignore:
       - dependency-name: "typescript"
         versions:
           - ">= 6.0.3"
+
     groups:
       dependencies:
         patterns:
@@ -21,12 +25,13 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
+
     ignore:
       - dependency-name: "typescript"
         versions:
           - ">= 6.0.3"
 
-  # GitHub Actions workflows
+  # GitHub Actions workflow dependencies
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
