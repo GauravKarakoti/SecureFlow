@@ -343,7 +343,10 @@ jobs:
           GROQ_API_KEY: ci-build-placeholder
           GITHUB_APP_ID: "1"
           GITHUB_WEBHOOK_SECRET: e2e-webhook-secret
-          GITHUB_PRIVATE_KEY: ci-build-placeholder
+          GITHUB_PRIVATE_KEY: |
+            -----BEGIN PRIVATE KEY-----
+            ci-build-placeholder-not-a-real-key
+            -----END PRIVATE KEY-----
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID || 'ci-build-placeholder' }}
           GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET || 'ci-build-placeholder' }}
           NEXT_PUBLIC_APP_URL: http://localhost:9002
