@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
+import { FailedTestsReporter } from "./scripts/failed-tests-reporter.js";
 
 export default defineConfig({
   test: {
+    reporters: ["default", new FailedTestsReporter()],
     server: {
       deps: {
         inline: ["genkitx-groq"],
