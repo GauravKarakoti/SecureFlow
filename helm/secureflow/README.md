@@ -1,6 +1,6 @@
 # SecureFlow Kubernetes Helm Chart
 
-Official Helm chart for deploying and scaling **SecureFlow** â€” the AI-powered security scanner and developer workflow platform â€” in a Kubernetes cluster.
+Official Helm chart for deploying and scaling **SecureFlow** — the AI-powered security scanner and developer workflow platform — in a Kubernetes cluster.
 
 ---
 

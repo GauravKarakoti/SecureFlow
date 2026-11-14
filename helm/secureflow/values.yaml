@@ -130,7 +130,7 @@ serviceMonitor:
   # How often Prometheus scrapes the metrics endpoint.
   interval: 30s
 
-  # Scrape timeout â€” must be <= interval.
+  # Scrape timeout — must be <= interval.
   scrapeTimeout: 10s
 
   # Path Prometheus scrapes. Matches the existing /api/metrics/landing route.
