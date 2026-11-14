@@ -7,6 +7,7 @@ import prisma from "@/lib/prisma";
 import { getGitHubAppCredentials } from "@/lib/github/app-auth";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "@/lib/armor/armoriq-breaker";
+import { enqueueUnverifiedRemediationIntent } from "@/lib/queue/remediationDlq";
 import { AUTO_REMEDIATION_ARMORIQ_SCOPE } from "@/lib/armor/auto-remediation";
 import { applyScopedUnifiedDiff, isAllowedAutoRemediationPath } from "@/lib/armor/auto-remediation";
 
@@ -192,9 +193,31 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
       const verification = await ArmorIQService.verifyIntentToken(token);
 
       if (verification.unavailable) {
+        const { jobId } = await enqueueUnverifiedRemediationIntent({
+          type: "single",
+          userId: session.user.id,
+          findingId: finding.id,
+          owner,
+          repo,
+          fileLocation: finding.fileLocation,
+          patchDiff: finding.remediationPatch.patchDiff,
+          armorPatchHash,
+          expectedPlan,
+          policy,
+          intentToken: token,
+          token,
+          failedReason: "ArmorIQ service unavailable during verification",
+        });
+
         return NextResponse.json(
-          { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
-          { status: 503 },
+          {
+            status: "queued",
+            queued: true,
+            jobId,
+            message:
+              "ArmorIQ circuit breaker open; remediation intent queued for verification replay",
+          },
+          { status: 202 },
         );
       }
 
@@ -219,9 +242,29 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
     } catch (error) {
       console.error("[AUTO_REMEDIATION] ArmorIQ authorization failed:", error);
       if (error instanceof ArmorIQUnavailableError) {
+        const { jobId } = await enqueueUnverifiedRemediationIntent({
+          type: "single",
+          userId: session.user.id,
+          findingId: finding.id,
+          owner,
+          repo,
+          fileLocation: finding.fileLocation,
+          patchDiff: finding.remediationPatch.patchDiff,
+          armorPatchHash,
+          expectedPlan,
+          policy,
+          failedReason: error.message,
+        });
+
         return NextResponse.json(
-          { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
-          { status: 503 },
+          {
+            status: "queued",
+            queued: true,
+            jobId,
+            message:
+              "ArmorIQ circuit breaker open; remediation intent queued for verification replay",
+          },
+          { status: 202 },
         );
       }
       return NextResponse.json(

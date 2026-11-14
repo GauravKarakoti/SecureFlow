@@ -42,7 +42,11 @@ export default defineConfig({
     alias: {
       "@": import.meta.dirname + "/src",
       __mocks__: import.meta.dirname + "/__mocks__",
-      zod: import.meta.dirname + "/node_modules/@genkit-ai/core/node_modules/zod/index.js",
+      "@armoriq/sdk": import.meta.dirname + "/__mocks__/@armoriq/sdk.ts",
+      "next/server": import.meta.dirname + "/__mocks__/next/server.ts",
+      "next/headers": import.meta.dirname + "/__mocks__/next/headers.ts",
+      "next-auth": import.meta.dirname + "/__mocks__/next-auth/index.ts",
+      zod: import.meta.dirname + "/cli/node_modules/zod/index.js",
       "secureflow-cli/contracts": import.meta.dirname + "/cli/src/contracts/index.ts",
     },
   },

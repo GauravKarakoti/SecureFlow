@@ -13,6 +13,7 @@ import { MAX_PAGE_SIZE } from "@/lib/findings/query";
 import { withErrorHandler } from "@/lib/middleware/error-handler";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "@/lib/armor/armoriq-breaker";
+import { enqueueUnverifiedRemediationIntent } from "@/lib/queue/remediationDlq";
 
 const MAX_BULK_REMEDIATION_FINDINGS = MAX_PAGE_SIZE;
 
@@ -215,27 +216,27 @@ const handler = async function POST(req: NextRequest) {
     if (action === "apply") {
       const armorClient = ArmorIQService.getClient();
       if (armorClient) {
+        const bulkPlan = {
+          goal: "Bulk apply remediation patches across verified repository findings",
+          steps: findings.map((f) => ({
+            action: "fs.readwrite",
+            mcp: "secureflow",
+            params: {
+              findingId: f.id,
+              path: f.fileLocation,
+              type: f.type,
+            },
+          })),
+        };
+
+        const policy = {
+          allow: ["fs.readwrite"],
+          deny: ["github.push"],
+          hold: [],
+          priority: 100,
+        };
+
         try {
-          const bulkPlan = {
-            goal: "Bulk apply remediation patches across verified repository findings",
-            steps: findings.map((f) => ({
-              action: "fs.readwrite",
-              mcp: "secureflow",
-              params: {
-                findingId: f.id,
-                path: f.fileLocation,
-                type: f.type,
-              },
-            })),
-          };
-
-          const policy = {
-            allow: ["fs.readwrite"],
-            deny: ["github.push"],
-            hold: [],
-            priority: 100,
-          };
-
           const capture = armorClient.capturePlan(
             "secureflow",
             `Apply bulk remediation patches for ${findings.length} findings.`,
@@ -249,9 +250,26 @@ const handler = async function POST(req: NextRequest) {
           const verification = await ArmorIQService.verifyIntentToken(token);
 
           if (verification.unavailable) {
+            const { jobId } = await enqueueUnverifiedRemediationIntent({
+              type: "bulk",
+              userId,
+              findingIds: uniqueIds,
+              expectedPlan: bulkPlan,
+              policy,
+              intentToken: token,
+              token,
+              failedReason: "ArmorIQ service unavailable during verification",
+            });
+
             return NextResponse.json(
-              { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
-              { status: 503 },
+              {
+                status: "queued",
+                queued: true,
+                jobId,
+                message:
+                  "ArmorIQ circuit breaker open; bulk remediation intent queued for verification replay",
+              },
+              { status: 202 },
             );
           }
 
@@ -264,9 +282,24 @@ const handler = async function POST(req: NextRequest) {
         } catch (error) {
           console.error("[BULK_REMEDIATE] ArmorIQ authorization failed:", error);
           if (error instanceof ArmorIQUnavailableError) {
+            const { jobId } = await enqueueUnverifiedRemediationIntent({
+              type: "bulk",
+              userId,
+              findingIds: uniqueIds,
+              expectedPlan: bulkPlan,
+              policy,
+              failedReason: error.message,
+            });
+
             return NextResponse.json(
-              { error: "ArmorIQ is temporarily unavailable; remediation is blocked" },
-              { status: 503 },
+              {
+                status: "queued",
+                queued: true,
+                jobId,
+                message:
+                  "ArmorIQ circuit breaker open; bulk remediation intent queued for verification replay",
+              },
+              { status: 202 },
             );
           }
           return NextResponse.json(

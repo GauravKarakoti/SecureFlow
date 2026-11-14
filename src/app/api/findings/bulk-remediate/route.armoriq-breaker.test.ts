@@ -48,6 +48,10 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+vi.mock("@/ai/flows/generate-remediation-patch", () => ({
+  generateRemediationPatchFlow: vi.fn(),
+}));
+
 vi.mock("@/lib/armor/iq", () => ({
   ArmorIQService: {
     getClient: () => armorClient,
@@ -225,7 +229,7 @@ describe("POST /api/findings/bulk-remediate with ArmorIQ circuit breaker (#1488)
     }
     expect(armorClient.getIntentToken).toHaveBeenCalledTimes(3);
 
-    // Fourth request should immediately fail fast with 503 without invoking getIntentToken
+    // Fourth request should immediately queue to DLQ and return 202 without invoking getIntentToken (#1751)
     const response = await POST(
       makeBulkRequest({
         action: "apply",
@@ -233,16 +237,17 @@ describe("POST /api/findings/bulk-remediate with ArmorIQ circuit breaker (#1488)
       }),
     );
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(202);
     const data = await response.json();
-    expect(data).toEqual({
-      error: "ArmorIQ is temporarily unavailable; remediation is blocked",
-    });
+    expect(data.status).toBe("queued");
+    expect(data.queued).toBe(true);
+    expect(typeof data.jobId).toBe("string");
+    expect(data.jobId).toMatch(/^rem-dlq-/);
     expect(armorClient.getIntentToken).toHaveBeenCalledTimes(3);
     expect(remediationPatchUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("answers 503 when token verification reports ArmorIQ unavailable", async () => {
+  it("answers 202 when token verification reports ArmorIQ unavailable and queues intent (#1751)", async () => {
     armorClient.getIntentToken.mockResolvedValue({ rawToken: {}, planHash: "plan-hash-123" });
     verifyIntentToken.mockResolvedValue({
       valid: false,
@@ -257,12 +262,59 @@ describe("POST /api/findings/bulk-remediate with ArmorIQ circuit breaker (#1488)
       }),
     );
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(202);
     const data = await response.json();
-    expect(data).toEqual({
-      error: "ArmorIQ is temporarily unavailable; remediation is blocked",
-    });
+    expect(data.status).toBe("queued");
+    expect(data.queued).toBe(true);
+    expect(typeof data.jobId).toBe("string");
+    expect(data.jobId).toMatch(/^rem-dlq-/);
     expect(remediationPatchUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("validates recovery: once circuit breaker resets, bulk remediation succeeds and updates status (#1751)", async () => {
+    armorClient.getIntentToken.mockRejectedValue(timeoutError());
+    for (let i = 0; i < 3; i++) {
+      expect(
+        (
+          await POST(
+            makeBulkRequest({
+              action: "apply",
+              findingIds: ["finding-1", "finding-2", "finding-3"],
+            }),
+          )
+        ).status,
+      ).toBe(403);
+    }
+
+    // Breaker is open
+    const trippedRes = await POST(
+      makeBulkRequest({
+        action: "apply",
+        findingIds: ["finding-1", "finding-2", "finding-3"],
+      }),
+    );
+    expect(trippedRes.status).toBe(202);
+
+    // Reset circuit breaker
+    resetModelCircuitBreakers();
+
+    armorClient.getIntentToken.mockResolvedValue({ rawToken: {}, planHash: "valid-plan-hash" });
+    verifyIntentToken.mockResolvedValue({ valid: true, unavailable: false });
+
+    const recoveredRes = await POST(
+      makeBulkRequest({
+        action: "apply",
+        findingIds: ["finding-1", "finding-2", "finding-3"],
+      }),
+    );
+    expect(recoveredRes.status).toBe(200);
+    const recoveredData = await recoveredRes.json();
+    expect(recoveredData.success).toBe(true);
+    expect(recoveredData.status).toBe("APPLIED");
+    expect(remediationPatchUpdateMany).toHaveBeenCalledWith({
+      where: { findingId: { in: ["finding-1", "finding-2", "finding-3"] } },
+      data: { status: "APPLIED" },
+    });
   });
 
   it("answers 403 when ArmorIQ is reachable but denies authorization", async () => {
