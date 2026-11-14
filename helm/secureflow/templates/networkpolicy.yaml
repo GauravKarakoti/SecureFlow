@@ -71,3 +71,57 @@ spec:
           port: 6379
 {{- end }}
 {{- end }}
+{{- if and .Values.networkPolicy.enabled .Values.worker.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "secureflow.fullname" . }}-worker-egress
+  labels:
+    {{- omit (include "secureflow.labels" . | fromYaml) "app.kubernetes.io/component" | toYaml | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "secureflow.workerSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.workerEgress.dns.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.workerEgress.dns.podLabels | nindent 14 }}
+      ports:
+        {{- range .Values.networkPolicy.workerEgress.dns.ports }}
+        - protocol: UDP
+          port: {{ . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- range $component := list "postgresql" "redis" }}
+    {{- if (index $.Values $component).enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "secureflow.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: {{ $component }}
+      ports:
+        - protocol: TCP
+          port: {{ if eq $component "postgresql" }}5432{{ else }}6379{{ end }}
+    {{- end }}
+    {{- end }}
+    {{- range .Values.networkPolicy.workerEgress.externalCIDRs }}
+    - to:
+        - ipBlock:
+            {{- include "secureflow.publicEgressBlock" . | nindent 12 }}
+      ports:
+        {{- range $.Values.networkPolicy.workerEgress.externalPorts }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+{{- end }}

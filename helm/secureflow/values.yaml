@@ -572,3 +572,13 @@ networkPolicy:
   # Enable NetworkPolicy to restrict ingress to postgresql and redis pods
   # strictly to app, worker, migration-job, and retention-cronjob pods.
   enabled: false
+  # When enabled, workers allow only DNS, same-release in-cluster DB/Redis,
+  # and these explicit public IPv4 destinations. Empty = no external egress.
+  workerEgress:
+    externalCIDRs: []
+    externalPorts: [443]
+    dns:
+      namespace: kube-system
+      podLabels:
+        k8s-app: kube-dns
+      ports: [53]
