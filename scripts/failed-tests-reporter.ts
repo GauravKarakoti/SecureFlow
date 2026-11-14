@@ -54,7 +54,7 @@ export function getModulePath(m: any, cwd: string = process.cwd()): string {
   return normalizedRaw;
 }
 
-export function getFailedFilePaths(modules: any[], cwd: string = process.cwd()): string[] {
+export function getFailedFilePaths(modules: readonly any[], cwd: string = process.cwd()): string[] {
   const failed: string[] = [];
   for (const m of modules || []) {
     if (isTestModuleFailed(m)) {
@@ -89,7 +89,7 @@ export class FailedTestsReporter {
     this.reported = false;
   }
 
-  onTestRunEnd(testModules: any[]) {
+  onTestRunEnd(testModules: readonly any[]) {
     if (this.reported) return;
     const failedFiles = getFailedFilePaths(testModules);
     if (failedFiles.length > 0) {
@@ -103,7 +103,7 @@ export class FailedTestsReporter {
     }
   }
 
-  onFinished(files?: any[]) {
+  onFinished(files?: readonly any[]) {
     if (this.reported) return;
     if (files && files.length > 0) {
       const failedFiles = getFailedFilePaths(files);

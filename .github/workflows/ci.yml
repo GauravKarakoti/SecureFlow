@@ -198,18 +198,19 @@ jobs:
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
-          POSTGRES_DB: shadow
+          POSTGRES_DB: secureflow
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci -d shadow"
+          --health-cmd "pg_isready -U ci -d secureflow"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/shadow
-      SHADOW_DATABASE_URL: postgresql://ci:ci@localhost:5432/shadow
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/secureflow
+      DATABASE_POOL_URL: postgresql://ci:ci@localhost:5432/secureflow
+      SHADOW_DATABASE_URL: postgresql://ci:ci@localhost:5432/secureflow_shadow
 
     steps:
       - name: Checkout repository
@@ -227,11 +228,13 @@ jobs:
 
       - name: Fail on unmigrated schema changes
         run: |
+          # Prisma must never use the application database as its scratch database.
+          PGPASSWORD=ci psql -h localhost -U ci -d secureflow \
+            -c 'CREATE DATABASE secureflow_shadow'
           set +e
           npx prisma migrate diff \
             --from-migrations prisma/migrations \
-            --to-schema-datamodel prisma/schema.prisma \
-            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --to-schema prisma/schema.prisma \
             --exit-code
           code=$?
           if [ "$code" -eq 2 ]; then
@@ -250,13 +253,16 @@ jobs:
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
+        with:
+          version: v3.22.0
 
       - name: Lint chart
-        run: helm lint helm/secureflow
+        run: helm lint helm/secureflow --set secrets.authSecret=local-test-only
 
       - name: Render migration job
         run: |
           helm template secureflow helm/secureflow \
+            --set secrets.authSecret=local-test-only \
             --show-only templates/migration-job.yaml > /tmp/migration-job.yaml
           cat /tmp/migration-job.yaml
           grep -q "migrate" /tmp/migration-job.yaml
