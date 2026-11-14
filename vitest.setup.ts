@@ -1,6 +1,10 @@
 import { expect, vi } from "vitest";
-import * as matchers from "@testing-library/jest-dom/matchers";
-expect.extend(matchers);
+try {
+  const matchers = await import("@testing-library/jest-dom/matchers");
+  expect.extend(matchers.default || matchers);
+} catch {
+  // @testing-library/jest-dom not installed in this environment
+}
 
 // ArmorIQ no longer ships a fallback proof-signing key. Tests that exercise
 // signing need a non-production key, just like a real deployment does.

@@ -1,16 +1,23 @@
 import { vi } from "vitest";
 
-export class NextRequest {
-  headers: Headers;
-  constructor(url: string, init?: RequestInit) {
-    this.headers = new Headers((init?.headers as HeadersInit) ?? {});
+export class NextRequest extends Request {
+  readonly nextUrl: URL;
+  constructor(input: RequestInfo | URL, init?: RequestInit) {
+    super(input, init);
+    const urlStr =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    this.nextUrl = new URL(urlStr);
   }
 }
 
-export const NextResponse = {
-  json: vi.fn((body: unknown, init?: ResponseInit) => ({
-    body,
-    status: init?.status ?? 200,
-    headers: new Headers((init?.headers as HeadersInit) ?? {}),
-  })),
-};
+export class NextResponse extends Response {
+  static json = vi.fn((body: unknown, init?: ResponseInit) => {
+    return new NextResponse(JSON.stringify(body), {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+  });
+}

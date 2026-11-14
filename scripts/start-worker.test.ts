@@ -39,6 +39,13 @@ vi.mock("../src/lib/queue/dlq-auto-retry", () => ({
   })),
 }));
 
+vi.mock("../src/lib/queue/remediationDlq", () => ({
+  createRemediationDlqWorker: vi.fn(() => ({
+    start: vi.fn(),
+    stop: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 vi.mock("../src/lib/queue/shutdown", () => ({
   setupWorkerSignalHandlers: vi.fn(),
 }));
@@ -49,6 +56,7 @@ import { sbomWorker } from "../src/lib/queue/sbomWorker";
 import { scanWorkerPool } from "../src/lib/queue/workerPool";
 import { setupWorkerSignalHandlers } from "../src/lib/queue/shutdown";
 import { createDlqAutoRetryWorker } from "../src/lib/queue/dlq-auto-retry";
+import { createRemediationDlqWorker } from "../src/lib/queue/remediationDlq";
 import { createWorkerApp, startWorkerServer } from "./start-worker";
 
 describe("scripts/start-worker.ts (#1354)", () => {
@@ -95,6 +103,8 @@ describe("scripts/start-worker.ts (#1354)", () => {
 
       expect(createDlqAutoRetryWorker).toHaveBeenCalled();
       expect(result.dlqAutoRetryWorker.start).toHaveBeenCalled();
+      expect(createRemediationDlqWorker).toHaveBeenCalled();
+      expect(result.remediationDlqWorker.start).toHaveBeenCalled();
     });
 
     it("starts scanWorkerPool when scanWorkerEnabled is true", () => {
@@ -147,13 +157,14 @@ describe("scripts/start-worker.ts (#1354)", () => {
         }),
       );
 
-      // Verify drain contains callbacks for both scanWorkerPool and dlqAutoRetryWorker
-      expect(result.drain.length).toBe(2);
+      // Verify drain contains callbacks for scanWorkerPool, dlqAutoRetryWorker and remediationDlqWorker
+      expect(result.drain.length).toBe(3);
       for (const drainFn of result.drain) {
         drainFn();
       }
       expect(scanWorkerPool.stop).toHaveBeenCalled();
       expect(result.dlqAutoRetryWorker.stop).toHaveBeenCalled();
+      expect(result.remediationDlqWorker.stop).toHaveBeenCalled();
     });
 
     it("closes the HTTP server on shutdown completion", () => {

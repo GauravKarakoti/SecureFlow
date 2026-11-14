@@ -22,6 +22,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/lib/prisma", () => ({
   default: {
     finding: { findFirst: findingFindFirst },
+    remediationPatch: { update: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
@@ -60,7 +61,10 @@ vi.mock("octokit", () => {
         createCommit: github.createCommit,
         createRef: github.createRef,
       },
-      pulls: { create: github.pullsCreate },
+      pulls: {
+        create: github.pullsCreate,
+        list: async () => ({ data: [] }),
+      },
     },
   };
   return {
@@ -128,7 +132,7 @@ describe("POST /api/findings/[id]/remediate/apply with an unavailable ArmorIQ (#
     expect(github.pullsCreate).not.toHaveBeenCalled();
   });
 
-  it("answers 503 without calling ArmorIQ once consecutive timeouts open the circuit", async () => {
+  it("answers 202 and queues intent in DLQ without calling ArmorIQ once consecutive timeouts open the circuit (#1751)", async () => {
     armorClient.getIntentToken.mockRejectedValue(timeout());
     for (let i = 0; i < 3; i++) {
       expect((await apply()).status).toBe(403);
@@ -137,15 +141,17 @@ describe("POST /api/findings/[id]/remediate/apply with an unavailable ArmorIQ (#
 
     const response = await apply();
 
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      error: "ArmorIQ is temporarily unavailable; remediation is blocked",
-    });
+    expect(response.status).toBe(202);
+    const data = await response.json();
+    expect(data.status).toBe("queued");
+    expect(data.queued).toBe(true);
+    expect(typeof data.jobId).toBe("string");
+    expect(data.jobId).toMatch(/^rem-dlq-/);
     expect(armorClient.getIntentToken).toHaveBeenCalledTimes(3);
     expect(github.createBlob).not.toHaveBeenCalled();
   });
 
-  it("answers 503 when token verification reports ArmorIQ unavailable", async () => {
+  it("answers 202 when token verification reports ArmorIQ unavailable and queues intent (#1751)", async () => {
     armorClient.getIntentToken.mockResolvedValue({ rawToken: {}, planHash: "h" });
     verifyIntentToken.mockResolvedValue({
       valid: false,
@@ -155,8 +161,48 @@ describe("POST /api/findings/[id]/remediate/apply with an unavailable ArmorIQ (#
 
     const response = await apply();
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(202);
+    const data = await response.json();
+    expect(data.status).toBe("queued");
+    expect(data.queued).toBe(true);
+    expect(typeof data.jobId).toBe("string");
+    expect(data.jobId).toMatch(/^rem-dlq-/);
     expect(github.createBlob).not.toHaveBeenCalled();
+  });
+
+  it("validates recovery: once circuit breaker resets, subsequent requests succeed and process remediation (#1751)", async () => {
+    armorClient.getIntentToken.mockRejectedValue(timeout());
+    for (let i = 0; i < 3; i++) {
+      expect((await apply()).status).toBe(403);
+    }
+    // Breaker is open
+    const trippedResponse = await apply();
+    expect(trippedResponse.status).toBe(202);
+
+    // Reset breaker (simulating recovery)
+    resetModelCircuitBreakers();
+
+    // Replay/apply under recovered condition
+    armorClient.capturePlan.mockImplementation((_app: any, _desc: any, plan: any) => ({ plan }));
+    armorClient.getIntentToken.mockImplementation((capture: any) => ({
+      rawToken: { plan: capture.plan, token: { plan_hash: "valid-plan-hash" } },
+      planHash: "valid-plan-hash",
+    }));
+    verifyIntentToken.mockResolvedValue({ valid: true, unavailable: false });
+    github.createBlob.mockResolvedValue({ data: { sha: "blob-sha" } });
+    github.createTree.mockResolvedValue({ data: { sha: "tree-sha" } });
+    github.createCommit.mockResolvedValue({ data: { sha: "commit-sha" } });
+    github.createRef.mockResolvedValue({ data: {} });
+    github.pullsCreate.mockResolvedValue({
+      data: { html_url: "https://github.com/owner/repo/pull/101" },
+    });
+
+    const recoveredResponse = await apply();
+    expect(recoveredResponse.status).toBe(200);
+    const result = await recoveredResponse.json();
+    expect(result.success).toBe(true);
+    expect(github.createBlob).toHaveBeenCalled();
+    expect(github.pullsCreate).toHaveBeenCalled();
   });
 
   it("still answers 403 when ArmorIQ is reachable but rejects the token", async () => {
