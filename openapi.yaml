@@ -1996,6 +1996,45 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/badge/{owner}/{repo}:
+    parameters:
+      - name: owner
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The repository owner or organization.
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The repository name.
+    get:
+      summary: Get SVG scan status badge
+      description: |
+        Returns a shields.io-style SVG status badge reflecting the latest scan status
+        (passing, review required, blocked, or unknown) for the repository. Only repositories
+        with public badges enabled return the real status; others return unknown.
+      operationId: getStatusBadge
+      tags:
+        - Repositories
+      responses:
+        "200":
+          description: SVG badge image
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: public, max-age=300, s-maxage=300
+              description: Cache directives for public badge responses
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        "429":
+          description: Rate limit exceeded
+
 tags:
   - name: SBOM
     description: Software Bill of Materials scanning

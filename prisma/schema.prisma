@@ -136,11 +136,12 @@ model VerificationToken {
 }
 
 model Repository {
-  id       String  @id @default(cuid())
-  githubId BigInt  @unique
-  fullName String
-  owner    String
-  isActive Boolean @default(true)
+  id                 String  @id @default(cuid())
+  githubId           BigInt  @unique
+  fullName           String
+  owner              String
+  isActive           Boolean @default(true)
+  publicBadgeEnabled Boolean @default(false)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
