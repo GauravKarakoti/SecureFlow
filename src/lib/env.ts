@@ -5,6 +5,7 @@ const SECRET_ENV_VARS = new Set([
   "DATABASE_POOL_URL",
   "GROQ_API_KEY",
   "GITHUB_WEBHOOK_SECRET",
+  "GITHUB_WEBHOOK_SECRET_PREVIOUS",
   "GITHUB_PRIVATE_KEY",
   "GITHUB_CLIENT_SECRET",
   "AUTH_SECRET",
@@ -42,6 +43,7 @@ const envSchema = z.object({
 
   GITHUB_APP_ID: z.string().min(1, "GITHUB_APP_ID is required"),
   GITHUB_WEBHOOK_SECRET: z.string().min(1, "GITHUB_WEBHOOK_SECRET is required"),
+  GITHUB_WEBHOOK_SECRET_PREVIOUS: z.string().optional(),
   GITHUB_PRIVATE_KEY: privateKeySchema,
   GITHUB_CLIENT_ID: z.string().min(1, "GITHUB_CLIENT_ID is required"),
   GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),

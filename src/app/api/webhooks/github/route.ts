@@ -15,6 +15,7 @@ import {
   parseWebhookPayload,
   payloadByteLength,
   verifySignature,
+  verifyWebhookSignatureWithRotation,
   webhookJobId,
 } from "@/lib/github/webhook-verification";
 import { isDuplicateDelivery } from "@/lib/github/webhook-dedup";
@@ -48,7 +49,11 @@ import prisma from "@/lib/prisma";
 // Runs in the webhook worker now (see `src/lib/queue/worker.ts`); re-exported
 // so existing callers and tests keep importing it from here.
 export { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
-export { validateWebhookSignature, verifySignature } from "@/lib/github/webhook-verification";
+export {
+  validateWebhookSignature,
+  verifySignature,
+  verifyWebhookSignatureWithRotation,
+} from "@/lib/github/webhook-verification";
 export { isDuplicateDelivery, recordWebhookDelivery } from "@/lib/github/webhook-dedup";
 
 /**
@@ -82,6 +87,9 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     log.error("Server misconfiguration: GitHub webhook secret is missing.");
     throw new AppError("Server misconfiguration: GitHub webhook secret is missing.", 500);
   }
+  const previousSecret = (
+    process.env.GITHUB_WEBHOOK_SECRET_PREVIOUS ?? env.GITHUB_WEBHOOK_SECRET_PREVIOUS
+  )?.trim();
 
   const maxBytes = parseMaxWebhookBytes(env.GITHUB_WEBHOOK_MAX_BYTES);
 
@@ -155,12 +163,23 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   }
 
   // 5. Signature, before the body is interpreted in any way.
-  if (!verifySignature(rawPayloadText, secret, signatureHex)) {
+  const matchedSecret = verifyWebhookSignatureWithRotation(
+    rawPayloadText,
+    secret,
+    previousSecret,
+    signatureHex,
+  );
+  if (!matchedSecret) {
     const msg = `[SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery ${deliveryId}`;
     console.warn(msg);
     log.warn(msg);
     throw new AppError("Invalid GitHub webhook signature", 401);
   }
+
+  log.info(`GitHub webhook signature verified using ${matchedSecret} secret`, {
+    matchedSecret,
+    deliveryId,
+  });
 
   // 5. Deduplication: GitHub retries webhook deliveries and users can redeliver
   // them from app settings. Deduplicate using an atomic set-if-absent in Redis

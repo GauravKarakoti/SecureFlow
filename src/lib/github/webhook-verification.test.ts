@@ -12,6 +12,7 @@ import {
   parseWebhookPayload,
   payloadByteLength,
   verifySignature,
+  verifyWebhookSignatureWithRotation,
   webhookJobId,
 } from "./webhook-verification";
 
@@ -84,6 +85,41 @@ describe("verifySignature", () => {
     // timingSafeEqual throws when the buffers differ in length.
     expect(() => verifySignature(BODY, SECRET, "abcd")).not.toThrow();
     expect(verifySignature(BODY, SECRET, "abcd")).toBe(false);
+  });
+});
+
+describe("verifyWebhookSignatureWithRotation", () => {
+  const PREVIOUS_SECRET = "previous-webhook-secret";
+
+  it("matches 'current' when signed with the active secret", () => {
+    const hex = parseGithubSignature(sign(BODY, SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBe("current");
+  });
+
+  it("matches 'previous' when signed with the previous secret", () => {
+    const hex = parseGithubSignature(sign(BODY, PREVIOUS_SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBe("previous");
+  });
+
+  it("prefers 'current' if both secrets happen to be identical", () => {
+    const hex = parseGithubSignature(sign(BODY, SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, SECRET, hex)).toBe("current");
+  });
+
+  it("returns null when signed with an unknown secret", () => {
+    const hex = parseGithubSignature(sign(BODY, "completely-unknown-secret"))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBeNull();
+  });
+
+  it("returns null when previous secret is null, undefined, or empty and signature doesn't match current", () => {
+    const hex = parseGithubSignature(sign(BODY, "other-secret"))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, null, hex)).toBeNull();
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, undefined, hex)).toBeNull();
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, "   ", hex)).toBeNull();
+  });
+
+  it("returns null for malformed or mismatched-length signatures", () => {
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, "1234")).toBeNull();
   });
 });
 
@@ -295,5 +331,31 @@ describe("admitWebhook", () => {
       ok: false,
       status: 413,
     });
+  });
+
+  it("admits a delivery signed with the previous secret when configured", () => {
+    const previousSecret = "old-secret-rotated";
+    const result = admitWebhook({
+      ...base,
+      signatureHeader: sign(BODY, previousSecret),
+      previousSecret,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.matchedSecret).toBe("previous");
+    }
+  });
+
+  it("marks matchedSecret as 'current' when signed with the active secret", () => {
+    const previousSecret = "old-secret-rotated";
+    const result = admitWebhook({
+      ...base,
+      signatureHeader: sign(BODY, SECRET),
+      previousSecret,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.matchedSecret).toBe("current");
+    }
   });
 });

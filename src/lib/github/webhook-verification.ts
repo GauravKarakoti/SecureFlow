@@ -92,18 +92,52 @@ export function verifySignature(
   return timingSafeEqual(provided, expected);
 }
 
+export type WebhookSecretMatch = "current" | "previous" | null;
+
+/**
+ * Constant-time verification against current and optional previous secrets.
+ *
+ * Checks `currentSecret` first. If it matches, returns `"current"`.
+ * If it does not match and `previousSecret` is provided and non-empty,
+ * checks `previousSecret` using timingSafeEqual and returns `"previous"` on match.
+ * Otherwise returns `null`.
+ *
+ * Never reveals or logs secret values.
+ */
+export function verifyWebhookSignatureWithRotation(
+  payload: string | Buffer | Uint8Array,
+  currentSecret: string,
+  previousSecret: string | null | undefined,
+  signatureHex: string,
+): WebhookSecretMatch {
+  if (verifySignature(payload, currentSecret, signatureHex)) {
+    return "current";
+  }
+
+  const trimmedPrevious = previousSecret?.trim();
+  if (trimmedPrevious && verifySignature(payload, trimmedPrevious, signatureHex)) {
+    return "previous";
+  }
+
+  return null;
+}
+
 /**
  * Validates the GitHub webhook HMAC signature strictly using Node's crypto module
- * and timingSafeEqual.
+ * and timingSafeEqual. Supports optional previous secret for zero-downtime rotation.
  */
 export function validateWebhookSignature(
   payload: string | Buffer | Uint8Array,
   secret: string,
   signatureHeader: string | null | undefined,
+  previousSecret?: string | null,
 ): boolean {
   const signatureHex = parseGithubSignature(signatureHeader);
   if (!signatureHex) return false;
-  return verifySignature(payload, secret, signatureHex);
+  if (!previousSecret) {
+    return verifySignature(payload, secret, signatureHex);
+  }
+  return verifyWebhookSignatureWithRotation(payload, secret, previousSecret, signatureHex) !== null;
 }
 
 /** Read `GITHUB_WEBHOOK_MAX_BYTES`, falling back to the default for junk values. */
@@ -256,12 +290,18 @@ export interface WebhookAdmission {
 export function admitWebhook(options: {
   payloadText: string;
   secret: string | undefined;
+  previousSecret?: string | null;
   signatureHeader: string | null | undefined;
   deliveryHeader: string | null | undefined;
   contentLength?: string | number | null;
   maxBytes?: number;
 }):
-  | { ok: true; deliveryId: string; payload: Record<string, unknown> }
+  | {
+      ok: true;
+      deliveryId: string;
+      payload: Record<string, unknown>;
+      matchedSecret: "current" | "previous";
+    }
   | ({ ok: false } & WebhookAdmission) {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_WEBHOOK_BYTES;
 
@@ -288,7 +328,14 @@ export function admitWebhook(options: {
     return { ok: false, status: 401, message: "Missing or invalid x-hub-signature-256 header" };
   }
 
-  if (!verifySignature(options.payloadText, options.secret, signatureHex)) {
+  const matchedSecret = verifyWebhookSignatureWithRotation(
+    options.payloadText,
+    options.secret,
+    options.previousSecret,
+    signatureHex,
+  );
+
+  if (!matchedSecret) {
     return { ok: false, status: 401, message: "Invalid GitHub webhook signature" };
   }
 
@@ -297,7 +344,7 @@ export function admitWebhook(options: {
     return { ok: false, status: 400, message: parsed.reason };
   }
 
-  return { ok: true, deliveryId, payload: parsed.payload };
+  return { ok: true, deliveryId, payload: parsed.payload, matchedSecret };
 }
 
 export {

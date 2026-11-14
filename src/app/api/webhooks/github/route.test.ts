@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "crypto";
 import { Octokit } from "octokit";
 
@@ -157,8 +157,8 @@ import { addWebhookJob } from "@/lib/queue/webhookQueue";
 
 const SECRET = "test-webhook-secret";
 
-function sign(body: string) {
-  return "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
+function sign(body: string, secret = SECRET) {
+  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
 }
 
 function makeRequest(
@@ -419,6 +419,59 @@ describe("GitHub webhook route", () => {
       await POST(req);
       expect(req.text).toHaveBeenCalled();
       expect(req.json).not.toHaveBeenCalled();
+    });
+
+    describe("secret rotation (GITHUB_WEBHOOK_SECRET_PREVIOUS)", () => {
+      const PREVIOUS_SECRET = "previous-webhook-secret-xyz";
+
+      beforeEach(() => {
+        process.env.GITHUB_WEBHOOK_SECRET_PREVIOUS = PREVIOUS_SECRET;
+      });
+
+      afterEach(() => {
+        delete process.env.GITHUB_WEBHOOK_SECRET_PREVIOUS;
+      });
+
+      it("accepts a payload signed with the current secret when previous is set", async () => {
+        const req = makeRequest(minimalPRPayload, {
+          "x-hub-signature-256": sign(minimalPRPayload, SECRET),
+        });
+        const res = await POST(req);
+        expect(res.status).toBe(202);
+        expect(await res.json()).toMatchObject({ status: "queued" });
+        expect(addWebhookJob).toHaveBeenCalledOnce();
+      });
+
+      it("accepts a payload signed with the previous secret while configured", async () => {
+        const req = makeRequest(minimalPRPayload, {
+          "x-hub-signature-256": sign(minimalPRPayload, PREVIOUS_SECRET),
+        });
+        const res = await POST(req);
+        expect(res.status).toBe(202);
+        expect(await res.json()).toMatchObject({ status: "queued" });
+        expect(addWebhookJob).toHaveBeenCalledOnce();
+      });
+
+      it("rejects with 401 when payload is signed with an unknown secret", async () => {
+        const req = makeRequest(minimalPRPayload, {
+          "x-hub-signature-256": sign(minimalPRPayload, "completely-unknown-secret"),
+        });
+        const res = await POST(req);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: "Invalid GitHub webhook signature" });
+        expect(addWebhookJob).not.toHaveBeenCalled();
+      });
+
+      it("rejects with 401 when previous secret is not configured and payload uses old secret", async () => {
+        delete process.env.GITHUB_WEBHOOK_SECRET_PREVIOUS;
+        const req = makeRequest(minimalPRPayload, {
+          "x-hub-signature-256": sign(minimalPRPayload, PREVIOUS_SECRET),
+        });
+        const res = await POST(req);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: "Invalid GitHub webhook signature" });
+        expect(addWebhookJob).not.toHaveBeenCalled();
+      });
     });
   });
 
