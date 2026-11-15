@@ -34,6 +34,7 @@ import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW
 import { TriageStatus } from "@/lib/actions/triage";
 import type { FindingFilterOptions, FindingRow, FindingsStats } from "@/lib/actions/findings";
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
+import { TimeAgo } from "@/components/time-ago";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -287,8 +288,14 @@ export default function FindingsClient({
                               <div className="font-bold text-sm mb-0.5">
                                 {finding.type} Detected
                               </div>
-                              <div className="text-[10px] font-mono text-muted-foreground">
-                                {finding.fileLocation}
+                              <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-2">
+                                <span>{finding.fileLocation}</span>
+                                {finding.createdAt && (
+                                  <>
+                                    <span>•</span>
+                                    <TimeAgo date={finding.createdAt} />
+                                  </>
+                                )}
                               </div>
                             </div>
                             {finding.promptInjectionSuspected && (

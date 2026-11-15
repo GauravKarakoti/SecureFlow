@@ -4,6 +4,7 @@ import React, { useMemo, useState, useTransition, useOptimistic } from "react";
 import { useRouter } from "next/navigation";
 import { updateUserRole, deleteUser, type AdminUserRow, type RoleName } from "@/lib/actions/admin";
 import { useToast } from "@/hooks/use-toast";
+import { TimeAgo } from "@/components/time-ago";
 import {
   Search,
   ChevronLeft,
@@ -256,11 +257,8 @@ export default function UsersTable({
                       </span>
                     </td>
                     <td className="px-6 py-4 font-mono text-foreground/80">{u.repoCount}</td>
-                    <td
-                      className="px-6 py-4 text-muted-foreground font-mono text-xs"
-                      suppressHydrationWarning
-                    >
-                      {new Date(u.createdAt).toLocaleDateString()}
+                    <td className="px-6 py-4 text-muted-foreground font-mono text-xs">
+                      <TimeAgo date={u.createdAt} />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">

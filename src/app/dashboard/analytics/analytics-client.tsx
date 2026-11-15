@@ -6,6 +6,7 @@ import CountUp from "react-countup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TimeAgo } from "@/components/time-ago";
 import {
   BarChart3,
   TrendingUp,
@@ -680,9 +681,7 @@ export default function AnalyticsClient({
                         {repo.lastScanAt ? (
                           <span className="flex items-center justify-end gap-1">
                             <Clock className="w-3 h-3" />
-                            <span suppressHydrationWarning>
-                              {new Date(repo.lastScanAt).toLocaleDateString("en-GB")}
-                            </span>
+                            <TimeAgo date={repo.lastScanAt} />
                           </span>
                         ) : (
                           <span className="italic">Never</span>
