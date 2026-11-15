@@ -114,7 +114,8 @@ Provide ONLY the unified diff patch that fixes this issue securely. Do not inclu
   let failureReason: RemediationFailureReason = "unavailable";
 
   // Wrap AI inference call with circuit breaker to prevent blocking during provider outages (#1768)
-  const modelKey = typeof activeModel === "string" ? activeModel : (activeModel as any)?.name || "default";
+  const modelKey =
+    typeof activeModel === "string" ? activeModel : (activeModel as any)?.name || "default";
   const breaker = getModelCircuitBreaker(modelKey);
 
   try {

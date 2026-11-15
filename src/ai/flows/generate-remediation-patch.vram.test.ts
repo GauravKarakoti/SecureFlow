@@ -35,6 +35,7 @@ describe("generateRemediationPatch - insufficient VRAM (#1525)", () => {
   beforeEach(() => {
     resetModelCircuitBreakers();
     mockGenerate.mockReset();
+    if (typeof resetModelCircuitBreakers === "function") resetModelCircuitBreakers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

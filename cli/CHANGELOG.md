@@ -1,5 +1,13 @@
 # secureflow-cli
 
+## 3.5.0
+
+### Minor Changes
+
+- 3d7ea4a: Implement circuit breaker protection and static fallback management for AI inference calls across remediation patch, security explanation, and Web3 explanation flows (#1768).
+- 75c0e19: Implement automated DLQ replay mechanism and telemetry for ArmorIQ events (#1765)
+- 282c068: Add native SARIF export format support in secureflow-cli (#1766)
+
 ## 3.4.0
 
 ### Minor Changes

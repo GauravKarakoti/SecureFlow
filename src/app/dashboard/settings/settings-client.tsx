@@ -329,8 +329,9 @@ export default function SettingsClient({
             </p>
           ) : (
             repositories.map((repo) => {
-              const badgeUrl = `/api/badge/${repo.fullName}`;
-              const markdown = `[![SecureFlow Status](${badgeUrl})](/dashboard)`;
+              const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+              const badgeUrl = `${appUrl}/api/badge/${repo.fullName}`;
+              const markdown = `[![SecureFlow Status](${badgeUrl})](${appUrl || "/"})`;
               return (
                 <div
                   key={repo.id}

@@ -33,6 +33,7 @@ describe("generateRemediationPatch - backoff and retry (#1513)", () => {
   beforeEach(() => {
     resetModelCircuitBreakers();
     mockGenerate.mockReset();
+    if (typeof resetModelCircuitBreakers === "function") resetModelCircuitBreakers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

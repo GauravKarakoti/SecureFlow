@@ -39,7 +39,8 @@ describe("web3SecurityExplanation - insufficient VRAM (#1525)", () => {
   beforeEach(() => {
     resetModelCircuitBreakers();
     mockGenerate.mockReset();
-    mockSetCached.mockReset();
+    if (typeof mockSetCached === "function") mockSetCached.mockReset();
+    if (typeof resetModelCircuitBreakers === "function") resetModelCircuitBreakers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

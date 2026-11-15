@@ -228,12 +228,12 @@ jobs:
 ```
 
 SARIF findings exported by SecureFlow conform strictly to OASIS SARIF v2.1.0 specifications and include:
+
 - Normalized relative file URIs
 - Precise line ranges and character columns
 - Standard GitHub severity mappings (`CRITICAL`/`HIGH` -> `error`, `MEDIUM` -> `warning`, `LOW`/`INFO` -> `note`)
 - Cryptographic code snippet fingerprints for tracking issues across code refactors
 - Automated remediation patch replacements within SARIF `fixes` arrays
-
 
 ---
 
