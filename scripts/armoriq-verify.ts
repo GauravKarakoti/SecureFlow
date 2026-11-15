@@ -180,12 +180,18 @@ export async function runArmorIQCheck(options: CliCheckOptions = {}) {
   if (options.inspectDlq) {
     console.log("🔍 Inspecting ArmorIQ Dead-Letter Queue Payloads & Telemetry (#1765)...");
     const dlqStatus = await inspectRemediationDlqPayloads();
-    console.log(`📊 DLQ Total: ${dlqStatus.total} | Queued: ${dlqStatus.queued.length} | Quarantined: ${dlqStatus.quarantined.length} | Failed: ${dlqStatus.failed.length}`);
-    console.log(`📈 Telemetry Metrics: Total Queued: ${dlqStatus.telemetry.totalQueued}, Replayed: ${dlqStatus.telemetry.totalReplayed}, Retries: ${dlqStatus.telemetry.totalRetries}, Quarantined: ${dlqStatus.telemetry.totalQuarantined}`);
+    console.log(
+      `📊 DLQ Total: ${dlqStatus.total} | Queued: ${dlqStatus.queued.length} | Quarantined: ${dlqStatus.quarantined.length} | Failed: ${dlqStatus.failed.length}`,
+    );
+    console.log(
+      `📈 Telemetry Metrics: Total Queued: ${dlqStatus.telemetry.totalQueued}, Replayed: ${dlqStatus.telemetry.totalReplayed}, Retries: ${dlqStatus.telemetry.totalRetries}, Quarantined: ${dlqStatus.telemetry.totalQuarantined}`,
+    );
     if (dlqStatus.quarantined.length > 0) {
       console.log("🚨 Quarantined Events:");
       for (const q of dlqStatus.quarantined) {
-        console.log(`   - [${q.id}] ${q.quarantineReason || "Quarantined"} (retries: ${q.retryCount})`);
+        console.log(
+          `   - [${q.id}] ${q.quarantineReason || "Quarantined"} (retries: ${q.retryCount})`,
+        );
       }
     }
   }
@@ -264,8 +270,12 @@ export async function runArmorIQCheck(options: CliCheckOptions = {}) {
 const isMain = process.argv[1] && /armoriq-verify(\.ts|\.js)?$/.test(process.argv[1]);
 if (isMain) {
   const options = parseCliArgs(process.argv.slice(2));
-  runArmorIQCheck(options).catch((err) => {
-    console.error("Fatal error during ArmorIQ verification:", err);
-    process.exit(1);
-  });
+  runArmorIQCheck(options)
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("Fatal error during ArmorIQ verification:", err);
+      process.exit(1);
+    });
 }
