@@ -524,7 +524,11 @@ export async function replayUnverifiedRemediationIntents(
       }
 
       result.replayed++;
-      result.outcomes.push({ id: intent.id, status: "verified", retryCount: intent.retryCount || 0 });
+      result.outcomes.push({
+        id: intent.id,
+        status: "verified",
+        retryCount: intent.retryCount || 0,
+      });
     } catch (err) {
       log.error("Failed to replay remediation intent from DLQ", {
         id: intent.id,

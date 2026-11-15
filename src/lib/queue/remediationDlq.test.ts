@@ -217,7 +217,9 @@ describe("src/lib/queue/remediationDlq (#1751, #1765)", () => {
         token: { rawToken: {} },
       });
 
-      const failingVerify = vi.fn().mockResolvedValue({ valid: false, unavailable: false, reason: "Temporary mismatch" });
+      const failingVerify = vi
+        .fn()
+        .mockResolvedValue({ valid: false, unavailable: false, reason: "Temporary mismatch" });
 
       // Attempt 1: should record attempt 1 and schedule backoff
       const res1 = await replayUnverifiedRemediationIntents({

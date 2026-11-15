@@ -173,9 +173,7 @@ describe("scripts/armoriq-verify.ts (#1710, #1751)", () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining("Inspecting ArmorIQ Dead-Letter Queue Payloads & Telemetry"),
     );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Telemetry Metrics"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Telemetry Metrics"));
     consoleSpy.mockRestore();
   });
 });
