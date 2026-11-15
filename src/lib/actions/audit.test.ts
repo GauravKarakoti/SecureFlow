@@ -231,6 +231,38 @@ describe("getUserAuditLogs (#659 regression guard)", () => {
       });
     },
   );
+
+  it("supports cursor-based pagination and returns nextCursor when more items exist", async () => {
+    // 3 logs returned when pageSize is 2 -> should slice to 2 and return nextCursor
+    mockFindMany.mockResolvedValueOnce([logRow(1), logRow(2), logRow(3)]);
+    mockCount.mockResolvedValueOnce(5);
+
+    const result = await getUserAuditLogs({
+      cursor: "eyJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImxvZy0wIn0=",
+      pageSize: 2,
+      search: "test",
+      startDate: new Date("2026-01-01"),
+      endDate: new Date("2026-01-02"),
+    });
+
+    expect(result.logs).toHaveLength(2);
+    expect(result.nextCursor).toBeDefined();
+    expect(mockFindMany.mock.calls[0][0].take).toBe(3);
+    expect(mockFindMany.mock.calls[0][0].skip).toBe(0);
+  });
+
+  it("handles cursor on final page without nextCursor", async () => {
+    mockFindMany.mockResolvedValueOnce([logRow(1)]);
+    mockCount.mockResolvedValueOnce(1);
+
+    const result = await getUserAuditLogs({
+      cursor: "eyJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImxvZy0wIn0=",
+      pageSize: 5,
+    });
+
+    expect(result.logs).toHaveLength(1);
+    expect(result.nextCursor).toBeNull();
+  });
 });
 
 describe('"use server" module contract', () => {
