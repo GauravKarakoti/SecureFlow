@@ -235,10 +235,7 @@ jobs:
           PGPASSWORD=ci psql -h localhost -U ci -d secureflow \
             -c 'CREATE DATABASE secureflow_shadow'
           set +e
-          npx prisma migrate diff \
-            --from-migrations prisma/migrations \
-            --to-schema prisma/schema.prisma \
-            --exit-code
+          npm run db:check-drift
           code=$?
           if [ "$code" -eq 2 ]; then
             echo "::error::Schema drift detected. Run 'npx prisma migrate dev --name <change>' and commit the new migration."
