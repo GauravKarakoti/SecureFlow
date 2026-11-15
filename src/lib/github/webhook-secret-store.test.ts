@@ -134,5 +134,20 @@ describe("webhook-secret-store", () => {
       );
       expect(mockRedis.set).toHaveBeenCalledWith(WEBHOOK_SECRET_CURRENT_KEY, "secret-new");
     });
+
+    it("falls back to memory if Redis get or set throws", async () => {
+      const mockRedis = {
+        get: vi.fn().mockRejectedValue(new Error("Redis connection refused")),
+        set: vi.fn().mockRejectedValue(new Error("Redis connection refused")),
+      };
+
+      const result = await resolveWebhookSecrets("fallback-secret", mockRedis as any);
+      expect(result).toEqual({ current: "fallback-secret", previous: null });
+
+      // And recordWebhookSecretRotation gracefully handles redis error
+      await recordWebhookSecretRotation("new-val", "old-val", mockRedis as any);
+      const after = await resolveWebhookSecrets("new-val", mockRedis as any);
+      expect(after.current).toBe("new-val");
+    });
   });
 });
