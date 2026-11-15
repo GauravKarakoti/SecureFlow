@@ -52,6 +52,7 @@ export default async function FindingsPage({
       pageSize={result.pageSize}
       total={result.total}
       totalPages={result.totalPages}
+      nextCursor={result.nextCursor}
       sbomReport={sbomReport}
     />
   );

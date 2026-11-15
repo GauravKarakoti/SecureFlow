@@ -67,6 +67,7 @@ export default function AuditLogTable({
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<UserAuditLogResult>(initialResult);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -313,6 +314,69 @@ export default function AuditLogTable({
       }
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (!result.nextCursor || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      if (armoriqOnly) {
+        const params = new URLSearchParams();
+        if (decisionFilter !== ALL) params.set("decision", decisionFilter);
+        params.set("limit", String(PAGE_SIZE));
+        params.set("cursor", result.nextCursor);
+        const apiRes = await fetch(`/api/audit/armoriq?${params.toString()}`);
+        if (apiRes.ok) {
+          const data = await apiRes.json();
+          const armoriqRows: UserAuditLogRow[] = (data.traces || []).map((t: any) => ({
+            id: t.id,
+            action: `ARMORIQ_TOOL_${t.decision}`,
+            resource: t.toolName,
+            decision: t.decision,
+            timestamp: new Date(t.timestamp),
+            userId: null,
+            metadata: {
+              isArmorIQ: true,
+              armorIQLogId: t.id,
+              agentId: t.agentId,
+              toolName: t.toolName,
+              rule: t.ruleMatched,
+              reason: t.justification,
+              proofHash: t.proofHash,
+              signature: t.signature,
+              intentId: t.intentId,
+              complianceFrameworks: t.frameworks,
+              privacyLevel: t.privacyLevel,
+              scanJobId: t.scanJobId,
+              findingId: t.findingId,
+            },
+          }));
+          setResult((prev) => ({
+            ...prev,
+            logs: [...prev.logs, ...armoriqRows],
+            nextCursor: data.nextCursor ?? null,
+          }));
+          return;
+        }
+      }
+
+      const res = await getUserAuditLogs({
+        action: actionFilter === ALL ? undefined : actionFilter,
+        decision: decisionFilter === ALL ? undefined : decisionFilter,
+        search: search.trim() ? search.trim() : undefined,
+        startDate: dateFrom ? new Date(`${dateFrom}T00:00:00`) : undefined,
+        endDate: dateTo ? new Date(`${dateTo}T23:59:59.999`) : undefined,
+        cursor: result.nextCursor,
+        limit: PAGE_SIZE,
+      });
+      setResult((prev) => ({
+        ...prev,
+        logs: [...prev.logs, ...res.logs],
+        nextCursor: res.nextCursor,
+      }));
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -886,6 +950,16 @@ export default function AuditLogTable({
         </span>
 
         <div className="flex items-center gap-2">
+          {result.nextCursor && (
+            <button
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+              className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 font-medium text-xs"
+              aria-label="Load more logs"
+            >
+              {isLoadingMore ? "Loading..." : "Load more"}
+            </button>
+          )}
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={safePage === 1}

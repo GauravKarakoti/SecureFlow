@@ -15,6 +15,7 @@ import {
   type UserAuditLogExport,
   type UserAuditLogRow,
 } from "@/lib/audit/export-limits";
+import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
 
 async function requireUser(): Promise<string> {
   const session = await auth();
@@ -32,6 +33,7 @@ export interface UserAuditLogResult {
   page: number;
   pageSize: number;
   totalPages: number;
+  nextCursor?: string | null;
 }
 
 export interface UserAuditLogQuery {
@@ -40,6 +42,8 @@ export interface UserAuditLogQuery {
   search?: string;
   page?: number;
   pageSize?: number;
+  limit?: number;
+  cursor?: string;
   startDate?: Date;
   endDate?: Date;
 }
@@ -90,20 +94,47 @@ export async function getUserAuditLogs(query: UserAuditLogQuery = {}): Promise<U
   const requestedPage =
     typeof query.page === "number" && Number.isFinite(query.page) ? query.page : 1;
   const requestedPageSize =
-    typeof query.pageSize === "number" && Number.isFinite(query.pageSize) ? query.pageSize : 10;
+    typeof query.pageSize === "number" && Number.isFinite(query.pageSize)
+      ? query.pageSize
+      : typeof query.limit === "number" && Number.isFinite(query.limit)
+        ? query.limit
+        : 10;
   const page = Math.max(1, Math.floor(requestedPage));
   const pageSize = Math.min(100, Math.max(1, Math.floor(requestedPageSize)));
-  const where = buildUserAuditLogWhere(userId, query);
+  const baseWhere = buildUserAuditLogWhere(userId, query);
 
-  const [logs, total] = await Promise.all([
+  const decodedCursor = decodeCursor(query.cursor);
+  const where = {
+    ...baseWhere,
+    ...(query.cursor ? buildCursorWhere(decodedCursor, "timestamp") : {}),
+  };
+
+  const [rawLogs, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
-      orderBy: { timestamp: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+      skip: query.cursor ? 0 : (page - 1) * pageSize,
+      take: query.cursor ? pageSize + 1 : pageSize,
     }),
-    prisma.auditLog.count({ where }),
+    prisma.auditLog.count({ where: baseWhere }),
   ]);
+
+  let nextCursor: string | null = null;
+  let logs = rawLogs;
+  if (query.cursor) {
+    if (rawLogs.length > pageSize) {
+      logs = rawLogs.slice(0, pageSize);
+      nextCursor = encodeCursor({
+        createdAt: logs[logs.length - 1].timestamp,
+        id: logs[logs.length - 1].id,
+      });
+    }
+  } else if (rawLogs.length > 0 && (page - 1) * pageSize + rawLogs.length < total) {
+    nextCursor = encodeCursor({
+      createdAt: rawLogs[rawLogs.length - 1].timestamp,
+      id: rawLogs[rawLogs.length - 1].id,
+    });
+  }
 
   return {
     logs,
@@ -111,6 +142,7 @@ export async function getUserAuditLogs(query: UserAuditLogQuery = {}): Promise<U
     page,
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    nextCursor,
   };
 }
 

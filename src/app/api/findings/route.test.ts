@@ -14,6 +14,8 @@ const {
   scanJobFindUnique,
   scanJobStatusMock,
   userPolicyToggleFindMany,
+  findingFindMany,
+  findingCount,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   enqueueScanMock: vi.fn(),
@@ -22,6 +24,8 @@ const {
   scanJobFindUnique: vi.fn(),
   scanJobStatusMock: vi.fn(),
   userPolicyToggleFindMany: vi.fn(),
+  findingFindMany: vi.fn(),
+  findingCount: vi.fn(),
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
@@ -32,6 +36,7 @@ vi.mock("@/lib/prisma", () => ({
     repository: { findFirst: repositoryFindFirst },
     scanJob: { findUnique: scanJobFindUnique },
     userPolicyToggle: { findMany: userPolicyToggleFindMany },
+    finding: { findMany: findingFindMany, count: findingCount },
   },
 }));
 
@@ -82,7 +87,7 @@ vi.mock("@/lib/middleware/rate-limit", () => ({
 
 // ---- Imports (after mocks) ----
 
-import { POST } from "@/app/api/findings/route";
+import { POST, GET as getFindings } from "@/app/api/findings/route";
 import { GET } from "@/app/api/findings/status/[jobId]/route";
 
 const OWNED_REPO = { id: "repo-1", fullName: "me/mine" };
@@ -392,5 +397,124 @@ describe("GET /api/findings/status/[jobId]", () => {
     const res = await GET(statusRequest(), { params });
 
     expect(res.headers.get("cache-control")).toContain("no-store");
+  });
+});
+
+describe("GET /api/findings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
+  });
+
+  const makeFinding = (id: string, createdAt: Date) => ({
+    id,
+    type: "SECRET",
+    severity: "CRITICAL",
+    fileLocation: "src/secret.ts",
+    lineStart: 1,
+    lineEnd: 2,
+    codeSnippet: "API_KEY=xxx",
+    explanation: "Leaked key",
+    remediation: "Remove key",
+    promptInjectionSuspected: false,
+    fingerprint: `fp-${id}`,
+    createdAt,
+    scanResult: {
+      pullRequest: {
+        prNumber: 42,
+        repositoryId: "repo-1",
+        repository: { id: "repo-1", fullName: "owner/repo" },
+      },
+    },
+  });
+
+  it("rejects unauthenticated requests with 401", async () => {
+    authMock.mockResolvedValue(null);
+    const req = new Request("http://localhost:9002/api/findings");
+    const res = await getFindings(req as any);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the first page with default page limit and nextCursor", async () => {
+    const findings = Array.from({ length: 21 }, (_, i) =>
+      makeFinding(`finding-${i}`, new Date(Date.now() - i * 1000)),
+    );
+    findingFindMany.mockResolvedValue(findings);
+    findingCount.mockResolvedValue(50);
+
+    const req = new Request("http://localhost:9002/api/findings");
+    const res = await getFindings(req as any);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.findings).toHaveLength(20);
+    expect(body.total).toBe(50);
+    expect(body.nextCursor).toBeTruthy();
+    expect(findingFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 21,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    );
+  });
+
+  it("paginates with cursor to return the next page", async () => {
+    const findings = Array.from({ length: 15 }, (_, i) =>
+      makeFinding(`finding-${i + 20}`, new Date(Date.now() - (i + 20) * 1000)),
+    );
+    findingFindMany.mockResolvedValue(findings);
+    findingCount.mockResolvedValue(50);
+
+    const cursor = Buffer.from(
+      JSON.stringify({ createdAt: new Date().toISOString(), id: "finding-19" }),
+    ).toString("base64url");
+
+    const req = new Request(`http://localhost:9002/api/findings?cursor=${cursor}&limit=10`);
+    const res = await getFindings(req as any);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.findings).toHaveLength(10);
+    expect(body.nextCursor).toBeTruthy();
+    expect(findingFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 11,
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([expect.objectContaining({ createdAt: expect.anything() })]),
+        }),
+      }),
+    );
+  });
+
+  it("returns null nextCursor on the last page", async () => {
+    const findings = Array.from({ length: 5 }, (_, i) =>
+      makeFinding(`finding-${i}`, new Date(Date.now() - i * 1000)),
+    );
+    findingFindMany.mockResolvedValue(findings);
+    findingCount.mockResolvedValue(5);
+
+    const req = new Request("http://localhost:9002/api/findings?limit=10");
+    const res = await getFindings(req as any);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.findings).toHaveLength(5);
+    expect(body.nextCursor).toBeNull();
+    expect(body.total).toBe(5);
+  });
+
+  it("clamps limit above maximum to 100", async () => {
+    findingFindMany.mockResolvedValue([]);
+    findingCount.mockResolvedValue(0);
+
+    const req = new Request("http://localhost:9002/api/findings?limit=9999");
+    const res = await getFindings(req as any);
+    expect(res.status).toBe(200);
+
+    expect(findingFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 101, // 100 clamped + 1 for hasMore
+      }),
+    );
   });
 });
