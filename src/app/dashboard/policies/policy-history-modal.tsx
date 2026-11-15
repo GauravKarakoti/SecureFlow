@@ -13,6 +13,7 @@ import {
 import { computeTextDiff, type PolicyVersionDto } from "@/lib/policies/versioning";
 import { getPolicyVersions, rollbackPolicy } from "./actions";
 import { useToast } from "@/hooks/use-toast";
+import { TimeAgo } from "@/components/time-ago";
 
 interface PolicyHistoryModalProps {
   policyId: string;
@@ -147,7 +148,7 @@ export function PolicyHistoryModal({
                     </span>
                   </div>
                   <div className="text-[11px] text-zinc-500 mt-1">
-                    {new Date(ver.createdAt).toLocaleString()}
+                    <TimeAgo date={ver.createdAt} />
                   </div>
                   <div className="text-[11px] text-zinc-400 truncate mt-0.5">
                     by {ver.editor?.name || ver.editor?.codename || ver.editor?.email || "User"}

@@ -21,6 +21,7 @@ import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingActions from "./finding-actions";
 import type { TriageStatus } from "@/lib/triage/statuses";
+import { TimeAgo } from "@/components/time-ago";
 
 export const dynamic = "force-dynamic";
 
@@ -237,9 +238,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                     >
                       <div className="flex items-center gap-2">
                         <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="font-mono text-muted-foreground">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </span>
+                        <TimeAgo date={log.timestamp} className="font-mono text-muted-foreground" />
                         <Badge variant="outline" className="text-[10px] font-mono uppercase">
                           {log.action}
                         </Badge>

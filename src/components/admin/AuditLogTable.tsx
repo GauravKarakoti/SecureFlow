@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useOptimistic } from "react";
+import { TimeAgo } from "@/components/time-ago";
 
 export default function AuditLogTable({ logs }: { logs: any[] }) {
   const [search, setSearch] = useState("");
@@ -61,8 +62,8 @@ export default function AuditLogTable({ logs }: { logs: any[] }) {
               >
                 <td className="px-6 py-4 text-foreground">{log.action}</td>
                 <td className="px-6 py-4">{log.resource}</td>
-                <td className="px-6 py-4" suppressHydrationWarning>
-                  {new Date(log.timestamp).toLocaleString()}
+                <td className="px-6 py-4">
+                  <TimeAgo date={log.timestamp} />
                 </td>
               </tr>
             ))

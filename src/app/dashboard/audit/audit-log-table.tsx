@@ -23,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { TimeAgo } from "@/components/time-ago";
 import {
   Select,
   SelectContent,
@@ -632,12 +633,10 @@ export default function AuditLogTable({
                             </Badge>
                           </TableCell>
                           <TableCell className="py-4 text-right">
-                            <span className="text-[10px] text-muted-foreground font-mono">
-                              {new Intl.DateTimeFormat("en-US", {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                              }).format(new Date(log.timestamp))}
-                            </span>
+                            <TimeAgo
+                              date={log.timestamp}
+                              className="text-[10px] text-muted-foreground font-mono"
+                            />
                           </TableCell>
                         </TableRow>
 
