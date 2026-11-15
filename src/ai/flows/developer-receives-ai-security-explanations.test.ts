@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { tripModelCircuitBreaker, resetModelCircuitBreakers } from "@/ai/resilience";
 
 // --- Mock the genkit `ai` instance so tests never hit the network, and so we can simulate both
 // a well-behaved model and a model that got fooled by injected content in the code snippet. ---

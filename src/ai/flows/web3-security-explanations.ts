@@ -24,6 +24,7 @@ import {
 } from "./security-explanation-schemas";
 import { __internal, isRateLimitError, isTimeoutError, withRetry } from "./security-helpers";
 import { getAiInstance, getDefaultModelRef } from "@/ai/genkit";
+import { CircuitBreakerError, getModelCircuitBreaker } from "@/ai/resilience";
 import {
   createExplanationCacheKey,
   getCachedExplanation,
@@ -283,16 +284,21 @@ export async function web3SecurityExplanation(
 
   let parsedContent: { explanation?: string; remediationSuggestions?: string } | undefined;
 
+  const modelKey = getModelId(activeModel);
+  const breaker = getModelCircuitBreaker(modelKey);
+
   try {
-    const res = await withRetry(
-      () =>
-        activeAi.generate({
-          model: activeModel as any,
-          system: systemPrompt,
-          prompt,
-          config: { maxOutputTokens: 3000, temperature: 0.1 },
-        }),
-      { initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100 },
+    const res = await breaker.execute(async () =>
+      withRetry(
+        () =>
+          activeAi.generate({
+            model: activeModel as any,
+            system: systemPrompt,
+            prompt,
+            config: { maxOutputTokens: 3000, temperature: 0.1 },
+          }),
+        { initialDelayMs: process.env.NODE_ENV === "test" ? 10 : 100 },
+      ),
     );
 
     const responseText = res.text;
@@ -308,19 +314,27 @@ export async function web3SecurityExplanation(
       }
     }
   } catch (err) {
-    const isRateLimit = isRateLimitError(err);
-    const isTimeout = isTimeoutError(err);
+    if (err instanceof CircuitBreakerError) {
+      parsedContent = {
+        explanation: `AI model circuit breaker is OPEN for '${modelKey}'. Fast-failing inference call to preserve throughput. Verify Web3 contract finding (${validatedInput.findingType}) manually.`,
+        remediationSuggestions:
+          "Upstream AI service is temporarily degraded. Review smart contract or circuit code according to security best practices and retry later.",
+      };
+    } else {
+      const isRateLimit = isRateLimitError(err);
+      const isTimeout = isTimeoutError(err);
 
-    parsedContent = {
-      explanation: isRateLimit
-        ? "AI provider rate limit reached. Review the static scanner finding directly."
-        : isTimeout
-          ? "AI provider timed out. Inspect the contract manually."
-          : "Signal lost. The Professor is recalculating.",
-      remediationSuggestions: isRateLimit
-        ? "Wait and retry, or consult the Web3 security checklist manually."
-        : "Review the contract against the relevant security checklist for this ecosystem.",
-    };
+      parsedContent = {
+        explanation: isRateLimit
+          ? "AI provider rate limit reached. Review the static scanner finding directly."
+          : isTimeout
+            ? "AI provider timed out. Inspect the contract manually."
+            : "Signal lost. The Professor is recalculating.",
+        remediationSuggestions: isRateLimit
+          ? "Wait and retry, or consult the Web3 security checklist manually."
+          : "Review the contract against the relevant security checklist for this ecosystem.",
+      };
+    }
   }
 
   const explanation = parsedContent?.explanation ?? "No explanation provided.";
