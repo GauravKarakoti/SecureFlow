@@ -47,6 +47,22 @@ describe("cursor pagination utilities", () => {
     ).toBeNull();
   });
 
+  it("handles string dates and missing date fallback in encodeCursor", () => {
+    const encodedStr = encodeCursor({ createdAt: "2026-11-15T10:00:00.000Z", id: "item-1" });
+    const decodedStr = decodeCursor(encodedStr);
+    expect(decodedStr?.id).toBe("item-1");
+
+    const encodedFallback = encodeCursor({ id: "item-2" });
+    const decodedFallback = decodeCursor(encodedFallback);
+    expect(decodedFallback?.id).toBe("item-2");
+
+    const encodedTimestampOnly = Buffer.from(
+      JSON.stringify({ timestamp: "2026-11-15T10:00:00.000Z", id: "item-3" }),
+    ).toString("base64url");
+    const decodedTimestampOnly = decodeCursor(encodedTimestampOnly);
+    expect(decodedTimestampOnly?.id).toBe("item-3");
+  });
+
   describe("parseLimit", () => {
     it("returns default limit when parameter is omitted or empty", () => {
       expect(parseLimit(null)).toBe(DEFAULT_PAGE_LIMIT);

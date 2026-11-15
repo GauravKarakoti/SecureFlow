@@ -22,7 +22,11 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { fetchArmorIQAuditTraces, verifyArmorIQAuditResourceOwnership } from "./audit-integration";
+import {
+  fetchArmorIQAuditTraces,
+  verifyArmorIQAuditResourceOwnership,
+  buildComplianceReport,
+} from "./audit-integration";
 
 describe("ArmorIQ audit tenancy", () => {
   beforeEach(() => {
@@ -122,5 +126,83 @@ describe("ArmorIQ audit tenancy", () => {
 
     expect(scanJobFindFirstMock).not.toHaveBeenCalled();
     expect(findingFindFirstMock).not.toHaveBeenCalled();
+  });
+
+  it("handles cursor-based pagination and nextCursor resolution", async () => {
+    const mockTrace = (id: string, dateStr: string) => ({
+      id,
+      agentId: "agent-1",
+      toolName: "eval",
+      decision: "ALLOW",
+      ruleMatched: null,
+      justification: null,
+      proofHash: null,
+      signature: null,
+      intentId: null,
+      frameworks: ["SOC2"],
+      privacyLevel: "INTERNAL",
+      timestamp: new Date(dateStr),
+      createdAt: new Date(dateStr),
+    });
+
+    // 3 traces returned when limit is 2 -> slices to 2 and sets nextCursor
+    findManyMock.mockResolvedValueOnce([
+      mockTrace("t-1", "2026-01-03T00:00:00Z"),
+      mockTrace("t-2", "2026-01-02T00:00:00Z"),
+      mockTrace("t-3", "2026-01-01T00:00:00Z"),
+    ]);
+    countMock.mockResolvedValueOnce(5);
+
+    const result = await fetchArmorIQAuditTraces({
+      userId: "user-1",
+      cursor: "eyJjcmVhdGVkQXQiOiIyMDI2LTAxLTAzVDAwOjAwOjAwLjAwMFoiLCJpZCI6InQtMCJ9",
+      limit: 2,
+    });
+
+    expect(result.traces).toHaveLength(2);
+    expect(result.nextCursor).toBeDefined();
+
+    // Offset based nextCursor
+    findManyMock.mockResolvedValueOnce([mockTrace("t-1", "2026-01-03T00:00:00Z")]);
+    countMock.mockResolvedValueOnce(10);
+    const offsetResult = await fetchArmorIQAuditTraces({
+      userId: "user-1",
+      offset: 0,
+      limit: 1,
+    });
+    expect(offsetResult.nextCursor).toBeDefined();
+  });
+
+  it("builds compliance report for frameworks", () => {
+    const report = buildComplianceReport([
+      {
+        id: "trace-1",
+        agentId: "agent-alpha",
+        toolName: "remediation_patch",
+        decision: "ALLOW",
+        ruleMatched: "SEC-POL-001",
+        justification: "Valid patch",
+        proofHash: "hash-123",
+        signature: "sig-123",
+        frameworks: ["SOC2", "ISO27001"],
+        timestamp: new Date("2026-01-01T00:00:00Z"),
+      },
+      {
+        id: "trace-2",
+        agentId: "agent-beta",
+        toolName: "shell_exec",
+        decision: "BLOCK",
+        ruleMatched: null,
+        justification: null,
+        proofHash: null,
+        signature: null,
+        frameworks: [],
+        timestamp: new Date("2026-01-02T00:00:00Z"),
+      },
+    ]);
+
+    expect(report).toHaveLength(2);
+    expect(report[0].ruleEnforced).toBe("SEC-POL-001");
+    expect(report[1].ruleEnforced).toBe("Default Zero-Trust Boundary");
   });
 });

@@ -72,4 +72,55 @@ describe("Compliance-Enhanced SARIF Exporter", () => {
       "process.env.JWT_SECRET",
     );
   });
+
+  it("handles lineEnd, missing remediation, fallback defaults, and severity sorting", () => {
+    const findings = [
+      {
+        type: "MISCONFIGURATION",
+        severity: "LOW",
+        fileLocation: "docker-compose.yml",
+        lineStart: 10,
+        lineEnd: 20,
+        codeSnippet: "ports:\n  - 80:80",
+        complianceTags: ["PCI-DSS:2.2"],
+      },
+      {
+        type: "SECRET",
+        severity: "CRITICAL",
+        fileLocation: "",
+        lineStart: 0,
+        lineEnd: -1,
+        explanation: "",
+        remediation: "   ",
+      },
+      {
+        type: "SECRET",
+        severity: "CRITICAL",
+        fileLocation: "server.ts",
+        lineStart: 5,
+        remediation: "use secret manager",
+      },
+    ];
+
+    const sarif = buildComplianceSarifDocument(findings);
+    const run = sarif.runs[0];
+
+    // Sorted descending by severity (CRITICAL before LOW)
+    expect(run.results).toHaveLength(3);
+    const firstResult = run.results[0];
+    expect(firstResult.ruleId).toBe("SECUREFLOW-SECRET-CRITICAL");
+
+    // Line end >= lineStart included
+    const lowResult = run.results.find((r) => r.ruleId === "SECUREFLOW-MISCONFIG-LOW");
+    expect(lowResult?.locations[0].physicalLocation.region?.endLine).toBe(20);
+
+    // Fallbacks: unknown location, line 1, no endLine, no fixes
+    const fallbackResult = run.results.find(
+      (r) => r.locations[0].physicalLocation.artifactLocation.uri === "unknown",
+    );
+    expect(fallbackResult).toBeDefined();
+    expect(fallbackResult?.locations[0].physicalLocation.region?.startLine).toBe(1);
+    expect(fallbackResult?.locations[0].physicalLocation.region?.endLine).toBeUndefined();
+    expect(fallbackResult?.fixes).toBeUndefined();
+  });
 });

@@ -215,7 +215,7 @@ export function buildComplianceSarifDocument(
               {
                 deletedRegion: {
                   startLine: lineStart,
-                  ...(lineEnd ? { endLine } : {}),
+                  ...(lineEnd ? { endLine: lineEnd } : {}),
                 },
                 insertedContent: {
                   text: finding.remediation.trim(),
@@ -238,7 +238,7 @@ export function buildComplianceSarifDocument(
             artifactLocation: { uri },
             region: {
               startLine: lineStart,
-              ...(lineEnd ? { endLine } : {}),
+              ...(lineEnd ? { endLine: lineEnd } : {}),
             },
           },
         },

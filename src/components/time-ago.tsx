@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -123,6 +123,16 @@ export interface TimeAgoProps {
  * - Uses `suppressHydrationWarning` on the `<time>` tag.
  * - Client-only dynamic re-renders via `mounted` state.
  */
+const emptySubscribe = () => () => {};
+
+function useIsMounted(): boolean {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 export function TimeAgo({ date, className, updateIntervalMs, showTooltip = true }: TimeAgoProps) {
   const dateObj = useMemo(() => {
     return date instanceof Date ? date : new Date(date);
@@ -130,13 +140,10 @@ export function TimeAgo({ date, className, updateIntervalMs, showTooltip = true 
 
   const isValid = !Number.isNaN(dateObj.getTime());
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsMounted();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    setMounted(true);
-    setNow(Date.now());
-
     // Adaptive update interval if not explicitly provided
     let intervalMs = updateIntervalMs;
     if (!intervalMs) {

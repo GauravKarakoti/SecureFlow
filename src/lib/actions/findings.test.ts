@@ -209,6 +209,41 @@ describe("getUserFindings", () => {
 
     expect(result.findings[0].repositoryFullName).toBe("");
   });
+
+  it("supports cursor-based pagination and returns nextCursor when items remain", async () => {
+    stubCounts(5);
+    prismaMock.finding.findMany.mockResolvedValueOnce([
+      row("f-1", { createdAt: new Date("2026-09-02T00:00:00Z") }),
+      row("f-2", { createdAt: new Date("2026-09-01T12:00:00Z") }),
+      row("f-3", { createdAt: new Date("2026-09-01T00:00:00Z") }),
+    ]);
+
+    const result = await getUserFindings({
+      cursor: "eyJjcmVhdGVkQXQiOiIyMDI2LTA5LTAyVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImYtMCJ9",
+      pageSize: 2,
+    });
+
+    expect(result.findings).toHaveLength(2);
+    expect(result.nextCursor).toBeDefined();
+    expect(prismaMock.finding.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 3,
+      }),
+    );
+  });
+
+  it("handles cursor on last page returning null nextCursor", async () => {
+    stubCounts(1);
+    prismaMock.finding.findMany.mockResolvedValueOnce([row("f-1")]);
+
+    const result = await getUserFindings({
+      cursor: "eyJjcmVhdGVkQXQiOiIyMDI2LTA5LTAxVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImYtMSJ9",
+      pageSize: 5,
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.nextCursor).toBeNull();
+  });
 });
 
 describe("getUserFindingFilters", () => {
