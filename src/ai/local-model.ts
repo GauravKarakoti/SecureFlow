@@ -364,6 +364,158 @@ export class InsufficientVRAMError extends Error {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Local Model Generation & Streaming Loops with Abort Support (#1753)
+// ---------------------------------------------------------------------------
+
+export interface LocalGenerationOptions {
+  prompt: string;
+  system?: string;
+  model?: string;
+  config?: LocalModelConfig;
+  signal?: AbortSignal;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+/**
+ * Streams tokens from a local OpenAI-compatible inference server (Ollama, vLLM).
+ * Wires the caller's AbortSignal directly into the fetch call and reader loop
+ * so client disconnects halt GPU token generation immediately without pinning VRAM (#1753).
+ */
+export async function* streamLocalModelGeneration(
+  options: LocalGenerationOptions,
+): AsyncGenerator<string, void, unknown> {
+  const signal = options.signal;
+  if (signal?.aborted) return;
+
+  const config =
+    options.config ||
+    resolveLocalModelConfig() || {
+      baseUrl: DEFAULT_LOCAL_AI_URL,
+      model: options.model || DEFAULT_LOCAL_AI_MODEL,
+      provider: "ollama",
+      apiKey: "local",
+    };
+
+  const endpoint = `${config.baseUrl}/chat/completions`;
+  const body = {
+    model: options.model || config.model,
+    messages: [
+      ...(options.system ? [{ role: "system", content: options.system }] : []),
+      { role: "user", content: options.prompt },
+    ],
+    stream: true,
+    temperature: options.temperature ?? 0.1,
+    max_tokens: options.maxTokens ?? 1024,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey || "local"}`,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (err: any) {
+    if (signal?.aborted || err?.name === "AbortError") {
+      return;
+    }
+    throw err;
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Local model request failed with status ${response.status}: ${errorText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const onAbort = () => {
+    reader.cancel().catch(() => {});
+  };
+  if (signal) {
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => {});
+        return;
+      }
+
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await reader.read();
+      } catch (readErr: any) {
+        if (signal?.aborted || readErr?.name === "AbortError") {
+          return;
+        }
+        throw readErr;
+      }
+
+      const { done, value } = readResult;
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (signal?.aborted) {
+          await reader.cancel().catch(() => {});
+          return;
+        }
+
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
+        if (trimmed === "data: [DONE]") return;
+        if (trimmed.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            const content = data.choices?.[0]?.delta?.content ?? "";
+            if (content) {
+              yield content;
+            }
+          } catch {
+            // Ignore unparseable partial chunk
+          }
+        }
+      }
+    }
+  } finally {
+    if (signal && onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+    try {
+      await reader.cancel();
+    } catch {}
+  }
+}
+
+/**
+ * Runs a local model completion with direct abort signal support (#1753).
+ */
+export async function generateLocalModel(
+  options: LocalGenerationOptions,
+): Promise<{ text: string }> {
+  let fullText = "";
+  for await (const chunk of streamLocalModelGeneration(options)) {
+    fullText += chunk;
+  }
+  return { text: fullText };
+}
+
 // ── ArmorIQ Pre-Execution Intent Signing (#1275) ──────────────────────────
 export {
   declareAndSignIntent as emitExecutionPlan,
