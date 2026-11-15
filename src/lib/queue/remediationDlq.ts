@@ -40,7 +40,12 @@ export interface UnverifiedRemediationIntent {
   token?: any;
   failedReason?: string;
   queuedAt: string;
-  status?: "queued" | "replayed" | "failed";
+  status?: "queued" | "replayed" | "failed" | "quarantined";
+  retryCount?: number;
+  maxRetries?: number;
+  nextRetryAt?: string;
+  quarantinedAt?: string;
+  quarantineReason?: string;
   replayedAt?: string;
   error?: string;
 }
@@ -61,19 +66,77 @@ export interface EnqueueRemediationIntentInput {
   intentToken?: any;
   token?: any;
   failedReason?: string;
+  maxRetries?: number;
+}
+
+export interface DlqTelemetryMetrics {
+  totalQueued: number;
+  totalReplayed: number;
+  totalFailed: number;
+  totalQuarantined: number;
+  totalRetries: number;
+  quarantinedEvents: Array<{
+    id: string;
+    reason: string;
+    quarantinedAt: string;
+    retryCount: number;
+  }>;
 }
 
 export interface ReplayRemediationResult {
   total: number;
   replayed: number;
   failed: number;
+  quarantined: number;
   pending: number;
   breakerOpen: boolean;
   outcomes: Array<{
     id: string;
-    status: "verified" | "failed" | "skipped_breaker_open";
+    status: "verified" | "failed" | "quarantined" | "skipped_breaker_open" | "waiting_backoff";
+    retryCount?: number;
     error?: string;
   }>;
+}
+
+// In-memory metrics counter for DLQ telemetry
+export const dlqTelemetryCounters: DlqTelemetryMetrics = {
+  totalQueued: 0,
+  totalReplayed: 0,
+  totalFailed: 0,
+  totalQuarantined: 0,
+  totalRetries: 0,
+  quarantinedEvents: [],
+};
+
+export function getDlqTelemetryMetrics(): DlqTelemetryMetrics {
+  return {
+    ...dlqTelemetryCounters,
+    quarantinedEvents: [...dlqTelemetryCounters.quarantinedEvents],
+  };
+}
+
+export function resetDlqTelemetryMetrics(): void {
+  dlqTelemetryCounters.totalQueued = 0;
+  dlqTelemetryCounters.totalReplayed = 0;
+  dlqTelemetryCounters.totalFailed = 0;
+  dlqTelemetryCounters.totalQuarantined = 0;
+  dlqTelemetryCounters.totalRetries = 0;
+  dlqTelemetryCounters.quarantinedEvents = [];
+}
+
+/**
+ * Calculates exponential backoff delay in ms based on attempt number (#1765).
+ * Formula: initialDelayMs * (2 ^ (attempt - 1)) + random jitter (up to 20%).
+ */
+export function calculateDlqExponentialBackoff(
+  attempt: number,
+  initialDelayMs = 1000,
+  maxDelayMs = 60000,
+): number {
+  const exp = Math.min(attempt - 1, 6);
+  const baseDelay = initialDelayMs * Math.pow(2, exp);
+  const jitter = Math.random() * 0.2 * baseDelay;
+  return Math.min(Math.round(baseDelay + jitter), maxDelayMs);
 }
 
 // In-memory fallback map for unit test isolation and environments without active Redis
@@ -127,7 +190,11 @@ export async function enqueueUnverifiedRemediationIntent(
     id: jobId,
     queuedAt: now,
     status: "queued",
+    retryCount: 0,
+    maxRetries: input.maxRetries ?? 5,
   };
+
+  dlqTelemetryCounters.totalQueued++;
 
   // Always mirror in inMemoryDlqStore for deterministic local/test lookup
   inMemoryDlqStore.set(jobId, record);
@@ -234,12 +301,15 @@ export async function replayUnverifiedRemediationIntents(
   options: {
     dbClient?: any;
     armorClient?: any;
+    forceReplayQuarantined?: boolean;
+    nowMs?: number;
     verifyIntentTokenFn?: (
       token: any,
     ) => Promise<{ valid: boolean; unavailable?: boolean; reason?: string }>;
   } = {},
 ): Promise<ReplayRemediationResult> {
   const db = options.dbClient || prisma;
+  const currentTime = options.nowMs ?? Date.now();
   const verifyToken =
     options.verifyIntentTokenFn ||
     (typeof ArmorIQService?.verifyIntentToken === "function"
@@ -254,6 +324,7 @@ export async function replayUnverifiedRemediationIntents(
     total: intents.length,
     replayed: 0,
     failed: 0,
+    quarantined: 0,
     pending: 0,
     breakerOpen: false,
     outcomes: [],
@@ -278,6 +349,21 @@ export async function replayUnverifiedRemediationIntents(
   }
 
   for (const intent of intents) {
+    // If intent has a scheduled nextRetryAt in the future and not forced, wait
+    if (intent.nextRetryAt && !options.forceReplayQuarantined) {
+      const scheduledTime = new Date(intent.nextRetryAt).getTime();
+      if (scheduledTime > currentTime) {
+        result.pending++;
+        result.outcomes.push({
+          id: intent.id,
+          status: "waiting_backoff",
+          retryCount: intent.retryCount || 0,
+          error: `Next retry scheduled at ${intent.nextRetryAt}`,
+        });
+        continue;
+      }
+    }
+
     try {
       let verified = false;
 
@@ -335,15 +421,60 @@ export async function replayUnverifiedRemediationIntents(
       }
 
       if (!verified) {
-        intent.status = "failed";
-        intent.error = "ArmorIQ policy verification rejected intent on replay";
-        inMemoryDlqStore.set(intent.id, intent);
-        result.failed++;
-        result.outcomes.push({
-          id: intent.id,
-          status: "failed",
-          error: intent.error,
-        });
+        intent.retryCount = (intent.retryCount || 0) + 1;
+        dlqTelemetryCounters.totalRetries++;
+        const maxRetries = intent.maxRetries ?? 5;
+
+        if (intent.retryCount >= maxRetries) {
+          // Quarantine payload when max retries exceeded (#1765)
+          intent.status = "quarantined";
+          intent.quarantinedAt = new Date(currentTime).toISOString();
+          intent.quarantineReason = `Exceeded max retry threshold (${intent.retryCount}/${maxRetries})`;
+          intent.error = intent.quarantineReason;
+          inMemoryDlqStore.set(intent.id, intent);
+
+          dlqTelemetryCounters.totalQuarantined++;
+          dlqTelemetryCounters.quarantinedEvents.push({
+            id: intent.id,
+            reason: intent.quarantineReason,
+            quarantinedAt: intent.quarantinedAt,
+            retryCount: intent.retryCount,
+          });
+
+          log.error("ArmorIQ DLQ event quarantined after exceeding maximum retries", {
+            id: intent.id,
+            retryCount: intent.retryCount,
+            reason: intent.quarantineReason,
+          });
+
+          result.quarantined++;
+          result.outcomes.push({
+            id: intent.id,
+            status: "quarantined",
+            retryCount: intent.retryCount,
+            error: intent.quarantineReason,
+          });
+        } else {
+          // Calculate exponential backoff for next attempt
+          const backoffDelay = calculateDlqExponentialBackoff(intent.retryCount);
+          intent.nextRetryAt = new Date(currentTime + backoffDelay).toISOString();
+          intent.error = `Verification failed on attempt ${intent.retryCount}: awaiting backoff (${backoffDelay}ms)`;
+          inMemoryDlqStore.set(intent.id, intent);
+
+          log.warn("ArmorIQ DLQ replay attempt failed; scheduled exponential backoff", {
+            id: intent.id,
+            attempt: intent.retryCount,
+            nextRetryAt: intent.nextRetryAt,
+          });
+
+          result.failed++;
+          result.outcomes.push({
+            id: intent.id,
+            status: "failed",
+            retryCount: intent.retryCount,
+            error: intent.error,
+          });
+        }
         continue;
       }
 
@@ -370,14 +501,17 @@ export async function replayUnverifiedRemediationIntents(
           findingIds: intent.findingIds,
           armorPatchHash: intent.armorPatchHash,
           queuedAt: intent.queuedAt,
-          replayedAt: new Date().toISOString(),
+          replayedAt: new Date(currentTime).toISOString(),
+          retryCount: intent.retryCount || 0,
         },
       });
 
       // Mark replayed and remove from active waiting pool
       intent.status = "replayed";
-      intent.replayedAt = new Date().toISOString();
+      intent.replayedAt = new Date(currentTime).toISOString();
       inMemoryDlqStore.delete(intent.id);
+
+      dlqTelemetryCounters.totalReplayed++;
 
       try {
         const q = await getBullMqDlq();
@@ -390,7 +524,7 @@ export async function replayUnverifiedRemediationIntents(
       }
 
       result.replayed++;
-      result.outcomes.push({ id: intent.id, status: "verified" });
+      result.outcomes.push({ id: intent.id, status: "verified", retryCount: intent.retryCount || 0 });
     } catch (err) {
       log.error("Failed to replay remediation intent from DLQ", {
         id: intent.id,
@@ -406,6 +540,61 @@ export async function replayUnverifiedRemediationIntents(
   }
 
   return result;
+}
+
+/**
+ * Inspects all DLQ payloads, including queued, failed, and quarantined items (#1765).
+ */
+export async function inspectRemediationDlqPayloads(): Promise<{
+  queued: UnverifiedRemediationIntent[];
+  quarantined: UnverifiedRemediationIntent[];
+  failed: UnverifiedRemediationIntent[];
+  total: number;
+  telemetry: DlqTelemetryMetrics;
+}> {
+  const allItems = Array.from(inMemoryDlqStore.values());
+  const queued = allItems.filter((i) => i.status === "queued");
+  const quarantined = allItems.filter((i) => i.status === "quarantined");
+  const failed = allItems.filter((i) => i.status === "failed");
+
+  return {
+    queued,
+    quarantined,
+    failed,
+    total: allItems.length,
+    telemetry: getDlqTelemetryMetrics(),
+  };
+}
+
+/**
+ * Re-triggers quarantined or failed DLQ payload back to queued state (#1765).
+ */
+export async function retriggerQuarantinedPayload(
+  payloadId: string,
+  resetRetryCount = true,
+): Promise<{ success: boolean; intent?: UnverifiedRemediationIntent }> {
+  const intent = inMemoryDlqStore.get(payloadId);
+  if (!intent) {
+    return { success: false };
+  }
+
+  intent.status = "queued";
+  delete intent.quarantinedAt;
+  delete intent.quarantineReason;
+  delete intent.nextRetryAt;
+  delete intent.error;
+
+  if (resetRetryCount) {
+    intent.retryCount = 0;
+  }
+
+  inMemoryDlqStore.set(payloadId, intent);
+  log.info("Retriggered quarantined DLQ payload back to active queue", {
+    payloadId,
+    resetRetryCount,
+  });
+
+  return { success: true, intent };
 }
 
 export function createRemediationDlqWorker(

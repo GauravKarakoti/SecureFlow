@@ -11,6 +11,9 @@ import { execSync } from "node:child_process";
 import {
   isArmorIQBreakerOpen,
   replayUnverifiedRemediationIntents,
+  inspectRemediationDlqPayloads,
+  retriggerQuarantinedPayload,
+  getDlqTelemetryMetrics,
 } from "../src/lib/queue/remediationDlq";
 import { verifyAuditChain } from "../src/lib/audit/verify-chain";
 import prisma from "../src/lib/prisma";
@@ -21,6 +24,8 @@ export interface CliCheckOptions {
   blockThreshold?: number;
   warnThreshold?: number;
   replayDlq?: boolean;
+  inspectDlq?: boolean;
+  retriggerDlqId?: string;
   verifyAuditChain?: boolean;
 }
 
@@ -30,7 +35,11 @@ export function parseCliArgs(argv: string[]): CliCheckOptions {
     if (arg === "--strict") options.strict = true;
     if (arg === "--no-strict") options.strict = false;
     if (arg === "--replay-dlq") options.replayDlq = true;
+    if (arg === "--inspect-dlq") options.inspectDlq = true;
     if (arg === "--verify-audit-chain") options.verifyAuditChain = true;
+    if (arg.startsWith("--retrigger-dlq=")) {
+      options.retriggerDlqId = arg.split("=")[1];
+    }
     if (arg.startsWith("--block-threshold=")) {
       options.blockThreshold = Number(arg.split("=")[1]);
     }
@@ -165,6 +174,31 @@ export async function runArmorIQCheck(options: CliCheckOptions = {}) {
     console.log("⚠️  ArmorIQ Circuit Breaker: [OPEN] (Degraded / Fail-Closed)");
   } else {
     console.log("✅ ArmorIQ Circuit Breaker: [HEALTHY]");
+  }
+
+  // Handle DLQ payload inspection if requested (#1765)
+  if (options.inspectDlq) {
+    console.log("🔍 Inspecting ArmorIQ Dead-Letter Queue Payloads & Telemetry (#1765)...");
+    const dlqStatus = await inspectRemediationDlqPayloads();
+    console.log(`📊 DLQ Total: ${dlqStatus.total} | Queued: ${dlqStatus.queued.length} | Quarantined: ${dlqStatus.quarantined.length} | Failed: ${dlqStatus.failed.length}`);
+    console.log(`📈 Telemetry Metrics: Total Queued: ${dlqStatus.telemetry.totalQueued}, Replayed: ${dlqStatus.telemetry.totalReplayed}, Retries: ${dlqStatus.telemetry.totalRetries}, Quarantined: ${dlqStatus.telemetry.totalQuarantined}`);
+    if (dlqStatus.quarantined.length > 0) {
+      console.log("🚨 Quarantined Events:");
+      for (const q of dlqStatus.quarantined) {
+        console.log(`   - [${q.id}] ${q.quarantineReason || "Quarantined"} (retries: ${q.retryCount})`);
+      }
+    }
+  }
+
+  // Handle re-trigger of quarantined payload if requested (#1765)
+  if (options.retriggerDlqId) {
+    console.log(`🔁 Re-triggering DLQ payload "${options.retriggerDlqId}" (#1765)...`);
+    const retriggerRes = await retriggerQuarantinedPayload(options.retriggerDlqId);
+    if (retriggerRes.success) {
+      console.log(`✅ Payload "${options.retriggerDlqId}" restored to active queue.`);
+    } else {
+      console.error(`❌ Payload "${options.retriggerDlqId}" not found in DLQ.`);
+    }
   }
 
   // Handle dead-letter queue replay if requested
