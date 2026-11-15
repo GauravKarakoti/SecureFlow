@@ -1,11 +1,7 @@
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
-import {
-  getModelCircuitBreaker,
-  CircuitBreakerError,
-  CircuitState,
-} from "@/ai/resilience";
+import { getModelCircuitBreaker, CircuitBreakerError, CircuitState } from "@/ai/resilience";
 import {
   AISecurityExplanationOutputSchema,
   type AISecurityExplanationInput,
@@ -21,7 +17,8 @@ export interface TokenUsage {
   totalTokens?: number;
 }
 
-export type FallbackReason = "rate_limit" | "timeout" | "insufficient_memory" | "circuit_breaker_open";
+export type FallbackReason =
+  "rate_limit" | "timeout" | "insufficient_memory" | "circuit_breaker_open";
 
 export function prepareExplanation(input: AISecurityExplanationInput) {
   return {

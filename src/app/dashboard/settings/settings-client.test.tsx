@@ -3,7 +3,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import React from "react";
 import SettingsClient from "./settings-client";
 
 const {
@@ -43,6 +42,10 @@ vi.mock("@/lib/actions/settings", () => ({
 describe("SettingsClient component (#1333)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { origin: "" },
+    });
   });
 
   it("renders with initial webhook URL", () => {
@@ -251,7 +254,7 @@ describe("SettingsClient component (#1333)", () => {
     fireEvent.click(copyBtn);
 
     expect(writeTextMock).toHaveBeenCalledWith(
-      "[![SecureFlow Status](/api/badge/acme/repo-two)](/dashboard)",
+      "[![SecureFlow Status](/api/badge/acme/repo-two)](/)",
     );
     expect(toastSuccessMock).toHaveBeenCalledWith("Badge Markdown copied to clipboard!");
   });

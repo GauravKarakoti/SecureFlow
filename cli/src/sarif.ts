@@ -564,9 +564,7 @@ export function buildSarifFix(
 /**
  * Converts finding severity into SARIF level ("error" | "warning" | "note") (#1766).
  */
-export function severityToSarifLevel(
-  severity?: string,
-): "error" | "warning" | "note" {
+export function severityToSarifLevel(severity?: string): "error" | "warning" | "note" {
   switch (severity?.toUpperCase()) {
     case "CRITICAL":
     case "HIGH":
@@ -633,7 +631,9 @@ export function generateSarifReport(
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
-        level: violation.severity ? severityToSarifLevel(violation.severity) : (ruleInfo.descriptor.defaultConfiguration?.level || "error"),
+        level: violation.severity
+          ? severityToSarifLevel(violation.severity)
+          : ruleInfo.descriptor.defaultConfiguration?.level || "error",
         message: {
           text: `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`,
         },
@@ -711,7 +711,9 @@ export function generateSarifReport(
               },
               region: {
                 startLine: line,
-                ...(aiFinding.lineEnd && aiFinding.lineEnd >= line ? { endLine: aiFinding.lineEnd } : {}),
+                ...(aiFinding.lineEnd && aiFinding.lineEnd >= line
+                  ? { endLine: aiFinding.lineEnd }
+                  : {}),
                 snippet: {
                   text: snippet,
                 },

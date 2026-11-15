@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetModelCircuitBreakers } from "@/ai/resilience";
 
 const mockGenerate = vi.fn();
 
@@ -31,6 +32,7 @@ const rateLimit = () => Object.assign(new Error("429 Too Many Requests"), { stat
 describe("generateRemediationPatch - backoff and retry (#1513)", () => {
   beforeEach(() => {
     mockGenerate.mockReset();
+    if (typeof resetModelCircuitBreakers === "function") resetModelCircuitBreakers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
