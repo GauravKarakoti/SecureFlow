@@ -1,7 +1,7 @@
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
-import { getModelCircuitBreaker, CircuitBreakerError, CircuitState } from "@/ai/resilience";
+import { getModelCircuitBreaker, CircuitBreakerError, CircuitState, isVramConcurrencyError } from "@/ai/resilience";
 import {
   AISecurityExplanationOutputSchema,
   type AISecurityExplanationInput,
@@ -18,7 +18,11 @@ export interface TokenUsage {
 }
 
 export type FallbackReason =
-  "rate_limit" | "timeout" | "insufficient_memory" | "circuit_breaker_open";
+  | "rate_limit"
+  | "timeout"
+  | "insufficient_memory"
+  | "circuit_breaker_open"
+  | "vram_concurrency_exceeded";
 
 export function prepareExplanation(input: AISecurityExplanationInput) {
   return {
@@ -76,6 +80,25 @@ export async function runModelChain<TModel, TResult>(
           from: model,
           to: next,
           reason: "circuit_breaker_open",
+          error,
+        });
+
+        continue;
+      }
+
+      if (isVramConcurrencyError(error)) {
+        if (next === undefined) {
+          throw error;
+        }
+
+        console.warn(
+          `[AI_FALLBACK] Model ${String(model)} exceeded VRAM concurrency limit. Switching to ${String(next)}`,
+        );
+
+        onFallback?.({
+          from: model,
+          to: next,
+          reason: "vram_concurrency_exceeded",
           error,
         });
 

@@ -30,6 +30,16 @@ export interface LatencySample {
   error?: string;
 }
 
+export type FallbackReasonCode =
+  | "vram_concurrency_exceeded"
+  | "concurrency_limit"
+  | "rate_limit"
+  | "timeout"
+  | "insufficient_memory"
+  | "circuit_breaker_open"
+  | "model_exhausted"
+  | "unknown";
+
 export interface FailoverEvent {
   id: string;
   timestamp: number;
@@ -38,6 +48,8 @@ export interface FailoverEvent {
   error: string;
   attempt: number;
   fastFail: boolean;
+  reasonCode?: string;
+  reason?: string;
 }
 
 export interface ModelHealthStatus {
@@ -215,19 +227,52 @@ export async function recordFailoverEvent(event: {
   error: unknown;
   attempt: number;
   fastFail?: boolean;
+  reasonCode?: string;
+  reason?: string;
 }): Promise<void> {
+  const errorMsg = event.error
+    ? event.error instanceof Error
+      ? event.error.message
+      : String(event.error)
+    : "Unknown error";
+
+  let detectedReasonCode = event.reasonCode || event.reason;
+  if (!detectedReasonCode) {
+    if (event.fastFail) {
+      detectedReasonCode = "circuit_breaker_open";
+    } else {
+      const lower = errorMsg.toLowerCase();
+      if (lower.includes("vram") || lower.includes("concurrency") || lower.includes("semaphore")) {
+        detectedReasonCode = "vram_concurrency_exceeded";
+      } else if (lower.includes("rate limit") || lower.includes("429") || lower.includes("quota")) {
+        detectedReasonCode = "rate_limit";
+      } else if (
+        lower.includes("timeout") ||
+        lower.includes("timed out") ||
+        lower.includes("503") ||
+        lower.includes("504")
+      ) {
+        detectedReasonCode = "timeout";
+      } else if (lower.includes("memory") || lower.includes("oom")) {
+        detectedReasonCode = "insufficient_memory";
+      } else if (lower.includes("circuit")) {
+        detectedReasonCode = "circuit_breaker_open";
+      } else {
+        detectedReasonCode = "unknown";
+      }
+    }
+  }
+
   const fullEvent: FailoverEvent = {
     id: `failover-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     timestamp: Date.now(),
     fromModel: normalizeModelName(event.fromModel),
     toModel: normalizeModelName(event.toModel),
-    error: event.error
-      ? event.error instanceof Error
-        ? event.error.message
-        : String(event.error)
-      : "Unknown error",
+    error: errorMsg,
     attempt: event.attempt,
     fastFail: Boolean(event.fastFail),
+    reasonCode: detectedReasonCode,
+    reason: event.reason || detectedReasonCode,
   };
 
   memoryStore.registeredModels.add(fullEvent.fromModel);

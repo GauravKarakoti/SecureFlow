@@ -43,6 +43,10 @@ vi.mock("@/lib/redis", () => ({
   redis: null,
 }));
 
+vi.mock("@/lib/rate-limit", () => ({
+  ratelimit: null,
+}));
+
 const mockFinding = {
   id: "finding-1",
   type: "Vulnerability",
