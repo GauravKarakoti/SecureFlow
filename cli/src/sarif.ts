@@ -7,8 +7,9 @@
 
 // Added `type` prefix for verbatimModuleSyntax compliance
 import fs from "node:fs";
+import crypto from "node:crypto";
 import type { Readable } from "node:stream";
-import type { FileScanResult } from "./scanner.js";
+import type { FileScanResult, Violation } from "./scanner.js";
 
 export interface SarifArtifactLocation {
   uri: string;
@@ -32,6 +33,30 @@ export interface SarifPhysicalLocation {
 
 export interface SarifLocation {
   physicalLocation: SarifPhysicalLocation;
+}
+
+export interface SarifReplacement {
+  deletedRegion: {
+    startLine: number;
+    startColumn?: number;
+    endLine?: number;
+    endColumn?: number;
+  };
+  insertedContent?: {
+    text: string;
+  };
+}
+
+export interface SarifArtifactChange {
+  artifactLocation: SarifArtifactLocation;
+  replacements: SarifReplacement[];
+}
+
+export interface SarifFix {
+  description: {
+    text: string;
+  };
+  artifactChanges: SarifArtifactChange[];
 }
 
 export interface SarifReportingDescriptor {
@@ -58,6 +83,8 @@ export interface SarifResult {
     text: string;
   };
   locations: SarifLocation[];
+  partialFingerprints?: Record<string, string>;
+  fixes?: SarifFix[];
   properties?: Record<string, unknown>;
 }
 
@@ -338,6 +365,87 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
               });
             }
           }
+
+          // Partial Fingerprints validation (#1754)
+          if (res.partialFingerprints !== undefined) {
+            if (
+              typeof res.partialFingerprints !== "object" ||
+              res.partialFingerprints === null ||
+              Array.isArray(res.partialFingerprints)
+            ) {
+              errors.push(`${resPath}.partialFingerprints must be an object`);
+            } else {
+              for (const [fpKey, fpVal] of Object.entries(
+                res.partialFingerprints as Record<string, unknown>,
+              )) {
+                if (typeof fpVal !== "string" || !fpVal.trim()) {
+                  errors.push(`${resPath}.partialFingerprints["${fpKey}"] must be a non-empty string`);
+                }
+              }
+            }
+          }
+
+          // Fixes / Replacement Hunks validation (#1754)
+          if (res.fixes !== undefined) {
+            if (!Array.isArray(res.fixes)) {
+              errors.push(`${resPath}.fixes must be an array`);
+            } else {
+              res.fixes.forEach((fixItem: unknown, fixIdx: number) => {
+                const fixPath = `${resPath}.fixes[${fixIdx}]`;
+                if (!fixItem || typeof fixItem !== "object" || Array.isArray(fixItem)) {
+                  errors.push(`${fixPath} must be an object`);
+                  return;
+                }
+                const fix = fixItem as Record<string, unknown>;
+                const fixDesc = (fix.description as Record<string, unknown> | undefined)?.text;
+                if (typeof fixDesc !== "string" || !fixDesc.trim()) {
+                  errors.push(`${fixPath}.description.text must be a non-empty string`);
+                }
+
+                if (!Array.isArray(fix.artifactChanges)) {
+                  errors.push(`${fixPath}.artifactChanges must be an array`);
+                } else {
+                  fix.artifactChanges.forEach((changeItem: unknown, changeIdx: number) => {
+                    const changePath = `${fixPath}.artifactChanges[${changeIdx}]`;
+                    if (!changeItem || typeof changeItem !== "object" || Array.isArray(changeItem)) {
+                      errors.push(`${changePath} must be an object`);
+                      return;
+                    }
+                    const change = changeItem as Record<string, unknown>;
+                    const changeUri = (change.artifactLocation as Record<string, unknown> | undefined)?.uri;
+                    if (typeof changeUri !== "string" || !changeUri.trim()) {
+                      errors.push(`${changePath}.artifactLocation.uri must be a non-empty string`);
+                    }
+
+                    if (!Array.isArray(change.replacements)) {
+                      errors.push(`${changePath}.replacements must be an array`);
+                    } else {
+                      change.replacements.forEach((repItem: unknown, repIdx: number) => {
+                        const repPath = `${changePath}.replacements[${repIdx}]`;
+                        if (!repItem || typeof repItem !== "object" || Array.isArray(repItem)) {
+                          errors.push(`${repPath} must be an object`);
+                          return;
+                        }
+                        const rep = repItem as Record<string, unknown>;
+                        if (!rep.deletedRegion || typeof rep.deletedRegion !== "object") {
+                          errors.push(`${repPath}.deletedRegion must be an object`);
+                        } else {
+                          const del = rep.deletedRegion as Record<string, unknown>;
+                          if (
+                            typeof del.startLine !== "number" ||
+                            !Number.isInteger(del.startLine) ||
+                            del.startLine < 1
+                          ) {
+                            errors.push(`${repPath}.deletedRegion.startLine must be an integer >= 1`);
+                          }
+                        }
+                      });
+                    }
+                  });
+                }
+              });
+            }
+          }
         });
       }
     });
@@ -399,6 +507,50 @@ const DEFAULT_RULE_DEFINITIONS: Record<string, SarifReportingDescriptor> = {
 };
 
 /**
+ * Normalizes source text snippet to compute deterministic fingerprint across line shifts (#1754).
+ */
+export function computeSnippetFingerprint(text: string): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
+}
+
+/**
+ * Builds standard SARIF v2.1.0 fix hunks from remediation text/diff (#1754).
+ */
+export function buildSarifFix(
+  filePath: string,
+  startLine: number,
+  replacementText?: string,
+  endLine?: number,
+): SarifFix | undefined {
+  if (!replacementText || !replacementText.trim()) {
+    return undefined;
+  }
+  const uri = filePath.replace(/\\/g, "/");
+  return {
+    description: {
+      text: "Automated remediation patch for security violation",
+    },
+    artifactChanges: [
+      {
+        artifactLocation: { uri },
+        replacements: [
+          {
+            deletedRegion: {
+              startLine: Math.max(1, startLine),
+              ...(endLine && endLine >= startLine ? { endLine } : {}),
+            },
+            insertedContent: {
+              text: replacementText,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
  * Maps CLI scan results into a valid OASIS SARIF v2.1.0 document object.
  * Validates the schema before returning.
  */
@@ -407,6 +559,7 @@ export function generateSarifReport(
   options?: {
     toolVersion?: string;
     repoUri?: string;
+    remediations?: Record<string, string>;
   },
 ): SarifDocument {
   const version = options?.toolVersion || "0.1.0";
@@ -417,6 +570,8 @@ export function generateSarifReport(
     if (!fileResult.violations || fileResult.violations.length === 0) {
       continue;
     }
+
+    const normalizedPath = fileResult.path.replace(/\\/g, "/");
 
     for (const violation of fileResult.violations) {
       const reasonKey = violation.reason || "generic-secret-logging";
@@ -439,6 +594,11 @@ export function generateSarifReport(
         rulesMap.set(reasonKey, ruleInfo);
       }
 
+      const fingerprint = computeSnippetFingerprint(violation.text);
+      const fixKey = `${normalizedPath}:${violation.line}`;
+      const replacement = options?.remediations?.[fixKey] || options?.remediations?.[fingerprint];
+      const fix = buildSarifFix(normalizedPath, violation.line, replacement);
+
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
@@ -450,7 +610,7 @@ export function generateSarifReport(
           {
             physicalLocation: {
               artifactLocation: {
-                uri: fileResult.path.replace(/\\/g, "/"),
+                uri: normalizedPath,
               },
               region: {
                 startLine: Math.max(1, violation.line),
@@ -461,6 +621,11 @@ export function generateSarifReport(
             },
           },
         ],
+        partialFingerprints: {
+          "checksum/v1": fingerprint,
+          "primaryLocationLineHash": fingerprint,
+        },
+        ...(fix ? { fixes: [fix] } : {}),
         properties: {
           reason: violation.reason,
         },

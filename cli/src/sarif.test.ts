@@ -532,4 +532,126 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       expect(maxHeapMb).toBeLessThan(150);
     });
   });
+
+  describe("Cryptographic Fingerprints and Remediation Patch Hunks (#1754)", () => {
+    it("generates deterministic partialFingerprints for identical code snippets across lines", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/auth/token.ts",
+          violations: [
+            {
+              line: 12,
+              text: "console.log(jwtSecret);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+        {
+          path: "src/auth/token_shifted.ts",
+          violations: [
+            {
+              line: 99,
+              text: "console.log(jwtSecret);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results);
+      const resA = doc.runs[0].results[0];
+      const resB = doc.runs[0].results[1];
+
+      expect(resA.partialFingerprints).toBeDefined();
+      expect(resB.partialFingerprints).toBeDefined();
+      expect(resA.partialFingerprints?.["checksum/v1"]).toBe(resB.partialFingerprints?.["checksum/v1"]);
+      expect(resA.partialFingerprints?.["checksum/v1"]).toHaveLength(64);
+    });
+
+    it("attaches remediation fixes with deletedRegion and insertedContent when remediation is provided", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/service.ts",
+          violations: [
+            {
+              line: 25,
+              text: "console.log(apiKey);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results, {
+        remediations: {
+          "src/service.ts:25": "logger.info('apiKey redacted');",
+        },
+      });
+
+      const res = doc.runs[0].results[0];
+      expect(res.fixes).toBeDefined();
+      expect(res.fixes).toHaveLength(1);
+      expect(res.fixes?.[0].description.text).toContain("Automated remediation patch");
+      expect(res.fixes?.[0].artifactChanges[0].artifactLocation.uri).toBe("src/service.ts");
+      expect(res.fixes?.[0].artifactChanges[0].replacements[0].deletedRegion.startLine).toBe(25);
+      expect(res.fixes?.[0].artifactChanges[0].replacements[0].insertedContent?.text).toBe(
+        "logger.info('apiKey redacted');",
+      );
+    });
+
+    it("validates SARIF documents with fixes and partialFingerprints against OASIS schema validator", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/db.ts",
+          violations: [
+            {
+              line: 10,
+              text: "console.warn(dbPassword);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results, {
+        remediations: {
+          "src/db.ts:10": "/* sanitized */",
+        },
+      });
+
+      const validation = validateSarifDocument(doc);
+      expect(validation.valid).toBe(true);
+      expect(validation.errors).toHaveLength(0);
+    });
+
+    it("rejects malformed fixes or partialFingerprints during schema validation", () => {
+      const invalidDoc: any = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: { driver: { name: "TestTool", rules: [] } },
+            results: [
+              {
+                ruleId: "SEC-1",
+                message: { text: "Violation" },
+                partialFingerprints: { "checksum/v1": "" },
+                fixes: [
+                  {
+                    description: { text: "" },
+                    artifactChanges: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const validation = validateSarifDocument(invalidDoc);
+      expect(validation.valid).toBe(false);
+      expect(validation.errors.some((e: string) => e.includes("partialFingerprints"))).toBe(true);
+      expect(validation.errors.some((e: string) => e.includes("description.text"))).toBe(true);
+    });
+  });
 });
