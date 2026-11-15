@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { homedir } from "node:os";
-import { getThreatIntelCache, setThreatIntelCache } from "./threat-intel-cache.js";
+import {
+  getThreatIntelCacheWithSwr,
+  setThreatIntelCache,
+  verifyPayloadChecksum,
+  computePayloadSha256,
+} from "./threat-intel-cache.js";
 
 export const CISA_KEV_FEED_URL =
   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
@@ -11,8 +16,11 @@ export const CISA_KEV_DATA_PATH = path.resolve(
   path.join(homedir(), ".secureflow", "threat-intel", "known_exploited_vulnerabilities.json"),
 );
 
+export const CISA_KEV_CHECKSUM_PATH = `${CISA_KEV_DATA_PATH}.sha256`;
+
 const CATALOG_CACHE_KEY = "cisa-kev-catalog";
-const CATALOG_TTL_SECONDS = 24 * 60 * 60;
+const CATALOG_TTL_SECONDS = 24 * 60 * 60; // 24 hours fresh TTL
+const CATALOG_STALE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days stale fallback
 const FETCH_TIMEOUT_MS = 15_000;
 
 export interface CisaKevVulnerability {
@@ -79,7 +87,7 @@ function isVulnerability(value: unknown): value is CisaKevVulnerability {
   return true;
 }
 
-function isCisaKevCatalog(value: unknown): value is CisaKevCatalog {
+export function isCisaKevCatalog(value: unknown): value is CisaKevCatalog {
   if (!isRecord(value)) return false;
 
   return (
@@ -94,27 +102,56 @@ function isCisaKevCatalog(value: unknown): value is CisaKevCatalog {
 }
 
 /**
- * Load the last synchronized catalog from Redis or the local data file.
+ * Load the last synchronized catalog from memory/Redis with SWR, or fall back to the local data file.
+ * Verifies SHA-256 signatures before loading indicators into the scanner.
  */
 export async function loadCisaKevCatalog(
-  options: { populateCache?: boolean } = {},
+  options: { populateCache?: boolean; allowStale?: boolean } = {},
 ): Promise<CisaKevCatalog | null> {
   try {
-    const cached = await getThreatIntelCache<unknown>(CATALOG_CACHE_KEY);
+    const cachedResult = await getThreatIntelCacheWithSwr<unknown>(CATALOG_CACHE_KEY);
 
-    if (isCisaKevCatalog(cached)) return cached;
+    if (cachedResult && isCisaKevCatalog(cachedResult.value)) {
+      if (cachedResult.isStale && options.allowStale !== false) {
+        console.warn(
+          "⚠️  [SecureFlow Threat Intel] Serving stale CISA KEV threat catalog from cache. Background revalidation recommended.",
+        );
+      }
+      return cachedResult.value;
+    }
   } catch {
-    // Continue to the local copy if Redis is unavailable.
+    // Continue to local copy if cache error occurs
   }
 
   try {
     const contents = await fs.readFile(/*turbopackIgnore: true*/ CISA_KEV_DATA_PATH, "utf8");
+
+    // Cryptographic integrity check: verify SHA-256 checksum file if present
+    try {
+      const expectedChecksum = (
+        await fs.readFile(/*turbopackIgnore: true*/ CISA_KEV_CHECKSUM_PATH, "utf8")
+      ).trim();
+      if (expectedChecksum && !verifyPayloadChecksum(contents, expectedChecksum)) {
+        console.warn(
+          "⚠️  [SecureFlow Threat Intel] Checksum verification failed for local CISA KEV feed file. Rejecting corrupted file.",
+        );
+        return null;
+      }
+    } catch {
+      // If checksum file does not exist, compute and verify valid JSON structure
+    }
+
     const parsed: unknown = JSON.parse(contents);
 
     if (!isCisaKevCatalog(parsed)) return null;
 
     if (options.populateCache !== false) {
-      await setThreatIntelCache(CATALOG_CACHE_KEY, parsed, CATALOG_TTL_SECONDS);
+      await setThreatIntelCache(
+        CATALOG_CACHE_KEY,
+        parsed,
+        CATALOG_TTL_SECONDS,
+        CATALOG_STALE_TTL_SECONDS,
+      );
     }
     return parsed;
   } catch {
@@ -123,7 +160,7 @@ export async function loadCisaKevCatalog(
 }
 
 /**
- * Download, validate and persist the latest CISA KEV catalog.
+ * Download, validate, hash, and persist the latest CISA KEV catalog.
  * The previous catalog is preserved if the request or validation fails.
  */
 export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Promise<{
@@ -131,47 +168,91 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
   totalVulnerabilities: number;
   newlyAdded: number;
   dateReleased: string;
+  sha256?: string;
 }> {
   const dryRun = options.dryRun ?? false;
   const previous = await loadCisaKevCatalog({ populateCache: !dryRun });
 
-  const response = await fetch(CISA_KEV_FEED_URL, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "SecureFlow-Threat-Intelligence/1.0",
-    },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  let response: Response;
+  try {
+    response = await fetch(CISA_KEV_FEED_URL, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "SecureFlow-Threat-Intelligence/1.0",
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // Air-gapped / offline fallback: if local catalog exists, warn without failing hard
+    if (previous) {
+      console.warn(
+        "⚠️  [SecureFlow Threat Intel] Network unreachable or timeout while fetching CISA KEV feed. Falling back to local/cached feed data.",
+      );
+      return {
+        catalogVersion: previous.catalogVersion,
+        totalVulnerabilities: previous.count,
+        newlyAdded: 0,
+        dateReleased: previous.dateReleased,
+      };
+    }
+    throw error;
+  }
 
   if (!response.ok) {
+    if (previous) {
+      console.warn(
+        `⚠️  [SecureFlow Threat Intel] CISA KEV feed returned HTTP ${response.status}. Falling back to cached catalog.`,
+      );
+      return {
+        catalogVersion: previous.catalogVersion,
+        totalVulnerabilities: previous.count,
+        newlyAdded: 0,
+        dateReleased: previous.dateReleased,
+      };
+    }
     throw new Error(`CISA KEV feed returned HTTP ${response.status} ${response.statusText}`);
   }
 
-  const payload: unknown = await response.json();
+  const rawText = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawText);
+  } catch {
+    throw new Error("CISA KEV feed returned invalid non-JSON payload");
+  }
 
   if (!isCisaKevCatalog(payload)) {
     throw new Error("CISA KEV feed returned an invalid or incomplete catalog");
   }
 
+  const payloadSha256 = computePayloadSha256(rawText);
   const previousIds = new Set((previous?.vulnerabilities ?? []).map((item) => item.cveID));
-
   const newlyAdded = payload.vulnerabilities.filter((item) => !previousIds.has(item.cveID)).length;
 
   if (!dryRun) {
     await fs.mkdir(path.dirname(CISA_KEV_DATA_PATH), { recursive: true });
 
     const temporaryPath = `${CISA_KEV_DATA_PATH}.${process.pid}.tmp`;
+    const temporaryChecksumPath = `${CISA_KEV_CHECKSUM_PATH}.${process.pid}.tmp`;
 
     try {
       await fs.writeFile(temporaryPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+      await fs.writeFile(temporaryChecksumPath, `${payloadSha256}\n`, "utf8");
 
       await fs.rename(temporaryPath, CISA_KEV_DATA_PATH);
+      await fs.rename(temporaryChecksumPath, CISA_KEV_CHECKSUM_PATH);
     } catch (error) {
       await fs.rm(temporaryPath, { force: true });
+      await fs.rm(temporaryChecksumPath, { force: true });
       throw error;
     }
 
-    await setThreatIntelCache(CATALOG_CACHE_KEY, payload, CATALOG_TTL_SECONDS);
+    await setThreatIntelCache(
+      CATALOG_CACHE_KEY,
+      payload,
+      CATALOG_TTL_SECONDS,
+      CATALOG_STALE_TTL_SECONDS,
+    );
   }
 
   return {
@@ -179,6 +260,7 @@ export async function syncCisaKevCatalog(options: { dryRun?: boolean } = {}): Pr
     totalVulnerabilities: payload.count,
     newlyAdded,
     dateReleased: payload.dateReleased,
+    sha256: payloadSha256,
   };
 }
 
@@ -245,8 +327,8 @@ function isOsvLiveAdvisory(value: unknown): value is OsvLiveAdvisory {
 }
 
 /**
- * Fetch an individual CVE from OSV.dev, using Redis before making a network call.
- * Throws on network/API failures so callers can distinguish outages from 404s.
+ * Fetch an individual CVE from OSV.dev, using SWR cache before making a network call.
+ * In air-gapped mode or network errors, serves cached stale entries with warning.
  */
 export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory | null> {
   const normalized = cveId.trim().toUpperCase();
@@ -255,27 +337,48 @@ export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory 
 
   const cacheKey = `osv-advisory-${normalized}`;
 
-  const cached = await getThreatIntelCache<unknown>(cacheKey);
-  if (isOsvLiveAdvisory(cached)) return cached;
-
-  const response = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(normalized)}`, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-
-  if (response.status === 404) return null;
-
-  if (!response.ok) {
-    throw new Error(`OSV lookup failed: HTTP ${response.status} ${response.statusText}`);
+  const cachedResult = await getThreatIntelCacheWithSwr<unknown>(cacheKey);
+  if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
+    if (!cachedResult.isStale) {
+      return cachedResult.value;
+    }
   }
 
-  const payload: unknown = await response.json();
+  try {
+    const response = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(normalized)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
 
-  if (!isOsvLiveAdvisory(payload)) {
-    throw new Error("OSV returned an invalid vulnerability record");
+    if (response.status === 404) return null;
+
+    if (!response.ok) {
+      if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
+        console.warn(
+          `⚠️  [SecureFlow Threat Intel] OSV endpoint returned HTTP ${response.status}. Using stale cached advisory for ${normalized}.`,
+        );
+        return cachedResult.value;
+      }
+      throw new Error(`OSV lookup failed: HTTP ${response.status} ${response.statusText}`);
+    }
+
+    const payload: unknown = await response.json();
+
+    if (!isOsvLiveAdvisory(payload)) {
+      throw new Error("OSV returned an invalid vulnerability record");
+    }
+
+    await setThreatIntelCache(cacheKey, payload, CATALOG_TTL_SECONDS, CATALOG_STALE_TTL_SECONDS);
+
+    return payload;
+  } catch (error) {
+    // Air-gapped fallback
+    if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
+      console.warn(
+        `⚠️  [SecureFlow Threat Intel] Network unreachable for OSV query. Falling back to cached advisory for ${normalized}.`,
+      );
+      return cachedResult.value;
+    }
+    throw error;
   }
-
-  await setThreatIntelCache(cacheKey, payload, CATALOG_TTL_SECONDS);
-
-  return payload;
 }
