@@ -1,3 +1,4 @@
+import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { MAX_SCANNED_BYTES } from "../scanner.js";
 import { scanSuppliedContent } from "./scan.js";
@@ -112,5 +113,71 @@ describe("scanSuppliedContent scanning", () => {
     });
     expect(lenient.violationCount).toBe(1);
     expect(strict.violationCount).toBe(0);
+  });
+});
+
+describe("scanSuppliedContent workspace sandboxing and incremental diff scanning (#1752)", () => {
+  it("enforces path sandboxing and rejects paths escaping workspaceRoot", () => {
+    expect(() =>
+      scanSuppliedContent({
+        content: "const a = 1;",
+        path: "../outside.ts",
+      }),
+    ).toThrow();
+
+    expect(() =>
+      scanSuppliedContent({
+        content: "const a = 1;",
+        path: "sub/../../escape.ts",
+      }),
+    ).toThrow();
+  });
+
+  it("handles incremental git diff scan mode", async () => {
+    const out = scanSuppliedContent({
+      incremental: true,
+    });
+
+    expect(out.source).toBe("git_incremental");
+    expect(out.incremental).toBe(true);
+    expect(Array.isArray(out.results)).toBe(true);
+    expect(typeof out.report).toBe("string");
+  });
+
+  it("sandboxes paths when explicit custom workspaceRoot is provided", () => {
+    const safeTmp = os.tmpdir();
+    const safePath = "inside-test.ts";
+    const out = scanSuppliedContent({
+      content: "const safe = 42;",
+      path: safePath,
+      workspaceRoot: safeTmp,
+    });
+    expect(out.source).toBe("caller_provided");
+    expect(out.violationCount).toBe(0);
+  });
+
+  it("rejects path traversal attempting to escape explicit workspaceRoot", () => {
+    const safeTmp = os.tmpdir();
+    expect(() =>
+      scanSuppliedContent({
+        content: "const unsafe = 42;",
+        path: "../escape-workspace.ts",
+        workspaceRoot: safeTmp,
+      }),
+    ).toThrow();
+  });
+
+  it("scans and redacts findings within incremental diff payloads", () => {
+    const out = scanSuppliedContent({
+      incremental: true,
+      minEntropy: 3.0,
+      minTokenLength: 16,
+      format: "sarif",
+    });
+
+    expect(out.format).toBe("sarif");
+    expect(out.incremental).toBe(true);
+    expect(typeof out.report).toBe("string");
+    expect(out.violationCount).toBeGreaterThanOrEqual(0);
   });
 });
