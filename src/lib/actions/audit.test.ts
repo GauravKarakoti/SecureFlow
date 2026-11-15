@@ -263,6 +263,14 @@ describe("getUserAuditLogs (#659 regression guard)", () => {
     expect(result.logs).toHaveLength(1);
     expect(result.nextCursor).toBeNull();
   });
+
+  it("computes nextCursor for offset pagination when more logs exist", async () => {
+    mockFindMany.mockResolvedValueOnce([logRow(1), logRow(2)]);
+    mockCount.mockResolvedValueOnce(5);
+
+    const result = await getUserAuditLogs({ page: 1, pageSize: 2 });
+    expect(result.nextCursor).toBeDefined();
+  });
 });
 
 describe('"use server" module contract', () => {
