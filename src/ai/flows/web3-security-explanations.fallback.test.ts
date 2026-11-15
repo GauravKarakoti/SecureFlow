@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGenerate = vi.fn();
 const PRIMARY = "groq/openai/gpt-oss-20b";
@@ -18,6 +18,7 @@ vi.mock("@/lib/explanation-cache", async (importOriginal) => ({
 vi.mock("dotenv/config", () => ({}));
 
 import { web3SecurityExplanation } from "./web3-security-explanations";
+import { resetModelCircuitBreakers } from "@/ai/resilience";
 
 const input = {
   findingType: "Reentrancy",
@@ -35,10 +36,15 @@ const goodReply = {
 
 describe("web3SecurityExplanation - provider fallback (#1525)", () => {
   beforeEach(() => {
+    resetModelCircuitBreakers();
     mockGenerate.mockReset();
     mockSetCached.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetModelCircuitBreakers();
   });
 
   it("returns the model answer and caches it when the provider succeeds", async () => {
@@ -101,5 +107,17 @@ describe("web3SecurityExplanation - provider fallback (#1525)", () => {
 
     const call = mockGenerate.mock.calls[0][0];
     expect(call.prompt).toContain("Web3 protocol breach");
+  });
+
+  it("handles CircuitBreakerError by fast-failing with circuit breaker explanation", async () => {
+    const { CircuitBreakerError } = await import("@/ai/resilience");
+    mockGenerate.mockRejectedValue(new CircuitBreakerError("test-breaker", 60000));
+
+    const result = await web3SecurityExplanation(input);
+
+    expect(result.explanation).toContain("circuit breaker is OPEN");
+    expect(result.explanation).toContain("Reentrancy");
+    expect(result.remediationSuggestions).toContain("degraded");
+    expect(mockSetCached).not.toHaveBeenCalled();
   });
 });

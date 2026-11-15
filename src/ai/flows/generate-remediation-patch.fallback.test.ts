@@ -15,6 +15,7 @@ vi.mock("../../../cli/src/mcp", () => ({
 vi.mock("dotenv/config", () => ({}));
 
 import { generateRemediationPatch, PatchOutputSchema } from "./generate-remediation-patch";
+import { tripModelCircuitBreaker, resetModelCircuitBreakers } from "@/ai/resilience";
 
 const input = {
   vulnerableCode: 'db.query("SELECT * FROM u WHERE id=" + id)',
@@ -27,11 +28,16 @@ const goodOutput = {
   explanation: "Use a parameterised query.",
 };
 
-describe("generateRemediationPatch - provider fallback (#1525)", () => {
+describe("generateRemediationPatch - provider fallback (#1525, #1768)", () => {
   beforeEach(() => {
+    resetModelCircuitBreakers();
     mockGenerate.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetModelCircuitBreakers();
   });
 
   it("returns the model output when the provider succeeds", async () => {
@@ -91,6 +97,18 @@ describe("generateRemediationPatch - provider fallback (#1525)", () => {
     await expect(
       generateRemediationPatch({ vulnerableCode: 1 } as unknown as typeof input),
     ).rejects.toThrow();
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it("fails fast with static template when circuit breaker is tripped (#1768)", async () => {
+    tripModelCircuitBreaker("groq/openai/gpt-oss-20b");
+
+    const result = await generateRemediationPatch(input);
+
+    expect(result.patchDiff).toBe("");
+    expect(result.explanation).toContain("temporarily unavailable");
+    expect(result.failureReason).toBe("unavailable");
+    // Should NOT attempt calling model when circuit breaker is open
     expect(mockGenerate).not.toHaveBeenCalled();
   });
 });

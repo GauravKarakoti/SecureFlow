@@ -9,6 +9,7 @@ import {
 } from "./security-helpers";
 import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
 import { recordAiFallbackEvent } from "@/lib/audit/ai-fallback-audit";
+import { CircuitBreakerError } from "@/ai/resilience";
 import {
   InsufficientVRAMError,
   insufficientVramMessage,
@@ -169,6 +170,15 @@ export async function developerReceivesAISecurityExplanations(
         explanation: "Groq API connection timed out. The Professor is standing by.",
         remediationSuggestions:
           "Connection timed out: verify model availability and inspect the vulnerability manually.",
+      };
+    } else if (genError instanceof CircuitBreakerError) {
+      console.warn("AI circuit breaker tripped open (#1768):", genError.message);
+
+      parsedContent = {
+        explanation:
+          "AI provider circuit breaker is OPEN due to repeated upstream failures. Using static vulnerability analysis template.",
+        remediationSuggestions:
+          "Circuit breaker active: investigate provider health and apply standard manual remediation rules.",
       };
     } else {
       console.error("AI generation failed:", genError);

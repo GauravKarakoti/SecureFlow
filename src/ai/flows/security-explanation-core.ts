@@ -2,6 +2,11 @@ import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-mod
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
 import {
+  getModelCircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+} from "@/ai/resilience";
+import {
   AISecurityExplanationOutputSchema,
   type AISecurityExplanationInput,
   type AISecurityExplanationOutput,
@@ -16,7 +21,7 @@ export interface TokenUsage {
   totalTokens?: number;
 }
 
-export type FallbackReason = "rate_limit" | "timeout" | "insufficient_memory";
+export type FallbackReason = "rate_limit" | "timeout" | "insufficient_memory" | "circuit_breaker_open";
 
 export function prepareExplanation(input: AISecurityExplanationInput) {
   return {
@@ -51,13 +56,35 @@ export async function runModelChain<TModel, TResult>(
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
     const next = models[i + 1];
+    const modelKey = typeof model === "string" ? model : (model as any)?.name || String(model);
+    const breaker = getModelCircuitBreaker(modelKey);
 
     try {
+      const value = await breaker.execute(() => attempt(model));
       return {
-        value: await attempt(model),
+        value,
         model,
       };
     } catch (error) {
+      if (error instanceof CircuitBreakerError) {
+        if (next === undefined) {
+          throw error;
+        }
+
+        console.warn(
+          `[AI_CIRCUIT_BREAKER] Circuit breaker open for ${modelKey}. Tripping failover to ${String(next)}`,
+        );
+
+        onFallback?.({
+          from: model,
+          to: next,
+          reason: "circuit_breaker_open",
+          error,
+        });
+
+        continue;
+      }
+
       if (isInsufficientMemoryError(error)) {
         if (next === undefined) {
           throw new InsufficientVRAMError(models.map((m) => getModelId(m as any)));
