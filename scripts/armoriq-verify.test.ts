@@ -160,4 +160,22 @@ describe("scripts/armoriq-verify.ts (#1710, #1751)", () => {
     expect(res.breakerOpen).toBe(true);
     expect(res.replayed).toBe(0);
   });
+
+  it("handles --inspect-dlq and --retrigger-dlq CLI args (#1765)", async () => {
+    const opts = parseCliArgs(["--inspect-dlq", "--retrigger-dlq=rem-123"]);
+    expect(opts.inspectDlq).toBe(true);
+    expect(opts.retriggerDlqId).toBe("rem-123");
+  });
+
+  it("inspects and prints telemetry metrics during CLI check (#1765)", async () => {
+    const consoleSpy = vi.spyOn(console, "log");
+    await runArmorIQCheck({ inspectDlq: true });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Inspecting ArmorIQ Dead-Letter Queue Payloads & Telemetry"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Telemetry Metrics"),
+    );
+    consoleSpy.mockRestore();
+  });
 });
