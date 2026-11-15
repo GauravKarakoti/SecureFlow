@@ -141,11 +141,8 @@ describe("threat-intel-cache SWR & Checksum Verification (#1750)", () => {
   });
 
   it("stores and reads cached values with SWR freshness and stale detection", async () => {
-    const {
-      setThreatIntelCache,
-      getThreatIntelCacheWithSwr,
-      clearMemoryThreatIntelCache,
-    } = await import("./threat-intel-cache.js");
+    const { setThreatIntelCache, getThreatIntelCacheWithSwr, clearMemoryThreatIntelCache } =
+      await import("./threat-intel-cache.js");
 
     clearMemoryThreatIntelCache();
 
@@ -179,11 +176,8 @@ describe("threat-intel-cache SWR & Checksum Verification (#1750)", () => {
   });
 
   it("automatically rejects and discards corrupted or tampered cached payloads", async () => {
-    const {
-      setThreatIntelCache,
-      getThreatIntelCacheWithSwr,
-      clearMemoryThreatIntelCache,
-    } = await import("./threat-intel-cache.js");
+    const { setThreatIntelCache, getThreatIntelCacheWithSwr, clearMemoryThreatIntelCache } =
+      await import("./threat-intel-cache.js");
 
     clearMemoryThreatIntelCache();
 

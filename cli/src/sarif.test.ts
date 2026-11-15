@@ -564,7 +564,9 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
 
       expect(resA.partialFingerprints).toBeDefined();
       expect(resB.partialFingerprints).toBeDefined();
-      expect(resA.partialFingerprints?.["checksum/v1"]).toBe(resB.partialFingerprints?.["checksum/v1"]);
+      expect(resA.partialFingerprints?.["checksum/v1"]).toBe(
+        resB.partialFingerprints?.["checksum/v1"],
+      );
       expect(resA.partialFingerprints?.["checksum/v1"]).toHaveLength(64);
     });
 

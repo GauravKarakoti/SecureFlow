@@ -54,7 +54,11 @@ async function main() {
       if (result.sha256) {
         console.log(`SHA-256 Checksum: ${result.sha256}`);
       }
-      console.log(isDryRun ? "Dry run completed; no data was saved." : "Catalog synchronized with checksum verification.");
+      console.log(
+        isDryRun
+          ? "Dry run completed; no data was saved."
+          : "Catalog synchronized with checksum verification.",
+      );
     }
 
     return 0;

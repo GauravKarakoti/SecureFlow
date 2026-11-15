@@ -193,7 +193,11 @@ export function buildComplianceSarifDocument(
       `Potential ${category} vulnerability identified at ${uri}:${lineStart}`;
 
     // Cryptographic fingerprints computation (#1754)
-    const contentToHash = (finding.codeSnippet || finding.explanation || `${category}:${uri}:${lineStart}`).trim();
+    const contentToHash = (
+      finding.codeSnippet ||
+      finding.explanation ||
+      `${category}:${uri}:${lineStart}`
+    ).trim();
     const computedHash = crypto.createHash("sha256").update(contentToHash, "utf8").digest("hex");
     const primaryFingerprint = finding.fingerprint || computedHash;
 
@@ -246,7 +250,7 @@ export function buildComplianceSarifDocument(
       partialFingerprints: {
         "secureflow/finding/v1": primaryFingerprint,
         "checksum/v1": primaryFingerprint,
-        "primaryLocationLineHash": computedHash,
+        primaryLocationLineHash: computedHash,
       },
       ...(fixes.length > 0 ? { fixes } : {}),
     });
