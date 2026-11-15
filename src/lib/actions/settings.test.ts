@@ -13,6 +13,9 @@ vi.mock("@/auth", () => ({
 
 const mockUpdate = vi.hoisted(() => vi.fn());
 const mockFindUnique = vi.hoisted(() => vi.fn());
+const mockRepoFindMany = vi.hoisted(() => vi.fn());
+const mockRepoFindFirst = vi.hoisted(() => vi.fn());
+const mockRepoUpdate = vi.hoisted(() => vi.fn());
 const mockRevalidatePath = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
@@ -21,6 +24,11 @@ vi.mock("@/lib/prisma", () => ({
       update: mockUpdate,
       findUnique: mockFindUnique,
     },
+    repository: {
+      findMany: mockRepoFindMany,
+      findFirst: mockRepoFindFirst,
+      update: mockRepoUpdate,
+    },
   },
 }));
 
@@ -28,7 +36,12 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
-import { getSlackWebhook, updateSlackWebhook } from "./settings";
+import {
+  getSlackWebhook,
+  updateSlackWebhook,
+  getUserRepositoriesWithBadgeStatus,
+  updateRepositoryPublicBadge,
+} from "./settings";
 
 const WEBHOOK = "https://hooks.slack.com/services/T000/B000/XXXX";
 
@@ -167,5 +180,95 @@ describe("getSlackWebhook", () => {
 
     mockFindUnique.mockResolvedValueOnce({ slackWebhookUrl: null });
     await expect(getSlackWebhook()).resolves.toBeNull();
+  });
+});
+
+describe("getUserRepositoriesWithBadgeStatus", () => {
+  it("returns empty array when user is unauthenticated", async () => {
+    session = null;
+    const res = await getUserRepositoriesWithBadgeStatus();
+    expect(res).toEqual([]);
+    expect(mockRepoFindMany).not.toHaveBeenCalled();
+  });
+
+  it("fetches active user repositories with badge status and latest PR status", async () => {
+    mockRepoFindMany.mockResolvedValue([
+      {
+        id: "repo-1",
+        fullName: "acme/api",
+        owner: "acme",
+        publicBadgeEnabled: true,
+        pullRequests: [{ status: "PASS" }],
+      },
+      {
+        id: "repo-2",
+        fullName: "acme/web",
+        owner: "acme",
+        publicBadgeEnabled: false,
+        pullRequests: [],
+      },
+    ]);
+
+    const res = await getUserRepositoriesWithBadgeStatus();
+    expect(res).toEqual([
+      {
+        id: "repo-1",
+        fullName: "acme/api",
+        owner: "acme",
+        publicBadgeEnabled: true,
+        latestStatus: "PASS",
+      },
+      {
+        id: "repo-2",
+        fullName: "acme/web",
+        owner: "acme",
+        publicBadgeEnabled: false,
+        latestStatus: null,
+      },
+    ]);
+
+    expect(mockRepoFindMany).toHaveBeenCalledWith({
+      where: { userId: "user-1", isActive: true },
+      select: {
+        id: true,
+        fullName: true,
+        owner: true,
+        publicBadgeEnabled: true,
+        pullRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { status: true },
+        },
+      },
+      orderBy: { fullName: "asc" },
+    });
+  });
+});
+
+describe("updateRepositoryPublicBadge", () => {
+  it("rejects unauthenticated requests", async () => {
+    session = null;
+    await expect(updateRepositoryPublicBadge("repo-1", true)).rejects.toThrow("Unauthorized");
+    expect(mockRepoUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns error if repository not found or not owned by user", async () => {
+    mockRepoFindFirst.mockResolvedValue(null);
+    const res = await updateRepositoryPublicBadge("repo-ghost", true);
+    expect(res).toEqual({ success: false, error: "Repository not found or unauthorized" });
+    expect(mockRepoUpdate).not.toHaveBeenCalled();
+  });
+
+  it("updates publicBadgeEnabled and revalidates dashboard settings", async () => {
+    mockRepoFindFirst.mockResolvedValue({ id: "repo-1", userId: "user-1" });
+    mockRepoUpdate.mockResolvedValue({ id: "repo-1", publicBadgeEnabled: true });
+
+    const res = await updateRepositoryPublicBadge("repo-1", true);
+    expect(res).toEqual({ success: true });
+    expect(mockRepoUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: { publicBadgeEnabled: true },
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
   });
 });

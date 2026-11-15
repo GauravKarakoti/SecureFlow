@@ -518,6 +518,19 @@ For more in-depth details about the architecture, developer API, and security pr
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
 - **[Operator Runbook](./docs/runbook.md)**: Operational troubleshooting guide for scan outages, webhook delivery failures, queue/Redis stalls, Groq rate limits, database pooling errors, and proxy configuration.
+- **[Status Badge](./docs/status-badge.md)**: Embed a live SVG badge in your README showing the latest scan status.
+
+---
+
+## 🏷️ Status Badge
+
+Add a live security-status badge to your repository README:
+
+```markdown
+![SecureFlow](https://your-secureflow-instance.com/api/badge/OWNER/REPO)
+```
+
+The badge reflects the latest scan: **passing** (green), **review required** (yellow), **blocked** (red), or **unknown** (grey). Enable it in your repository settings — see the [Status Badge docs](./docs/status-badge.md) for details.
 
 ---
 

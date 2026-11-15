@@ -12,18 +12,22 @@ import {
   updateVoiceAlerts,
   testSlackWebhook,
   testTeamsWebhook,
+  updateRepositoryPublicBadge,
+  type RepoBadgeSetting,
 } from "@/lib/actions/settings";
-import { Save, MessageSquare, Volume2, Send } from "lucide-react";
+import { Save, MessageSquare, Volume2, Send, Shield, Copy } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
 
 export default function SettingsClient({
   initialWebhookUrl,
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
+  initialRepositories = [],
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
+  initialRepositories?: RepoBadgeSetting[];
 }) {
   // --- Slack state ---
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl || "");
@@ -38,6 +42,10 @@ export default function SettingsClient({
   // --- Voice alerts state ---
   const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(initialVoiceAlertsEnabled);
   const [isVoicePending, startVoiceTransition] = useTransition();
+
+  // --- Status badges state ---
+  const [repositories, setRepositories] = useState<RepoBadgeSetting[]>(initialRepositories);
+  const [isBadgePending, startBadgeTransition] = useTransition();
 
   const handleSave = () => {
     startTransition(async () => {
@@ -115,6 +123,37 @@ export default function SettingsClient({
         toast.error(e.message || "Failed to update voice alert preference.");
       }
     });
+  };
+
+  const handleBadgeToggle = (repoId: string, checked: boolean) => {
+    setRepositories((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, publicBadgeEnabled: checked } : r)),
+    );
+    startBadgeTransition(async () => {
+      try {
+        const res = await updateRepositoryPublicBadge(repoId, checked);
+        if (res.success) {
+          toast.success(checked ? "Public status badge enabled." : "Public status badge disabled.");
+        } else {
+          setRepositories((prev) =>
+            prev.map((r) => (r.id === repoId ? { ...r, publicBadgeEnabled: !checked } : r)),
+          );
+          toast.error(res.error || "Failed to update badge setting.");
+        }
+      } catch (e: unknown) {
+        setRepositories((prev) =>
+          prev.map((r) => (r.id === repoId ? { ...r, publicBadgeEnabled: !checked } : r)),
+        );
+        toast.error(e instanceof Error ? e.message : "Failed to update badge setting.");
+      }
+    });
+  };
+
+  const handleCopyMarkdown = (markdown: string) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(markdown);
+      toast.success("Badge Markdown copied to clipboard!");
+    }
   };
 
   return (
@@ -262,6 +301,87 @@ export default function SettingsClient({
               aria-label="Enable voice alerts"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Repository Status Badges ── */}
+      <Card className="glass-card">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-500/10 rounded-lg">
+              <Shield className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <CardTitle>Repository Status Badges</CardTitle>
+              <CardDescription>
+                Share your repository&apos;s real-time security posture in your README. Private
+                repos remain protected — repositories with public badges disabled return a neutral
+                &quot;unknown&quot; badge without revealing scan status.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {repositories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No repositories connected yet. Sync your repositories from the overview dashboard to
+              enable status badges.
+            </p>
+          ) : (
+            repositories.map((repo) => {
+              const badgeUrl = `/api/badge/${repo.fullName}`;
+              const markdown = `[![SecureFlow Status](${badgeUrl})](/dashboard)`;
+              return (
+                <div
+                  key={repo.id}
+                  className="flex flex-col gap-3 rounded-lg border border-border p-4 transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-sm">{repo.fullName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {repo.publicBadgeEnabled
+                          ? "Public badge enabled — shows latest scan status"
+                          : "Public badge disabled — returns neutral unknown badge"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={repo.publicBadgeEnabled}
+                      onCheckedChange={(checked) => handleBadgeToggle(repo.id, checked)}
+                      disabled={isBadgePending}
+                      aria-label={`Toggle public badge for ${repo.fullName}`}
+                    />
+                  </div>
+
+                  {repo.publicBadgeEnabled && (
+                    <div className="mt-2 space-y-3 rounded-md bg-muted/40 p-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-medium text-muted-foreground">Preview:</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={badgeUrl} alt={`${repo.fullName} badge`} className="h-5" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          readOnly
+                          value={markdown}
+                          className="font-mono text-xs bg-background/50 h-8"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 shrink-0"
+                          onClick={() => handleCopyMarkdown(markdown)}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          Copy Markdown
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </CardContent>
       </Card>
     </div>
