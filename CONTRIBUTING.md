@@ -207,8 +207,6 @@ npm run db:seed
 npm run db:check-drift
 ```
 
-> 💡 **Tip**: Running `npm run db:check-drift` locally requires `SHADOW_DATABASE_URL` configured in your environment to diff against a shadow database (e.g. `postgresql://user:password@localhost:5432/secureflow_shadow`). In CI, this is provided automatically.
-
 ### 5. Run Development Server
 
 ```bash
