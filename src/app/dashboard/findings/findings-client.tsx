@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -77,14 +77,16 @@ export default function FindingsClient({
   nextCursor,
   sbomReport, // [NEW] Destructure SBOM report
 }: FindingsClientProps) {
+  const [prevFindings, setPrevFindings] = useState(findings);
   const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
   const [cursor, setCursor] = useState<string | null | undefined>(nextCursor);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  useEffect(() => {
+  if (findings !== prevFindings) {
+    setPrevFindings(findings);
     setDisplayedFindings(findings);
     setCursor(nextCursor);
-  }, [findings, nextCursor]);
+  }
 
   // Bulk triage (#732). Selection is keyed by finding id, but each selected
   // finding resolves to a (repositoryId, fingerprint) target for the action.
