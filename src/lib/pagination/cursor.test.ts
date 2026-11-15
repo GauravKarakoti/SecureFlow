@@ -55,8 +55,9 @@ describe("cursor pagination utilities", () => {
     });
 
     it("clamps limit above maximum", () => {
-      expect(parseLimit(500, 20, 100)).toBe(100);
-      expect(parseLimit("1000", 20, 100)).toBe(100);
+      expect(parseLimit(500)).toBe(MAX_PAGE_LIMIT);
+      expect(parseLimit("1000")).toBe(MAX_PAGE_LIMIT);
+      expect(parseLimit(500, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT)).toBe(MAX_PAGE_LIMIT);
     });
 
     it("returns default limit for negative or non-numeric input", () => {
