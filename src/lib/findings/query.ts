@@ -84,6 +84,8 @@ export const MAX_PAGE_SIZE = 100;
 export interface FindingsQuery {
   page?: number | null;
   pageSize?: number | null;
+  cursor?: string | null;
+  limit?: number | null;
   severity?: string[] | null;
   type?: string[] | null;
   status?: string[] | null;
@@ -96,6 +98,8 @@ export interface FindingsQuery {
 export interface NormalizedFindingsQuery {
   page: number;
   pageSize: number;
+  cursor?: string | null;
+  limit?: number | null;
   severity: StoredSeverity[];
   type: ValidFindingType[];
   status: FindingStatus[];
@@ -231,9 +235,9 @@ export function normalizeSearch(value: unknown): string | null {
 
 /** Resolve a raw query into safe, in-range values. */
 export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFindingsQuery {
-  return {
+  const result: NormalizedFindingsQuery = {
     page: clampPage(query.page ?? 1),
-    pageSize: clampPageSize(query.pageSize ?? DEFAULT_PAGE_SIZE),
+    pageSize: clampPageSize(query.pageSize ?? query.limit ?? DEFAULT_PAGE_SIZE),
     severity: parseSeverityFilter(query.severity ?? []),
     type: parseTypeFilter(query.type ?? []),
     status: parseStatusFilter(query.status ?? []),
@@ -244,6 +248,16 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
     search: normalizeSearch(query.search),
     sort: parseSort(query.sort),
   };
+
+  if (query.cursor !== undefined) {
+    result.cursor =
+      typeof query.cursor === "string" && query.cursor.trim() ? query.cursor.trim() : null;
+  }
+  if (query.limit !== undefined) {
+    result.limit = query.limit !== null ? clampPageSize(query.limit) : null;
+  }
+
+  return result;
 }
 
 /** Prisma `orderBy` for a sort key. */
@@ -529,6 +543,7 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
 
   if (query.page > 1) params.set("page", String(query.page));
   if (query.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(query.pageSize));
+  if (query.cursor) params.set("cursor", query.cursor);
   if (query.sort !== DEFAULT_SORT) params.set("sort", query.sort);
   if (query.repositoryId) params.set("repo", query.repositoryId);
   if (query.search) params.set("q", query.search);
@@ -548,7 +563,9 @@ export function fromSearchParams(
 
   return normalizeFindingsQuery({
     page: Number(single(params.page) ?? 1),
-    pageSize: Number(single(params.pageSize) ?? DEFAULT_PAGE_SIZE),
+    pageSize: Number(single(params.pageSize) ?? single(params.limit) ?? DEFAULT_PAGE_SIZE),
+    cursor: single(params.cursor),
+    limit: params.limit !== undefined ? Number(single(params.limit)) : undefined,
     severity: parseListParam(params.severity),
     type: parseListParam(params.type),
     status: parseListParam(params.status),

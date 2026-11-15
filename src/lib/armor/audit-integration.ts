@@ -17,6 +17,8 @@ export interface ArmorIQAuditLogInput {
   userId?: string | null;
 }
 
+import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
+
 export interface ArmorIQTraceQuery {
   /** Authenticated owner. Logs are scoped through their scan job or finding. */
   userId: string;
@@ -26,6 +28,7 @@ export interface ArmorIQTraceQuery {
   agentId?: string;
   limit?: number;
   offset?: number;
+  cursor?: string;
 }
 
 /**
@@ -144,9 +147,9 @@ export async function verifyArmorIQAuditResourceOwnership(input: {
  * and are therefore not returned.
  */
 export async function fetchArmorIQAuditTraces(query: ArmorIQTraceQuery) {
-  const { userId, scanJobId, findingId, decision, agentId, limit = 50, offset = 0 } = query;
+  const { userId, scanJobId, findingId, decision, agentId, limit = 50, offset = 0, cursor } = query;
 
-  const where: any = {
+  const baseWhere: any = {
     OR: [
       { scanJob: { is: { repository: { is: { userId } } } } },
       {
@@ -162,17 +165,25 @@ export async function fetchArmorIQAuditTraces(query: ArmorIQTraceQuery) {
       },
     ],
   };
-  if (scanJobId) where.scanJobId = scanJobId;
-  if (findingId) where.findingId = findingId;
-  if (decision) where.decision = decision;
-  if (agentId) where.agentId = agentId;
+  if (scanJobId) baseWhere.scanJobId = scanJobId;
+  if (findingId) baseWhere.findingId = findingId;
+  if (decision) baseWhere.decision = decision;
+  if (agentId) baseWhere.agentId = agentId;
 
-  const [traces, total] = await Promise.all([
+  const decodedCursor = decodeCursor(cursor);
+  const where: any = {
+    ...baseWhere,
+    ...(cursor ? buildCursorWhere(decodedCursor, "createdAt") : {}),
+  };
+
+  const clampedLimit = Math.min(Math.max(1, limit), 100);
+
+  const [rawTraces, total] = await Promise.all([
     prisma.armorIQEnforcementLog.findMany({
       where,
-      orderBy: { timestamp: "desc" },
-      take: Math.min(limit, 100),
-      skip: offset,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: cursor ? clampedLimit + 1 : clampedLimit,
+      skip: cursor ? 0 : offset,
       select: {
         id: true,
         scanJobId: true,
@@ -191,10 +202,25 @@ export async function fetchArmorIQAuditTraces(query: ArmorIQTraceQuery) {
         createdAt: true,
       },
     }),
-    prisma.armorIQEnforcementLog.count({ where }),
+    prisma.armorIQEnforcementLog.count({ where: baseWhere }),
   ]);
 
-  return { traces, total };
+  let nextCursor: string | null = null;
+  let traces = rawTraces;
+
+  if (cursor) {
+    if (rawTraces.length > clampedLimit) {
+      traces = rawTraces.slice(0, clampedLimit);
+      nextCursor = encodeCursor(traces[traces.length - 1]);
+    }
+  } else if (rawTraces.length > 0) {
+    // If next page exists by offset
+    if (offset + rawTraces.length < total) {
+      nextCursor = encodeCursor(rawTraces[rawTraces.length - 1]);
+    }
+  }
+
+  return { traces, total, nextCursor };
 }
 
 /**

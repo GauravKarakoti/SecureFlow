@@ -140,6 +140,25 @@ describe("GET /api/audit/armoriq", () => {
     );
   });
 
+  it("passes cursor parameter and returns nextCursor", async () => {
+    authMock.mockResolvedValueOnce({ user: { id: "user-123" } });
+    fetchTracesMock.mockResolvedValueOnce({
+      traces: [{ id: "trace-1" }],
+      total: 10,
+      nextCursor: "cursor-abc",
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/audit/armoriq?cursor=some-cursor");
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nextCursor).toBe("cursor-abc");
+    expect(fetchTracesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: "some-cursor" }),
+    );
+  });
+
   it("generates a compliance report when format=compliance is requested", async () => {
     authMock.mockResolvedValueOnce({ user: { id: "user-123" } });
     const mockTraces = [{ id: "trace-1", decision: "ALLOW" }];

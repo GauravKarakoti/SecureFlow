@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,7 +32,12 @@ import FindingsToolbar from "./findings-toolbar";
 import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW] Import SBOM Card
 import { TriageStatus } from "@/lib/actions/triage";
-import type { FindingFilterOptions, FindingRow, FindingsStats } from "@/lib/actions/findings";
+import {
+  getUserFindings,
+  type FindingFilterOptions,
+  type FindingRow,
+  type FindingsStats,
+} from "@/lib/actions/findings";
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
 
@@ -57,6 +62,7 @@ interface FindingsClientProps {
   pageSize: number;
   total: number;
   totalPages: number;
+  nextCursor?: string | null;
   sbomReport?: SbomScanResult | null; // [NEW] Optional SBOM Report prop
 }
 
@@ -68,8 +74,18 @@ export default function FindingsClient({
   pageSize,
   total,
   totalPages,
+  nextCursor,
   sbomReport, // [NEW] Destructure SBOM report
 }: FindingsClientProps) {
+  const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
+  const [cursor, setCursor] = useState<string | null | undefined>(nextCursor);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  useEffect(() => {
+    setDisplayedFindings(findings);
+    setCursor(nextCursor);
+  }, [findings, nextCursor]);
+
   // Bulk triage (#732). Selection is keyed by finding id, but each selected
   // finding resolves to a (repositoryId, fingerprint) target for the action.
   const [bulkMode, setBulkMode] = useState(false);
@@ -87,11 +103,34 @@ export default function FindingsClient({
     return `/api/findings/export${query ? `?${query}` : ""}`;
   }, [searchParams]);
 
+  const handleLoadMore = async () => {
+    if (!cursor || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const res = await getUserFindings({
+        cursor,
+        pageSize,
+        repositoryId: searchParams?.get("repo") ?? undefined,
+        search: searchParams?.get("q") ?? undefined,
+        severity: searchParams?.getAll("severity"),
+        type: searchParams?.getAll("type"),
+        status: searchParams?.getAll("status"),
+        sort: searchParams?.get("sort") ?? undefined,
+      });
+      setDisplayedFindings((prev) => [...prev, ...res.findings]);
+      setCursor(res.nextCursor);
+    } catch (err) {
+      console.error("Failed to load more findings:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   // Only findings that carry both a repositoryId and a fingerprint can be
   // triaged, so those are the only ones selectable.
   const selectableIds = useMemo(
-    () => findings.filter((f) => f.repositoryId && f.fingerprint).map((f) => f.id),
-    [findings],
+    () => displayedFindings.filter((f) => f.repositoryId && f.fingerprint).map((f) => f.id),
+    [displayedFindings],
   );
 
   const toggleOne = (id: string) => {
@@ -119,15 +158,15 @@ export default function FindingsClient({
 
   const bulkTargets = useMemo(
     () =>
-      findings
+      displayedFindings
         .filter((f) => selected.has(f.id) && f.repositoryId && f.fingerprint)
         .map((f) => ({ repositoryId: f.repositoryId!, fingerprint: f.fingerprint! })),
-    [findings, selected],
+    [displayedFindings, selected],
   );
 
   const selectedFindings = useMemo(
-    () => findings.filter((f) => selected.has(f.id)),
-    [findings, selected],
+    () => displayedFindings.filter((f) => selected.has(f.id)),
+    [displayedFindings, selected],
   );
 
   return (
@@ -219,7 +258,7 @@ export default function FindingsClient({
         </CardHeader>
 
         <CardContent className="min-h-[520px]">
-          {findings.length === 0 ? (
+          {displayedFindings.length === 0 ? (
             <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
               <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
@@ -263,7 +302,7 @@ export default function FindingsClient({
                 </div>
               )}
               <Accordion type="single" collapsible className="space-y-4">
-                {findings.map((finding) => {
+                {displayedFindings.map((finding) => {
                   const theme = getSeverityTheme(finding.severity);
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
 
@@ -397,6 +436,20 @@ export default function FindingsClient({
             </div>
           )}
         </CardContent>
+
+        {cursor && (
+          <div className="flex justify-center p-4 border-t border-foreground/10">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+              aria-label="Load more findings"
+            >
+              {isLoadingMore ? "Loading..." : "Load more findings"}
+            </Button>
+          </div>
+        )}
 
         <FindingsPagination page={page} pageSize={pageSize} total={total} totalPages={totalPages} />
       </Card>

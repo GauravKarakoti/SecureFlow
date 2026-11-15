@@ -17,6 +17,8 @@ import {
 } from "@/lib/findings/query";
 import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 
+import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
+
 /**
  * Server actions for the Security Findings dashboard (#561).
  *
@@ -73,6 +75,7 @@ export interface UserFindingsResult {
   page: number;
   pageSize: number;
   totalPages: number;
+  nextCursor?: string | null;
 }
 
 export interface FindingFilterOptions {
@@ -147,8 +150,28 @@ export async function getUserFindings(
   } as const;
 
   let rows: any[];
+  let nextCursor: string | null = null;
 
-  if (requiresSeverityPlan(normalized.sort)) {
+  if (normalized.cursor) {
+    const decodedCursor = decodeCursor(normalized.cursor);
+    const cursorWhere = buildCursorWhere(decodedCursor, "createdAt");
+    const effectiveWhere = { ...listWhere, ...cursorWhere };
+
+    const rawRows = await prisma.finding.findMany({
+      where: effectiveWhere,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: normalized.pageSize + 1,
+      include,
+    });
+
+    if (rawRows.length > normalized.pageSize) {
+      rows = rawRows.slice(0, normalized.pageSize);
+      nextCursor = encodeCursor(rows[rows.length - 1]);
+    } else {
+      rows = rawRows;
+      nextCursor = null;
+    }
+  } else if (requiresSeverityPlan(normalized.sort)) {
     // `orderBy: { severity: 'asc' }` sorts by the enum's declaration order,
     // which is not the severity order the UI means, and reversing it does not
     // help either. The column has five values, so the page is planned as a
@@ -177,7 +200,7 @@ export async function getUserFindings(
       slices.map((slice) =>
         prisma.finding.findMany({
           where: { ...listWhere, severity: slice.severity },
-          orderBy: [{ createdAt: "desc" }],
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           skip: slice.skip,
           take: slice.take,
           include,
@@ -186,6 +209,9 @@ export async function getUserFindings(
     );
 
     rows = buckets.flat();
+    if (rows.length > 0 && (page - 1) * normalized.pageSize + rows.length < total) {
+      nextCursor = encodeCursor(rows[rows.length - 1]);
+    }
   } else {
     rows = await prisma.finding.findMany({
       where: listWhere,
@@ -194,6 +220,9 @@ export async function getUserFindings(
       take: normalized.pageSize,
       include,
     });
+    if (rows.length > 0 && (page - 1) * normalized.pageSize + rows.length < total) {
+      nextCursor = encodeCursor(rows[rows.length - 1]);
+    }
   }
 
   const findings: FindingRow[] = rows.map((finding: any) => {
@@ -228,6 +257,7 @@ export async function getUserFindings(
     page,
     pageSize: normalized.pageSize,
     totalPages: totalPagesFor(total, normalized.pageSize),
+    nextCursor,
     stats: { criticalSecrets, vulnerabilities, misconfigs, other },
   };
 }

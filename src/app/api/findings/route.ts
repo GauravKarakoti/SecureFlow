@@ -29,6 +29,15 @@ import {
   scanRequestSchema,
 } from "@/lib/findings/scan-authorization";
 
+import {
+  parseLimit,
+  decodeCursor,
+  encodeCursor,
+  buildCursorWhere,
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+} from "@/lib/pagination/cursor";
+
 /** Never cached: a POST result, and a per-user job handle. */
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
@@ -92,6 +101,99 @@ export const POST = withRateLimit(handler, {
   windowSeconds: 60,
   keyPrefix: "findings:create",
   fallbackStrategy: "fail-closed",
+});
+
+const getHandler = withErrorHandler(
+  async function GET(req: NextRequest) {
+    const session = await auth();
+    if (!session?.user?.id) {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = session.user.id;
+
+    const { searchParams } = new URL(req.url);
+    const limit = parseLimit(searchParams.get("limit"), DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+    const cursor = searchParams.get("cursor");
+    const severity = searchParams.get("severity") || undefined;
+    const type = searchParams.get("type") || undefined;
+    const repositoryId = searchParams.get("repositoryId") || undefined;
+
+    const decodedCursor = decodeCursor(cursor);
+
+    const baseWhere: any = {
+      scanResult: {
+        pullRequest: {
+          repository: {
+            userId,
+            ...(repositoryId ? { id: repositoryId } : {}),
+          },
+        },
+      },
+      ...(severity ? { severity } : {}),
+      ...(type ? { type } : {}),
+    };
+
+    const where: any = {
+      ...baseWhere,
+      ...buildCursorWhere(decodedCursor, "createdAt"),
+    };
+
+    const [rawItems, total] = await Promise.all([
+      prisma.finding.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        include: {
+          scanResult: {
+            include: {
+              pullRequest: {
+                include: {
+                  repository: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.finding.count({ where: baseWhere }),
+    ]);
+
+    const hasMore = rawItems.length > limit;
+    const items = hasMore ? rawItems.slice(0, limit) : rawItems;
+    const nextCursor = hasMore && items.length > 0 ? encodeCursor(items[items.length - 1]) : null;
+
+    const findings = items.map((f: any) => ({
+      id: f.id,
+      type: f.type,
+      severity: f.severity,
+      fileLocation: f.fileLocation,
+      lineStart: f.lineStart ?? null,
+      lineEnd: f.lineEnd ?? null,
+      codeSnippet: f.codeSnippet ?? null,
+      explanation: f.explanation ?? null,
+      remediation: f.remediation ?? null,
+      promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+      fingerprint: f.fingerprint,
+      createdAt: f.createdAt,
+      repositoryId: f.scanResult?.pullRequest?.repositoryId,
+      repositoryFullName: f.scanResult?.pullRequest?.repository?.fullName ?? "",
+      pullRequestNumber: f.scanResult?.pullRequest?.prNumber,
+    }));
+
+    return NextResponse.json({
+      findings,
+      total,
+      nextCursor,
+    });
+  },
+  { routeLabel: "GET /api/findings" },
+);
+
+export const GET = withRateLimit(getHandler, {
+  limit: 120,
+  windowSeconds: 60,
+  keyPrefix: "findings:list",
+  fallbackStrategy: "fail-open",
 });
 
 export const dynamic = "force-dynamic";
