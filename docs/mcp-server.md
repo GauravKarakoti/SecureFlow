@@ -58,6 +58,7 @@ heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 #### Path Sandboxing & Git Incremental Scanning (#1752)
 
 When `workspaceRoot` is provided (or defaulting to `process.cwd()`), all analyzed paths are strictly validated through `sandboxWorkspacePath`:
+
 - Canonical paths are resolved through realpath evaluation.
 - Relative traversal patterns (`../`, `..\\`) and symbolic links pointing outside the workspace boundary are rejected with a structured `PATH_TRAVERSAL_FORBIDDEN` error.
 - When `incremental: true` is passed, the tool interacts with `cli/src/git.ts` to inspect staged repository diffs (`getStagedFiles()`, `readStagedContent()`), sandboxing each file reference and reporting violations strictly on modified code hunks.

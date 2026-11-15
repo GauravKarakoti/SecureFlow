@@ -147,9 +147,7 @@ describe("workspace module helpers (#1526)", () => {
       const root = makeTmpDir();
 
       expect(() => sandboxWorkspacePath("../outside.ts", root)).toThrow(PathTraversalError);
-      expect(() => sandboxWorkspacePath("src/../../outside.ts", root)).toThrow(
-        PathTraversalError,
-      );
+      expect(() => sandboxWorkspacePath("src/../../outside.ts", root)).toThrow(PathTraversalError);
     });
 
     it("detects and rejects symlink escapes outside the workspace boundary", () => {
@@ -171,9 +169,9 @@ describe("workspace module helpers (#1526)", () => {
 
     it("rejects non-existent targets with escaping ancestor directories", () => {
       const root = makeTmpDir();
-      expect(() =>
-        sandboxWorkspacePath("nested/../../../../etc/passwd", root),
-      ).toThrow(PathTraversalError);
+      expect(() => sandboxWorkspacePath("nested/../../../../etc/passwd", root)).toThrow(
+        PathTraversalError,
+      );
     });
 
     it("rejects empty or whitespace-only target paths", () => {

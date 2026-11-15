@@ -379,7 +379,9 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
                 res.partialFingerprints as Record<string, unknown>,
               )) {
                 if (typeof fpVal !== "string" || !fpVal.trim()) {
-                  errors.push(`${resPath}.partialFingerprints["${fpKey}"] must be a non-empty string`);
+                  errors.push(
+                    `${resPath}.partialFingerprints["${fpKey}"] must be a non-empty string`,
+                  );
                 }
               }
             }
@@ -407,12 +409,18 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
                 } else {
                   fix.artifactChanges.forEach((changeItem: unknown, changeIdx: number) => {
                     const changePath = `${fixPath}.artifactChanges[${changeIdx}]`;
-                    if (!changeItem || typeof changeItem !== "object" || Array.isArray(changeItem)) {
+                    if (
+                      !changeItem ||
+                      typeof changeItem !== "object" ||
+                      Array.isArray(changeItem)
+                    ) {
                       errors.push(`${changePath} must be an object`);
                       return;
                     }
                     const change = changeItem as Record<string, unknown>;
-                    const changeUri = (change.artifactLocation as Record<string, unknown> | undefined)?.uri;
+                    const changeUri = (
+                      change.artifactLocation as Record<string, unknown> | undefined
+                    )?.uri;
                     if (typeof changeUri !== "string" || !changeUri.trim()) {
                       errors.push(`${changePath}.artifactLocation.uri must be a non-empty string`);
                     }
@@ -436,7 +444,9 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
                             !Number.isInteger(del.startLine) ||
                             del.startLine < 1
                           ) {
-                            errors.push(`${repPath}.deletedRegion.startLine must be an integer >= 1`);
+                            errors.push(
+                              `${repPath}.deletedRegion.startLine must be an integer >= 1`,
+                            );
                           }
                         }
                       });
@@ -623,7 +633,7 @@ export function generateSarifReport(
         ],
         partialFingerprints: {
           "checksum/v1": fingerprint,
-          "primaryLocationLineHash": fingerprint,
+          primaryLocationLineHash: fingerprint,
         },
         ...(fix ? { fixes: [fix] } : {}),
         properties: {
