@@ -111,7 +111,7 @@ describe("web3SecurityExplanation - provider fallback (#1525)", () => {
 
   it("handles CircuitBreakerError by fast-failing with circuit breaker explanation", async () => {
     const { CircuitBreakerError } = await import("@/ai/resilience");
-    mockGenerate.mockRejectedValue(new CircuitBreakerError("test-breaker", 60000));
+    mockGenerate.mockRejectedValue(new CircuitBreakerError("test-breaker"));
 
     const result = await web3SecurityExplanation(input);
 

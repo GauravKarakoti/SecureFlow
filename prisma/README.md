@@ -215,6 +215,11 @@ Opens at `http://localhost:5555`.
 
 If your local database schema gets out of sync or encounters drift:
 
+- **Check for schema vs. migration drift**:
+  ```bash
+  npm run db:check-drift
+  ```
+  _Diffs migrations against `schema.prisma` using `prisma migrate diff --exit-code`. Exits with code 0 when in sync or code 2 when drift is detected. Requires `SHADOW_DATABASE_URL`._
 - **Check migration status**:
   ```bash
   npx prisma migrate status

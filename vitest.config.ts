@@ -19,7 +19,13 @@ export default defineConfig({
       "tests/**/*.test.ts",
       "scripts/**/*.test.ts",
     ],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/*.redteam.test.ts", "**/*.redteam.test.tsx"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      ...(process.env.npm_lifecycle_event === "test:redteam" || process.env.REDTEAM === "true"
+        ? []
+        : ["**/*.redteam.test.ts", "**/*.redteam.test.tsx"]),
+    ],
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 20000,
     coverage: {

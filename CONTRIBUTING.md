@@ -202,7 +202,12 @@ npm run db:migrate
 
 # Seed default data
 npm run db:seed
+
+# Check for schema drift (ensures schema.prisma and migrations are in sync)
+npm run db:check-drift
 ```
+
+> 💡 **Tip**: Running `npm run db:check-drift` locally requires `SHADOW_DATABASE_URL` configured in your environment to diff against a shadow database (e.g. `postgresql://user:password@localhost:5432/secureflow_shadow`). In CI, this is provided automatically.
 
 ### 5. Run Development Server
 
@@ -234,6 +239,7 @@ Open [http://localhost:9002](http://localhost:9002) with your browser to see the
 - [ ] Run `npm run lint` and fix any issues
 - [ ] Run `npm run typecheck` and ensure no TypeScript errors
 - [ ] Run `npm run format:check` to verify code adheres to Prettier formatting
+- [ ] Run `npm run db:check-drift` to verify Prisma schema and migrations are in sync
 - [ ] Run `npm test` and ensure all test suites pass
 - [ ] Run `npm run build` and confirm it builds
 - [ ] Test your changes thoroughly

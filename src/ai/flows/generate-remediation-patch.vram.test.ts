@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModelCircuitBreakers } from "@/ai/resilience";
 
 const mockGenerate = vi.fn();
@@ -33,10 +33,15 @@ const goodOutput = {
 
 describe("generateRemediationPatch - insufficient VRAM (#1525)", () => {
   beforeEach(() => {
+    resetModelCircuitBreakers();
     mockGenerate.mockReset();
     if (typeof resetModelCircuitBreakers === "function") resetModelCircuitBreakers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetModelCircuitBreakers();
   });
 
   it("does not crash when the local model does not fit in memory", async () => {

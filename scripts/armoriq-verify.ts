@@ -270,8 +270,12 @@ export async function runArmorIQCheck(options: CliCheckOptions = {}) {
 const isMain = process.argv[1] && /armoriq-verify(\.ts|\.js)?$/.test(process.argv[1]);
 if (isMain) {
   const options = parseCliArgs(process.argv.slice(2));
-  runArmorIQCheck(options).catch((err) => {
-    console.error("Fatal error during ArmorIQ verification:", err);
-    process.exit(1);
-  });
+  runArmorIQCheck(options)
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("Fatal error during ArmorIQ verification:", err);
+      process.exit(1);
+    });
 }
