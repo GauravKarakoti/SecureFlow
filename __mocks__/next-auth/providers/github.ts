@@ -6,7 +6,7 @@
  */
 import { vi } from "vitest";
 
-export default vi.fn((config = {}) => ({
+export default vi.fn((config: Record<string, any> = {}) => ({
   id: "github",
   type: "oauth",
   name: "GitHub",

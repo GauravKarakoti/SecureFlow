@@ -40,7 +40,7 @@ describe("Policy Export/Import Schema Validation", () => {
 
     const res = validatePolicyImportPayload(payload);
     expect(res.success).toBe(false);
-    expect(res.error).toContain('Invalid literal value, expected "1.0"');
+    expect(res.error).toContain('expected "1.0"');
   });
 
   it("rejects unknown extra fields at the root (strict mode)", () => {
@@ -84,7 +84,7 @@ describe("Policy Export/Import Schema Validation", () => {
 
     const res = validatePolicyImportPayload(payload);
     expect(res.success).toBe(false);
-    expect(res.error).toContain("Invalid enum value");
+    expect(res.error).toContain("expected one of");
   });
 
   it("rejects empty policies array", () => {

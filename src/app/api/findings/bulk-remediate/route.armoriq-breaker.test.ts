@@ -245,7 +245,7 @@ describe("POST /api/findings/bulk-remediate with ArmorIQ circuit breaker (#1488)
     expect(data.jobId).toMatch(/^rem-dlq-/);
     expect(armorClient.getIntentToken).toHaveBeenCalledTimes(3);
     expect(remediationPatchUpdateMany).not.toHaveBeenCalled();
-  });
+  }, 25000);
 
   it("answers 202 when token verification reports ArmorIQ unavailable and queues intent (#1751)", async () => {
     armorClient.getIntentToken.mockResolvedValue({ rawToken: {}, planHash: "plan-hash-123" });

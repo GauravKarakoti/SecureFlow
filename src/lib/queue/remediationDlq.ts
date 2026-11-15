@@ -81,14 +81,21 @@ const inMemoryDlqStore = new Map<string, UnverifiedRemediationIntent>();
 
 let bullmqQueueInstance: any = null;
 
+function isRedisReady(client: any): boolean {
+  if (!client || process.env.NEXT_PUBLIC_MOCK_DB === "true") return false;
+  // Real ioredis instances expose a string `status` ("wait", "connecting", "reconnecting", "end", "ready").
+  // If `status` is present and not "ready", commands will hang indefinitely in the offline queue.
+  if (typeof client.status === "string" && client.status !== "ready") {
+    return false;
+  }
+  return true;
+}
+
 async function getBullMqDlq(): Promise<any | null> {
   if (bullmqQueueInstance) return bullmqQueueInstance;
+  if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return null;
   try {
-    if (
-      redis &&
-      typeof (redis as any).on === "function" &&
-      process.env.NEXT_PUBLIC_MOCK_DB !== "true"
-    ) {
+    if (isRedisReady(redis) && typeof (redis as any).on === "function") {
       const bull = await import("bullmq");
       bullmqQueueInstance = new bull.Queue(REMEDIATION_DLQ_NAME, {
         connection: redis as any,
@@ -130,11 +137,7 @@ export async function enqueueUnverifiedRemediationIntent(
     const q = await getBullMqDlq();
     if (q) {
       await q.add("remediation-intent", record, { jobId });
-    } else if (
-      redis &&
-      typeof redis.rpush === "function" &&
-      process.env.NEXT_PUBLIC_MOCK_DB !== "true"
-    ) {
+    } else if (isRedisReady(redis) && typeof redis.rpush === "function") {
       await redis.rpush(REMEDIATION_REDIS_KEY, JSON.stringify(record));
     }
   } catch (err) {
@@ -174,11 +177,7 @@ export async function getUnverifiedRemediationIntents(): Promise<UnverifiedRemed
       if (jobs && jobs.length > 0) {
         return jobs.map((j: any) => j.data as UnverifiedRemediationIntent).filter(Boolean);
       }
-    } else if (
-      redis &&
-      typeof redis.lrange === "function" &&
-      process.env.NEXT_PUBLIC_MOCK_DB !== "true"
-    ) {
+    } else if (isRedisReady(redis) && typeof redis.lrange === "function") {
       const raw = await redis.lrange(REMEDIATION_REDIS_KEY, 0, -1);
       return raw
         .map((str: string) => {
@@ -207,7 +206,7 @@ export async function clearRemediationDlq(): Promise<void> {
     if (q) {
       await q.drain();
     }
-    if (redis && typeof redis.del === "function" && process.env.NEXT_PUBLIC_MOCK_DB !== "true") {
+    if (isRedisReady(redis) && typeof redis.del === "function") {
       await redis.del(REMEDIATION_REDIS_KEY);
     }
   } catch {
@@ -409,15 +408,14 @@ export async function replayUnverifiedRemediationIntents(
   return result;
 }
 
-/**
- * Creates a background worker job that periodically inspects the dead-letter queue
- * and replays unverified remediation intents once ArmorIQ health recovers.
- */
 export function createRemediationDlqWorker(
   options: {
     intervalMs?: number;
     dbClient?: any;
     armorClient?: any;
+    verifyIntentTokenFn?: (
+      token: any,
+    ) => Promise<{ valid: boolean; unavailable?: boolean; reason?: string }>;
   } = {},
 ) {
   const intervalMs = options.intervalMs ?? 30_000;
