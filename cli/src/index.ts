@@ -442,7 +442,10 @@ async function main(): Promise<number> {
     format === "html" ||
     format === "markdown"
   ) {
-    const outputString = formatScanResults(filteredResults, format);
+    const outputString =
+      format === "sarif"
+        ? formatScanResults(filteredResults, "sarif", { aiFindings: filteredAiFindings })
+        : formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:

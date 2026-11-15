@@ -10,6 +10,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import type { Readable } from "node:stream";
 import type { FileScanResult, Violation } from "./scanner.js";
+import type { AiFinding } from "./lib/api-client.js";
 
 export interface SarifArtifactLocation {
   uri: string;
@@ -561,6 +562,25 @@ export function buildSarifFix(
 }
 
 /**
+ * Converts finding severity into SARIF level ("error" | "warning" | "note") (#1766).
+ */
+export function severityToSarifLevel(
+  severity?: string,
+): "error" | "warning" | "note" {
+  switch (severity?.toUpperCase()) {
+    case "CRITICAL":
+    case "HIGH":
+      return "error";
+    case "MEDIUM":
+      return "warning";
+    case "LOW":
+    case "INFO":
+    default:
+      return "note";
+  }
+}
+
+/**
  * Maps CLI scan results into a valid OASIS SARIF v2.1.0 document object.
  * Validates the schema before returning.
  */
@@ -570,6 +590,7 @@ export function generateSarifReport(
     toolVersion?: string;
     repoUri?: string;
     remediations?: Record<string, string>;
+    aiFindings?: AiFinding[];
   },
 ): SarifDocument {
   const version = options?.toolVersion || "0.1.0";
@@ -595,7 +616,7 @@ export function generateSarifReport(
             text: `Console logging of ${violation.reason}`,
           },
           defaultConfiguration: {
-            level: "error",
+            level: severityToSarifLevel(violation.severity),
           },
           helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
         };
@@ -612,7 +633,7 @@ export function generateSarifReport(
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
-        level: ruleInfo.descriptor.defaultConfiguration?.level || "error",
+        level: violation.severity ? severityToSarifLevel(violation.severity) : (ruleInfo.descriptor.defaultConfiguration?.level || "error"),
         message: {
           text: `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`,
         },
@@ -638,6 +659,74 @@ export function generateSarifReport(
         ...(fix ? { fixes: [fix] } : {}),
         properties: {
           reason: violation.reason,
+          severity: violation.severity || "HIGH",
+        },
+      });
+    }
+  }
+
+  // Include AI-detected findings in the SARIF report (#1766)
+  if (options?.aiFindings && options.aiFindings.length > 0) {
+    for (const aiFinding of options.aiFindings) {
+      const ruleKey = `AI-${aiFinding.type}`;
+      let ruleInfo = rulesMap.get(ruleKey);
+
+      if (!ruleInfo) {
+        const descriptor: SarifReportingDescriptor = {
+          id: `SECUREFLOW-AI-${rulesMap.size + 100}`,
+          name: aiFinding.type.replace(/[^A-Za-z0-9]/g, ""),
+          shortDescription: {
+            text: aiFinding.description,
+          },
+          fullDescription: {
+            text: `AI-detected vulnerability of type ${aiFinding.type}: ${aiFinding.description}`,
+          },
+          defaultConfiguration: {
+            level: severityToSarifLevel(aiFinding.severity),
+          },
+          helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
+        };
+
+        ruleInfo = { descriptor, index: rulesMap.size };
+        rulesMap.set(ruleKey, ruleInfo);
+      }
+
+      const normUri = aiFinding.fileLocation.replace(/\\/g, "/");
+      const line = aiFinding.lineStart && aiFinding.lineStart > 0 ? aiFinding.lineStart : 1;
+      const snippet = aiFinding.codeSnippet || aiFinding.description;
+      const fingerprint = aiFinding.dynamicFingerprint || computeSnippetFingerprint(snippet);
+
+      sarifResults.push({
+        ruleId: ruleInfo.descriptor.id,
+        ruleIndex: ruleInfo.index,
+        level: severityToSarifLevel(aiFinding.severity),
+        message: {
+          text: `[SecureFlow AI] ${aiFinding.description}`,
+        },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: {
+                uri: normUri,
+              },
+              region: {
+                startLine: line,
+                ...(aiFinding.lineEnd && aiFinding.lineEnd >= line ? { endLine: aiFinding.lineEnd } : {}),
+                snippet: {
+                  text: snippet,
+                },
+              },
+            },
+          },
+        ],
+        partialFingerprints: {
+          "checksum/v1": fingerprint,
+          primaryLocationLineHash: fingerprint,
+        },
+        properties: {
+          type: aiFinding.type,
+          severity: aiFinding.severity,
+          isZeroDay: aiFinding.isZeroDay,
         },
       });
     }
@@ -677,7 +766,12 @@ export function generateSarifReport(
  */
 export function formatSarifJson(
   scanResults: FileScanResult[],
-  options?: { toolVersion?: string },
+  options?: {
+    toolVersion?: string;
+    repoUri?: string;
+    remediations?: Record<string, string>;
+    aiFindings?: AiFinding[];
+  },
 ): string {
   const sarifDoc = generateSarifReport(scanResults, options);
   return JSON.stringify(sarifDoc, null, 2);
