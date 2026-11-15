@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { mapFindingToComplianceTags } from "@/lib/compliance/taxonomy";
 import { FINDING_CATEGORY_TITLE, normalizeFindingType } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, type StoredSeverity } from "@/lib/severity";
@@ -9,6 +10,28 @@ import { toStoredSeverity, type StoredSeverity } from "@/lib/severity";
  */
 
 export type SarifLevel = "error" | "warning" | "note";
+
+export interface SarifFixReplacement {
+  deletedRegion: {
+    startLine: number;
+    endLine?: number;
+    startColumn?: number;
+    endColumn?: number;
+  };
+  insertedContent?: {
+    text: string;
+  };
+}
+
+export interface SarifArtifactChange {
+  artifactLocation: { uri: string };
+  replacements: SarifFixReplacement[];
+}
+
+export interface SarifFix {
+  description: { text: string };
+  artifactChanges: SarifArtifactChange[];
+}
 
 export interface ComplianceSarifFinding {
   id?: string;
@@ -71,6 +94,7 @@ export interface ComplianceSarifDocument {
         remediation?: string;
       };
       partialFingerprints?: Record<string, string>;
+      fixes?: SarifFix[];
     }>;
   }>;
 }
@@ -168,6 +192,37 @@ export function buildComplianceSarifDocument(
       finding.explanation?.trim() ||
       `Potential ${category} vulnerability identified at ${uri}:${lineStart}`;
 
+    // Cryptographic fingerprints computation (#1754)
+    const contentToHash = (finding.codeSnippet || finding.explanation || `${category}:${uri}:${lineStart}`).trim();
+    const computedHash = crypto.createHash("sha256").update(contentToHash, "utf8").digest("hex");
+    const primaryFingerprint = finding.fingerprint || computedHash;
+
+    // Remediation fix hunk (#1754)
+    const fixes: SarifFix[] = [];
+    if (finding.remediation && finding.remediation.trim()) {
+      fixes.push({
+        description: {
+          text: `Automated remediation suggestion for ${category} finding`,
+        },
+        artifactChanges: [
+          {
+            artifactLocation: { uri },
+            replacements: [
+              {
+                deletedRegion: {
+                  startLine: lineStart,
+                  ...(lineEnd ? { endLine } : {}),
+                },
+                insertedContent: {
+                  text: finding.remediation.trim(),
+                },
+              },
+            ],
+          },
+        ],
+      });
+    }
+
     results.push({
       ruleId,
       ruleIndex,
@@ -179,7 +234,7 @@ export function buildComplianceSarifDocument(
             artifactLocation: { uri },
             region: {
               startLine: lineStart,
-              ...(lineEnd ? { endLine: lineEnd } : {}),
+              ...(lineEnd ? { endLine } : {}),
             },
           },
         },
@@ -188,9 +243,12 @@ export function buildComplianceSarifDocument(
         complianceTags,
         remediation: finding.remediation || undefined,
       },
-      partialFingerprints: finding.fingerprint
-        ? { "secureflow/finding/v1": finding.fingerprint }
-        : undefined,
+      partialFingerprints: {
+        "secureflow/finding/v1": primaryFingerprint,
+        "checksum/v1": primaryFingerprint,
+        "primaryLocationLineHash": computedHash,
+      },
+      ...(fixes.length > 0 ? { fixes } : {}),
     });
   }
 

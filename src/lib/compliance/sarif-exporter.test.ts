@@ -43,4 +43,33 @@ describe("Compliance-Enhanced SARIF Exporter", () => {
     expect(run.results[0].locations[0].physicalLocation.artifactLocation.uri).toBeDefined();
     expect(run.results[0].properties?.complianceTags).toBeDefined();
   });
+
+  it("includes cryptographic fingerprints and fixes hunks (#1754)", () => {
+    const findings = [
+      {
+        type: "SECRET",
+        severity: "CRITICAL",
+        fileLocation: "src/config/auth.ts",
+        lineStart: 14,
+        explanation: "Exposed JWT secret key",
+        remediation: "process.env.JWT_SECRET",
+        fingerprint: "deterministic-fp-123",
+      },
+    ];
+
+    const sarif = buildComplianceSarifDocument(findings);
+    const result = sarif.runs[0].results[0];
+
+    expect(result.partialFingerprints).toBeDefined();
+    expect(result.partialFingerprints?.["checksum/v1"]).toBe("deterministic-fp-123");
+    expect(result.partialFingerprints?.["primaryLocationLineHash"]).toBeDefined();
+
+    expect(result.fixes).toBeDefined();
+    expect(result.fixes).toHaveLength(1);
+    expect(result.fixes?.[0].artifactChanges[0].artifactLocation.uri).toBe("src/config/auth.ts");
+    expect(result.fixes?.[0].artifactChanges[0].replacements[0].deletedRegion.startLine).toBe(14);
+    expect(result.fixes?.[0].artifactChanges[0].replacements[0].insertedContent?.text).toBe(
+      "process.env.JWT_SECRET",
+    );
+  });
 });
