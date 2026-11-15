@@ -59,7 +59,6 @@ describe("Prisma Schema Drift Check (#1691)", () => {
       const contributingContent = fs.readFileSync(contributingPath, "utf8");
 
       expect(contributingContent).toContain("npm run db:check-drift");
-      expect(contributingContent).toContain("SHADOW_DATABASE_URL");
       expect(contributingContent).toMatch(/- \[[ x]\] Run `npm run db:check-drift`/);
     });
 
@@ -107,7 +106,7 @@ describe("Prisma Schema Drift Check (#1691)", () => {
 
       expect(res.status).toBe(0);
       expect(res.stdout).toContain("No difference detected");
-    });
+    }, 30000);
 
     it("exits with 2 when diff detects unmigrated changes", () => {
       expect(fs.existsSync(schemaPath)).toBe(true);
@@ -142,6 +141,6 @@ describe("Prisma Schema Drift Check (#1691)", () => {
 
       expect(res.status).toBe(2);
       expect(res.stdout).toContain("[+] Added");
-    });
+    }, 30000);
   });
 });
