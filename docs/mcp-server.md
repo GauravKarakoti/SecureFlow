@@ -48,10 +48,21 @@ heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 | ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `content`        | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
 | `path`           | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
+| `workspaceRoot`  | omitted    | Optional string; canonicalized workspace root directory boundary for path sandboxing (#1752)                             |
+| `incremental`    | `false`    | Boolean; when true, scopes scanning strictly to uncommitted/staged Git diff changes via git index (#1752)                |
 | `minEntropy`     | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
 | `minTokenLength` | `16`       | Integer from 8 to 256                                                                                                    |
 | `format`         | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
 | `intentToken`    | omitted    | Optional string; existing intent verification applies                                                                    |
+
+#### Path Sandboxing & Git Incremental Scanning (#1752)
+
+When `workspaceRoot` is provided (or defaulting to `process.cwd()`), all analyzed paths are strictly validated through `sandboxWorkspacePath`:
+- Canonical paths are resolved through realpath evaluation.
+- Relative traversal patterns (`../`, `..\\`) and symbolic links pointing outside the workspace boundary are rejected with a structured `PATH_TRAVERSAL_FORBIDDEN` error.
+- When `incremental: true` is passed, the tool interacts with `cli/src/git.ts` to inspect staged repository diffs (`getStagedFiles()`, `readStagedContent()`), sandboxing each file reference and reporting violations strictly on modified code hunks.
+- Prevents malicious repository payloads from traversing outside the permitted repository directory or reading arbitary files via symlink escapes.
+- Provides native support for pre-commit CI runs and IDE agents reviewing uncommitted changes.
 
 Unknown keys, null values and invalid argument types return a tool error with
 `code: "INVALID_ARGUMENTS"`. The existing ArmorIQ gate runs first and can reject

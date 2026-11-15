@@ -547,13 +547,18 @@ export function createThreatIntelMcpServer(): Server {
           structuredContent: summary,
         };
       } catch (error) {
+        const isPathTraversal =
+          error instanceof Error &&
+          (error.name === "PathTraversalError" ||
+            error.message.toLowerCase().includes("path traversal"));
+
         return {
           isError: true,
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                code: "INVALID_ARGUMENTS",
+                code: isPathTraversal ? "PATH_TRAVERSAL_FORBIDDEN" : "INVALID_ARGUMENTS",
                 error: error instanceof Error ? error.message : "Invalid scan arguments",
               }),
             },
