@@ -7,8 +7,8 @@ export const CISA_KEV_FEED_URL =
   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
 
 export const CISA_KEV_DATA_PATH = path.resolve(
-  process.env.SECUREFLOW_KEV_CACHE_PATH?.trim() ||
-    path.join(homedir(), ".secureflow", "threat-intel", "known_exploited_vulnerabilities.json"),
+  /*turbopackIgnore: true*/
+  path.join(homedir(), ".secureflow", "threat-intel", "known_exploited_vulnerabilities.json"),
 );
 
 const CATALOG_CACHE_KEY = "cisa-kev-catalog";
@@ -108,7 +108,7 @@ export async function loadCisaKevCatalog(
   }
 
   try {
-    const contents = await fs.readFile(CISA_KEV_DATA_PATH, "utf8");
+    const contents = await fs.readFile(/*turbopackIgnore: true*/ CISA_KEV_DATA_PATH, "utf8");
     const parsed: unknown = JSON.parse(contents);
 
     if (!isCisaKevCatalog(parsed)) return null;
