@@ -119,6 +119,40 @@ for setting in 'externalPorts[0]=0' 'externalPorts[0]=65536' 'externalPorts[0]=h
     exit 1
   fi
 done
+
+# Explicitly whitelisted external API endpoints contract (#1767).
+whitelisted="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/networkpolicy.yaml \
+  --set secrets.authSecret=local-test-only --set networkPolicy.enabled=true \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[0].name=llm-providers' \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[0].cidrs[0]=104.18.0.0/20' \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[0].ports[0]=443' \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[1].name=container-registries' \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[1].cidrs[0]=140.82.112.0/20' \
+  --set 'networkPolicy.workerEgress.whitelistedEndpoints[1].ports[0]=8443')"
+grep -Fq 'cidr: "104.18.0.0/20"' <<< "$whitelisted"
+grep -Fq 'cidr: "140.82.112.0/20"' <<< "$whitelisted"
+grep -Fq 'port: 443' <<< "$whitelisted"
+grep -Fq 'port: 8443' <<< "$whitelisted"
+
+for bad_cidr in 169.254.169.254/32 10.0.0.0/8 192.168.1.0/24; do
+  if "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only --set networkPolicy.enabled=true \
+    --set 'networkPolicy.workerEgress.whitelistedEndpoints[0].name=test-provider' \
+    --set "networkPolicy.workerEgress.whitelistedEndpoints[0].cidrs[0]=$bad_cidr" >/dev/null 2>&1; then
+    echo "Accepted unsafe CIDR in worker whitelistedEndpoints: $bad_cidr" >&2
+    exit 1
+  fi
+done
+
+for setting in 'whitelistedEndpoints[0].ports[0]=0' 'whitelistedEndpoints[0].ports[0]=65536' 'whitelistedEndpoints[0].cidrs=null'; do
+  if "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set "networkPolicy.workerEgress.$setting" >/dev/null 2>&1; then
+    echo "Accepted invalid whitelistedEndpoints setting: $setting" >&2
+    exit 1
+  fi
+done
 for release in check alternate; do
   args=(--set secrets.authSecret=local-test-only --set nameOverride=custom-name --set worker.podDisruptionBudget.enabled=true)
   worker="$("$helm_bin" template "$release" "$chart_dir" "${args[@]}" --show-only templates/worker-deployment.yaml)"

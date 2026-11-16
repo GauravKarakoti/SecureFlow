@@ -114,6 +114,19 @@ spec:
           port: {{ if eq $component "postgresql" }}5432{{ else }}6379{{ end }}
     {{- end }}
     {{- end }}
+    {{- range .Values.networkPolicy.workerEgress.whitelistedEndpoints }}
+    {{- $ports := .ports | default (list 443) }}
+    {{- range .cidrs }}
+    - to:
+        - ipBlock:
+            {{- include "secureflow.publicEgressBlock" . | nindent 12 }}
+      ports:
+        {{- range $ports }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+    {{- end }}
     {{- range .Values.networkPolicy.workerEgress.externalCIDRs }}
     - to:
         - ipBlock:
@@ -123,5 +136,8 @@ spec:
         - protocol: TCP
           port: {{ . }}
         {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.workerEgress.extraEgressRules }}
+    {{- toYaml . | nindent 4 }}
     {{- end }}
 {{- end }}
