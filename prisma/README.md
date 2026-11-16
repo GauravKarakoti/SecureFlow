@@ -216,10 +216,15 @@ Opens at `http://localhost:5555`.
 If your local database schema gets out of sync or encounters drift:
 
 - **Check for schema vs. migration drift**:
+
   ```bash
   npm run db:check-drift
   ```
-  _Diffs migrations against `schema.prisma` using `prisma migrate diff --exit-code`. Exits with code 0 when in sync or code 2 when drift is detected.
+
+  _Diffs migrations against `schema.prisma` using `prisma migrate diff --exit-code`. The runner stops the process after 60 seconds and reports connection or shadow-database failures. It exits with code 0 when in sync, 2 for schema drift, or 124 on timeout._
+
+  `--from-migrations` needs a temporary shadow database. Prisma creates and deletes one automatically when the database role has permission, including on Neon setups that support this, so a separate Neon shadow URL is not normally required. CI's local PostgreSQL job creates a dedicated shadow database. Never configure the application database itself as the shadow database. If the check times out or exits with another error, verify database connectivity and permissions before treating it as schema drift.
+
 - **Check migration status**:
   ```bash
   npx prisma migrate status

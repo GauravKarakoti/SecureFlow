@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import {
+  DRIFT_ARGS,
+  describePrismaDiffResult,
+  runPrismaDiff,
+} from "../scripts/check-prisma-drift.mjs";
 
 describe("Prisma Schema Drift Check (#1691)", () => {
   const rootDir = process.cwd();
@@ -18,10 +22,16 @@ describe("Prisma Schema Drift Check (#1691)", () => {
 
       expect(pkg.scripts).toHaveProperty("db:check-drift");
       const script = pkg.scripts["db:check-drift"];
-      expect(script).toContain("prisma migrate diff");
-      expect(script).toContain("--from-migrations prisma/migrations");
-      expect(script).toContain("--to-schema prisma/schema.prisma");
-      expect(script).toContain("--exit-code");
+      expect(script).toBe("node scripts/check-prisma-drift.mjs");
+      expect(DRIFT_ARGS).toEqual([
+        "migrate",
+        "diff",
+        "--from-migrations",
+        "prisma/migrations",
+        "--to-schema",
+        "prisma/schema.prisma",
+        "--exit-code",
+      ]);
     });
   });
 
@@ -73,74 +83,65 @@ describe("Prisma Schema Drift Check (#1691)", () => {
   describe("Prisma migrate diff exit code contract", () => {
     it("exits with 0 when comparing schema to itself (no drift)", () => {
       expect(fs.existsSync(schemaPath)).toBe(true);
-      const isWindows = process.platform === "win32";
-      const cmd = isWindows ? "cmd.exe" : "npx";
-      const args = isWindows
-        ? [
-            "/c",
-            "npx",
-            "prisma",
-            "migrate",
-            "diff",
-            "--from-schema",
-            "prisma/schema.prisma",
-            "--to-schema",
-            "prisma/schema.prisma",
-            "--exit-code",
-          ]
-        : [
-            "prisma",
-            "migrate",
-            "diff",
-            "--from-schema",
-            "prisma/schema.prisma",
-            "--to-schema",
-            "prisma/schema.prisma",
-            "--exit-code",
-          ];
+      const res = runPrismaDiff(
+        [
+          "migrate",
+          "diff",
+          "--from-schema",
+          "prisma/schema.prisma",
+          "--to-schema",
+          "prisma/schema.prisma",
+          "--exit-code",
+        ],
+        { timeoutMs: 20_000 },
+      );
 
-      const res = spawnSync(cmd, args, {
-        cwd: rootDir,
-        encoding: "utf8",
-      });
-
-      expect(res.status).toBe(0);
+      expect(res.status, describePrismaDiffResult(res, 20_000).message).toBe(0);
       expect(res.stdout).toContain("No difference detected");
     }, 30000);
 
     it("exits with 2 when diff detects unmigrated changes", () => {
       expect(fs.existsSync(schemaPath)).toBe(true);
-      const isWindows = process.platform === "win32";
-      const cmd = isWindows ? "cmd.exe" : "npx";
-      const args = isWindows
-        ? [
-            "/c",
-            "npx",
-            "prisma",
-            "migrate",
-            "diff",
-            "--from-empty",
-            "--to-schema",
-            "prisma/schema.prisma",
-            "--exit-code",
-          ]
-        : [
-            "prisma",
-            "migrate",
-            "diff",
-            "--from-empty",
-            "--to-schema",
-            "prisma/schema.prisma",
-            "--exit-code",
-          ];
+      const res = runPrismaDiff(
+        ["migrate", "diff", "--from-empty", "--to-schema", "prisma/schema.prisma", "--exit-code"],
+        { timeoutMs: 20_000 },
+      );
 
-      const res = spawnSync(cmd, args, {
-        cwd: rootDir,
-        encoding: "utf8",
-      });
-
-      expect(res.status).toBe(2);
+      expect(res.status, describePrismaDiffResult(res, 20_000).message).toBe(2);
       expect(res.stdout).toContain("[+] Added");
     }, 30000);
+
+    it("passes a process timeout and reports timeouts separately from schema drift", () => {
+      const timedOut = Object.assign(new Error("process timed out"), { code: "ETIMEDOUT" });
+      const spawn = vi.fn((command: string, args: string[], options: { timeout: number }) => {
+        expect(command).toBe(process.execPath);
+        expect(args).toHaveLength(1);
+        expect(options.timeout).toBe(1234);
+        return { status: null, error: timedOut, stdout: "", stderr: "" };
+      });
+      const result = runPrismaDiff([], { timeoutMs: 1234, spawn });
+
+      expect(spawn.mock.calls[0][2]).toMatchObject({ timeout: 1234, encoding: "utf8" });
+      expect(describePrismaDiffResult(result, 1234)).toMatchObject({
+        exitCode: 124,
+        message: expect.stringContaining("timed out"),
+      });
+    });
+
+    it("reports non-drift Prisma failures with their cause", () => {
+      const result = describePrismaDiffResult({ status: 1, stderr: "connection refused" });
+      expect(result.exitCode).toBe(1);
+      expect(result.message).toContain("connection refused");
+      expect(result.message).toContain("shadow database permissions");
+    });
+
+    it("redacts database credentials from Prisma diagnostics", () => {
+      const result = describePrismaDiffResult({
+        status: 1,
+        stderr: "connection failed: postgresql://alice:secret@localhost:5432/secureflow",
+      });
+      expect(result.message).toContain("postgresql://[redacted]@localhost");
+      expect(result.message).not.toContain("secret");
+    });
   });
 });
