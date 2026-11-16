@@ -458,7 +458,7 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
         expect(data[0].id).toBe("CVE-2023-3409");
       });
 
-      it("returns fallback entries when no query matches are found", async () => {
+      it("returns an empty result when no advisory matches are found", async () => {
         const response = await client.callTool({
           name: "query_threat_intelligence",
           arguments: { query: "nonexistent-vulnerability-xyz" },
@@ -467,8 +467,7 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
         expect(response.isError).toBeFalsy();
         const content = getTextContent(response);
         const data = JSON.parse(content[0].text);
-        expect(Array.isArray(data)).toBe(true);
-        expect(data.length).toBe(2); // KNOWLEDGE_BASE.slice(0, 2)
+        expect(data).toEqual([]);
       });
 
       it("fails closed with ARMORIQ_INTENT_VERIFICATION_FAILED when prompt injection is detected", async () => {

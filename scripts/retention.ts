@@ -17,6 +17,8 @@ import { runRetention, formatReport, type PurgeOptions } from "../src/lib/retent
 import {
   RETENTION_RULES,
   RetentionConfigError,
+  MIN_RETENTION_DAYS,
+  MAX_RETENTION_DAYS,
   type PurgeTarget,
 } from "../src/lib/retention/policy";
 
@@ -30,11 +32,12 @@ function usage(): string {
     "Options:",
     "  --apply                Perform the purge. Without this, runs as a dry run.",
     "  --dry-run              Explicitly request a dry run (the default).",
+    "  --days=<n>             Retention period in days (overrides default/env windows).",
     `  --only=<target>        Restrict to one target. Repeatable. One of: ${targets}`,
     "  --batch-size=<n>       Rows per statement (default 500).",
-    "  --help                 Show this message.",
+    "  --help, -h             Show this message.",
     "",
-    "Retention windows are read from the environment:",
+    "Retention windows are read from the environment (or DATA_RETENTION_DAYS):",
     ...RETENTION_RULES.map((rule) => `  ${rule.envVar.padEnd(30)} default ${rule.defaultDays}d`),
   ].join("\n");
 }
@@ -67,6 +70,17 @@ export function parseArgs(argv: string[]): PurgeOptions & { help: boolean } {
         );
       }
       only.push(value as PurgeTarget);
+      continue;
+    }
+
+    if (arg.startsWith("--days=")) {
+      const value = Number(arg.slice("--days=".length).trim());
+      if (!Number.isInteger(value) || value < MIN_RETENTION_DAYS || value > MAX_RETENTION_DAYS) {
+        throw new Error(
+          `--days must be a whole number between ${MIN_RETENTION_DAYS} and ${MAX_RETENTION_DAYS}, got "${arg}".`,
+        );
+      }
+      options.days = value;
       continue;
     }
 

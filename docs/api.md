@@ -20,6 +20,8 @@ This document is a deep dive on selected HTTP routes under `src/app/api/`, inclu
    - [SBOM Scan Status — `GET /api/sbom/scan/status/[jobId]`](#7-sbom-scan-status--apisbomscanstatusjobid)
    - [Real-Time Voice Alerts Stream — `GET /api/voice-alerts/stream`](#8-real-time-voice-alerts-stream--apivoice-alertsstream)
    - [System Health Check — `GET /api/health`](#9-system-health-check--apihealth)
+   - [Paginated Findings List — `GET /api/findings`](#10-paginated-findings-list--apifindings)
+   - [Paginated Audit Log — `GET /api/audit`](#11-paginated-audit-log--apiaudit)
 6. [Type Reference](#type-reference)
 
 ---
@@ -1053,6 +1055,106 @@ Returned when any required dependency (such as PostgreSQL) is unreachable or dow
 ```
 
 > 🛡️ **Security Safeguard**: Internal driver error messages and connection strings are stripped from anonymous health responses to prevent information leakage to unauthenticated probes.
+
+---
+
+### 10. Paginated Findings List — `/api/findings`
+
+**File**: `src/app/api/findings/route.ts`
+
+Returns a paginated list of security findings for repositories owned by the session user.
+Supports cursor-based keyset pagination with stable ordering `(createdAt desc, id desc)` to ensure no duplicate or skipped items when new findings arrive concurrently.
+
+#### Request
+
+```http
+GET /api/findings?limit=20&cursor=<opaque_cursor>&severity=CRITICAL&type=SECRET&repositoryId=<repo_id>
+Cookie: next-auth.session-token=<jwt>
+```
+
+- **Auth**: Requires an authenticated session.
+- **Query parameters**:
+  - `limit` (optional integer): Number of findings per page. Defaults to `20`. Clamped between `1` and `100`.
+  - `cursor` (optional string): Opaque base64 cursor from the previous page's `nextCursor`.
+  - `severity` (optional string): Filter findings by severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`).
+  - `type` (optional string): Filter findings by type (`SECRET`, `VULNERABILITY`, `MISCONFIG`).
+  - `repositoryId` (optional string): Filter by repository ID.
+
+#### Response: `200 OK`
+
+```json
+{
+  "findings": [
+    {
+      "id": "cld1...",
+      "type": "SECRET",
+      "severity": "CRITICAL",
+      "fileLocation": "src/config.ts",
+      "lineStart": 14,
+      "lineEnd": 14,
+      "codeSnippet": "const API_KEY = '...';",
+      "explanation": "Hardcoded secret detected",
+      "remediation": "Move secret to environment variables",
+      "promptInjectionSuspected": false,
+      "fingerprint": "abc123hash",
+      "createdAt": "2026-11-15T12:00:00.000Z",
+      "repositoryId": "repo_123",
+      "repositoryFullName": "owner/repo",
+      "pullRequestNumber": 42
+    }
+  ],
+  "total": 150,
+  "nextCursor": "ZXlKamJHbGpkR0Z0Y0NJNkluTnlZeTAw..."
+}
+```
+
+When there are no further records, `nextCursor` is `null`.
+
+---
+
+### 11. Paginated Audit Log — `/api/audit`
+
+**File**: `src/app/api/audit/route.ts`
+
+Returns a paginated list of audit log entries for the session user.
+Supports cursor-based keyset pagination with stable ordering `(timestamp desc, id desc)`.
+
+#### Request
+
+```http
+GET /api/audit?limit=20&cursor=<opaque_cursor>&action=POLICY_EVALUATION&decision=BLOCKED&search=auth
+Cookie: next-auth.session-token=<jwt>
+```
+
+- **Auth**: Requires an authenticated session.
+- **Query parameters**:
+  - `limit` (optional integer): Number of logs per page. Defaults to `20`. Clamped between `1` and `100`.
+  - `cursor` (optional string): Opaque base64 cursor from previous page's `nextCursor`.
+  - `action` (optional string): Filter by audit action.
+  - `decision` (optional string): Filter by decision (`ALLOWED`, `BLOCKED`, etc.).
+  - `search` (optional string): Case-insensitive search on action, resource, or decision.
+
+#### Response: `200 OK`
+
+```json
+{
+  "logs": [
+    {
+      "id": "audit_123",
+      "userId": "usr_456",
+      "action": "POLICY_EVALUATION",
+      "resource": "owner/repo#42",
+      "decision": "BLOCKED",
+      "metadata": { "findingsCount": 2 },
+      "timestamp": "2026-11-15T12:00:00.000Z"
+    }
+  ],
+  "total": 42,
+  "nextCursor": "eyJ0aW1lc3RhbXAiOiIyMDI2LTExLTE1VDEyOjAwOjAw..."
+}
+```
+
+When there are no further records, `nextCursor` is `null`.
 
 ---
 

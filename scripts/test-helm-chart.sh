@@ -72,6 +72,71 @@ grep -Fq -- '- worker' <<< "$network_policies"
 grep -Fq -- '- migration' <<< "$network_policies"
 grep -Fq -- '- retention' <<< "$network_policies"
 
+# Worker egress and disruption-budget selector contracts (#1755).
+grep -Fq 'name: check-secureflow-worker-egress' <<< "$network_policies"
+grep -Fq -- '- Egress' <<< "$network_policies"
+grep -Fq 'k8s-app: kube-dns' <<< "$network_policies"
+grep -Fq 'port: 53' <<< "$network_policies"
+if grep -Fq 'ipBlock:' <<< "$network_policies"; then
+  echo 'Default worker egress must not allow external IP blocks' >&2
+  exit 1
+fi
+external="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/networkpolicy.yaml \
+  --set secrets.authSecret=local-test-only --set networkPolicy.enabled=true \
+  --set 'networkPolicy.workerEgress.externalCIDRs[0]=0.0.0.0/0' \
+  --set 'networkPolicy.workerEgress.externalPorts[0]=8443' \
+  --set 'networkPolicy.workerEgress.dns.ports[0]=5353')"
+for denied in 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 168.63.129.16/32 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
+  grep -Fq -- "- $denied" <<< "$external"
+done
+grep -Fq 'port: 8443' <<< "$external"
+grep -Fq 'port: 5353' <<< "$external"
+for cidr in 8.8.8.0/24 1.1.1.1/32; do
+  narrow="$("$helm_bin" template check "$chart_dir" \
+    --show-only templates/networkpolicy.yaml \
+    --set secrets.authSecret=local-test-only --set networkPolicy.enabled=true \
+    --set "networkPolicy.workerEgress.externalCIDRs[0]=$cidr")"
+  grep -Fq "cidr: \"$cidr\"" <<< "$narrow"
+  if grep -Fq 'except:' <<< "$narrow"; then
+    echo 'Narrow public CIDRs must not contain out-of-range exceptions' >&2
+    exit 1
+  fi
+done
+for cidr in 169.254.169.254/32 168.63.129.16/32 10.0.0.0/8 100.100.100.200/32 172.16.0.0/12 192.168.1.0/24 8.8.8.1/24 999.1.1.1/32 8.8.8.0/33; do
+  if "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only --set networkPolicy.enabled=true \
+    --set "networkPolicy.workerEgress.externalCIDRs[0]=$cidr" >/dev/null 2>&1; then
+    echo "Accepted unsafe or invalid worker external CIDR: $cidr" >&2
+    exit 1
+  fi
+done
+for setting in 'externalPorts[0]=0' 'externalPorts[0]=65536' 'externalPorts[0]=https' 'dns.ports[0]=-1' 'dns.podLabels=null'; do
+  if "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set "networkPolicy.workerEgress.$setting" >/dev/null 2>&1; then
+    echo "Accepted invalid worker egress setting: $setting" >&2
+    exit 1
+  fi
+done
+for release in check alternate; do
+  args=(--set secrets.authSecret=local-test-only --set nameOverride=custom-name --set worker.podDisruptionBudget.enabled=true)
+  worker="$("$helm_bin" template "$release" "$chart_dir" "${args[@]}" --show-only templates/worker-deployment.yaml)"
+  pdb="$("$helm_bin" template "$release" "$chart_dir" "${args[@]}" --show-only templates/worker-pdb.yaml)"
+  pod_labels="$(awk '/^  template:/ {t=1} t && /^      labels:/ {l=1; next} l && /^    spec:/ {exit} l {sub(/^ +/, ""); print}' <<< "$worker" | sort)"
+  pdb_selector="$(awk '/^    matchLabels:/ {s=1; next} s {sub(/^ +/, ""); print}' <<< "$pdb" | sort)"
+  if [ -z "$pod_labels" ] || [ "$pod_labels" != "$pdb_selector" ]; then
+    echo 'Worker PDB selector must match worker pod labels for release/name overrides' >&2
+    exit 1
+  fi
+done
+disabled="$("$helm_bin" template check "$chart_dir" --set secrets.authSecret=local-test-only \
+  --set networkPolicy.enabled=true --set worker.enabled=false --set worker.podDisruptionBudget.enabled=true)"
+if grep -Eq 'name: check-secureflow-worker(-egress)?$' <<< "$disabled"; then
+  echo 'Disabled workers must not render a worker PDB or egress policy' >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Resource requests/limits (#1186)
 #

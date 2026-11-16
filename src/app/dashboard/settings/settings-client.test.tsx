@@ -3,7 +3,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import React from "react";
 import SettingsClient from "./settings-client";
 
 const {
@@ -13,6 +12,7 @@ const {
   updateTeamsWebhookMock,
   testSlackWebhookMock,
   testTeamsWebhookMock,
+  updateRepositoryPublicBadgeMock,
 } = vi.hoisted(() => ({
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
@@ -20,6 +20,7 @@ const {
   updateTeamsWebhookMock: vi.fn(),
   testSlackWebhookMock: vi.fn(),
   testTeamsWebhookMock: vi.fn(),
+  updateRepositoryPublicBadgeMock: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -35,11 +36,16 @@ vi.mock("@/lib/actions/settings", () => ({
   testSlackWebhook: testSlackWebhookMock,
   testTeamsWebhook: testTeamsWebhookMock,
   updateVoiceAlerts: vi.fn(),
+  updateRepositoryPublicBadge: updateRepositoryPublicBadgeMock,
 }));
 
 describe("SettingsClient component (#1333)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { origin: "" },
+    });
   });
 
   it("renders with initial webhook URL", () => {
@@ -174,5 +180,82 @@ describe("SettingsClient component (#1333)", () => {
       expect(testSlackWebhookMock).toHaveBeenCalledWith("https://hooks.slack.com/services/test");
       expect(toastSuccessMock).toHaveBeenCalledWith("Slack test notification sent successfully!");
     });
+  });
+
+  it("renders repository status badges section with empty message when no repos", () => {
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialRepositories={[]}
+      />,
+    );
+
+    expect(screen.getByText("Repository Status Badges")).toBeDefined();
+    expect(
+      screen.getByText(/No repositories connected yet. Sync your repositories/i),
+    ).toBeDefined();
+  });
+
+  it("renders repositories and allows toggling public badge", async () => {
+    updateRepositoryPublicBadgeMock.mockResolvedValueOnce({ success: true });
+
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialRepositories={[
+          {
+            id: "repo-1",
+            fullName: "acme/repo-one",
+            owner: "acme",
+            publicBadgeEnabled: false,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("acme/repo-one")).toBeDefined();
+    expect(screen.getByText("Public badge disabled — returns neutral unknown badge")).toBeDefined();
+
+    const switchToggle = screen.getByLabelText("Toggle public badge for acme/repo-one");
+    fireEvent.click(switchToggle);
+
+    await waitFor(() => {
+      expect(updateRepositoryPublicBadgeMock).toHaveBeenCalledWith("repo-1", true);
+      expect(toastSuccessMock).toHaveBeenCalledWith("Public status badge enabled.");
+    });
+  });
+
+  it("renders badge preview and markdown copy button when badge is enabled", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: { writeText: writeTextMock },
+    });
+
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialRepositories={[
+          {
+            id: "repo-2",
+            fullName: "acme/repo-two",
+            owner: "acme",
+            publicBadgeEnabled: true,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Public badge enabled — shows latest scan status")).toBeDefined();
+
+    const copyBtn = screen.getByRole("button", { name: /Copy Markdown/i });
+    fireEvent.click(copyBtn);
+
+    expect(writeTextMock).toHaveBeenCalledWith(
+      "[![SecureFlow Status](/api/badge/acme/repo-two)](/)",
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith("Badge Markdown copied to clipboard!");
   });
 });

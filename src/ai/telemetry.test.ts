@@ -142,4 +142,49 @@ describe("AI Telemetry & Health Monitoring Engine", () => {
       }
     });
   });
+  describe("Failover Reason Codes (#1753)", () => {
+    it("records explicit reasonCode in failover event", async () => {
+      await recordFailoverEvent({
+        fromModel: "openai/llama3",
+        toModel: "groq/openai/gpt-oss-20b",
+        error: new Error("Local model VRAM concurrency threshold exceeded"),
+        attempt: 1,
+        reasonCode: "vram_concurrency_exceeded",
+      });
+
+      const report = await getAiHealthReport();
+      const event = report.recentFailovers[0];
+      expect(event).toBeDefined();
+      expect(event.reasonCode).toBe("vram_concurrency_exceeded");
+      expect(event.fromModel).toBe("openai/llama3");
+      expect(event.toModel).toBe("groq/openai/gpt-oss-20b");
+    });
+
+    it("auto-detects vram_concurrency_exceeded from error message when reasonCode omitted", async () => {
+      await recordFailoverEvent({
+        fromModel: "openai/llama3",
+        toModel: "groq/openai/gpt-oss-20b",
+        error: new Error("VRAM concurrency semaphore capacity reached"),
+        attempt: 1,
+      });
+
+      const report = await getAiHealthReport();
+      const event = report.recentFailovers[0];
+      expect(event).toBeDefined();
+      expect(event.reasonCode).toBe("vram_concurrency_exceeded");
+    });
+
+    it("auto-detects rate_limit and timeout reason codes", async () => {
+      await recordFailoverEvent({
+        fromModel: "groq/primary",
+        toModel: "groq/fallback",
+        error: new Error("Rate limit exceeded 429"),
+        attempt: 1,
+      });
+
+      const report = await getAiHealthReport();
+      const event = report.recentFailovers[0];
+      expect(event.reasonCode).toBe("rate_limit");
+    });
+  });
 });

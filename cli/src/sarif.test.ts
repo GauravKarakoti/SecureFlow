@@ -11,6 +11,7 @@ import {
   parseSarifFileStream,
   validateSarifDocument,
   assertValidSarifDocument,
+  severityToSarifLevel,
   SarifValidationError,
   type SarifDocument,
   type SarifResult,
@@ -530,6 +531,273 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       expect(parsedCount).toBe(totalItems);
       // Verify acceptance criteria: memory consumption stays well under 150MB
       expect(maxHeapMb).toBeLessThan(150);
+    });
+  });
+
+  describe("Cryptographic Fingerprints and Remediation Patch Hunks (#1754)", () => {
+    it("generates deterministic partialFingerprints for identical code snippets across lines", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/auth/token.ts",
+          violations: [
+            {
+              line: 12,
+              text: "console.log(jwtSecret);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+        {
+          path: "src/auth/token_shifted.ts",
+          violations: [
+            {
+              line: 99,
+              text: "console.log(jwtSecret);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results);
+      const resA = doc.runs[0].results[0];
+      const resB = doc.runs[0].results[1];
+
+      expect(resA.partialFingerprints).toBeDefined();
+      expect(resB.partialFingerprints).toBeDefined();
+      expect(resA.partialFingerprints?.["checksum/v1"]).toBe(
+        resB.partialFingerprints?.["checksum/v1"],
+      );
+      expect(resA.partialFingerprints?.["checksum/v1"]).toHaveLength(64);
+    });
+
+    it("attaches remediation fixes with deletedRegion and insertedContent when remediation is provided", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/service.ts",
+          violations: [
+            {
+              line: 25,
+              text: "console.log(apiKey);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results, {
+        remediations: {
+          "src/service.ts:25": "logger.info('apiKey redacted');",
+        },
+      });
+
+      const res = doc.runs[0].results[0];
+      expect(res.fixes).toBeDefined();
+      expect(res.fixes).toHaveLength(1);
+      expect(res.fixes?.[0].description.text).toContain("Automated remediation patch");
+      expect(res.fixes?.[0].artifactChanges[0].artifactLocation.uri).toBe("src/service.ts");
+      expect(res.fixes?.[0].artifactChanges[0].replacements[0].deletedRegion.startLine).toBe(25);
+      expect(res.fixes?.[0].artifactChanges[0].replacements[0].insertedContent?.text).toBe(
+        "logger.info('apiKey redacted');",
+      );
+    });
+
+    it("validates SARIF documents with fixes and partialFingerprints against OASIS schema validator", () => {
+      const results: FileScanResult[] = [
+        {
+          path: "src/db.ts",
+          violations: [
+            {
+              line: 10,
+              text: "console.warn(dbPassword);",
+              reason: "secret-named identifier",
+            },
+          ],
+        },
+      ];
+
+      const doc = generateSarifReport(results, {
+        remediations: {
+          "src/db.ts:10": "/* sanitized */",
+        },
+      });
+
+      const validation = validateSarifDocument(doc);
+      expect(validation.valid).toBe(true);
+      expect(validation.errors).toHaveLength(0);
+    });
+
+    it("maps finding severities to standard SARIF levels for GHAS upload (#1766)", () => {
+      expect(severityToSarifLevel("CRITICAL")).toBe("error");
+      expect(severityToSarifLevel("HIGH")).toBe("error");
+      expect(severityToSarifLevel("MEDIUM")).toBe("warning");
+      expect(severityToSarifLevel("LOW")).toBe("note");
+      expect(severityToSarifLevel("INFO")).toBe("note");
+      expect(severityToSarifLevel(undefined)).toBe("note");
+    });
+
+    it("integrates AI findings into native SARIF export (#1766)", () => {
+      const scanResults: FileScanResult[] = [
+        {
+          path: "src/api/auth.ts",
+          violations: [
+            {
+              line: 14,
+              text: "console.log(secretKey);",
+              reason: "secret-named identifier",
+              severity: "HIGH",
+            },
+          ],
+        },
+      ];
+
+      const aiFindings = [
+        {
+          type: "SQL_INJECTION",
+          severity: "CRITICAL" as const,
+          description: "Unsanitized input passed into dynamic SQL query",
+          fileLocation: "src/db/query.ts",
+          codeSnippet: "db.query(`SELECT * FROM users WHERE id = ${req.body.id}`)",
+          lineStart: 28,
+          lineEnd: 30,
+        },
+        {
+          type: "INSECURE_CONFIGURATION",
+          severity: "MEDIUM" as const,
+          description: "Insecure cookie flags (missing Secure and HttpOnly)",
+          fileLocation: "src/server.ts",
+          codeSnippet: "res.cookie('token', val)",
+          lineStart: 50,
+        },
+      ];
+
+      const sarifDoc = generateSarifReport(scanResults, {
+        aiFindings,
+      });
+
+      expect(sarifDoc.version).toBe("2.1.0");
+      expect(sarifDoc.runs[0].results).toHaveLength(3);
+
+      const secretRes = sarifDoc.runs[0].results.find((r) =>
+        r.locations[0].physicalLocation.artifactLocation.uri.includes("auth.ts"),
+      );
+      expect(secretRes).toBeDefined();
+      expect(secretRes?.level).toBe("error");
+
+      const sqlRes = sarifDoc.runs[0].results.find((r) =>
+        r.locations[0].physicalLocation.artifactLocation.uri.includes("query.ts"),
+      );
+      expect(sqlRes).toBeDefined();
+      expect(sqlRes?.level).toBe("error");
+      expect(sqlRes?.locations[0].physicalLocation.region.startLine).toBe(28);
+      expect(sqlRes?.locations[0].physicalLocation.region.endLine).toBe(30);
+
+      const cookieRes = sarifDoc.runs[0].results.find((r) =>
+        r.locations[0].physicalLocation.artifactLocation.uri.includes("server.ts"),
+      );
+      expect(cookieRes).toBeDefined();
+      expect(cookieRes?.level).toBe("warning");
+      expect(cookieRes?.locations[0].physicalLocation.region.startLine).toBe(50);
+
+      const validation = validateSarifDocument(sarifDoc);
+      expect(validation.valid).toBe(true);
+      expect(validation.errors).toHaveLength(0);
+    });
+
+    it("formats SARIF JSON including AI findings via formatScanResults (#1766)", () => {
+      const scanResults: FileScanResult[] = [
+        {
+          path: "src/index.ts",
+          violations: [],
+        },
+      ];
+
+      const aiFindings = [
+        {
+          type: "COMMAND_INJECTION",
+          severity: "HIGH" as const,
+          description: "Execution of unsanitized child process",
+          fileLocation: "src/exec.ts",
+          codeSnippet: "child_process.exec(userInput)",
+          lineStart: 12,
+        },
+      ];
+
+      const formatted = formatScanResults(scanResults, "sarif", { aiFindings });
+      const parsed = JSON.parse(formatted);
+      expect(parsed.version).toBe("2.1.0");
+      expect(parsed.runs[0].results).toHaveLength(1);
+      expect(parsed.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+        "src/exec.ts",
+      );
+    });
+
+    it("handles multiple AI findings and preserves rule descriptors (#1766)", () => {
+      const scanResults: FileScanResult[] = [];
+      const aiFindings = [
+        {
+          type: "SSRF",
+          severity: "HIGH" as const,
+          description: "Server-side request forgery in webhook client",
+          fileLocation: "src/webhook.ts",
+          codeSnippet: "fetch(url)",
+          lineStart: 18,
+          lineEnd: 20,
+        },
+        {
+          type: "PATH_TRAVERSAL",
+          severity: "CRITICAL" as const,
+          description: "Unsanitized path joins allowing file traversal",
+          fileLocation: "src/files.ts",
+          codeSnippet: "path.join(base, userPath)",
+          lineStart: 45,
+        },
+      ];
+
+      const doc = generateSarifReport(scanResults, { aiFindings });
+      expect(doc.runs[0].results).toHaveLength(2);
+      expect(doc.runs[0].tool.driver.rules.length).toBeGreaterThanOrEqual(2);
+
+      const ssrfRes = doc.runs[0].results.find((r) => r.properties?.type === "SSRF");
+      expect(ssrfRes).toBeDefined();
+      expect(ssrfRes?.level).toBe("error");
+      expect(ssrfRes?.locations[0].physicalLocation.region.startLine).toBe(18);
+      expect(ssrfRes?.locations[0].physicalLocation.region.endLine).toBe(20);
+
+      const pathRes = doc.runs[0].results.find((r) => r.properties?.type === "PATH_TRAVERSAL");
+      expect(pathRes).toBeDefined();
+      expect(pathRes?.level).toBe("error");
+      expect(pathRes?.locations[0].physicalLocation.region.startLine).toBe(45);
+    });
+
+    it("rejects malformed fixes or partialFingerprints during schema validation", () => {
+      const invalidDoc: any = {
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        version: "2.1.0",
+        runs: [
+          {
+            tool: { driver: { name: "TestTool", rules: [] } },
+            results: [
+              {
+                ruleId: "SEC-1",
+                message: { text: "Violation" },
+                partialFingerprints: { "checksum/v1": "" },
+                fixes: [
+                  {
+                    description: { text: "" },
+                    artifactChanges: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const validation = validateSarifDocument(invalidDoc);
+      expect(validation.valid).toBe(false);
+      expect(validation.errors.some((e: string) => e.includes("partialFingerprints"))).toBe(true);
+      expect(validation.errors.some((e: string) => e.includes("description.text"))).toBe(true);
     });
   });
 });

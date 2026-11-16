@@ -189,7 +189,7 @@ secureflow --fail-on none
 ### Multi-Format Reports (`--format`)
 
 - **Text (`text`)**: Clean, ANSI-colored terminal overview with source code context snippets.
-- **SARIF (`sarif`)**: Industry-standard OASIS SARIF 2.1.0 format, ready for direct upload to GitHub Security tab.
+- **SARIF (`sarif`)**: Industry-standard OASIS SARIF 2.1.0 format, ready for direct upload to GitHub Security tab (GHAS). Maps findings to standard rules, locations, and severities (`error`, `warning`, `note`).
 - **HTML (`html`)**: Self-contained, responsive HTML report suitable for sharing and compliance reviews.
 - **CSV (`csv`)**: Formatted tabular output hardened against spreadsheet formula injection (CWE-1236).
 - **JSON (`json`)**: Machine-readable JSON object representing findings and metadata.
@@ -200,6 +200,40 @@ secureflow --format html -o security-report.html
 secureflow --format sarif -o results.sarif
 secureflow --format markdown -o findings.md
 ```
+
+#### GitHub Advanced Security (GHAS) Integration (#1766)
+
+Directly upload generated SARIF scan reports into your GitHub Code Scanning alerts tab:
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  secureflow-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SecureFlow CLI Scan
+        run: npx secureflow-cli --format sarif -o results.sarif --fail-on high
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: secureflow-analysis
+```
+
+SARIF findings exported by SecureFlow conform strictly to OASIS SARIF v2.1.0 specifications and include:
+
+- Normalized relative file URIs
+- Precise line ranges and character columns
+- Standard GitHub severity mappings (`CRITICAL`/`HIGH` -> `error`, `MEDIUM` -> `warning`, `LOW`/`INFO` -> `note`)
+- Cryptographic code snippet fingerprints for tracking issues across code refactors
+- Automated remediation patch replacements within SARIF `fixes` arrays
 
 ---
 

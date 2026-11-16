@@ -6,13 +6,13 @@
  */
 import { vi } from "vitest";
 
-export default vi.fn((config = {}) => ({
+export default vi.fn((config: Record<string, any> = {}) => ({
   id: "github",
   type: "oauth",
   name: "GitHub",
   config: {
-    clientId: "mock-github-client-id",
-    clientSecret: "mock-github-client-secret-do-not-use",
+    clientId: "mock_key",
+    clientSecret: "mock_secret",
     ...config,
   },
 }));

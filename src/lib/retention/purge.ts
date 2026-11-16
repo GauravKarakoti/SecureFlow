@@ -48,6 +48,8 @@ export interface PurgeOptions {
   now?: Date;
   /** Injected for tests. */
   env?: Record<string, string | undefined>;
+  /** Global override for retention window in days across targets. */
+  days?: number;
 }
 
 export interface TargetOutcome {
@@ -264,7 +266,7 @@ export async function runRetention(
   const now = options.now ?? new Date();
   const startedAt = now.toISOString();
 
-  const policy = resolveRetentionPolicy(options.env, now);
+  const policy = resolveRetentionPolicy(options.env, now, options.days);
   const selected = options.only?.length
     ? policy.filter((rule) => options.only!.includes(rule.target))
     : policy;

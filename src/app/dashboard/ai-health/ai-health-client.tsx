@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TimeAgo } from "@/components/time-ago";
 import type { AiHealthReport, ModelHealthStatus } from "@/ai/telemetry";
 import {
   Activity,
@@ -255,8 +256,8 @@ export default function AiHealthClient({ initialData, isAdmin }: AiHealthClientP
                   <span className="font-mono text-xs font-bold text-red-400 uppercase tracking-widest px-2 py-0.5 bg-red-500/20 rounded border border-red-500/30">
                     FAILOVER ACTIVATED
                   </span>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    Tripped At: {new Date(data.timestamp).toLocaleTimeString()}
+                  <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
+                    Tripped At: <TimeAgo date={data.timestamp} />
                   </span>
                 </div>
                 <h3 className="text-lg font-bold text-white mt-1">
@@ -651,7 +652,7 @@ export default function AiHealthClient({ initialData, isAdmin }: AiHealthClientP
                   {filteredFailoverList.map((event) => (
                     <tr key={event.id} className="hover:bg-foreground/[0.02] transition-colors">
                       <td className="py-3 px-3 whitespace-nowrap text-muted-foreground">
-                        {new Date(event.timestamp).toLocaleTimeString()}
+                        <TimeAgo date={event.timestamp} />
                       </td>
                       <td className="py-3 px-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 font-bold">

@@ -7,6 +7,7 @@ import {
   parseRetentionDays,
   resolveRetentionPolicy,
   retentionFor,
+  calculateRetentionCutoff,
 } from "./policy";
 
 const auditRule = RETENTION_RULES.find((r) => r.target === "auditLog")!;
@@ -126,6 +127,61 @@ describe("resolveRetentionPolicy", () => {
     for (const rule of resolveRetentionPolicy({}, now)) {
       expect(rule.cutoff.getTime()).toBeLessThan(now.getTime());
     }
+  });
+
+  it("applies DATA_RETENTION_DAYS when specific env var is unset", () => {
+    const policy = resolveRetentionPolicy({ DATA_RETENTION_DAYS: "60" }, now);
+    for (const rule of policy) {
+      expect(rule.days).toBe(60);
+      expect(rule.cutoff.toISOString()).toBe("2026-06-17T00:00:00.000Z");
+    }
+  });
+
+  it("prioritizes specific env var over DATA_RETENTION_DAYS", () => {
+    const policy = resolveRetentionPolicy(
+      { DATA_RETENTION_DAYS: "60", AUDIT_LOG_RETENTION_DAYS: "90" },
+      now,
+    );
+    const audit = policy.find((r) => r.target === "auditLog")!;
+    const webhook = policy.find((r) => r.target === "webhookEvent")!;
+    expect(audit.days).toBe(90);
+    expect(webhook.days).toBe(60);
+  });
+
+  it("throws on invalid DATA_RETENTION_DAYS", () => {
+    expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "-5" }, now)).toThrow(
+      RetentionConfigError,
+    );
+    expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "0" }, now)).toThrow(
+      RetentionConfigError,
+    );
+    expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "5000" }, now)).toThrow(
+      RetentionConfigError,
+    );
+    expect(() => resolveRetentionPolicy({ DATA_RETENTION_DAYS: "abc" }, now)).toThrow(
+      RetentionConfigError,
+    );
+  });
+
+  it("honours explicit overrideDays parameter", () => {
+    const policy = resolveRetentionPolicy({ AUDIT_LOG_RETENTION_DAYS: "120" }, now, 45);
+    for (const rule of policy) {
+      expect(rule.days).toBe(45);
+      expect(rule.cutoff.toISOString()).toBe("2026-07-02T00:00:00.000Z");
+    }
+  });
+
+  it("throws on invalid overrideDays parameter", () => {
+    expect(() => resolveRetentionPolicy({}, now, 0)).toThrow(RetentionConfigError);
+    expect(() => resolveRetentionPolicy({}, now, 3651)).toThrow(RetentionConfigError);
+  });
+});
+
+describe("calculateRetentionCutoff", () => {
+  it("computes cutoff date by subtracting days from now", () => {
+    const now = new Date("2026-05-15T12:00:00.000Z");
+    const cutoff = calculateRetentionCutoff(30, now);
+    expect(cutoff.toISOString()).toBe("2026-04-15T12:00:00.000Z");
   });
 });
 

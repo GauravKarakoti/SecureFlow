@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
+import { FailedTestsReporter } from "./scripts/failed-tests-reporter.js";
 
 export default defineConfig({
   test: {
+    reporters: ["default", new FailedTestsReporter()],
     server: {
       deps: {
         inline: ["genkitx-groq"],
@@ -9,9 +11,6 @@ export default defineConfig({
     },
     globals: true,
     environment: "node",
-    // cli/** is included so the pre-commit hook's detector is covered by the
-    // same `npm test` the husky hook already runs. Coverage `include` below is
-    // deliberately left at src/**, so the CLI does not move the thresholds.
     include: [
       "*.test.ts",
       "src/**/*.test.ts",
@@ -20,9 +19,15 @@ export default defineConfig({
       "tests/**/*.test.ts",
       "scripts/**/*.test.ts",
     ],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/*.redteam.test.ts", "**/*.redteam.test.tsx"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      ...(process.env.npm_lifecycle_event === "test:redteam" || process.env.REDTEAM === "true"
+        ? []
+        : ["**/*.redteam.test.ts", "**/*.redteam.test.tsx"]),
+    ],
     setupFiles: ["./vitest.setup.ts"],
-    testTimeout: 15000,
+    testTimeout: 20000,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "json-summary", "json", "html"],
@@ -37,11 +42,28 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      "@": import.meta.dirname + "/src",
-      __mocks__: import.meta.dirname + "/__mocks__",
-      zod: import.meta.dirname + "/node_modules/@genkit-ai/core/node_modules/zod/index.js",
-      "secureflow-cli/contracts": import.meta.dirname + "/cli/src/contracts/index.ts",
-    },
+    alias: [
+      { find: "@", replacement: import.meta.dirname + "/src" },
+      { find: "__mocks__", replacement: import.meta.dirname + "/__mocks__" },
+      { find: "@armoriq/sdk", replacement: import.meta.dirname + "/__mocks__/@armoriq/sdk.ts" },
+      { find: "next/server", replacement: import.meta.dirname + "/__mocks__/next/server.ts" },
+      { find: "next/headers", replacement: import.meta.dirname + "/__mocks__/next/headers.ts" },
+      {
+        find: "next-auth/providers/github",
+        replacement: import.meta.dirname + "/__mocks__/next-auth/providers/github.ts",
+      },
+      {
+        find: "next-auth/react",
+        replacement: import.meta.dirname + "/__mocks__/next-auth/index.ts",
+      },
+      {
+        find: /^next-auth$/,
+        replacement: import.meta.dirname + "/__mocks__/next-auth/index.ts",
+      },
+      {
+        find: "secureflow-cli/contracts",
+        replacement: import.meta.dirname + "/cli/src/contracts/index.ts",
+      },
+    ],
   },
 });

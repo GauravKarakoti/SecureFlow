@@ -22,6 +22,12 @@ import {
   tripModelCircuitBreaker,
   CircuitState,
   CircuitBreakerError,
+  Semaphore,
+  VRAMConcurrencyError,
+  isVramConcurrencyError,
+  withModelConcurrency,
+  getLocalModelSemaphore,
+  resetLocalModelSemaphore,
 } from "./resilience";
 
 const rateLimit = () => Object.assign(new Error("Too many requests"), { status: 429 });
@@ -397,6 +403,147 @@ describe("executeWithFallbackAndRetry", () => {
       const replicaBreaker = getModelCircuitBreaker("model-recovering");
       await replicaBreaker.syncFromStore();
       expect(replicaBreaker.getState()).toBe(CircuitState.CLOSED);
+    });
+  });
+  describe("Semaphore & VRAM Concurrency Control (#1753)", () => {
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+
+    afterEach(() => {
+      resetLocalModelSemaphore();
+    });
+
+    it("acquires and releases permits within capacity", async () => {
+      const sem = new Semaphore(2);
+      expect(sem.availablePermits).toBe(2);
+
+      const release1 = await sem.acquire();
+      expect(sem.availablePermits).toBe(1);
+
+      const release2 = await sem.acquire();
+      expect(sem.availablePermits).toBe(0);
+
+      release1();
+      expect(sem.availablePermits).toBe(1);
+
+      release2();
+      expect(sem.availablePermits).toBe(2);
+    });
+
+    it("queues requests in FIFO order when permits are exhausted", async () => {
+      const sem = new Semaphore(1);
+      const order: number[] = [];
+
+      const release1 = await sem.acquire();
+      order.push(1);
+
+      const p2 = sem.acquire().then((rel) => {
+        order.push(2);
+        rel();
+      });
+
+      const p3 = sem.acquire().then((rel) => {
+        order.push(3);
+        rel();
+      });
+
+      expect(sem.queueLength).toBe(2);
+      release1();
+
+      await Promise.all([p2, p3]);
+      expect(order).toEqual([1, 2, 3]);
+      expect(sem.availablePermits).toBe(1);
+    });
+
+    it("times out and throws VRAMConcurrencyError when queue wait exceeds timeoutMs", async () => {
+      const sem = new Semaphore(1);
+      const release = await sem.acquire();
+
+      const acquirePromise = sem.acquire({ timeoutMs: 50 });
+      await expect(acquirePromise).rejects.toThrow(VRAMConcurrencyError);
+      expect(sem.queueLength).toBe(0);
+
+      release();
+      expect(sem.availablePermits).toBe(1);
+    });
+
+    it("rejects with AbortError when signal is aborted while in queue", async () => {
+      const sem = new Semaphore(1);
+      const release = await sem.acquire();
+
+      const controller = new AbortController();
+      const acquirePromise = sem.acquire({ signal: controller.signal });
+
+      controller.abort();
+      await expect(acquirePromise).rejects.toThrow("Operation aborted");
+      expect(sem.queueLength).toBe(0);
+
+      release();
+    });
+
+    it("withModelConcurrency runs action within permit boundary and releases on error", async () => {
+      const sem = new Semaphore(1);
+      await expect(
+        withModelConcurrency(
+          async () => {
+            expect(sem.availablePermits).toBe(0);
+            throw new Error("fail inside permit");
+          },
+          { semaphore: sem },
+        ),
+      ).rejects.toThrow("fail inside permit");
+
+      expect(sem.availablePermits).toBe(1);
+    });
+
+    it("fails over cleanly to fallback model on VRAMConcurrencyError", async () => {
+      const sem = new Semaphore(1);
+      const blockRelease = await sem.acquire();
+
+      const op = vi.fn(async (model: string) => {
+        if (model === "openai/llama3") {
+          return "local-result";
+        }
+        return "cloud-fallback-result";
+      });
+
+      const onModelSwitch = vi.fn();
+      const { result, stats } = await executeWithFallbackAndRetry(op, {
+        primaryModel: "openai/llama3",
+        fallbackModels: ["groq/openai/gpt-oss-20b"],
+        concurrencySemaphore: sem,
+        queueTimeoutMs: 20,
+        onModelSwitch,
+      });
+
+      expect(result).toBe("cloud-fallback-result");
+      expect(stats.modelUsed).toBe("groq/openai/gpt-oss-20b");
+      expect(onModelSwitch).toHaveBeenCalledWith(
+        "openai/llama3",
+        "groq/openai/gpt-oss-20b",
+        expect.any(VRAMConcurrencyError),
+        1,
+      );
+
+      blockRelease();
+    });
+
+    it("immediately re-throws and does not retry when request signal is aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const op = vi.fn(async () => "ok");
+
+      await expect(
+        executeWithFallbackAndRetry(op, {
+          primaryModel: "primary",
+          fallbackModels: ["secondary"],
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow();
+
+      expect(op).not.toHaveBeenCalled();
     });
   });
 });

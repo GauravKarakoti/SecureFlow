@@ -12,6 +12,7 @@ import {
   parseWebhookPayload,
   payloadByteLength,
   verifySignature,
+  verifyWebhookSignatureWithRotation,
   webhookJobId,
 } from "./webhook-verification";
 
@@ -84,6 +85,36 @@ describe("verifySignature", () => {
     // timingSafeEqual throws when the buffers differ in length.
     expect(() => verifySignature(BODY, SECRET, "abcd")).not.toThrow();
     expect(verifySignature(BODY, SECRET, "abcd")).toBe(false);
+  });
+});
+
+describe("verifyWebhookSignatureWithRotation", () => {
+  const PREVIOUS_SECRET = "test-webhook-secret-previous";
+
+  it("returns 'current' when signed with the active secret", () => {
+    const hex = parseGithubSignature(sign(BODY, SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBe("current");
+  });
+
+  it("returns 'previous' when current secret does not match but previous secret does", () => {
+    const hex = parseGithubSignature(sign(BODY, PREVIOUS_SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBe("previous");
+  });
+
+  it("returns null when neither secret matches", () => {
+    const hex = parseGithubSignature(sign(BODY, "third-party-unknown-secret"))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, hex)).toBeNull();
+  });
+
+  it("returns null when previousSecret is omitted or whitespace and current fails", () => {
+    const hex = parseGithubSignature(sign(BODY, PREVIOUS_SECRET))!;
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, undefined, hex)).toBeNull();
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, null, hex)).toBeNull();
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, "   ", hex)).toBeNull();
+  });
+
+  it("returns null for malformed or mismatched-length signatures", () => {
+    expect(verifyWebhookSignatureWithRotation(BODY, SECRET, PREVIOUS_SECRET, "1234")).toBeNull();
   });
 });
 
@@ -295,5 +326,31 @@ describe("admitWebhook", () => {
       ok: false,
       status: 413,
     });
+  });
+
+  it("admits a delivery signed with the previous secret when configured", () => {
+    const previousSecret = "old-secret-rotated";
+    const result = admitWebhook({
+      ...base,
+      signatureHeader: sign(BODY, previousSecret),
+      previousSecret,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.matchedSecret).toBe("previous");
+    }
+  });
+
+  it("marks matchedSecret as 'current' when signed with the active secret", () => {
+    const previousSecret = "old-secret-rotated";
+    const result = admitWebhook({
+      ...base,
+      signatureHeader: sign(BODY, SECRET),
+      previousSecret,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.matchedSecret).toBe("current");
+    }
   });
 });

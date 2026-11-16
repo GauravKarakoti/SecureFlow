@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { getWorkspacePaths, readJsonFile, fileExists } from "./workspace";
+import {
+  getWorkspacePaths,
+  readJsonFile,
+  fileExists,
+  sandboxWorkspacePath,
+  PathTraversalError,
+} from "./workspace";
 
 describe("SecureFlow CLI Workspace Integration (#636)", () => {
   const paths = getWorkspacePaths(__dirname);
@@ -123,6 +129,66 @@ describe("workspace module helpers (#1526)", () => {
 
       expect(fileExists(file)).toBe(true);
       expect(fileExists(path.join(dir, "nope.json"))).toBe(false);
+    });
+  });
+
+  describe("sandboxWorkspacePath (#1752)", () => {
+    it("allows relative paths that remain inside the workspace root", () => {
+      const root = makeTmpDir();
+      const safeFile = path.join(root, "src", "index.ts");
+      fs.mkdirSync(path.join(root, "src"), { recursive: true });
+      fs.writeFileSync(safeFile, "export const x = 1;");
+
+      const result = sandboxWorkspacePath("src/index.ts", root);
+      expect(result).toBe(fs.realpathSync(safeFile));
+    });
+
+    it("rejects traversal patterns that escape workspace root with PathTraversalError", () => {
+      const root = makeTmpDir();
+
+      expect(() => sandboxWorkspacePath("../outside.ts", root)).toThrow(PathTraversalError);
+      expect(() => sandboxWorkspacePath("src/../../outside.ts", root)).toThrow(PathTraversalError);
+    });
+
+    it("detects and rejects symlink escapes outside the workspace boundary", () => {
+      const root = makeTmpDir();
+      const outsideDir = makeTmpDir();
+      const outsideTarget = path.join(outsideDir, "secret.key");
+      fs.writeFileSync(outsideTarget, "super-secret");
+
+      const symlinkPath = path.join(root, "symlink-outside");
+      try {
+        fs.symlinkSync(outsideTarget, symlinkPath);
+      } catch {
+        // Symlinks may require elevated privileges on Windows; skip if not supported
+        return;
+      }
+
+      expect(() => sandboxWorkspacePath("symlink-outside", root)).toThrow(PathTraversalError);
+    });
+
+    it("rejects non-existent targets with escaping ancestor directories", () => {
+      const root = makeTmpDir();
+      expect(() => sandboxWorkspacePath("nested/../../../../etc/passwd", root)).toThrow(
+        PathTraversalError,
+      );
+    });
+
+    it("rejects empty or whitespace-only target paths", () => {
+      const root = makeTmpDir();
+      expect(() => sandboxWorkspacePath("", root)).toThrow(PathTraversalError);
+      expect(() => sandboxWorkspacePath("   ", root)).toThrow(PathTraversalError);
+    });
+
+    it("accepts valid subdirectories and nested paths without escapes", () => {
+      const root = makeTmpDir();
+      const subDir = path.join(root, "nested", "child");
+      fs.mkdirSync(subDir, { recursive: true });
+      const target = path.join(subDir, "file.txt");
+      fs.writeFileSync(target, "hello world");
+
+      const sandboxed = sandboxWorkspacePath("nested/child/file.txt", root);
+      expect(sandboxed).toBe(fs.realpathSync(target));
     });
   });
 });

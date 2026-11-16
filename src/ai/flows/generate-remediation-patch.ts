@@ -1,6 +1,12 @@
 import { z } from "genkit";
 import { getAiInstance, getDefaultModelRef } from "@/ai/genkit";
-import { isRateLimitError, isTimeoutError } from "@/ai/resilience";
+import {
+  isRateLimitError,
+  isTimeoutError,
+  getModelCircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+} from "@/ai/resilience";
 import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
 
 const PatchInputSchema = z.object({
@@ -107,24 +113,40 @@ Provide ONLY the unified diff patch that fixes this issue securely. Do not inclu
 
   let failureReason: RemediationFailureReason = "unavailable";
 
+  // Wrap AI inference call with circuit breaker to prevent blocking during provider outages (#1768)
+  const modelKey =
+    typeof activeModel === "string" ? activeModel : (activeModel as any)?.name || "default";
+  const breaker = getModelCircuitBreaker(modelKey);
+
   try {
-    const { output } = await retryWithBackoff(() =>
-      activeAi.generate({
-        model: activeModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
-        prompt,
-        output: { schema: PatchOutputSchema, format: "json" },
-      }),
-    );
+    const output = await breaker.execute(async () => {
+      const res = await retryWithBackoff(() =>
+        activeAi.generate({
+          model: activeModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
+          prompt,
+          output: { schema: PatchOutputSchema, format: "json" },
+        }),
+      );
+      return res.output;
+    });
 
     if (output) {
       return output;
     }
   } catch (error) {
-    failureReason = classifyFailure(error);
-    console.warn(
-      `[REMEDIATION] AI provider unavailable (${failureReason}), using static fallback:`,
-      error,
-    );
+    if (error instanceof CircuitBreakerError) {
+      failureReason = "unavailable";
+      console.warn(
+        `[REMEDIATION] Circuit breaker open for model ${modelKey}; failing fast with static template:`,
+        error.message,
+      );
+    } else {
+      failureReason = classifyFailure(error);
+      console.warn(
+        `[REMEDIATION] AI provider unavailable (${failureReason}), using static fallback:`,
+        error,
+      );
+    }
   }
 
   return {

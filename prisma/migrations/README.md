@@ -55,6 +55,8 @@ Because migration folders use timestamp-only naming, refer to this audit table f
 | `20261103070000_finding_analytics_indexes` | Finding Analytics Indexes     | Adds composite indexes on `Finding(createdAt, severity)` and `Finding(createdAt, type)`.                        |
 | `20261104030500`                           | Finding Triage Dismissals     | Adds `DISMISSED` to `FindingTriageStatus`, introduces `DismissalReason` enum, adds dismissal audit fields.      |
 | `20261107104700_add_teams_webhook_url`     | Teams Webhook URL             | Adds `teamsWebhookUrl` column to `User` for Microsoft Teams notifications on BLOCKED scans.                     |
+| `20261113125000_audit_log_hash_chain`      | Audit Log Hash Chain          | Adds `previousHash` and `entryHash` columns to `AuditLog` for cryptographic tamper-evident chaining.            |
+| `20261113133500_policy_versions`           | Policy Version History        | Creates `PolicyVersion` table to track immutable version history, editor attribution, and rollbacks.            |
 
 ---
 

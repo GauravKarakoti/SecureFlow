@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getAuditLogs } from "@/lib/actions/admin";
 import type { AuditLogRow } from "@/lib/actions/admin";
+import { TimeAgo } from "@/components/time-ago";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -277,11 +278,8 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
                           <span className="text-muted-foreground/70">—</span>
                         )}
                       </td>
-                      <td
-                        className="px-6 py-4 text-muted-foreground font-mono text-xs whitespace-nowrap"
-                        suppressHydrationWarning
-                      >
-                        {new Date(l.timestamp).toLocaleString()}
+                      <td className="px-6 py-4 text-muted-foreground font-mono text-xs whitespace-nowrap">
+                        <TimeAgo date={l.timestamp} />
                       </td>
                     </tr>
                     {isOpen && hasMeta && (

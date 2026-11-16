@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useTransition } from "react";
 import { getQueueJobs, removeQueueJob, type QueueJobState } from "@/lib/actions/queue";
+import { TimeAgo } from "@/components/time-ago";
 import {
   ChevronDown,
   ChevronUp,
@@ -138,7 +139,7 @@ export default function JobExplorer() {
     });
   };
 
-  const fmtDate = (ts: number | null) => (ts ? new Date(ts).toLocaleString() : "—");
+  const renderDate = (ts: number | null) => (ts ? <TimeAgo date={ts} /> : "—");
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -262,8 +263,8 @@ export default function JobExplorer() {
                         </td>
                         <td className="px-6 py-4 text-xs font-mono">
                           {activeTab === "completed"
-                            ? fmtDate(job.finishedOn)
-                            : fmtDate(job.timestamp)}
+                            ? renderDate(job.finishedOn)
+                            : renderDate(job.timestamp)}
                         </td>
                         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                           {canRemove && (
@@ -307,7 +308,7 @@ export default function JobExplorer() {
                                     Enqueued
                                   </span>
                                   <span className="font-mono text-zinc-300">
-                                    {fmtDate(job.timestamp)}
+                                    {renderDate(job.timestamp)}
                                   </span>
                                 </div>
                                 <div className="flex flex-col gap-0.5">
@@ -315,7 +316,7 @@ export default function JobExplorer() {
                                     Finished
                                   </span>
                                   <span className="font-mono text-zinc-300">
-                                    {fmtDate(job.finishedOn)}
+                                    {renderDate(job.finishedOn)}
                                   </span>
                                 </div>
                               </div>

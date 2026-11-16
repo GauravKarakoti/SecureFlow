@@ -133,12 +133,264 @@ export interface RetryConfig {
   timeoutMs?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Semaphore & VRAM Concurrency Control (#1753)
+// ---------------------------------------------------------------------------
+
+export interface SemaphoreAcquireOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Concurrency semaphore with FIFO queueing, timeout bounds, and abort support (#1753).
+ * Limits simultaneous active GPU/VRAM generations to prevent local inference crashes.
+ */
+export class Semaphore {
+  private permits: number;
+  private maxPermits: number;
+  private queue: Array<{
+    resolve: (release: () => void) => void;
+    reject: (err: Error) => void;
+    timer?: NodeJS.Timeout;
+    signal?: AbortSignal;
+    onAbort?: () => void;
+  }> = [];
+
+  constructor(permits = 1) {
+    this.maxPermits = Math.max(1, permits);
+    this.permits = this.maxPermits;
+  }
+
+  get availablePermits(): number {
+    return this.permits;
+  }
+
+  get queueLength(): number {
+    return this.queue.length;
+  }
+
+  get capacity(): number {
+    return this.maxPermits;
+  }
+
+  setCapacity(newCapacity: number): void {
+    const diff = newCapacity - this.maxPermits;
+    this.maxPermits = Math.max(1, newCapacity);
+    this.permits += diff;
+    while (this.permits > 0 && this.queue.length > 0) {
+      this.dispatchNext();
+    }
+  }
+
+  async acquire(options?: SemaphoreAcquireOptions): Promise<() => void> {
+    if (options?.signal?.aborted) {
+      const err = new Error("Operation aborted while acquiring semaphore permit");
+      err.name = "AbortError";
+      throw err;
+    }
+
+    if (this.permits > 0) {
+      this.permits--;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          this.release();
+        }
+      };
+    }
+
+    return new Promise<() => void>((resolve, reject) => {
+      let timer: NodeJS.Timeout | undefined;
+      let onAbort: (() => void) | undefined;
+
+      const entry = {
+        resolve: (releaseFn: () => void) => {
+          if (timer) clearTimeout(timer);
+          if (options?.signal && onAbort) {
+            options.signal.removeEventListener("abort", onAbort);
+          }
+          resolve(releaseFn);
+        },
+        reject: (err: Error) => {
+          if (timer) clearTimeout(timer);
+          if (options?.signal && onAbort) {
+            options.signal.removeEventListener("abort", onAbort);
+          }
+          reject(err);
+        },
+      };
+
+      if (options?.timeoutMs && options.timeoutMs > 0) {
+        timer = setTimeout(() => {
+          const idx = this.queue.indexOf(entry);
+          if (idx !== -1) {
+            this.queue.splice(idx, 1);
+            entry.reject(
+              new VRAMConcurrencyError(
+                `Local model VRAM concurrency queue wait timed out after ${options.timeoutMs}ms`,
+              ),
+            );
+          }
+        }, options.timeoutMs);
+      }
+
+      if (options?.signal) {
+        onAbort = () => {
+          const idx = this.queue.indexOf(entry);
+          if (idx !== -1) {
+            this.queue.splice(idx, 1);
+            const err = new Error("Operation aborted while waiting in semaphore queue");
+            err.name = "AbortError";
+            entry.reject(err);
+          }
+        };
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      this.queue.push(entry);
+    });
+  }
+
+  private dispatchNext(): void {
+    if (this.queue.length > 0 && this.permits > 0) {
+      this.permits--;
+      const next = this.queue.shift();
+      if (next) {
+        let released = false;
+        next.resolve(() => {
+          if (!released) {
+            released = true;
+            this.release();
+          }
+        });
+      }
+    }
+  }
+
+  private release(): void {
+    this.permits++;
+    this.dispatchNext();
+  }
+
+  reset(): void {
+    while (this.queue.length > 0) {
+      const item = this.queue.shift();
+      const err = new Error("Semaphore reset");
+      item?.reject(err);
+    }
+    this.permits = this.maxPermits;
+  }
+}
+
+/**
+ * Thrown when local inference requests exceed available GPU memory / concurrency limits (#1753).
+ */
+export class VRAMConcurrencyError extends Error {
+  constructor(message = "Local model VRAM concurrency threshold exceeded") {
+    super(message);
+    this.name = "VRAMConcurrencyError";
+  }
+}
+
+/**
+ * Identifies errors caused by saturated local model VRAM or semaphore concurrency queue exhaustion.
+ */
+export function isVramConcurrencyError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof VRAMConcurrencyError) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /vram (?:concurrency|threshold)/i.test(msg) ||
+    /concurrency queue/i.test(msg) ||
+    /exceeded vram/i.test(msg)
+  );
+}
+
+/**
+ * Checks whether a given model identifier represents a locally-hosted LLM (e.g. Ollama, vLLM).
+ */
+export function isLocalModel(modelName: string): boolean {
+  if (!modelName) return false;
+  const name = String(modelName).toLowerCase();
+  return (
+    name.startsWith("openai/") ||
+    name.startsWith("local/") ||
+    name.includes("localhost") ||
+    name.includes("ollama") ||
+    name.includes("vllm")
+  );
+}
+
+export const DEFAULT_LOCAL_VRAM_CONCURRENCY = 1;
+
+/**
+ * Resolves maximum permitted concurrent local model executions from environment.
+ */
+export function getLocalModelVramThreshold(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const raw =
+    env.LOCAL_AI_MAX_CONCURRENCY ??
+    env.LOCAL_AI_CONCURRENCY_LIMIT ??
+    env.VRAM_CONCURRENCY_THRESHOLD;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_VRAM_CONCURRENCY;
+}
+
+let localModelSemaphore: Semaphore | null = null;
+
+export function getLocalModelSemaphore(capacity?: number): Semaphore {
+  if (!localModelSemaphore) {
+    const limit = capacity ?? getLocalModelVramThreshold();
+    localModelSemaphore = new Semaphore(limit);
+  }
+  return localModelSemaphore;
+}
+
+export function resetLocalModelSemaphore(): void {
+  if (localModelSemaphore) {
+    localModelSemaphore.reset();
+  }
+  localModelSemaphore = null;
+}
+
+/**
+ * Executes an operation within a concurrency semaphore slot.
+ */
+export async function withModelConcurrency<T>(
+  fn: () => Promise<T>,
+  options?: { semaphore?: Semaphore; timeoutMs?: number; signal?: AbortSignal },
+): Promise<T> {
+  const sem = options?.semaphore ?? getLocalModelSemaphore();
+  const release = await sem.acquire({
+    timeoutMs: options?.timeoutMs,
+    signal: options?.signal,
+  });
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 export interface ModelFallbackConfig<TModel = string> {
   primaryModel: TModel;
   fallbackModels: TModel[];
   retryConfig?: RetryConfig;
   circuitBreakerOptions?: CircuitBreakerOptions;
-  onModelSwitch?: (fromModel: TModel, toModel: TModel, error: unknown, attempt: number) => void;
+  concurrencySemaphore?: Semaphore;
+  semaphore?: Semaphore;
+  queueTimeoutMs?: number;
+  signal?: AbortSignal;
+  onModelSwitch?: (
+    fromModel: TModel,
+    toModel: TModel,
+    error: unknown,
+    attempt: number,
+    reasonCode?: string,
+  ) => void;
 }
 
 export interface ResilienceExecutionStats {
@@ -234,6 +486,12 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
   const backoffFactor = config.retryConfig?.backoffFactor ?? 2;
   const useJitter = config.retryConfig?.jitter ?? true;
 
+  if (config.signal?.aborted) {
+    const err = new Error("Operation aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+
   let totalAttempts = 0;
   let fallbackSwitches = 0;
   let lastError: unknown = null;
@@ -260,6 +518,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
         error: openError,
         attempt: 0,
         fastFail: true,
+        reasonCode: "circuit_breaker_open",
       }).catch(() => {});
       if (config.onModelSwitch) {
         config.onModelSwitch(currentModel, nextModel, openError, 0);
@@ -267,11 +526,24 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
       continue;
     }
 
+    const isLocal = isLocalModel(String(currentModel));
+    const sem = isLocal
+      ? (config.semaphore ?? config.concurrencySemaphore ?? getLocalModelSemaphore())
+      : undefined;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       totalAttempts++;
       const attemptStartTime = Date.now();
 
+      let release: (() => void) | undefined;
       try {
+        if (sem) {
+          release = await sem.acquire({
+            timeoutMs: config.queueTimeoutMs ?? 5000,
+            signal: config.signal,
+          });
+        }
+
         const timeoutMs = config.retryConfig?.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
         const result = await breaker.execute(() =>
           withTimeout(() => operation(currentModel, attempt), timeoutMs),
@@ -304,14 +576,20 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
           err,
         ).catch(() => {});
 
+        if (config.signal?.aborted || (err as any)?.name === "AbortError") {
+          throw err;
+        }
+
+        const isVram = isVramConcurrencyError(err);
         const isBreakerOpen = err instanceof CircuitBreakerError;
         const isRetryable =
+          !isVram &&
           !isBreakerOpen &&
           (isRateLimitError(err) ||
             isTimeoutError(err) ||
             Boolean(
               config.retryConfig?.retryableErrors &&
-              config.retryConfig.retryableErrors.some((fn) => fn(err)),
+                config.retryConfig.retryableErrors.some((fn) => fn(err)),
             ));
 
         if (attempt < maxRetries && isRetryable && breaker.getState() !== CircuitState.OPEN) {
@@ -338,8 +616,18 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
           {
             fallbackSwitches++;
             const nextModel = models[mIdx + 1];
+            const reasonCode = isVram
+              ? "vram_concurrency_exceeded"
+              : isRateLimitError(err)
+                ? "rate_limit"
+                : isTimeoutError(err)
+                  ? "timeout"
+                  : isBreakerOpen
+                    ? "circuit_breaker_open"
+                    : "model_exhausted";
+
             console.warn(
-              `[AI_RESILIENCE] Primary model ${String(currentModel)} exhausted or unrecoverable. Switching to fallback model: ${String(nextModel)}`,
+              `[AI_RESILIENCE] Primary model ${String(currentModel)} failed (${reasonCode}). Switching to fallback model: ${String(nextModel)}`,
             );
 
             recordFailoverEvent({
@@ -348,6 +636,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
               error: err,
               attempt,
               fastFail: false,
+              reasonCode,
             }).catch(() => {});
 
             if (config.onModelSwitch) {
@@ -356,6 +645,8 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
             break; // Break inner loop to try next model in outer loop
           }
         }
+      } finally {
+        release?.();
       }
     }
   }

@@ -191,6 +191,21 @@ export function DashboardHeader({
           {/* Username — scrambles into real name on hover (see CyberTextReveal) */}
           <CyberTextReveal codename={user?.codename} realName={user?.name} />
         </div>
+
+        {/* Quick Command Palette trigger shortcut button */}
+        <button
+          onClick={() => {
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
+          }}
+          className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors"
+          title="Open Command Palette (Ctrl+K or ⌘K)"
+          aria-label="Open Command Palette (Ctrl+K or ⌘K)"
+        >
+          <span className="text-[11px] font-mono">Search / Commands</span>
+          <kbd className="text-[10px] font-mono px-1 py-0.5 bg-black/40 border border-white/10 rounded">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       {/* ── Right: theme toggle + avatar + logout ─────────────── */}

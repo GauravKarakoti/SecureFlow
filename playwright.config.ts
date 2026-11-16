@@ -47,6 +47,7 @@ export default defineConfig({
       AUTH_SECRET: process.env.AUTH_SECRET || "e2e-test-secret-key",
       NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || "e2e-test-secret-key",
       NEXT_PUBLIC_MOCK_DB: "true",
+      E2E_MOCK_QUEUE_JOB: "true",
       NEXT_PUBLIC_MOCK_AUTH: "true",
       // Server-only opt-in required alongside NEXT_PUBLIC_MOCK_AUTH so the mock
       ALLOW_MOCK_AUTH: "true",

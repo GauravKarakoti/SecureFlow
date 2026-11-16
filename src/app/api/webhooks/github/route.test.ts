@@ -152,6 +152,10 @@ vi.mock("@/lib/middleware/rateLimit", () => ({
 import * as webhookRoute from "@/app/api/webhooks/github/route";
 const { POST, handlePullRequestSynchronize, validateWebhookSignature } = webhookRoute;
 import { addWebhookJob } from "@/lib/queue/webhookQueue";
+import {
+  recordWebhookSecretRotation,
+  resetInMemoryWebhookSecretStore,
+} from "@/lib/github/webhook-secret-store";
 
 // ---- Helpers ----
 
@@ -224,6 +228,7 @@ const minimalPRPayload = JSON.stringify({
 describe("GitHub webhook route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInMemoryWebhookSecretStore();
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
     delete process.env.GITHUB_WEBHOOK_MAX_BYTES;
     mockRedisSet.mockResolvedValue("OK");
@@ -351,6 +356,61 @@ describe("GitHub webhook route", () => {
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: "Invalid GitHub webhook signature" });
       expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+
+    it("accepts delivery signed with previous secret when rotation occurred and within grace period", async () => {
+      const oldSecret = "old-secret-before-rotation";
+      const newSecret = "new-secret-after-rotation";
+      process.env.GITHUB_WEBHOOK_SECRET = newSecret;
+      await recordWebhookSecretRotation(newSecret, oldSecret);
+
+      const oldSignature =
+        "sha256=" + createHmac("sha256", oldSecret).update(minimalPRPayload).digest("hex");
+      const req = makeRequest(minimalPRPayload, { "x-hub-signature-256": oldSignature });
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued" });
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+    });
+
+    it("accepts delivery signed with previous secret when comma-separated in GITHUB_WEBHOOK_SECRET", async () => {
+      const oldSecret = "old-pinned-secret";
+      const newSecret = "new-pinned-secret";
+      process.env.GITHUB_WEBHOOK_SECRET = `${newSecret},${oldSecret}`;
+
+      const oldSignature =
+        "sha256=" + createHmac("sha256", oldSecret).update(minimalPRPayload).digest("hex");
+      const req = makeRequest(minimalPRPayload, { "x-hub-signature-256": oldSignature });
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued" });
+      expect(addWebhookJob).toHaveBeenCalledOnce();
+    });
+
+    it("rejects delivery with 401 when previous secret has expired", async () => {
+      vi.useFakeTimers();
+      try {
+        const oldSecret = "expired-old-secret";
+        const newSecret = "current-active-secret";
+        process.env.GITHUB_WEBHOOK_SECRET = newSecret;
+        await recordWebhookSecretRotation(newSecret, oldSecret, null, 10); // 10s grace period
+
+        // Advance 15 seconds past grace period
+        vi.advanceTimersByTime(15 * 1000);
+
+        const oldSignature =
+          "sha256=" + createHmac("sha256", oldSecret).update(minimalPRPayload).digest("hex");
+        const req = makeRequest(minimalPRPayload, { "x-hub-signature-256": oldSignature });
+        const res = await POST(req);
+
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: "Invalid GitHub webhook signature" });
+        expect(addWebhookJob).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("logs a security warning when signature is missing or mismatched (#1231)", async () => {

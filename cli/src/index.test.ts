@@ -67,6 +67,14 @@ vi.mock("./lib/output-args.js", () => ({
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
 
+vi.mock("./lib/tui.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/tui.js")>();
+  return {
+    ...actual,
+    initSecureFlow: vi.fn(actual.initSecureFlow),
+  };
+});
+
 const violation = { line: 3, text: "console.log(secret)", reason: "secret" };
 const scanResult = (path: string, violations: unknown[] = []) => ({
   path,
@@ -382,5 +390,34 @@ describe("voice debrief", () => {
   it("does not play audio by default", async () => {
     await runCli();
     expect(m.playVoiceDebrief).not.toHaveBeenCalled();
+  });
+});
+
+describe("--init flag & initialization modes (#1758)", () => {
+  it("initializes secureflow and prints greeting with exit code 0 on success", async () => {
+    const { initSecureFlow } = await import("./lib/tui.js");
+    vi.mocked(initSecureFlow).mockResolvedValueOnce({
+      success: true,
+      message: "Successfully added npx secureflow to package.json prepare script",
+      hookPath: "package.json",
+    });
+
+    const code = await runCli("--init", "blank");
+    expect(code).toBe(0);
+    expect(initSecureFlow).toHaveBeenCalled();
+    expect(output(logSpy)).toContain("[SecureFlow Init]");
+  });
+
+  it("exits with code 1 when initialization fails", async () => {
+    const { initSecureFlow } = await import("./lib/tui.js");
+    vi.mocked(initSecureFlow).mockResolvedValueOnce({
+      success: false,
+      message: "Failed to write package.json",
+      hookPath: "",
+    });
+
+    const code = await runCli("--init", "--blank");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("Failed to write package.json");
   });
 });

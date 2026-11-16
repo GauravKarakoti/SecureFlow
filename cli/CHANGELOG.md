@@ -1,5 +1,49 @@
 # secureflow-cli
 
+## 3.5.0
+
+### Minor Changes
+
+- 3d7ea4a: Implement circuit breaker protection and static fallback management for AI inference calls across remediation patch, security explanation, and Web3 explanation flows (#1768).
+- 75c0e19: Implement automated DLQ replay mechanism and telemetry for ArmorIQ events (#1765)
+- 282c068: Add native SARIF export format support in secureflow-cli (#1766)
+
+## 3.4.0
+
+### Minor Changes
+
+- 83cbc3a: Enforce workspace path sandboxing and incremental diff scanning in MCP server (#1752)
+- 8f8010c: Include cryptographic fingerprints and remediation patch hunks in SARIF exports (#1754)
+- d121fa2: add stale-while-revalidate fallback and checksum verification to threat intel cache (#1750)
+
+### Patch Changes
+
+- e8f13a7: fix(armoriq): [NSoC_2026] queue unverified intents to DLQ on circuit breaker trip (#1751)
+- 56d1a06: feat(testing): [NSoC_2026] display failed test file names at end of test run (#1719)
+- 01f98ac: Restrict worker egress when chart NetworkPolicy is enabled: require explicit public IPv4 destination CIDRs, preserve DNS and same-release database connections, exclude private and metadata addresses, and test worker PDB selectors. No database migrations or AI flow changes.
+
+  Restore CI validation with a non-production Helm secret fixture, readonly Vitest reporter inputs, and Prisma 7 drift options using a separate ephemeral shadow database.
+
+## 3.3.0
+
+### Minor Changes
+
+- 6486f3b: feat(cli): [NSoC_2026] upgrade secureflow --init to run npm init and husky init before hook setup (#1731)
+
+## 3.2.0
+
+### Minor Changes
+
+- 7a77aea: feat(cli): [NSoC_2026] design beautiful terminal greeting for secureflow --init (#1732)
+
+## 3.1.0
+
+### Minor Changes
+
+- 3be7865: integrate ArmorIQ intent verification hooks and granular policy guardrails in CI (#1710)
+- 5656a5f: add interactive TUI warning tables, progress spinners, and --init husky ergonomics (#1712)
+- 69d2f56: add end-to-end Playwright testing and AI evaluation pipeline (#1714)
+
 ## 2.13.0
 
 ### Minor Changes

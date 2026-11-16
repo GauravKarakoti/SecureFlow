@@ -145,4 +145,24 @@ describe("PolicyCard toggle (#660)", () => {
 
     expect(screen.getByRole("switch")).toBeChecked();
   });
+
+  it("renders Edit and History buttons and opens the modals", async () => {
+    renderCard({ title: "Custom Guard" });
+
+    const editBtn = screen.getByRole("button", { name: "Edit Custom Guard" });
+    const historyBtn = screen.getByRole("button", { name: "History for Custom Guard" });
+
+    expect(editBtn).toBeInTheDocument();
+    expect(historyBtn).toBeInTheDocument();
+
+    await userEvent.click(editBtn);
+    expect(screen.getByRole("heading", { name: /Edit Policy:/i })).toBeInTheDocument();
+
+    // Close edit dialog (cancel or close button)
+    const cancelBtn = screen.getByRole("button", { name: /Cancel/i });
+    await userEvent.click(cancelBtn);
+
+    await userEvent.click(historyBtn);
+    expect(screen.getByRole("heading", { name: /Version History:/i })).toBeInTheDocument();
+  });
 });

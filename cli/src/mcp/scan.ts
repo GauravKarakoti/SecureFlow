@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { hasHighEntropy } from "../entropy.js";
 import {
   MAX_SCANNED_BYTES,
@@ -6,8 +8,11 @@ import {
   maskStringLiterals,
   readArgumentList,
   scanFile,
+  type FileScanResult,
   type OutputFormat,
 } from "../scanner.js";
+import { getStagedFiles, readStagedContent, isGitRepository } from "../git.js";
+import { sandboxWorkspacePath, PathTraversalError } from "../workspace.js";
 
 const FORMATS = ["json", "text", "sarif", "csv", "html", "markdown", "md"] as const;
 
@@ -24,6 +29,15 @@ export const SCAN_CONTENT_SCHEMA = {
       maxLength: 256,
       description: "Relative report label, not a filesystem path to open. Defaults to input.ts.",
     },
+    workspaceRoot: {
+      type: "string",
+      description: "Optional project root directory to sandbox path references within.",
+    },
+    incremental: {
+      type: "boolean",
+      default: false,
+      description: "When true, scopes scanning strictly to uncommitted/staged Git diff changes.",
+    },
     minEntropy: { type: "number", minimum: 0, maximum: 8, default: 2.8 },
     minTokenLength: { type: "integer", minimum: 8, maximum: 256, default: 16 },
     format: { type: "string", enum: [...FORMATS], default: "json" },
@@ -33,29 +47,35 @@ export const SCAN_CONTENT_SCHEMA = {
   additionalProperties: false,
 };
 
-/** Scan one bounded source blob and format redacted findings with the CLI exporters. */
+export interface ScanContentOptions {
+  content?: string;
+  path?: string;
+  workspaceRoot?: string;
+  incremental?: boolean;
+  minEntropy?: number;
+  minTokenLength?: number;
+  format?: OutputFormat;
+  intentToken?: string;
+}
+
+/**
+ * Scan content or incremental git diffs within a sandboxed workspace (#1752).
+ */
 export function scanSuppliedContent(args: Record<string, unknown>) {
   if (Object.keys(args).some((key) => !Object.hasOwn(SCAN_CONTENT_SCHEMA.properties, key))) {
     throw new Error("Unknown scan-content argument");
   }
-  if (
-    typeof args.content !== "string" ||
-    Buffer.byteLength(args.content, "utf8") > MAX_SCANNED_BYTES
-  ) {
-    throw new Error(`content must be a string of at most ${MAX_SCANNED_BYTES} UTF-8 bytes`);
-  }
   if (args.intentToken !== undefined && typeof args.intentToken !== "string") {
     throw new Error("intentToken must be a string");
   }
-  const path = args.path === undefined ? "input.ts" : args.path;
-  if (
-    typeof path !== "string" ||
-    path.length > 256 ||
-    !/^[A-Za-z0-9_-][A-Za-z0-9_./-]*$/.test(path) ||
-    path.split("/").some((part) => !part || part === "." || part === "..")
-  ) {
-    throw new Error("path must be a relative report label without empty, dot or parent segments");
-  }
+
+  const workspaceRoot =
+    typeof args.workspaceRoot === "string" && args.workspaceRoot.trim()
+      ? args.workspaceRoot.trim()
+      : process.cwd();
+
+  const isIncremental = args.incremental === true;
+
   const minEntropy = args.minEntropy === undefined ? 2.8 : args.minEntropy;
   if (
     typeof minEntropy !== "number" ||
@@ -79,16 +99,97 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
     throw new Error("Unsupported scan output format");
   }
 
-  const result = scanFile(path, args.content);
+  // ── Incremental Mode: Scans uncommitted Git diff changes via cli/src/git.ts ──
+  if (isIncremental) {
+    if (!isGitRepository()) {
+      throw new Error("Incremental scan mode requires execution inside a Git repository");
+    }
+
+    const stagedFiles = getStagedFiles();
+    const results: FileScanResult[] = [];
+
+    for (const relativePath of stagedFiles) {
+      // Validate sandbox boundary for each staged path
+      sandboxWorkspacePath(relativePath, workspaceRoot);
+
+      const stagedContent = readStagedContent(relativePath);
+      if (stagedContent !== null) {
+        const fileResult = scanSingleContent(
+          relativePath,
+          stagedContent,
+          minEntropy,
+          minTokenLength,
+        );
+        results.push(fileResult);
+      }
+    }
+
+    const totalViolations = results.reduce((acc, r) => acc + r.violations.length, 0);
+
+    return {
+      source: "git_incremental",
+      format,
+      incremental: true,
+      filesScanned: results.length,
+      violationCount: totalViolations,
+      results,
+      report: formatScanResults(results, format as OutputFormat),
+    };
+  }
+
+  // ── Content Supplied Mode: Direct in-memory source scanning ──
+  if (typeof args.content !== "string") {
+    throw new Error("content must be a string");
+  }
+
+  if (Buffer.byteLength(args.content, "utf8") > MAX_SCANNED_BYTES) {
+    throw new Error(`content must be a string of at most ${MAX_SCANNED_BYTES} UTF-8 bytes`);
+  }
+
+  const rawPath = args.path === undefined ? "input.ts" : args.path;
+  if (
+    typeof rawPath !== "string" ||
+    rawPath.length > 256 ||
+    !/^[A-Za-z0-9_-][A-Za-z0-9_./-]*$/.test(rawPath) ||
+    rawPath.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error("path must be a relative report label without empty, dot or parent segments");
+  }
+
+  // Enforce workspace path sandboxing against symlink / traversal escapes
+  sandboxWorkspacePath(rawPath, workspaceRoot);
+
+  const result = scanSingleContent(rawPath, args.content, minEntropy, minTokenLength);
+  const results = [result];
+
+  return {
+    source: "caller_provided",
+    format,
+    minEntropy,
+    minTokenLength,
+    violationCount: result.violations.length,
+    results,
+    report: formatScanResults(results, format as OutputFormat),
+  };
+}
+
+function scanSingleContent(
+  pathLabel: string,
+  content: string,
+  minEntropy: number,
+  minTokenLength: number,
+): FileScanResult {
+  const result = scanFile(pathLabel, content);
+
   if (!result.skipped) {
-    const masked = maskStringLiterals(args.content);
+    const masked = maskStringLiterals(content);
     const calls = /console\s*\.\s*(?:log|info|warn|error|debug|trace|table|dir)\s*\(/g;
     for (const call of masked.matchAll(calls)) {
       const openParen = call.index + call[0].length - 1;
       const maskedArgs = readArgumentList(masked, openParen);
       if (maskedArgs === null) continue;
-      const rawArgs = args.content.slice(openParen + 1, openParen + 1 + maskedArgs.length);
-      // Deliberately bounded heuristic for directly quoted ASCII tokens, not a JS evaluator.
+      const rawArgs = content.slice(openParen + 1, openParen + 1 + maskedArgs.length);
+      // Deliberately bounded heuristic for directly quoted ASCII tokens
       const tokens = rawArgs.matchAll(/(["'`])([A-Za-z0-9_+/=-]{8,256})\1/g);
       if (
         [...tokens].some(
@@ -111,15 +212,7 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
     }
     result.violations.sort((a, b) => a.line - b.line);
   }
+
   for (const violation of result.violations) violation.text = "[source redacted]";
-  const results = [result];
-  return {
-    source: "caller_provided",
-    format,
-    minEntropy,
-    minTokenLength,
-    violationCount: result.violations.length,
-    results,
-    report: formatScanResults(results, format as OutputFormat),
-  };
+  return result;
 }

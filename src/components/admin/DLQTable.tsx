@@ -10,6 +10,7 @@ import {
   deleteBulkDLQJobs,
 } from "@/lib/actions/queue";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TimeAgo } from "@/components/time-ago";
 import {
   Play,
   Trash2,
@@ -458,9 +459,7 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-xs font-mono">
-                          {job.data?.failedAt
-                            ? new Date(job.data.failedAt).toLocaleString()
-                            : "Unknown"}
+                          {job.data?.failedAt ? <TimeAgo date={job.data.failedAt} /> : "Unknown"}
                         </td>
                         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-2 justify-end">

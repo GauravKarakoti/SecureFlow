@@ -432,9 +432,19 @@ export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdow
 export function formatScanResults(
   results: FileScanResult[],
   format: OutputFormat = "text",
+  options?: {
+    toolVersion?: string;
+    repoUri?: string;
+    remediations?: Record<string, string>;
+    aiFindings?: any[];
+  },
 ): string {
   if (format === "json") {
     return JSON.stringify(results, null, 2);
+  }
+
+  if (format === "sarif") {
+    return formatSarifJson(results, options);
   }
 
   if (format === "text") {
@@ -450,7 +460,7 @@ export function formatScanResults(
     return text;
   }
 
-  // Unified Exporters for SARIF, CSV, Markdown, and HTML (#1095)
+  // Unified Exporters for CSV, Markdown, and HTML (#1095)
   try {
     const exporter = getExporter(format);
     return exporter.export(results);

@@ -55,6 +55,7 @@ async function getHandler(request: NextRequest) {
     const decision = searchParams.get("decision") || undefined;
     const format = searchParams.get("format") || undefined;
     const framework = (searchParams.get("framework") as "SOC2" | "ISO27001" | "ALL") || "ALL";
+    const cursor = searchParams.get("cursor") || undefined;
     const limit = parseTraceInteger(
       searchParams.get("limit"),
       DEFAULT_TRACE_LIMIT,
@@ -63,13 +64,14 @@ async function getHandler(request: NextRequest) {
     );
     const offset = parseTraceInteger(searchParams.get("offset"), 0, 0, MAX_TRACE_OFFSET);
 
-    const { traces, total } = await fetchArmorIQAuditTraces({
+    const { traces, total, nextCursor } = await fetchArmorIQAuditTraces({
       userId: session.user.id,
       scanJobId,
       findingId,
       decision,
       limit,
       offset,
+      cursor,
     });
 
     if (format === "compliance") {
@@ -85,6 +87,7 @@ async function getHandler(request: NextRequest) {
     return NextResponse.json({
       traces,
       total,
+      nextCursor,
     });
   } catch (error: any) {
     if (

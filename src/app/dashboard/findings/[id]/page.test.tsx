@@ -5,7 +5,14 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-const { authMock, findFirstMock, findUniqueMock, auditLogFindManyMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
+const {
+  authMock,
+  findFirstMock,
+  findUniqueMock,
+  auditLogFindManyMock,
+  redirectMock,
+  notFoundMock,
+} = vi.hoisted(() => ({
   authMock: vi.fn(),
   findFirstMock: vi.fn(),
   findUniqueMock: vi.fn(),

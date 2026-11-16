@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { triggerRepositorySync } from "@/lib/actions/sync-repositories";
+import { TimeAgo } from "@/components/time-ago";
 
 interface DashboardClientProps {
   stats: { totalScans: number; blockedPRs: number; approvedPRs: number; secretsDetected: number };
@@ -323,9 +324,7 @@ export default function DashboardClient({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-                        <span suppressHydrationWarning>
-                          {new Date(pr.createdAt).toLocaleDateString("en-GB")}
-                        </span>
+                        <TimeAgo date={pr.createdAt} />
 
                         <span className="max-w-[180px] truncate text-primary sm:max-w-none">
                           {pr.repository.fullName}

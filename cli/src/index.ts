@@ -34,6 +34,15 @@ import {
   parseVoiceArg,
 } from "./lib/output-args.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
+import {
+  TerminalSpinner,
+  formatTuiScanSummary,
+  initHuskyPreCommitHook,
+  initBlankPrepareScript,
+  initSecureFlow,
+  formatInitGreeting,
+  colors,
+} from "./lib/tui.js";
 
 const VERBOSE = process.argv.includes("--verbose");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -82,6 +91,9 @@ Commands:
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
 
 Options:
+  --init                 Initialize SecureFlow (choose between Blank and Husky)
+  --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
+  --blank                Initialize using Blank mode (package.json prepare script)
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -187,6 +199,22 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
+  if (
+    process.argv.some(
+      (arg) => arg === "--init" || arg.startsWith("--init=") || arg === "--husky" || arg === "--blank",
+    )
+  ) {
+    const result = await initSecureFlow();
+    const greeting = formatInitGreeting(result);
+    if (result.success) {
+      console.log(greeting);
+      return 0;
+    } else {
+      console.error(greeting);
+      return 1;
+    }
+  }
+
   const isMcpCommand = process.argv[2] === "mcp";
 
   if (isMcpCommand) {
@@ -394,13 +422,25 @@ async function main(): Promise<number> {
   // affects the text output/exit code today -- JSON/SARIF export stays
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
+  const aiSpinner =
+    format === "text" && stagedForAi.length > 0
+      ? new TerminalSpinner("Running AI security inspection").start()
+      : null;
   const aiFindings = await runAiScanIfAvailable(stagedForAi);
+  if (aiSpinner) {
+    aiSpinner.succeed(
+      `AI inspection completed (${aiFindings.length} finding${aiFindings.length === 1 ? "" : "s"})`,
+    );
+  }
   const filteredAiFindings = severityFilter
     ? aiFindings.filter((f) => severityFilter.has(f.severity))
     : aiFindings;
   if (format === "text") {
     for (const finding of filteredAiFindings) {
       reportAiFinding(finding);
+    }
+    if (fileResults.length > 0 || filteredAiFindings.length > 0) {
+      console.log(formatTuiScanSummary(filteredResults, filteredAiFindings));
     }
   }
   if (
@@ -410,7 +450,10 @@ async function main(): Promise<number> {
     format === "html" ||
     format === "markdown"
   ) {
-    const outputString = formatScanResults(filteredResults, format);
+    const outputString =
+      format === "sarif"
+        ? formatScanResults(filteredResults, "sarif", { aiFindings: filteredAiFindings })
+        : formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:

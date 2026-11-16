@@ -9,6 +9,7 @@ import {
   type WorkerStartupPlan,
 } from "../src/lib/queue/scan-worker-bootstrap";
 import { createDlqAutoRetryWorker } from "../src/lib/queue/dlq-auto-retry";
+import { createRemediationDlqWorker } from "../src/lib/queue/remediationDlq";
 import express, { type Express } from "express";
 import type { Server } from "http";
 
@@ -31,6 +32,7 @@ export interface StartWorkerResult {
   server?: Server;
   plan: WorkerStartupPlan;
   dlqAutoRetryWorker: ReturnType<typeof createDlqAutoRetryWorker>;
+  remediationDlqWorker: ReturnType<typeof createRemediationDlqWorker>;
   drain: Array<() => Promise<void> | void>;
 }
 
@@ -71,6 +73,10 @@ export function startWorkerServer(options: StartWorkerOptions = {}): StartWorker
   dlqAutoRetryWorker.start();
   console.log("🔁 DLQ Auto-Retry Worker started");
 
+  const remediationDlqWorker = createRemediationDlqWorker();
+  remediationDlqWorker.start();
+  console.log("🔁 Remediation DLQ Auto-Replay Worker started");
+
   // Platforms like Render inject PORT; the keep-alive workflow pings the
   // worker's health endpoint, so binding the wrong port fails health checks.
   const envPort = Number(process.env.PORT);
@@ -87,6 +93,7 @@ export function startWorkerServer(options: StartWorkerOptions = {}): StartWorker
   const drain: Array<() => Promise<void> | void> = [
     ...(plan.scanWorkerEnabled ? [() => scanWorkerPool.stop()] : []),
     () => dlqAutoRetryWorker.stop(),
+    () => remediationDlqWorker.stop(),
   ];
 
   if (options.setupSignals !== false) {
@@ -102,7 +109,7 @@ export function startWorkerServer(options: StartWorkerOptions = {}): StartWorker
     });
   }
 
-  return { app, server, plan, dlqAutoRetryWorker, drain };
+  return { app, server, plan, dlqAutoRetryWorker, remediationDlqWorker, drain };
 }
 
 const isMain = process.argv[1] && /start-worker(\.ts|\.js)?$/.test(process.argv[1]);

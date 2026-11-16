@@ -716,4 +716,33 @@ describe("--severity and --fail-on combined", () => {
     expect(shouldFailScan(0, aiFindings, "CRITICAL")).toBe(true);
     expect(blockingAiFindings(aiFindings, "CRITICAL")).toHaveLength(1);
   });
+
+  describe("Native SARIF Exporter Integration (#1766)", () => {
+    it("exports valid SARIF document adhering to OASIS 2.1.0 specifications", () => {
+      const exporter = getExporter("sarif");
+      expect(exporter).toBeInstanceOf(SarifExporter);
+
+      const rawSarif = exporter.export(sampleResults);
+      const doc = JSON.parse(rawSarif);
+
+      expect(doc.version).toBe("2.1.0");
+      expect(doc.$schema).toContain("sarif-2.1.0.json");
+      expect(doc.runs).toHaveLength(1);
+      expect(doc.runs[0].tool.driver.name).toBe("SecureFlow CLI");
+      expect(doc.runs[0].results.length).toBeGreaterThanOrEqual(1);
+
+      for (const res of doc.runs[0].results) {
+        expect(res.ruleId).toBeDefined();
+        expect(["error", "warning", "note"]).toContain(res.level);
+        expect(res.message.text).toBeDefined();
+        expect(res.locations[0].physicalLocation.artifactLocation.uri).toBeDefined();
+        expect(res.locations[0].physicalLocation.region.startLine).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it("ensures uppercase and lowercase sarif format identifiers return SarifExporter", () => {
+      expect(getExporter("sarif")).toBeInstanceOf(SarifExporter);
+      expect(getExporter("SARIF")).toBeInstanceOf(SarifExporter);
+    });
+  });
 });

@@ -730,6 +730,73 @@ paths:
                 $ref: "#/components/schemas/Error"
 
   /api/findings:
+    get:
+      summary: List security findings
+      description: |
+        Retrieves a paginated list of security findings for repositories owned by the user.
+        Supports cursor-based keyset pagination with stable ordering (createdAt desc, id desc).
+      operationId: listFindings
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of findings to return (clamped to 1-100)
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque cursor for fetching the next page
+        - name: severity
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by finding severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by finding type (SECRET, VULNERABILITY, MISCONFIG)
+        - name: repositoryId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter findings by repository ID
+      responses:
+        "200":
+          description: Paginated list of findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+                  nextCursor:
+                    type: string
+                    nullable: true
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     post:
       summary: Enqueue vulnerability scan
       description: |
@@ -1507,6 +1574,75 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/audit:
+    get:
+      summary: List audit log entries
+      description: |
+        Retrieves a paginated list of audit log entries for the authenticated user.
+        Supports cursor-based keyset pagination with stable ordering (timestamp desc, id desc).
+      operationId: listAuditLogs
+      security:
+        - sessionAuth: []
+      tags:
+        - Audit
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of audit log entries to return (clamped to 1-100)
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque cursor for fetching the next page
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by audit log action
+        - name: decision
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by decision (e.g. ALLOWED, BLOCKED)
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Free-text search matching action, resource, or decision
+      responses:
+        "200":
+          description: Paginated list of audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+                  nextCursor:
+                    type: string
+                    nullable: true
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/audit/armoriq:
     get:
       summary: Get ArmorIQ enforcement decisions
@@ -1517,6 +1653,12 @@ paths:
       security:
         - sessionAuth: []
       parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque base64 cursor for keyset pagination
         - name: scanJobId
           in: query
           required: false
@@ -1639,6 +1781,23 @@ paths:
           description: Compliance report in the requested format
         "401":
           description: Not signed in
+
+  /api/admin/audit/verify:
+    get:
+      summary: Verify audit log cryptographic hash chain
+      description: Walks the tamper-evident hash chain and verifies integrity. Admin only.
+      operationId: verifyAuditChain
+      tags:
+        - Admin
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Audit log chain integrity verified and valid
+        "401":
+          description: Not authenticated or missing ADMIN role
+        "409":
+          description: Audit log chain integrity violation or corruption detected
 
   /api/admin/ai-health:
     get:
@@ -1901,6 +2060,63 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/policies/export:
+    get:
+      summary: Export policies as versioned JSON
+      description: Downloads all of the signed-in user's configured policies in versioned JSON format.
+      operationId: exportPolicies
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Policies exported successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+
+  /api/policies/import/preview:
+    post:
+      summary: Preview policy bundle import
+      description: Validates an uploaded policy bundle and previews changes against existing templates.
+      operationId: previewPolicyImport
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Preview of creations and updates
+        "400":
+          description: Invalid policy format or schema violation
+        "401":
+          description: Unauthorized
+        "413":
+          description: Payload exceeds 1 MB limit
+
+  /api/policies/import:
+    post:
+      summary: Apply policy bundle import
+      description: Validates and imports a policy bundle within a transaction, updating templates and user toggles.
+      operationId: importPolicies
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Policies imported successfully
+        "400":
+          description: Invalid policy format or schema violation
+        "401":
+          description: Unauthorized
+        "413":
+          description: Payload exceeds 1 MB limit
+
   /api/policies/test:
     post:
       summary: Test policy endpoint
@@ -1919,6 +2135,45 @@ paths:
           description: Policy test results
         "401":
           description: Missing or invalid signature
+        "429":
+          description: Rate limit exceeded
+
+  /api/badge/{owner}/{repo}:
+    parameters:
+      - name: owner
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The repository owner or organization.
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The repository name.
+    get:
+      summary: Get SVG scan status badge
+      description: |
+        Returns a shields.io-style SVG status badge reflecting the latest scan status
+        (passing, review required, blocked, or unknown) for the repository. Only repositories
+        with public badges enabled return the real status; others return unknown.
+      operationId: getStatusBadge
+      tags:
+        - Repositories
+      responses:
+        "200":
+          description: SVG badge image
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: public, max-age=300, s-maxage=300
+              description: Cache directives for public badge responses
+          content:
+            image/svg+xml:
+              schema:
+                type: string
         "429":
           description: Rate limit exceeded
 

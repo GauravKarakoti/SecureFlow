@@ -340,6 +340,38 @@ describe("CLI End-to-End (E2E) Test Suite (#1245)", () => {
       expect(sarifJson.runs[0].results[0].ruleId).toMatch(/^SEC/);
     });
 
+    it("verifies GHAS upload compatibility for SARIF export format (#1766)", () => {
+      const repoDir = path.join(tempBaseDir, "ghas-sarif-repo");
+      initGitRepo(repoDir);
+
+      const secretFilePath = path.join(repoDir, "auth.ts");
+      fs.writeFileSync(
+        secretFilePath,
+        'export const apiKey = "AIzaSySecretApiKey123456789";\nconsole.log("Key:", apiKey);\n',
+      );
+      execSync("git add auth.ts", { cwd: repoDir, stdio: "ignore" });
+
+      const ghasFile = path.join(repoDir, "ghas-report.sarif");
+      const res = runCli(["--format", "sarif", "-o", ghasFile], repoDir);
+
+      expect(fs.existsSync(ghasFile)).toBe(true);
+      const ghasSarif = JSON.parse(fs.readFileSync(ghasFile, "utf-8"));
+
+      // GHAS code scanning requirements
+      expect(ghasSarif.version).toBe("2.1.0");
+      expect(ghasSarif.runs[0].tool.driver.name).toBe("SecureFlow CLI");
+      expect(ghasSarif.runs[0].tool.driver.rules.length).toBeGreaterThanOrEqual(1);
+
+      const finding = ghasSarif.runs[0].results[0];
+      expect(finding).toBeDefined();
+      expect(finding.ruleId).toBeDefined();
+      expect(["error", "warning", "note"]).toContain(finding.level);
+      expect(finding.locations[0].physicalLocation.artifactLocation.uri).toBe("auth.ts");
+      expect(finding.locations[0].physicalLocation.region.startLine).toBeGreaterThanOrEqual(1);
+      expect(finding.partialFingerprints).toBeDefined();
+      expect(finding.partialFingerprints["checksum/v1"]).toBeDefined();
+    });
+
     it("exports Markdown report with --format markdown", () => {
       const repoDir = path.join(tempBaseDir, "md-repo");
       initGitRepo(repoDir);

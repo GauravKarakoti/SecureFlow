@@ -11,7 +11,14 @@
  *  - Integrity: Never deletes users, repositories, or policies.
  */
 
-import { RetentionConfigError, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS } from "./policy";
+import {
+  RetentionConfigError,
+  MIN_RETENTION_DAYS,
+  MAX_RETENTION_DAYS,
+  calculateRetentionCutoff,
+} from "./policy";
+
+export { calculateRetentionCutoff };
 
 /** Default rows touched per batch statement. */
 export const DEFAULT_CLEANUP_BATCH_SIZE = 500;
@@ -93,13 +100,6 @@ export function resolveDataRetentionDays(
   env: Record<string, string | undefined> = process.env,
 ): number | null {
   return parseDataRetentionDays(env.DATA_RETENTION_DAYS);
-}
-
-/**
- * Calculate the cutoff Date before which rows are eligible for deletion.
- */
-export function calculateRetentionCutoff(days: number, now: Date = new Date()): Date {
-  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
 
 /**

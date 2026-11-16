@@ -1,7 +1,7 @@
-
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
+import { getModelCircuitBreaker, CircuitBreakerError, CircuitState, isVramConcurrencyError } from "@/ai/resilience";
 import {
   AISecurityExplanationOutputSchema,
   type AISecurityExplanationInput,
@@ -20,7 +20,9 @@ export interface TokenUsage {
 export type FallbackReason =
   | "rate_limit"
   | "timeout"
-  | "insufficient_memory";
+  | "insufficient_memory"
+  | "circuit_breaker_open"
+  | "vram_concurrency_exceeded";
 
 export function prepareExplanation(input: AISecurityExplanationInput) {
   return {
@@ -39,20 +41,14 @@ export function extractTokenUsage(
   return {
     inputTokens,
     outputTokens,
-    totalTokens:
-      response.usage.totalTokens ?? inputTokens + outputTokens,
+    totalTokens: response.usage.totalTokens ?? inputTokens + outputTokens,
   };
 }
 
 export async function runModelChain<TModel, TResult>(
   models: TModel[],
   attempt: (model: TModel) => Promise<TResult>,
-  onFallback?: (info: {
-    from: TModel;
-    to: TModel;
-    reason: FallbackReason;
-    error: unknown;
-  }) => void,
+  onFallback?: (info: { from: TModel; to: TModel; reason: FallbackReason; error: unknown }) => void,
 ): Promise<{ value: TResult; model: TModel }> {
   if (!models.length) {
     throw new Error("Model chain is empty.");
@@ -61,18 +57,57 @@ export async function runModelChain<TModel, TResult>(
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
     const next = models[i + 1];
+    const modelKey = typeof model === "string" ? model : (model as any)?.name || String(model);
+    const breaker = getModelCircuitBreaker(modelKey);
 
     try {
+      const value = await breaker.execute(() => attempt(model));
       return {
-        value: await attempt(model),
+        value,
         model,
       };
     } catch (error) {
+      if (error instanceof CircuitBreakerError) {
+        if (next === undefined) {
+          throw error;
+        }
+
+        console.warn(
+          `[AI_CIRCUIT_BREAKER] Circuit breaker open for ${modelKey}. Tripping failover to ${String(next)}`,
+        );
+
+        onFallback?.({
+          from: model,
+          to: next,
+          reason: "circuit_breaker_open",
+          error,
+        });
+
+        continue;
+      }
+
+      if (isVramConcurrencyError(error)) {
+        if (next === undefined) {
+          throw error;
+        }
+
+        console.warn(
+          `[AI_FALLBACK] Model ${String(model)} exceeded VRAM concurrency limit. Switching to ${String(next)}`,
+        );
+
+        onFallback?.({
+          from: model,
+          to: next,
+          reason: "vram_concurrency_exceeded",
+          error,
+        });
+
+        continue;
+      }
+
       if (isInsufficientMemoryError(error)) {
         if (next === undefined) {
-          throw new InsufficientVRAMError(
-            models.map((m) => getModelId(m as any)),
-          );
+          throw new InsufficientVRAMError(models.map((m) => getModelId(m as any)));
         }
 
         console.warn(
@@ -89,17 +124,10 @@ export async function runModelChain<TModel, TResult>(
         continue;
       }
 
-      if (
-        next !== undefined &&
-        (isRateLimitError(error) || isTimeoutError(error))
-      ) {
-        const reason = isRateLimitError(error)
-          ? "rate_limit"
-          : "timeout";
+      if (next !== undefined && (isRateLimitError(error) || isTimeoutError(error))) {
+        const reason = isRateLimitError(error) ? "rate_limit" : "timeout";
 
-        console.warn(
-          `[AI_FALLBACK] Model ${String(model)} failed. Switching to ${String(next)}`,
-        );
+        console.warn(`[AI_FALLBACK] Model ${String(model)} failed. Switching to ${String(next)}`);
 
         onFallback?.({
           from: model,
@@ -127,12 +155,7 @@ export function buildExplanationResult(args: {
   injectionPreFilterFlagged: boolean;
   lastExplanation?: string;
 }) {
-  const {
-    input,
-    finalResponse,
-    injectionPreFilterFlagged,
-    lastExplanation = "",
-  } = args;
+  const { input, finalResponse, injectionPreFilterFlagged, lastExplanation = "" } = args;
 
   let parsed: Partial<AISecurityExplanationOutput> = {};
   let usedParseFallback = false;
@@ -166,19 +189,13 @@ export function buildExplanationResult(args: {
     }
   }
 
-  const explanation =
-    parsed.explanation ||
-    lastExplanation ||
-    "No explanation provided.";
+  const explanation = parsed.explanation || lastExplanation || "No explanation provided.";
 
   const result = AISecurityExplanationOutputSchema.parse({
     explanation,
-    remediationSuggestions:
-      parsed.remediationSuggestions ||
-      "No remediation suggestions provided.",
+    remediationSuggestions: parsed.remediationSuggestions || "No remediation suggestions provided.",
     promptInjectionSuspected:
-      injectionPreFilterFlagged ||
-      contradictsSeverity(input.severity, explanation),
+      injectionPreFilterFlagged || contradictsSeverity(input.severity, explanation),
   });
 
   return {
@@ -192,10 +209,7 @@ export function shouldCacheExplanation(args: {
   model: unknown;
   models: unknown[];
 }): boolean {
-  return (
-    !args.usedParseFallback &&
-    args.model === args.models[0]
-  );
+  return !args.usedParseFallback && args.model === args.models[0];
 }
 
 export function toUserFacingError(error: unknown): string {
@@ -207,7 +221,5 @@ export function toUserFacingError(error: unknown): string {
     return "AI provider connection timed out. Please try again.";
   }
 
-  return error instanceof Error
-    ? error.message
-    : "AI generation failed.";
+  return error instanceof Error ? error.message : "AI generation failed.";
 }

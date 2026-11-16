@@ -13,6 +13,8 @@ import {
   DEFAULT_VLLM_MODEL,
   DEFAULT_LOCAL_AI_URL,
   DEFAULT_LOCAL_AI_MODEL,
+  streamLocalModelGeneration,
+  generateLocalModel,
 } from "./local-model";
 
 // ---------------------------------------------------------------------------
@@ -432,5 +434,123 @@ describe("default constants", () => {
 
   it("DEFAULT_VLLM_MODEL is Meta-Llama-3-8B-Instruct", () => {
     expect(DEFAULT_VLLM_MODEL).toBe("meta-llama/Meta-Llama-3-8B-Instruct");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// streamLocalModelGeneration & Abort Signal Wire-up (#1753)
+// ---------------------------------------------------------------------------
+
+describe("streamLocalModelGeneration & generateLocalModel (#1753)", () => {
+  it("returns immediately without fetching if signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const tokens: string[] = [];
+    for await (const chunk of streamLocalModelGeneration({
+      prompt: "test",
+      signal: controller.signal,
+    })) {
+      tokens.push(chunk);
+    }
+
+    expect(tokens).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("streams tokens from OpenAI-compatible SSE chunks", async () => {
+    const sseData =
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n' +
+      'data: {"choices":[{"delta":{"content":" world"}}]}\n\n' +
+      'data: [DONE]\n\n';
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(encoder.encode(sseData));
+        ctrl.close();
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: stream,
+    } as any);
+
+    const tokens: string[] = [];
+    for await (const token of streamLocalModelGeneration({
+      prompt: "hi",
+      config: { baseUrl: "http://localhost:11434/v1", model: "llama3" },
+    })) {
+      tokens.push(token);
+    }
+
+    expect(tokens).toEqual(["Hello", " world"]);
+  });
+
+  it("halts token generation and cancels reader immediately on client abort signal", async () => {
+    const controller = new AbortController();
+    let readerCancelled = false;
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Token 1"}}]}\n\n'));
+      },
+      cancel() {
+        readerCancelled = true;
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: stream,
+    } as any);
+
+    const tokens: string[] = [];
+    for await (const token of streamLocalModelGeneration({
+      prompt: "abort test",
+      signal: controller.signal,
+      config: { baseUrl: "http://localhost:11434/v1", model: "llama3" },
+    })) {
+      tokens.push(token);
+      controller.abort();
+    }
+
+    expect(tokens).toEqual(["Token 1"]);
+    expect(readerCancelled).toBe(true);
+  });
+
+  it("generateLocalModel accumulates all streamed tokens into complete text", async () => {
+    const sseData =
+      'data: {"choices":[{"delta":{"content":"Secure"}}]}\n\n' +
+      'data: {"choices":[{"delta":{"content":"Flow"}}]}\n\n' +
+      'data: [DONE]\n\n';
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(encoder.encode(sseData));
+        ctrl.close();
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: stream,
+    } as any);
+
+    const result = await generateLocalModel({
+      prompt: "test accumulation",
+      config: { baseUrl: "http://localhost:11434/v1", model: "llama3" },
+    });
+
+    expect(result.text).toBe("SecureFlow");
   });
 });

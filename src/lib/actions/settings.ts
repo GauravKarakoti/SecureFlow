@@ -160,3 +160,76 @@ export async function getVoiceAlerts(): Promise<boolean> {
 
   return user?.voiceAlertsEnabled ?? false;
 }
+
+export interface RepoBadgeSetting {
+  id: string;
+  fullName: string;
+  owner: string;
+  publicBadgeEnabled: boolean;
+  latestStatus?: string | null;
+}
+
+export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSetting[]> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return [];
+
+  const repos = await prisma.repository.findMany({
+    where: { userId, isActive: true },
+    select: {
+      id: true,
+      fullName: true,
+      owner: true,
+      publicBadgeEnabled: true,
+      pullRequests: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { status: true },
+      },
+    },
+    orderBy: { fullName: "asc" },
+  });
+
+  return (
+    repos as Array<{
+      id: string;
+      fullName: string;
+      owner: string;
+      publicBadgeEnabled: boolean;
+      pullRequests: Array<{ status: string }>;
+    }>
+  ).map((repo) => ({
+    id: repo.id,
+    fullName: repo.fullName,
+    owner: repo.owner,
+    publicBadgeEnabled: repo.publicBadgeEnabled,
+    latestStatus: repo.pullRequests[0]?.status ?? null,
+  }));
+}
+
+export async function updateRepositoryPublicBadge(
+  repositoryId: string,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const repo = await prisma.repository.findFirst({
+    where: { id: repositoryId, userId },
+  });
+
+  if (!repo) {
+    return { success: false, error: "Repository not found or unauthorized" };
+  }
+
+  await prisma.repository.update({
+    where: { id: repositoryId },
+    data: { publicBadgeEnabled: Boolean(enabled) },
+  });
+
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}

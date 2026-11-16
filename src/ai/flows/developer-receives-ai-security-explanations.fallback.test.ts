@@ -25,6 +25,7 @@ vi.mock("@/lib/audit/ai-fallback-audit", () => ({
 vi.mock("dotenv/config", () => ({}));
 
 import { developerReceivesAISecurityExplanations } from "./developer-receives-ai-security-explanations";
+import { tripModelCircuitBreaker, resetModelCircuitBreakers } from "@/ai/resilience";
 
 const input = {
   findingType: "SQL Injection",
@@ -40,13 +41,18 @@ const goodReply = {
   text: '{"explanation":"Use parameterised queries.","remediationSuggestions":"Bind params."}',
 };
 
-describe("developerReceivesAISecurityExplanations - 429 fallback (#1233)", () => {
+describe("developerReceivesAISecurityExplanations - 429 fallback (#1233, #1768)", () => {
   beforeEach(() => {
+    resetModelCircuitBreakers();
     mockGenerate.mockReset();
     mockSetCached.mockReset();
     mockRecordFallback.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetModelCircuitBreakers();
   });
 
   it("routes to the secondary model when the primary returns 429", async () => {
@@ -105,5 +111,17 @@ describe("developerReceivesAISecurityExplanations - 429 fallback (#1233)", () =>
     await developerReceivesAISecurityExplanations(input);
 
     expect(mockRecordFallback).not.toHaveBeenCalled();
+  });
+
+  it("fails fast and falls back to static template when model circuit breaker is tripped (#1768)", async () => {
+    tripModelCircuitBreaker(PRIMARY);
+    tripModelCircuitBreaker(SECONDARY);
+
+    const result = await developerReceivesAISecurityExplanations(input);
+
+    expect(result.explanation).toContain("circuit breaker");
+    expect(result.explanation).toContain("OPEN");
+    expect(result.remediationSuggestions).toContain("Circuit breaker active");
+    expect(mockGenerate).not.toHaveBeenCalled();
   });
 });

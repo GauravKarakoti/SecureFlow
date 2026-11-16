@@ -223,6 +223,16 @@ describe("normalizeFindingsQuery", () => {
     expect(normalizeFindingsQuery({ repositoryId: "   " }).repositoryId).toBeNull();
   });
 
+  it("normalizes cursor and limit options", () => {
+    const q1 = normalizeFindingsQuery({ cursor: "  abc  ", limit: 25 });
+    expect(q1.cursor).toBe("abc");
+    expect(q1.limit).toBe(25);
+
+    const q2 = normalizeFindingsQuery({ cursor: "   ", limit: null });
+    expect(q2.cursor).toBeNull();
+    expect(q2.limit).toBeNull();
+  });
+
   it("is idempotent, so a normalized query can be fed straight back in", () => {
     // The page normalizes once from searchParams and hands the result to the
     // server action, which normalizes again — that must be a no-op rather than
