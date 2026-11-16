@@ -38,6 +38,8 @@ import {
   TerminalSpinner,
   formatTuiScanSummary,
   initHuskyPreCommitHook,
+  initBlankPrepareScript,
+  initSecureFlow,
   formatInitGreeting,
   colors,
 } from "./lib/tui.js";
@@ -89,7 +91,9 @@ Commands:
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
 
 Options:
-  --init                 Initialize local .husky/pre-commit hook configured with SecureFlow
+  --init                 Initialize SecureFlow (choose between Blank and Husky)
+  --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
+  --blank                Initialize using Blank mode (package.json prepare script)
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -195,8 +199,12 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
-  if (process.argv.includes("--init")) {
-    const result = initHuskyPreCommitHook();
+  if (
+    process.argv.some(
+      (arg) => arg === "--init" || arg.startsWith("--init=") || arg === "--husky" || arg === "--blank",
+    )
+  ) {
+    const result = await initSecureFlow();
     const greeting = formatInitGreeting(result);
     if (result.success) {
       console.log(greeting);

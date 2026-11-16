@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import readline from "node:readline";
 import type { FileScanResult, Violation } from "../scanner.js";
 import type { AiFinding } from "./api-client.js";
 
@@ -221,7 +222,23 @@ export interface InitGreetingOptions {
 }
 
 export interface InitHuskyOptions {
-  execFn?: CommandExecutor;
+  execFn?: CommandExecutor | undefined;
+}
+
+export type InitMode = "husky" | "blank";
+
+export interface InitBlankOptions {
+  execFn?: CommandExecutor | undefined;
+}
+
+export interface InitSecureFlowOptions {
+  mode?: InitMode | undefined;
+  targetDir?: string | undefined;
+  execFn?: CommandExecutor | undefined;
+  rl?: readline.Interface;
+  stdin?: NodeJS.ReadableStream;
+  stdout?: NodeJS.WritableStream;
+  argv?: string[];
 }
 
 /**
@@ -316,6 +333,198 @@ export function initHuskyPreCommitHook(
 }
 
 /**
+ * Initializes repository with `npm init --y` (if needed) and configures
+ * `npx secureflow` in package.json's `prepare` script (#1758).
+ * If a `prepare` script already exists, appends ` && npx secureflow`.
+ */
+export function initBlankPrepareScript(
+  targetDir: string = process.cwd(),
+  optionsOrExecFn?: CommandExecutor | InitBlankOptions,
+): InitHookResult {
+  try {
+    const execFn: CommandExecutor =
+      typeof optionsOrExecFn === "function"
+        ? optionsOrExecFn
+        : (optionsOrExecFn?.execFn ?? execSync);
+
+    const pkgJsonPath = path.join(targetDir, "package.json");
+
+    // 1. Run npm init --y if not already exist (#1758)
+    if (!fs.existsSync(pkgJsonPath)) {
+      try {
+        execFn("npm init --y", { cwd: targetDir, stdio: "ignore" });
+      } catch (err) {
+        // Continue if npm init --y encountered an issue
+      }
+    }
+
+    let pkg: any;
+    if (fs.existsSync(pkgJsonPath)) {
+      try {
+        const raw = fs.readFileSync(pkgJsonPath, "utf-8");
+        pkg = JSON.parse(raw);
+      } catch (parseErr) {
+        return {
+          success: false,
+          message: `Failed to parse package.json: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          hookPath: pkgJsonPath,
+        };
+      }
+    } else {
+      pkg = {
+        name: path.basename(targetDir) || "project",
+        version: "1.0.0",
+        scripts: {},
+      };
+    }
+
+    if (!pkg.scripts || typeof pkg.scripts !== "object") {
+      pkg.scripts = {};
+    }
+
+    const secureflowCmd = "npx secureflow";
+    const existingPrepare =
+      typeof pkg.scripts.prepare === "string" ? pkg.scripts.prepare.trim() : undefined;
+
+    let message = "";
+    if (!existingPrepare) {
+      pkg.scripts.prepare = secureflowCmd;
+      message = "Successfully added npx secureflow to package.json prepare script";
+    } else if (existingPrepare.includes("secureflow")) {
+      return {
+        success: true,
+        message: "SecureFlow is already configured in package.json prepare script",
+        hookPath: pkgJsonPath,
+      };
+    } else {
+      pkg.scripts.prepare = `${existingPrepare} && ${secureflowCmd}`;
+      message = `Appended npx secureflow to existing prepare script ("${pkg.scripts.prepare}")`;
+    }
+
+    fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+
+    return {
+      success: true,
+      message,
+      hookPath: pkgJsonPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to configure package.json prepare script: ${error instanceof Error ? error.message : String(error)}`,
+      hookPath: path.join(targetDir, "package.json"),
+    };
+  }
+}
+
+/**
+ * Detects whether the user explicitly selected Blank or Husky mode via CLI arguments (#1758).
+ */
+export function detectInitMode(argv: string[] = process.argv): InitMode | null {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg) continue;
+    if (arg === "--blank" || arg === "-b") return "blank";
+    if (arg === "--husky") return "husky";
+    if (arg.startsWith("--init=")) {
+      const val = arg.slice("--init=".length).trim().toLowerCase();
+      if (val === "blank" || val === "b" || val === "2") return "blank";
+      if (val === "husky" || val === "h" || val === "1") return "husky";
+    }
+    if (arg === "--init" && i + 1 < argv.length) {
+      const next = argv[i + 1]?.trim().toLowerCase();
+      if (next === "blank" || next === "b" || next === "2") return "blank";
+      if (next === "husky" || next === "h" || next === "1") return "husky";
+    }
+  }
+  return null;
+}
+
+/**
+ * Prompts user to select between Blank and Husky initialization mode interactively (#1758).
+ */
+export async function promptInitChoice(
+  rl?: readline.Interface,
+  input: NodeJS.ReadableStream = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+): Promise<InitMode> {
+  const readlineInterface =
+    rl ||
+    readline.createInterface({
+      input,
+      output,
+    });
+
+  const shouldClose = !rl;
+
+  return new Promise<InitMode>((resolve) => {
+    let answered = false;
+
+    readlineInterface.on("close", () => {
+      if (!answered) {
+        answered = true;
+        resolve("husky");
+      }
+    });
+
+    output.write(`\n${colors.bold(colors.cyan("Select initialization mode:"))}\n`);
+    output.write(
+      `  ${colors.bold("1)")} ${colors.green("Husky")}  - Git pre-commit hook via .husky/pre-commit (${colors.cyan("Recommended")})\n`,
+    );
+    output.write(
+      `  ${colors.bold("2)")} ${colors.yellow("Blank")}  - Add npx secureflow to package.json prepare script\n\n`,
+    );
+
+    readlineInterface.question(
+      colors.bold("Choose [1/2 or Husky/Blank] (default: 1): "),
+      (answer) => {
+        if (answered) return;
+        answered = true;
+        if (shouldClose) readlineInterface.close();
+        const trimmed = answer.trim().toLowerCase();
+        if (trimmed === "2" || trimmed === "blank" || trimmed === "b") {
+          resolve("blank");
+        } else {
+          resolve("husky");
+        }
+      },
+    );
+  });
+}
+
+/**
+ * Main initialization entry point allowing users to choose between Blank and Husky (#1758).
+ */
+export async function initSecureFlow(
+  options: InitSecureFlowOptions = {},
+): Promise<InitHookResult> {
+  const targetDir = options.targetDir || process.cwd();
+  const argv = options.argv || process.argv;
+  let mode = options.mode;
+
+  if (!mode) {
+    mode = detectInitMode(argv) ?? undefined;
+  }
+
+  if (!mode) {
+    const isInteractive =
+      (options.stdin as any)?.isTTY ?? (process.stdin.isTTY && !process.env.CI);
+    if (isInteractive) {
+      mode = await promptInitChoice(options.rl, options.stdin, options.stdout);
+    } else {
+      mode = "husky";
+    }
+  }
+
+  const execOpts = options.execFn ? { execFn: options.execFn } : undefined;
+  if (mode === "blank") {
+    return initBlankPrepareScript(targetDir, execOpts);
+  } else {
+    return initHuskyPreCommitHook(targetDir, execOpts);
+  }
+}
+
+/**
  * Formats a terminal greeting banner and onboarding guide for `secureflow --init` (#1732).
  */
 export function formatInitGreeting(
@@ -395,13 +604,22 @@ export function formatInitGreeting(
     "└───────────────────────────────────────────────────────────────────────┘",
   );
 
-  const nextStepsSection = [
-    colors.bold(colors.yellow("🚀 Next Steps:")),
-    `   ${colors.cyan("1.")} Stage changes:       ${colors.gray("git add <files>")}`,
-    `   ${colors.cyan("2.")} Commit files:        ${colors.gray('git commit -m "feat: new feature"')}\n      ${colors.dim("⤷ SecureFlow will automatically scan staged files before committing.")}`,
-    `   ${colors.cyan("3.")} Manual audit:        ${colors.gray("npx secureflow")} ${colors.dim("(run anytime on pending changes)")}`,
-    `   ${colors.cyan("4.")} Explore all options:  ${colors.gray("npx secureflow --help")}`,
-  ].join("\n");
+  const isBlankMode = Boolean(result.hookPath && result.hookPath.endsWith("package.json"));
+
+  const nextStepsSection = isBlankMode
+    ? [
+        colors.bold(colors.yellow("🚀 Next Steps:")),
+        `   ${colors.cyan("1.")} Run prepare script:  ${colors.gray("npm run prepare")}\n      ${colors.dim("⤷ SecureFlow will execute automatically during package lifecycle preparation.")}`,
+        `   ${colors.cyan("2.")} Manual audit:        ${colors.gray("npx secureflow")} ${colors.dim("(run anytime on pending changes)")}`,
+        `   ${colors.cyan("3.")} Explore all options:  ${colors.gray("npx secureflow --help")}`,
+      ].join("\n")
+    : [
+        colors.bold(colors.yellow("🚀 Next Steps:")),
+        `   ${colors.cyan("1.")} Stage changes:       ${colors.gray("git add <files>")}`,
+        `   ${colors.cyan("2.")} Commit files:        ${colors.gray('git commit -m "feat: new feature"')}\n      ${colors.dim("⤷ SecureFlow will automatically scan staged files before committing.")}`,
+        `   ${colors.cyan("3.")} Manual audit:        ${colors.gray("npx secureflow")} ${colors.dim("(run anytime on pending changes)")}`,
+        `   ${colors.cyan("4.")} Explore all options:  ${colors.gray("npx secureflow --help")}`,
+      ].join("\n");
 
   const footer = [
     divider,
