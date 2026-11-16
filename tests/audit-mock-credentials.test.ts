@@ -5,8 +5,8 @@ import MockGroq, {
   mockCreate,
   mockStream,
 } from "../__mocks__/groq-sdk";
-import NextAuth from "../__mocks__/next-auth/index.js";
-import { SAFE_MOCK_SESSION } from "../__mocks__/next-auth/index.js";
+import NextAuth from "../__mocks__/next-auth";
+import { SAFE_MOCK_SESSION } from "./fixtures/mock-session";
 import githubProvider from "../__mocks__/next-auth/providers/github";
 import { auth, SAFE_MOCK_AUTH_SESSION } from "../__mocks__/auth";
 import { hasHighEntropy, isBenignSecretCandidate } from "../cli/src/entropy.js";

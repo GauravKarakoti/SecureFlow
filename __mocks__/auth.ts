@@ -5,7 +5,7 @@
  * without any hardcoded production secrets, session keys, or private credentials.
  */
 import { vi } from "vitest";
-import { SAFE_MOCK_SESSION } from "./next-auth/index.js";
+import { SAFE_MOCK_SESSION } from "../tests/fixtures/mock-session";
 
 export { SAFE_MOCK_SESSION };
 export const SAFE_MOCK_AUTH_SESSION = SAFE_MOCK_SESSION;
