@@ -570,11 +570,32 @@ limitRange:
 # ----------------------------------------------------------------------------
 networkPolicy:
   # Enable NetworkPolicy to restrict ingress to postgresql and redis pods
-  # strictly to app, worker, migration-job, and retention-cronjob pods.
+  # strictly to app, worker, migration-job, and retention-cronjob pods,
+  # and restrict worker egress to DNS, same-release DB/Redis, and explicitly
+  # whitelisted external API endpoints.
   enabled: false
   # When enabled, workers allow only DNS, same-release in-cluster DB/Redis,
   # and these explicit public IPv4 destinations. Empty = no external egress.
   workerEgress:
+    # Explicitly whitelisted external API endpoints (e.g., LLM providers, container registries).
+    # Each entry defines a logical API service with its destination IPv4 CIDRs and ports.
+    whitelistedEndpoints: []
+    # Example production configuration:
+    #   - name: llm-providers
+    #     description: Groq / OpenAI API endpoints for AI security analysis
+    #     cidrs:
+    #       - "104.18.0.0/20"
+    #     ports: [443]
+    #   - name: container-registries
+    #     description: Container image registries for SBOM and vulnerability inspection (e.g., GHCR, Docker Hub)
+    #     cidrs:
+    #       - "140.82.112.0/20"
+    #     ports: [443]
+
+    # Additional custom Kubernetes NetworkPolicy egress rule objects (e.g. for external DBs or proxies).
+    extraEgressRules: []
+
+    # Flat list of public IPv4 CIDRs (retained for backward compatibility).
     externalCIDRs: []
     externalPorts: [443]
     dns:
