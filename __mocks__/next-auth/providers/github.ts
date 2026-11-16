@@ -11,8 +11,8 @@ export default vi.fn((config: Record<string, any> = {}) => ({
   type: "oauth",
   name: "GitHub",
   config: {
-    clientId: "mock-github-client-id",
-    clientSecret: "mock-github-client-secret-do-not-use",
+    clientId: "mock_key",
+    clientSecret: "mock_secret",
     ...config,
   },
 }));

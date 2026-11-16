@@ -5,17 +5,10 @@
  * without any hardcoded production secrets, session keys, or private credentials.
  */
 import { vi } from "vitest";
+import { SAFE_MOCK_SESSION } from "./next-auth/index.js";
 
-/** Safe synthetic session fixture for test suites. */
-export const SAFE_MOCK_AUTH_SESSION = Object.freeze({
-  user: {
-    id: "mock-test-user-id",
-    name: "Mock Security Engineer",
-    email: "mock-user@secureflow.internal.test",
-    image: null,
-  },
-  expires: "2099-01-01T00:00:00.000Z",
-});
+export { SAFE_MOCK_SESSION };
+export const SAFE_MOCK_AUTH_SESSION = SAFE_MOCK_SESSION;
 
 export const auth =
   (handler?: any) =>
@@ -23,7 +16,7 @@ export const auth =
     if (typeof handler === "function") {
       return handler(req, ...args);
     }
-    return SAFE_MOCK_AUTH_SESSION;
+    return SAFE_MOCK_SESSION;
   };
 
 export const signIn = vi.fn();

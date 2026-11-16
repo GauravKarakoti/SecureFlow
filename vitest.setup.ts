@@ -53,14 +53,20 @@ vi.mock("ioredis", () => {
 });
 
 // Stub next-auth so importing @/auth never tries to read next.config.js.
-vi.mock("next-auth", () => ({
-  default: vi.fn(() => ({
-    handlers: {},
-    signIn: vi.fn(),
-    signOut: vi.fn(),
-    auth: vi.fn(async () => null),
-  })),
-}));
+vi.mock("next-auth", async (importOriginal) => {
+  const { SAFE_MOCK_SESSION } =
+    await importOriginal<typeof import("./__mocks__/next-auth/index.js")>();
+
+  return {
+    SAFE_MOCK_SESSION,
+    default: vi.fn(() => ({
+      handlers: {},
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+      auth: vi.fn(async () => null),
+    })),
+  };
+});
 
 // Stub @/auth directly so test files that import it get a simple mock.
 vi.mock("@/auth", () => ({

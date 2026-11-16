@@ -5,10 +5,11 @@ import MockGroq, {
   mockCreate,
   mockStream,
 } from "../__mocks__/groq-sdk";
-import NextAuth from "../__mocks__/next-auth";
-import { SAFE_MOCK_SESSION } from "./fixtures/mock-session";
+import NextAuth from "../__mocks__/next-auth/index.js";
+import { SAFE_MOCK_SESSION } from "../__mocks__/next-auth/index.js";
 import githubProvider from "../__mocks__/next-auth/providers/github";
 import { auth, SAFE_MOCK_AUTH_SESSION } from "../__mocks__/auth";
+import { hasHighEntropy, isBenignSecretCandidate } from "../cli/src/entropy.js";
 
 describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
   describe("groq-sdk mock audit", () => {
@@ -39,6 +40,7 @@ describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
       expect(SAFE_MOCK_SESSION.user.email).toContain("secureflow.internal.test");
       expect(SAFE_MOCK_SESSION).not.toHaveProperty("accessToken");
       expect(SAFE_MOCK_SESSION).not.toHaveProperty("secret");
+      expect(Object.isFrozen(SAFE_MOCK_SESSION)).toBe(true);
     });
 
     it("creates next-auth instance mock with safe handlers", async () => {
@@ -53,15 +55,16 @@ describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
     it("mocks github provider with dummy non-functional secrets", () => {
       const provider = githubProvider();
       expect(provider.id).toBe("github");
-      expect(provider.config.clientId).toBe("mock-github-client-id");
-      expect(provider.config.clientSecret).toBe("mock-github-client-secret-do-not-use");
+      expect(provider.config.clientId).toBe("mock_key");
+      expect(provider.config.clientSecret).toBe("mock_secret");
     });
   });
 
   describe("auth mock audit", () => {
     it("returns safe mock session when invoked directly", async () => {
       const session = await auth()();
-      expect(session).toEqual(SAFE_MOCK_AUTH_SESSION);
+      expect(session).toBe(SAFE_MOCK_SESSION);
+      expect(SAFE_MOCK_AUTH_SESSION).toBe(SAFE_MOCK_SESSION);
     });
 
     it("passes through handler functions as middleware wrapper", async () => {
@@ -79,6 +82,37 @@ describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
       expect(SAFE_MOCK_ARMORIQ_API_KEY).toContain("mock");
       expect(SAFE_MOCK_INTENT_TOKEN).toContain("mock");
       const client = new ArmorIQClient();
+      expect(client.apiKey).toBe(SAFE_MOCK_ARMORIQ_API_KEY);
+    });
+
+    it("uses entropy-safe forms for mock credentials and token-like outputs", async () => {
+      const {
+        ArmorIQClient,
+        SAFE_MOCK_ARMORIQ_API_KEY,
+        SAFE_MOCK_INTENT_TOKEN,
+        mockVerifyIntentToken,
+        mockSignIntent,
+      } = await import("../__mocks__/@armoriq/sdk");
+      const provider = githubProvider();
+      const client = new ArmorIQClient();
+      const verified = await mockVerifyIntentToken("mock_token");
+      const signed = await mockSignIntent({});
+      const generated = await client.getIntentToken({}, {});
+      const values = [
+        SAFE_MOCK_GROQ_API_KEY,
+        SAFE_MOCK_ARMORIQ_API_KEY,
+        SAFE_MOCK_INTENT_TOKEN,
+        provider.config.clientId,
+        provider.config.clientSecret,
+        verified.proofHash,
+        verified.signature,
+        signed.signature,
+        generated.token,
+        generated.tokenId,
+      ].filter((value): value is string => typeof value === "string");
+
+      expect(values.every(isBenignSecretCandidate)).toBe(true);
+      expect(values.every((value) => !hasHighEntropy(value))).toBe(true);
       expect(client.apiKey).toBe(SAFE_MOCK_ARMORIQ_API_KEY);
     });
 
@@ -130,7 +164,7 @@ describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
 
       const tokenResult = await client.getIntentToken({ plan: "test" }, { policy: "strict" });
       expect(tokenResult.token).toBeDefined();
-      expect(tokenResult.tokenId).toContain("intent_token_");
+      expect(tokenResult.tokenId).toBe("mock_token");
     });
   });
 });

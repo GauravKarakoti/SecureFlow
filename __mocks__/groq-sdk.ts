@@ -7,7 +7,7 @@
 import { vi } from "vitest";
 
 /** Safe synthetic placeholder API key for test suites. */
-export const SAFE_MOCK_GROQ_API_KEY = "gsk_mock_test_token_never_expose";
+export const SAFE_MOCK_GROQ_API_KEY = "mock_api_key";
 
 /**
  * Asserts that a provided API key is purely a synthetic mock token

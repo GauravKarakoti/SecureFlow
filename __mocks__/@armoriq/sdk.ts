@@ -8,8 +8,8 @@
 import { vi } from "vitest";
 
 /** Safe synthetic API key placeholder for ArmorIQ tests. */
-export const SAFE_MOCK_ARMORIQ_API_KEY = "armoriq_mock_test_key_safe";
-export const SAFE_MOCK_INTENT_TOKEN = "intent_mock_token_safe_never_leak";
+export const SAFE_MOCK_ARMORIQ_API_KEY = "mock_api_key";
+export const SAFE_MOCK_INTENT_TOKEN = "mock_token";
 
 /**
  * Custom Error thrown when upstream ArmorIQ service times out.
@@ -155,8 +155,8 @@ export const mockVerifyIntentToken = vi.fn().mockImplementation(async (token: st
     decision: mockArmorIQState.decision,
     ruleMatched: mockArmorIQState.ruleMatched,
     justification: mockArmorIQState.justification,
-    proofHash: mockArmorIQState.validProof ? "mock_proof_hash_abc123" : null,
-    signature: mockArmorIQState.validSignature ? "mock_sig_xyz789" : null,
+    proofHash: mockArmorIQState.validProof ? "mock_secret" : null,
+    signature: mockArmorIQState.validSignature ? "mock_token" : null,
     token,
   };
 });
@@ -173,7 +173,7 @@ export const mockSignIntent = vi
     return {
       signed: true,
       intentId: "intent_mock_12345",
-      signature: "mock_signature_hash_67890",
+      signature: "mock_token",
       intent,
     };
   });
@@ -231,7 +231,7 @@ export const mockGetIntentToken = vi
       throw new ArmorIQUnreachableError();
     }
     return {
-      tokenId: `intent_token_${Date.now()}`,
+      tokenId: "mock_token",
       token: SAFE_MOCK_INTENT_TOKEN,
       plan,
       policy,

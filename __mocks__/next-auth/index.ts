@@ -5,8 +5,16 @@
  * without requiring or storing hardcoded OAuth tokens, client secrets, or user credentials.
  */
 import { vi } from "vitest";
-import { SAFE_MOCK_SESSION } from "../../tests/fixtures/mock-session";
-export { SAFE_MOCK_SESSION };
+
+export const SAFE_MOCK_SESSION = Object.freeze({
+  user: {
+    id: "mock_test_user_id",
+    name: "Mock Security Engineer",
+    email: "mock-user@secureflow.internal.test",
+    image: null,
+  },
+  expires: "2099-01-01T00:00:00.000Z",
+});
 
 export const auth = vi.fn(async () => SAFE_MOCK_SESSION);
 export const signIn = vi.fn();
