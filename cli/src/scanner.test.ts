@@ -534,6 +534,7 @@ describe("entropy and benign secret false positive suppression (#1512)", () => {
   it("does not flag benign placeholder tokens and mock keys", () => {
     const benignCases = [
       "console.log(your_api_key_here);",
+      "console.log(mock_api_key);",
       "console.info(mock_token);",
       "console.warn(placeholder_token);",
       "console.error(dummy_secret);",
