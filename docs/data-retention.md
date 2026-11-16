@@ -91,6 +91,7 @@ replaces it.
 npm run retention                      # dry run — reports, writes nothing
 npm run retention -- --apply           # perform the purge
 npm run retention -- --only=auditLog   # one target (repeatable)
+npm run retention -- --days=60         # override every retention window for this run
 npm run retention -- --batch-size=200  # smaller statements
 npm run retention -- --help
 ```
@@ -112,6 +113,11 @@ Total affected: 628
 
 Re-run with --apply to perform the purge.
 ```
+**Overriding the window.** `--days=<n>` applies one retention period to every
+target for that run, taking precedence over the per-target environment variables
+and `DATA_RETENTION_DAYS`. It must be a whole number between 1 and 3650. Combine
+it with `--only` to change a single table, e.g.
+`npm run retention -- --only=webhookEvent --days=7 --apply`.
 
 ### Exit codes
 

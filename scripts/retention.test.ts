@@ -158,5 +158,24 @@ describe("scripts/retention.ts - CLI and Data Deletion Boundaries (#1330)", () =
       const code = await runRetentionCli(["--dry-run", "--only=webhookEvent"], mockPrisma);
       expect(code).toBe(0);
     });
+    it("never writes anything during a dry run", async () => {
+      const code = await runRetentionCli([], mockPrisma);
+
+      expect(code).toBe(0);
+      expect(mockPrisma.finding.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.webhookEvent.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.scanResult.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.auditLog.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("--only restricts the run to the named target", async () => {
+      const code = await runRetentionCli(["--only=auditLog", "--days=30"], mockPrisma);
+
+      expect(code).toBe(0);
+      expect(mockPrisma.auditLog.findMany).toHaveBeenCalled();
+      expect(mockPrisma.webhookEvent.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.scanResult.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.finding.findMany).not.toHaveBeenCalled();
+    });
   });
 });
