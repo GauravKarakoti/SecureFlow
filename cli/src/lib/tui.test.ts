@@ -15,6 +15,10 @@ import {
   renderWarningTable,
   formatTuiScanSummary,
   initHuskyPreCommitHook,
+  initBlankPrepareScript,
+  detectInitMode,
+  promptInitChoice,
+  initSecureFlow,
   formatInitGreeting,
   type TableRow,
 } from "./tui.js";
@@ -342,6 +346,206 @@ describe("cli/src/lib/tui (#1712)", () => {
 
       expect(greeting).toContain("v4.0.0-beta");
       expect(greeting).toContain("https://custom-repo.example.com/docs");
+    });
+  });
+  describe("initBlankPrepareScript (#1758)", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      execSyncMock.mockReset();
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-blank-test-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("runs npm init --y when package.json does not exist and adds prepare script", () => {
+      const commandsExecuted: string[] = [];
+      const mockExec = vi.fn((cmd: string) => {
+        commandsExecuted.push(cmd);
+        if (cmd === "npm init --y") {
+          fs.writeFileSync(
+            path.join(tempDir, "package.json"),
+            JSON.stringify({ name: "new-pkg", version: "1.0.0" }, null, 2),
+          );
+        }
+      });
+
+      const res = initBlankPrepareScript(tempDir, mockExec);
+
+      expect(res.success).toBe(true);
+      expect(mockExec).toHaveBeenCalledWith(
+        "npm init --y",
+        expect.objectContaining({ cwd: tempDir }),
+      );
+      expect(commandsExecuted).toEqual(["npm init --y"]);
+
+      const pkg = JSON.parse(fs.readFileSync(path.join(tempDir, "package.json"), "utf-8"));
+      expect(pkg.scripts.prepare).toBe("npx secureflow");
+      expect(res.message).toContain("Successfully added npx secureflow");
+    });
+
+    it("skips npm init --y when package.json already exists and adds prepare script", () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(
+        pkgPath,
+        JSON.stringify({ name: "existing-pkg", version: "1.0.0", scripts: { test: "vitest" } }, null, 2),
+      );
+
+      const mockExec = vi.fn();
+      const res = initBlankPrepareScript(tempDir, mockExec);
+
+      expect(res.success).toBe(true);
+      expect(mockExec).not.toHaveBeenCalled();
+
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      expect(pkg.scripts.test).toBe("vitest");
+      expect(pkg.scripts.prepare).toBe("npx secureflow");
+    });
+
+    it("appends npx secureflow with && when a prepare script already exists (e.g. xyz && npx secureflow)", () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(
+        pkgPath,
+        JSON.stringify({ name: "existing-pkg", scripts: { prepare: "xyz" } }, null, 2),
+      );
+
+      const res = initBlankPrepareScript(tempDir);
+
+      expect(res.success).toBe(true);
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      expect(pkg.scripts.prepare).toBe("xyz && npx secureflow");
+      expect(res.message).toContain("Appended npx secureflow to existing prepare script");
+    });
+
+    it("recognizes when secureflow is already present in prepare script and avoids duplication", () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(
+        pkgPath,
+        JSON.stringify({ name: "existing-pkg", scripts: { prepare: "npm run build && npx secureflow" } }, null, 2),
+      );
+
+      const res = initBlankPrepareScript(tempDir);
+
+      expect(res.success).toBe(true);
+      expect(res.message).toContain("already configured");
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      expect(pkg.scripts.prepare).toBe("npm run build && npx secureflow");
+    });
+
+    it("handles invalid package.json JSON syntax gracefully", () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(pkgPath, "{ invalid json ... ");
+
+      const res = initBlankPrepareScript(tempDir);
+
+      expect(res.success).toBe(false);
+      expect(res.message).toContain("Failed to parse package.json");
+    });
+  });
+
+  describe("detectInitMode & promptInitChoice (#1758)", () => {
+    it("detects blank mode from command line arguments", () => {
+      expect(detectInitMode(["node", "cli", "--init", "blank"])).toBe("blank");
+      expect(detectInitMode(["node", "cli", "--init=blank"])).toBe("blank");
+      expect(detectInitMode(["node", "cli", "--blank"])).toBe("blank");
+      expect(detectInitMode(["node", "cli", "-b"])).toBe("blank");
+      expect(detectInitMode(["node", "cli", "--init", "2"])).toBe("blank");
+    });
+
+    it("detects husky mode from command line arguments", () => {
+      expect(detectInitMode(["node", "cli", "--init", "husky"])).toBe("husky");
+      expect(detectInitMode(["node", "cli", "--init=husky"])).toBe("husky");
+      expect(detectInitMode(["node", "cli", "--husky"])).toBe("husky");
+      expect(detectInitMode(["node", "cli", "--init", "1"])).toBe("husky");
+    });
+
+    it("returns null when no mode argument is provided with --init", () => {
+      expect(detectInitMode(["node", "cli", "--init"])).toBeNull();
+      expect(detectInitMode(["node", "cli"])).toBeNull();
+    });
+
+    it("promptInitChoice resolves to blank when user selects 2 or blank", async () => {
+      const mockRl = {
+        question: vi.fn((_prompt: string, cb: (ans: string) => void) => cb("2")),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as any;
+
+      const choice = await promptInitChoice(mockRl, process.stdin, { write: vi.fn() } as any);
+      expect(choice).toBe("blank");
+    });
+
+    it("promptInitChoice resolves to husky when user selects 1, husky, or presses Enter", async () => {
+      const mockRl1 = {
+        question: vi.fn((_prompt: string, cb: (ans: string) => void) => cb("husky")),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as any;
+
+      const choice1 = await promptInitChoice(mockRl1, process.stdin, { write: vi.fn() } as any);
+      expect(choice1).toBe("husky");
+
+      const mockRl2 = {
+        question: vi.fn((_prompt: string, cb: (ans: string) => void) => cb("")),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as any;
+
+      const choice2 = await promptInitChoice(mockRl2, process.stdin, { write: vi.fn() } as any);
+      expect(choice2).toBe("husky");
+    });
+  });
+
+  describe("initSecureFlow orchestrator (#1758)", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      execSyncMock.mockReset();
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-init-orch-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("routes to Blank mode when mode is specified as blank", async () => {
+      const pkgPath = path.join(tempDir, "package.json");
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: "orch-test", scripts: {} }));
+
+      const res = await initSecureFlow({
+        mode: "blank",
+        targetDir: tempDir,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.hookPath).toBe(pkgPath);
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      expect(pkg.scripts.prepare).toBe("npx secureflow");
+    });
+
+    it("routes to Husky mode when mode is specified as husky", async () => {
+      const res = await initSecureFlow({
+        mode: "husky",
+        targetDir: tempDir,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.hookPath).toBe(path.join(tempDir, ".husky", "pre-commit"));
+      expect(fs.existsSync(res.hookPath)).toBe(true);
+    });
+
+    it("formats greeting with package.json prepare script details in blank mode", () => {
+      const greeting = formatInitGreeting({
+        success: true,
+        message: "Successfully added npx secureflow to package.json prepare script",
+        hookPath: path.join(tempDir, "package.json"),
+      });
+
+      expect(greeting).toContain("Hook Location:");
+      expect(greeting).toContain("package.json");
+      expect(greeting).toContain("npm run prepare");
     });
   });
 });
