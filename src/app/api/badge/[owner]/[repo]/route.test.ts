@@ -143,6 +143,19 @@ describe("GET /api/badge/[owner]/[repo]", () => {
     expect(svg).toContain("#9f9f9f");
   });
 
+  it("serves an uncached neutral SVG when the database is unavailable", async () => {
+    mockFindFirst.mockRejectedValue(new Error("database unavailable"));
+
+    const res = (await GET(makeRequest("acme", "app"), makeParams("acme", "app"))) as Response;
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const svg = await res.text();
+    expect(svg).toContain("unknown");
+    expect(svg).not.toContain("blocked");
+  });
+
   it("queries with the correct fullName and selects the right fields", async () => {
     mockFindFirst.mockResolvedValue(null);
 
