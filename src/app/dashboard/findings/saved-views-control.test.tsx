@@ -70,10 +70,9 @@ describe("SavedViewsControl Component (#1786)", () => {
     fireEvent.click(screen.getByRole("button", { name: /saved views/i }));
     fireEvent.click(screen.getByText("Critical Secrets"));
 
-    expect(replace).toHaveBeenCalledWith(
-      expect.stringContaining("severity=CRITICAL&type=SECRET"),
-      { scroll: false },
-    );
+    expect(replace).toHaveBeenCalledWith(expect.stringContaining("severity=CRITICAL&type=SECRET"), {
+      scroll: false,
+    });
   });
 
   it("calls deleteSavedView when delete icon is clicked", async () => {

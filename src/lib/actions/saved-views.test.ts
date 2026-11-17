@@ -127,9 +127,9 @@ describe("Saved Views Server Actions (#1786)", () => {
 
     it("throws error for excessively long view name", async () => {
       vi.mocked(auth).mockResolvedValue({ user: { id: "user-alpha" } } as any);
-      await expect(
-        createSavedView({ name: "a".repeat(81), filters: {} }),
-      ).rejects.toThrow("View name cannot exceed 80 characters");
+      await expect(createSavedView({ name: "a".repeat(81), filters: {} })).rejects.toThrow(
+        "View name cannot exceed 80 characters",
+      );
     });
 
     it("saves a view for the authenticated user and sanitizes filters", async () => {

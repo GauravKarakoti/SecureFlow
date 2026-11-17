@@ -360,7 +360,13 @@ export default function AnalyticsClient({
             </div>
           </div>
           <Badge className="bg-[#5A29E4]/25 text-violet-300 border-[#5A29E4]/40 font-mono text-xs">
-            {summary.avgRiskScore < 25 ? "MINIMAL" : summary.avgRiskScore < 50 ? "GUARDED" : summary.avgRiskScore < 80 ? "ELEVATED" : "CRITICAL"}
+            {summary.avgRiskScore < 25
+              ? "MINIMAL"
+              : summary.avgRiskScore < 50
+                ? "GUARDED"
+                : summary.avgRiskScore < 80
+                  ? "ELEVATED"
+                  : "CRITICAL"}
           </Badge>
         </div>
 
@@ -377,7 +383,13 @@ export default function AnalyticsClient({
             </div>
           </div>
           <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-xs">
-            {summary.overallPassRate >= 90 ? "FORTIFIED" : summary.overallPassRate >= 75 ? "SECURED" : summary.overallPassRate >= 50 ? "GUARDED" : "COMPROMISED"}
+            {summary.overallPassRate >= 90
+              ? "FORTIFIED"
+              : summary.overallPassRate >= 75
+                ? "SECURED"
+                : summary.overallPassRate >= 50
+                  ? "GUARDED"
+                  : "COMPROMISED"}
           </Badge>
         </div>
       </div>
