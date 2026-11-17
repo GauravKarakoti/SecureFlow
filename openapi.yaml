@@ -1883,6 +1883,26 @@ paths:
         "500":
           description: The specification could not be read
 
+  /api/metrics:
+    get:
+      summary: Application Prometheus telemetry metrics
+      description: Application metrics in standard Prometheus exposition format (or JSON when requested).
+      operationId: getPrometheusMetrics
+      tags:
+        - Metrics
+      responses:
+        "200":
+          description: Metrics in Prometheus exposition format or JSON
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: Metrics could not be loaded
+
   /api/metrics/landing:
     get:
       summary: Public landing page metrics
