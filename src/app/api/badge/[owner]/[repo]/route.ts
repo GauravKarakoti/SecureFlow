@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
 import { generateBadgeSvg, type BadgeState } from "@/lib/badge";
 import { withErrorHandler } from "@/lib/middleware/error-handler";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -35,25 +35,34 @@ interface RouteParams {
 async function handler(_req: NextRequest, context: RouteParams): Promise<NextResponse> {
   const { owner, repo } = await context.params;
   const fullName = `${owner}/${repo}`;
-
-  // Single indexed lookup — fullName has an @@index.
-  const repository = await prisma.repository.findFirst({
-    where: { fullName, isActive: true },
-    select: {
-      publicBadgeEnabled: true,
-      pullRequests: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { status: true },
-      },
-    },
-  });
-
   let state: BadgeState = "unknown";
+  let unavailable = false;
 
-  if (repository?.publicBadgeEnabled) {
-    const latestPr = repository.pullRequests[0];
-    state = statusToBadge(latestPr?.status);
+  try {
+    // Load Prisma inside the handler so a database initialization failure cannot
+    // prevent this public image route from returning an SVG at all.
+    const { default: prisma } = await import("@/lib/prisma");
+    const repository = await prisma.repository.findFirst({
+      where: { fullName, isActive: true },
+      select: {
+        publicBadgeEnabled: true,
+        pullRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { status: true },
+        },
+      },
+    });
+
+    if (repository?.publicBadgeEnabled) {
+      state = statusToBadge(repository.pullRequests[0]?.status);
+    }
+  } catch (error) {
+    unavailable = true;
+    logger.warn("Public badge status unavailable; serving neutral badge", {
+      repository: fullName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
   }
 
   // Even when the repo exists but badges are disabled, we return "unknown" —
@@ -64,7 +73,7 @@ async function handler(_req: NextRequest, context: RouteParams): Promise<NextRes
     status: 200,
     headers: {
       "Content-Type": "image/svg+xml",
-      "Cache-Control": "public, max-age=300, s-maxage=300",
+      "Cache-Control": unavailable ? "no-store" : "public, max-age=300, s-maxage=300",
     },
   });
 }

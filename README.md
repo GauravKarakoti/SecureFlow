@@ -13,7 +13,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-3982CE?style=for-the-badge&logo=Prisma&logoColor=white)](https://www.prisma.io/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![SecureFlow Status](http://secure-flow-six.vercel.app/api/badge/GauravKarakoti/SecureFlow)](http://secure-flow-six.vercel.app)
+[![SecureFlow Status](https://secure-flow-six.vercel.app/api/badge/GauravKarakoti/SecureFlow)](https://secure-flow-six.vercel.app)
 
 > _"In this heist, we're not stealing — we're protecting."_
 > **SecureFlow automatically detects vulnerabilities, hardcoded secrets, and code flaws before they reach production.**

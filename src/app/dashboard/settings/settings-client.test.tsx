@@ -228,6 +228,10 @@ describe("SettingsClient component (#1333)", () => {
   });
 
   it("renders badge preview and markdown copy button when badge is enabled", async () => {
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { origin: "https://secure-flow-six.vercel.app" },
+    });
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {
       clipboard: { writeText: writeTextMock },
@@ -249,12 +253,15 @@ describe("SettingsClient component (#1333)", () => {
     );
 
     expect(screen.getByText("Public badge enabled — shows latest scan status")).toBeDefined();
+    expect(screen.getByAltText("acme/repo-two badge").getAttribute("src")).toBe(
+      "https://secure-flow-six.vercel.app/api/badge/acme/repo-two",
+    );
 
     const copyBtn = screen.getByRole("button", { name: /Copy Markdown/i });
     fireEvent.click(copyBtn);
 
     expect(writeTextMock).toHaveBeenCalledWith(
-      "[![SecureFlow Status](/api/badge/acme/repo-two)](/)",
+      "[![SecureFlow Status](https://secure-flow-six.vercel.app/api/badge/acme/repo-two)](https://secure-flow-six.vercel.app)",
     );
     expect(toastSuccessMock).toHaveBeenCalledWith("Badge Markdown copied to clipboard!");
   });
