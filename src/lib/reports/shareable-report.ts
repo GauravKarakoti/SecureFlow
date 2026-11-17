@@ -247,8 +247,8 @@ export function generateShareableReportHtml(options: ShareableReportOptions): st
   const heistRisk =
     options.heistRiskScore !== undefined
       ? {
-          score: options.heistRiskScore,
           ...calculateHeistRiskScore({ critical: Math.ceil(options.heistRiskScore / 25) }),
+          score: options.heistRiskScore,
         }
       : calculateHeistRiskScore(distribution);
 
