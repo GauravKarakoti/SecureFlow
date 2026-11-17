@@ -122,7 +122,12 @@ export async function GET(request: NextRequest) {
   }
   // 5. Generate audio via ElevenLabs using the alert-specific voice ID.
   const voiceId = process.env.ELEVENLABS_VOICE_ID_ALERT || process.env.ELEVENLABS_VOICE_ID;
-  const elevenLabsResponse = await fetchElevenLabsAudioStream(alertText, { voiceId });
+  let elevenLabsResponse: Response | null = null;
+  try {
+    elevenLabsResponse = await fetchElevenLabsAudioStream(alertText, { voiceId });
+  } catch {
+    elevenLabsResponse = null;
+  }
   if (elevenLabsResponse?.body && hasAudioContentType(elevenLabsResponse)) {
     const declaredLength = Number.parseInt(
       elevenLabsResponse.headers.get("content-length") ?? "",
