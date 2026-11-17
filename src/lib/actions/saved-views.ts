@@ -43,13 +43,19 @@ export function sanitizeViewFilters(filters: Record<string, unknown> = {}): Save
   const sanitized: SavedViewFilters = {};
 
   if (Array.isArray(filters.severity)) {
-    sanitized.severity = filters.severity.filter((s): s is string => typeof s === "string" && s.trim() !== "");
+    sanitized.severity = filters.severity.filter(
+      (s): s is string => typeof s === "string" && s.trim() !== "",
+    );
   }
   if (Array.isArray(filters.type)) {
-    sanitized.type = filters.type.filter((t): t is string => typeof t === "string" && t.trim() !== "");
+    sanitized.type = filters.type.filter(
+      (t): t is string => typeof t === "string" && t.trim() !== "",
+    );
   }
   if (Array.isArray(filters.status)) {
-    sanitized.status = filters.status.filter((st): st is string => typeof st === "string" && st.trim() !== "");
+    sanitized.status = filters.status.filter(
+      (st): st is string => typeof st === "string" && st.trim() !== "",
+    );
   }
   if (typeof filters.repositoryId === "string" && filters.repositoryId.trim()) {
     sanitized.repositoryId = filters.repositoryId.trim();

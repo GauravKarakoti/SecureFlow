@@ -233,7 +233,8 @@ export default function DashboardClient({
         <div className="p-5 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card relative overflow-hidden flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold font-mono tracking-wider uppercase text-emerald-400 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-[#0A5C3E] dark:text-emerald-400" /> Vault Integrity Status
+              <ShieldCheck className="w-4 h-4 text-[#0A5C3E] dark:text-emerald-400" /> Vault
+              Integrity Status
             </span>
             <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-[11px]">
               {vaultIntegrity.status}
@@ -244,7 +245,9 @@ export default function DashboardClient({
               <span className="text-4xl font-headline font-extrabold text-foreground tracking-tight">
                 {vaultIntegrity.percentage}%
               </span>
-              <span className="text-sm font-mono text-muted-foreground">Perimeter Fortification</span>
+              <span className="text-sm font-mono text-muted-foreground">
+                Perimeter Fortification
+              </span>
             </div>
             <Link
               href="/api/findings/export?format=html"

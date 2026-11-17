@@ -14,9 +14,7 @@ describe("Shareable Security Report & Themed Metrics", () => {
       expect(escapeHtml("<script>alert('xss')</script>")).toBe(
         "&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;",
       );
-      expect(escapeHtml('Hello "World" & Team')).toBe(
-        "Hello &quot;World&quot; &amp; Team",
-      );
+      expect(escapeHtml('Hello "World" & Team')).toBe("Hello &quot;World&quot; &amp; Team");
     });
 
     it("handles null or undefined gracefully", () => {

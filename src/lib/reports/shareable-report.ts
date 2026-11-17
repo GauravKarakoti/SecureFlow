@@ -232,9 +232,7 @@ function getProfessorDirective(type: string, remediation?: string | null): strin
  * themed terminology ("Heist Risk Score", "Vault Integrity Status"), and accents #5A29E4 and #0A5C3E.
  */
 export function generateShareableReportHtml(options: ShareableReportOptions): string {
-  const now = options.generatedAt
-    ? new Date(options.generatedAt)
-    : new Date();
+  const now = options.generatedAt ? new Date(options.generatedAt) : new Date();
   const reportDateStr = now.toUTCString();
   const reportId =
     options.reportId ||
@@ -257,9 +255,7 @@ export function generateShareableReportHtml(options: ShareableReportOptions): st
       ? calculateVaultIntegrity({ passRate: options.vaultIntegrity })
       : calculateVaultIntegrity(distribution);
 
-  const openCount = findings.filter(
-    (f) => !f.status || f.status.toUpperCase() === "OPEN",
-  ).length;
+  const openCount = findings.filter((f) => !f.status || f.status.toUpperCase() === "OPEN").length;
   const resolvedCount = findings.filter(
     (f) => f.status && f.status.toUpperCase() === "RESOLVED",
   ).length;

@@ -321,7 +321,12 @@ export default function FindingsClient({
                     Export CSV
                   </a>
                 </Button>
-                <Button asChild variant="outline" size="sm" className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300">
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300"
+                >
                   <a
                     href={`${exportHref}${exportHref.includes("?") ? "&" : "?"}format=html`}
                     target="_blank"

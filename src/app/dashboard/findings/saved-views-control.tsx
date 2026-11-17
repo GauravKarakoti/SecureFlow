@@ -142,7 +142,10 @@ export default function SavedViewsControl({
         <Bookmark className="h-3.5 w-3.5 text-primary" />
         <span>Saved views</span>
         {views.length > 0 && (
-          <Badge variant="secondary" className="ml-1 h-4 px-1.5 text-[10px] bg-primary/20 text-primary">
+          <Badge
+            variant="secondary"
+            className="ml-1 h-4 px-1.5 text-[10px] bg-primary/20 text-primary"
+          >
             {views.length}
           </Badge>
         )}
@@ -251,11 +254,7 @@ export default function SavedViewsControl({
               <Button variant="ghost" size="sm" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                disabled={isSaving || !viewName.trim()}
-                onClick={handleSave}
-              >
+              <Button size="sm" disabled={isSaving || !viewName.trim()} onClick={handleSave}>
                 {isSaving ? "Saving…" : "Save view"}
               </Button>
             </div>
