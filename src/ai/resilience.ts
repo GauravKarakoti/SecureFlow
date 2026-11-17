@@ -589,7 +589,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
             isTimeoutError(err) ||
             Boolean(
               config.retryConfig?.retryableErrors &&
-                config.retryConfig.retryableErrors.some((fn) => fn(err)),
+              config.retryConfig.retryableErrors.some((fn) => fn(err)),
             ));
 
         if (attempt < maxRetries && isRetryable && breaker.getState() !== CircuitState.OPEN) {

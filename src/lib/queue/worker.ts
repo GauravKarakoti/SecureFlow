@@ -1106,6 +1106,8 @@ export const worker = new Worker<WebhookJobData>(
             await prisma.scanResult.create({
               data: {
                 pullRequestId: dbPr.id,
+                headSha: pull_request.head.sha,
+                gateConfig,
                 riskScore,
                 policyDecision: normalizePolicyDecisionEnum(decision),
                 findings: {

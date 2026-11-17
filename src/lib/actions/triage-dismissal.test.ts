@@ -134,8 +134,8 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
     });
   });
 
-  describe("Validation & Missing Reason / Note", () => {
-    it("rejects dismissal without a note with descriptive error message", async () => {
+  describe("Validation & Optional Note", () => {
+    it("accepts a dismissal reason without a note", async () => {
       const res = await setFindingStatus({
         repositoryId: REPO_ID,
         fingerprint: FINGERPRINT,
@@ -144,13 +144,14 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
         note: "",
       });
 
-      expect(res.ok).toBe(false);
-      expect(res.error).toBe("A note or explanation is required when dismissing a finding");
-      expect(mockTriageUpsert).not.toHaveBeenCalled();
-      expect(mockAuditCreate).not.toHaveBeenCalled();
+      expect(res.ok).toBe(true);
+      expect(mockTriageUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.objectContaining({ note: null }) }),
+      );
+      expect(mockAuditCreate).toHaveBeenCalledTimes(1);
     });
 
-    it("rejects dismissal when note is only whitespace", async () => {
+    it("normalizes a whitespace-only note to null", async () => {
       const res = await setFindingStatus({
         repositoryId: REPO_ID,
         fingerprint: FINGERPRINT,
@@ -159,8 +160,21 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
         note: "    ",
       });
 
+      expect(res.ok).toBe(true);
+      expect(mockTriageUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.objectContaining({ note: null }) }),
+      );
+    });
+
+    it("requires a dismissal category", async () => {
+      const res = await setFindingStatus({
+        repositoryId: REPO_ID,
+        fingerprint: FINGERPRINT,
+        status: "DISMISSED",
+      });
+
       expect(res.ok).toBe(false);
-      expect(res.error).toBe("A note or explanation is required when dismissing a finding");
+      expect(res.error).toBe("Invalid dismissal reason category");
       expect(mockTriageUpsert).not.toHaveBeenCalled();
     });
 
@@ -286,7 +300,7 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
       );
     });
 
-    it("rejects bulk dismissal when note is missing", async () => {
+    it("allows bulk dismissal without a note", async () => {
       const items = [{ repositoryId: REPO_ID, fingerprint: "fp-1" }];
 
       const res = await setFindingStatuses({
@@ -296,9 +310,8 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
         note: "",
       });
 
-      expect(res.ok).toBe(false);
-      expect(res.error).toBe("A note or explanation is required when dismissing a finding");
-      expect(mockTriageUpsert).not.toHaveBeenCalled();
+      expect(res.ok).toBe(true);
+      expect(mockTriageUpsert).toHaveBeenCalledTimes(1);
     });
   });
 });

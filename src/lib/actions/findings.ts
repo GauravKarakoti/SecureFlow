@@ -59,6 +59,7 @@ export interface FindingRow {
   pullRequestNumber: number;
   triageStatus: FindingStatus;
   triageNote: string | null;
+  triageReason: string | null;
 }
 
 export interface FindingsStats {
@@ -248,6 +249,7 @@ export async function getUserFindings(
       pullRequestNumber: pullRequest.prNumber,
       triageStatus: (triage?.status as FindingStatus) ?? "OPEN",
       triageNote: triage?.note ?? null,
+      triageReason: triage?.dismissalReason ?? null,
     };
   });
 

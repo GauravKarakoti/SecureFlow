@@ -437,7 +437,6 @@ describe("default constants", () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // streamLocalModelGeneration & Abort Signal Wire-up (#1753)
 // ---------------------------------------------------------------------------
@@ -465,7 +464,7 @@ describe("streamLocalModelGeneration & generateLocalModel (#1753)", () => {
     const sseData =
       'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n' +
       'data: {"choices":[{"delta":{"content":" world"}}]}\n\n' +
-      'data: [DONE]\n\n';
+      "data: [DONE]\n\n";
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -530,7 +529,7 @@ describe("streamLocalModelGeneration & generateLocalModel (#1753)", () => {
     const sseData =
       'data: {"choices":[{"delta":{"content":"Secure"}}]}\n\n' +
       'data: {"choices":[{"delta":{"content":"Flow"}}]}\n\n' +
-      'data: [DONE]\n\n';
+      "data: [DONE]\n\n";
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

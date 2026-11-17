@@ -18,6 +18,7 @@ export const MAX_TRIAGE_ROWS = 5_000;
 export interface TriageEntry {
   status: string;
   note: string | null;
+  dismissalReason?: string | null;
   expiresAt?: Date | null;
 }
 
@@ -83,7 +84,14 @@ export async function getSuppressedFingerprints(userId: string): Promise<Suppres
 export async function getUserTriage(userId: string): Promise<UserTriage> {
   const rows = await prisma.findingTriage.findMany({
     where: { repository: { userId } },
-    select: { repositoryId: true, fingerprint: true, status: true, note: true, expiresAt: true },
+    select: {
+      repositoryId: true,
+      fingerprint: true,
+      status: true,
+      note: true,
+      dismissalReason: true,
+      expiresAt: true,
+    },
     orderBy: { updatedAt: "desc" },
     take: MAX_TRIAGE_ROWS + 1,
   });
@@ -99,6 +107,7 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
     byKey.set(triageKey(row.repositoryId, row.fingerprint), {
       status: row.status,
       note: row.note,
+      dismissalReason: row.dismissalReason,
       expiresAt: row.expiresAt,
     });
 

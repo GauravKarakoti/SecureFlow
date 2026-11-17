@@ -13,6 +13,7 @@ import {
   type DismissalReason,
 } from "@/lib/triage/statuses";
 import { validateExpiryDate } from "@/lib/triage/expiry";
+import { reconcileTriageVerdicts } from "@/lib/triage/reconcile";
 
 export type TriageStatus = SharedTriageStatus;
 export type { DismissalReason };
@@ -34,6 +35,7 @@ export interface SetFindingStatusInput {
 export interface SetFindingStatusResult {
   ok: boolean;
   error?: string;
+  warning?: string;
 }
 
 export interface FindingTriageTarget {
@@ -72,20 +74,17 @@ export async function setFindingStatus(
     return { ok: false, error: "Invalid status" };
   }
 
-  // Dismissal validation: dismissing requires a non-empty note/reason
+  // A category is required; the explanatory note is optional.
   let dismissalReason: DismissalReason | null = null;
   let dismissedAt: Date | null = null;
   let dismissedById: string | null = null;
 
   if (status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED") {
     if (status === "DISMISSED") {
-      if (!note) {
-        return { ok: false, error: "A note or explanation is required when dismissing a finding" };
-      }
-      if (input.reason && !isDismissalReason(input.reason)) {
+      if (!isDismissalReason(input.reason)) {
         return { ok: false, error: "Invalid dismissal reason category" };
       }
-      dismissalReason = (input.reason as DismissalReason) ?? "FALSE_POSITIVE";
+      dismissalReason = input.reason;
       dismissedAt = new Date();
       dismissedById = userId;
     }
@@ -154,11 +153,19 @@ export async function setFindingStatus(
   });
 
   invalidateCachedUserFilters(userId);
-
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");
 
-  return { ok: true };
+  let warning: string | undefined;
+  try {
+    const result = await reconcileTriageVerdicts(repositoryId, [fingerprint]);
+    if (result.pending > 0)
+      warning = "Saved. The affected PR needs a new scan before its verdict updates.";
+  } catch {
+    warning = "Saved. The affected PR verdict will update after the next scan.";
+  }
+
+  return { ok: true, ...(warning ? { warning } : {}) };
 }
 
 function normalizeTriageTargets(items: FindingTriageTarget[] | undefined): FindingTriageTarget[] {
@@ -207,13 +214,10 @@ export async function setFindingStatuses(
   let dismissedById: string | null = null;
 
   if (input.status === "DISMISSED") {
-    if (!note) {
-      return { ok: false, error: "A note or explanation is required when dismissing a finding" };
-    }
-    if (input.reason && !isDismissalReason(input.reason)) {
+    if (!isDismissalReason(input.reason)) {
       return { ok: false, error: "Invalid dismissal reason category" };
     }
-    dismissalReason = (input.reason as DismissalReason) ?? "FALSE_POSITIVE";
+    dismissalReason = input.reason;
     dismissedAt = new Date();
     dismissedById = userId;
   }
@@ -303,6 +307,19 @@ export async function setFindingStatuses(
   invalidateCachedUserFilters(userId);
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");
-
-  return { ok: true };
+  let warning: string | undefined;
+  for (const repositoryId of repoIds) {
+    try {
+      const changed = items.filter((item) => item.repositoryId === repositoryId);
+      const result = await reconcileTriageVerdicts(
+        repositoryId,
+        changed.map((item) => item.fingerprint),
+      );
+      if (result.pending > 0)
+        warning = "Saved. Some PRs need a new scan before their verdict updates.";
+    } catch {
+      warning = "Saved. Some PR verdicts will update after the next scan.";
+    }
+  }
+  return { ok: true, ...(warning ? { warning } : {}) };
 }
