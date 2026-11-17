@@ -157,4 +157,25 @@ describe("FindingsClient Component (#633)", () => {
     expect(screen.getByRole("button", { name: /Export CSV/ })).toBeDisabled();
     expect(screen.queryByRole("link", { name: /Export CSV/ })).toBeNull();
   });
+
+  it("renders themed Heist Risk Score and Vault Integrity Status metrics (#1711)", () => {
+    render(<FindingsClient {...defaultProps} />);
+    expect(screen.getByText("Heist Risk Score")).toBeInTheDocument();
+    expect(screen.getByText("Vault Integrity Status")).toBeInTheDocument();
+  });
+
+  it("links Shareable Report to the HTML report export with active query filters", () => {
+    currentParams = new URLSearchParams("severity=CRITICAL&q=token");
+    try {
+      render(<FindingsClient {...defaultProps} total={12} />);
+      const link = screen.getByRole("link", { name: /Shareable Report/ });
+      expect(link).toHaveAttribute(
+        "href",
+        "/api/findings/export?severity=CRITICAL&q=token&format=html",
+      );
+      expect(link).toHaveAttribute("target", "_blank");
+    } finally {
+      currentParams = new URLSearchParams();
+    }
+  });
 });

@@ -27,6 +27,10 @@ import {
   type FindingStatus,
 } from "@/lib/findings/query";
 import { getUserTriage, triageKey, type TriageEntry } from "@/lib/triage/queries";
+import {
+  generateShareableReportHtml,
+  type ShareableReportFinding,
+} from "@/lib/reports/shareable-report";
 
 /** Column order of the export. The same columns the client-side export wrote. */
 export const FINDINGS_EXPORT_COLUMNS = [
@@ -132,6 +136,11 @@ export function findingsExportFilename(now: Date = new Date()): string {
   return `secureflow-findings-${now.toISOString().slice(0, 10)}.csv`;
 }
 
+/** `secureflow-security-report-2026-09-22.html` — formatted shareable HTML report filename. */
+export function findingsReportFilename(now: Date = new Date()): string {
+  return `secureflow-security-report-${now.toISOString().slice(0, 10)}.html`;
+}
+
 async function handler(req: NextRequest) {
   const session = await auth();
 
@@ -151,6 +160,56 @@ async function handler(req: NextRequest) {
     },
     query,
   );
+
+  const format = req.nextUrl.searchParams.get("format")?.toLowerCase();
+
+  // Shareable HTML / printable report export
+  if (format === "html" || format === "pdf") {
+    const rows = await prisma.finding.findMany({
+      where: filter,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: MAX_FINDINGS_EXPORT_ROWS,
+      include: {
+        scanResult: {
+          include: {
+            pullRequest: {
+              include: { repository: { select: { id: true, fullName: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const findings: ShareableReportFinding[] = rows.map((row: any) => {
+      const exportRow = toFindingsExportRow(row, byKey);
+      return {
+        id: String(exportRow.id),
+        severity: String(exportRow.severity),
+        type: String(exportRow.type),
+        fileLocation: String(exportRow.file),
+        lineStart: exportRow.lineStart !== "" ? Number(exportRow.lineStart) : null,
+        lineEnd: exportRow.lineEnd !== "" ? Number(exportRow.lineEnd) : null,
+        repository: String(exportRow.repository),
+        pullRequest: exportRow.pullRequest !== "" ? Number(exportRow.pullRequest) : null,
+        status: String(exportRow.status),
+        remediation: String(exportRow.remediation || ""),
+        createdAt: String(exportRow.createdAt),
+      };
+    });
+
+    const searchQuery = req.nextUrl.searchParams.get("q");
+    const html = generateShareableReportHtml({
+      findings,
+      totalCount: findings.length,
+      filterSummary: searchQuery ? `Query: "${searchQuery}"` : undefined,
+    });
+
+    return exportResponse(html, {
+      contentType: "text/html; charset=utf-8",
+      filename: findingsReportFilename(),
+      limit: MAX_FINDINGS_EXPORT_ROWS,
+    });
+  }
 
   const body = streamCsv<FindingsExportCursor>(
     async (cursor, take) => {
