@@ -507,12 +507,15 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 - **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
 - **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
 
+> 📐 For the complete system architecture, interactive Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and data models, see **[Architecture & Pipeline Specification](./docs/architecture.md)**.
+
 ---
 
 ## 📖 Technical Documentation
 
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
+- **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.
