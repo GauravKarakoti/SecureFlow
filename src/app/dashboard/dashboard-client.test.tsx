@@ -310,4 +310,26 @@ describe("DashboardClient component (#1446)", () => {
       });
     });
   });
+
+  describe("Onboarding Checklist Integration (#1787)", () => {
+    it("renders OnboardingChecklist when onboardingStatus is supplied", () => {
+      render(
+        <DashboardClient
+          {...defaultProps}
+          onboardingStatus={{
+            appInstalled: true,
+            repoConnected: true,
+            webhookReceived: false,
+            policyEnabled: true,
+            firstScanCompleted: false,
+            allComplete: false,
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId("onboarding-checklist")).toBeInTheDocument();
+      expect(screen.getByText("Get Started with SecureFlow")).toBeInTheDocument();
+      expect(screen.getByText("3 of 5 Complete")).toBeInTheDocument();
+    });
+  });
 });
