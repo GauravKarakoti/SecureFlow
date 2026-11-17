@@ -22,6 +22,7 @@ import { triggerRepositorySync } from "@/lib/actions/sync-repositories";
 import { TimeAgo } from "@/components/time-ago";
 import OnboardingChecklist from "@/components/dashboard/onboarding-checklist";
 import type { OnboardingStatus } from "@/lib/actions/onboarding";
+import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 
 interface DashboardClientProps {
   stats: { totalScans: number; blockedPRs: number; approvedPRs: number; secretsDetected: number };
@@ -88,6 +89,11 @@ export default function DashboardClient({
 
   const totalFindings =
     distribution.critical + distribution.high + distribution.medium + distribution.low;
+  const heistRisk = calculateHeistRiskScore(distribution);
+  const totalPRs = stats.approvedPRs + stats.blockedPRs;
+  const vaultIntegrity = calculateVaultIntegrity(
+    totalPRs > 0 ? { passRate: (stats.approvedPRs / totalPRs) * 100 } : distribution,
+  );
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -200,6 +206,56 @@ export default function DashboardClient({
           value={stats.secretsDetected}
           icon={<ShieldAlert className="w-5 h-5 text-orange-400" />}
         />
+      </div>
+
+      {/* Themed Mission Defense & Vault Status Metrics (#1711) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-5 rounded-xl bg-gradient-to-r from-[#5A29E4]/15 via-[#5A29E4]/5 to-transparent border border-[#5A29E4]/30 glass-card relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold font-mono tracking-wider uppercase text-violet-400 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-[#5A29E4]" /> The Professor // Heist Risk Score
+            </span>
+            <Badge className="bg-[#5A29E4]/20 text-violet-300 border-[#5A29E4]/40 font-mono text-[11px]">
+              {heistRisk.level}
+            </Badge>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-headline font-extrabold text-foreground tracking-tight">
+                {heistRisk.score}
+              </span>
+              <span className="text-sm font-mono text-muted-foreground">/ 100 Risk Index</span>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground">{heistRisk.badge}</span>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold font-mono tracking-wider uppercase text-emerald-400 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#0A5C3E] dark:text-emerald-400" /> Vault Integrity Status
+            </span>
+            <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-[11px]">
+              {vaultIntegrity.status}
+            </Badge>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-headline font-extrabold text-foreground tracking-tight">
+                {vaultIntegrity.percentage}%
+              </span>
+              <span className="text-sm font-mono text-muted-foreground">Perimeter Fortification</span>
+            </div>
+            <Link
+              href="/api/findings/export?format=html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-mono text-primary hover:underline flex items-center gap-1"
+            >
+              Shareable Report &rarr;
+            </Link>
+          </div>
+        </div>
       </div>
 
       {/* Charts Section */}

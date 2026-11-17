@@ -84,6 +84,13 @@ describe("AnalyticsClient", () => {
     expect(screen.getAllByText("Avg Risk Score")[0]).toBeTruthy();
   });
 
+  it("renders themed Heist Risk Score, Vault Integrity Status, and Shareable Report button (#1711)", () => {
+    render(<AnalyticsClient {...mockProps} />);
+    expect(screen.getByText("Heist Risk Score")).toBeTruthy();
+    expect(screen.getByText("Vault Integrity Status")).toBeTruthy();
+    expect(screen.getByText("Shareable Report")).toBeTruthy();
+  });
+
   it("renders chart section headers", () => {
     render(<AnalyticsClient {...mockProps} />);
     expect(screen.getByText("Scan Activity & Findings")).toBeTruthy();

@@ -48,6 +48,10 @@ export default defineConfig({
       { find: "@armoriq/sdk", replacement: import.meta.dirname + "/__mocks__/@armoriq/sdk.ts" },
       { find: "next/server", replacement: import.meta.dirname + "/__mocks__/next/server.ts" },
       { find: "next/headers", replacement: import.meta.dirname + "/__mocks__/next/headers.ts" },
+      { find: "next/navigation", replacement: import.meta.dirname + "/__mocks__/next/navigation.ts" },
+      { find: "next/cache", replacement: import.meta.dirname + "/__mocks__/next/cache.ts" },
+      { find: "next/link", replacement: import.meta.dirname + "/__mocks__/next/link.tsx" },
+      { find: "recharts", replacement: import.meta.dirname + "/__mocks__/recharts.tsx" },
       {
         find: "next-auth/providers/github",
         replacement: import.meta.dirname + "/__mocks__/next-auth/providers/github.ts",

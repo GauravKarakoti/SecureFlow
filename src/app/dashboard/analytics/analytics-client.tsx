@@ -302,6 +302,17 @@ export default function AnalyticsClient({
             <Download className="w-3.5 h-3.5 mr-2" />
             Export JSON
           </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300 cursor-pointer font-mono text-xs"
+          >
+            <a href="/api/findings/export?format=html" target="_blank" rel="noopener noreferrer">
+              <Download className="w-3.5 h-3.5 mr-2" />
+              Shareable Report
+            </a>
+          </Button>
         </div>
       </div>
 
@@ -332,6 +343,43 @@ export default function AnalyticsClient({
           icon={<Target className="w-5 h-5 text-blue-400" />}
           color="blue"
         />
+      </div>
+
+      {/* Themed Heist Risk & Vault Integrity Metrics (#1711) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#5A29E4]/15 via-[#5A29E4]/5 to-transparent border border-[#5A29E4]/30 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-violet-400">
+              Heist Risk Score
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {Math.round(summary.avgRiskScore)}
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">/ 100 Index</span>
+            </div>
+          </div>
+          <Badge className="bg-[#5A29E4]/25 text-violet-300 border-[#5A29E4]/40 font-mono text-xs">
+            {summary.avgRiskScore < 25 ? "MINIMAL" : summary.avgRiskScore < 50 ? "GUARDED" : summary.avgRiskScore < 80 ? "ELEVATED" : "CRITICAL"}
+          </Badge>
+        </div>
+
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">
+              Vault Integrity Status
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {summary.overallPassRate}%
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">Perimeter Clearance</span>
+            </div>
+          </div>
+          <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-xs">
+            {summary.overallPassRate >= 90 ? "FORTIFIED" : summary.overallPassRate >= 75 ? "SECURED" : summary.overallPassRate >= 50 ? "GUARDED" : "COMPROMISED"}
+          </Badge>
+        </div>
       </div>
 
       {/* Scan Activity + Scan Velocity */}

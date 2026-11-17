@@ -123,6 +123,14 @@ describe("DashboardClient component (#1446)", () => {
       const values = screen.getAllByTestId("countup-value").map((el) => el.textContent);
       expect(values).toEqual(["48", "5", "40", "3"]);
     });
+
+    it("renders themed Heist Risk Score and Vault Integrity Status metrics (#1711)", () => {
+      render(<DashboardClient {...defaultProps} />);
+
+      expect(screen.getByText(/Heist Risk Score/i)).toBeInTheDocument();
+      expect(screen.getByText(/Vault Integrity Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/Shareable Report/i)).toBeInTheDocument();
+    });
   });
 
   describe("GitHub App Onboarding Prompt", () => {

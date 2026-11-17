@@ -12,10 +12,12 @@ import {
   Terminal,
   Download,
   ExternalLink,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 import {
   Accordion,
   AccordionContent,
@@ -104,6 +106,28 @@ export default function FindingsClient({
     const query = params.toString();
     return `/api/findings/export${query ? `?${query}` : ""}`;
   }, [searchParams]);
+
+  const heistRisk = useMemo(
+    () =>
+      calculateHeistRiskScore({
+        critical: stats.criticalSecrets,
+        high: stats.vulnerabilities,
+        medium: stats.misconfigs,
+        low: stats.other,
+      }),
+    [stats],
+  );
+
+  const vaultIntegrity = useMemo(
+    () =>
+      calculateVaultIntegrity({
+        critical: stats.criticalSecrets,
+        high: stats.vulnerabilities,
+        medium: stats.misconfigs,
+        low: stats.other,
+      }),
+    [stats],
+  );
 
   const handleLoadMore = async () => {
     if (!cursor || isLoadingMore) return;
@@ -212,6 +236,43 @@ export default function FindingsClient({
         <StatBox icon={<Terminal />} value={stats.other} label="Other" color="slate" />
       </div>
 
+      {/* Themed Heist Risk & Vault Integrity Status (#1711) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#5A29E4]/15 via-[#5A29E4]/5 to-transparent border border-[#5A29E4]/30 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-violet-400">
+              Heist Risk Score
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {heistRisk.score}
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">/ 100 Index</span>
+            </div>
+          </div>
+          <Badge className="bg-[#5A29E4]/25 text-violet-300 border-[#5A29E4]/40 font-mono text-xs">
+            {heistRisk.level}
+          </Badge>
+        </div>
+
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">
+              Vault Integrity Status
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {vaultIntegrity.percentage}%
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">Defense Posture</span>
+            </div>
+          </div>
+          <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-xs">
+            {vaultIntegrity.status}
+          </Badge>
+        </div>
+      </div>
+
       {sbomReport && (
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -236,19 +297,37 @@ export default function FindingsClient({
 
           <div className="flex items-center gap-3">
             {total === 0 ? (
-              <Button variant="outline" size="sm" disabled className="gap-2">
-                <Download className="h-4 w-4" />
-                Export CSV
-              </Button>
-            ) : (
-              <Button asChild variant="outline" size="sm" className="gap-2">
-                {/* A link, not an onClick over `findings`: that is only the loaded
-                    page, while the export should cover the `total` beside it. */}
-                <a href={exportHref} download>
+              <>
+                <Button variant="outline" size="sm" disabled className="gap-2">
                   <Download className="h-4 w-4" />
                   Export CSV
-                </a>
-              </Button>
+                </Button>
+                <Button variant="outline" size="sm" disabled className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  Shareable Report
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  {/* A link, not an onClick over `findings`: that is only the loaded
+                      page, while the export should cover the `total` beside it. */}
+                  <a href={exportHref} download>
+                    <Download className="h-4 w-4" />
+                    Export CSV
+                  </a>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300">
+                  <a
+                    href={`${exportHref}${exportHref.includes("?") ? "&" : "?"}format=html`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Shareable Report
+                  </a>
+                </Button>
+              </>
             )}
 
             <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
