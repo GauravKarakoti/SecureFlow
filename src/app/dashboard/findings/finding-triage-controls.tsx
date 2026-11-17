@@ -65,6 +65,7 @@ type SingleFindingTriageControlsProps = {
   fingerprint: string;
   currentStatus: TriageStatus;
   currentNote: string | null;
+  currentReason?: DismissalReason | null;
   currentExpiresAt?: Date | string | null;
 };
 
@@ -108,13 +109,14 @@ function SingleTriageControls({
   fingerprint,
   currentStatus,
   currentNote,
+  currentReason,
   currentExpiresAt,
 }: SingleFindingTriageControlsProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
-  const [reason, setReason] = useState<DismissalReason>("FALSE_POSITIVE");
+  const [reason, setReason] = useState<DismissalReason>(currentReason ?? "FALSE_POSITIVE");
   const [note, setNote] = useState(currentNote ?? "");
   const [expirySelection, setExpirySelection] = useState<string>("none");
 
@@ -122,6 +124,7 @@ function SingleTriageControls({
   const dirty =
     status !== currentStatus ||
     note !== (currentNote ?? "") ||
+    (status === "DISMISSED" && reason !== (currentReason ?? "FALSE_POSITIVE")) ||
     (isDismissal && expirySelection !== "none");
 
   // Determine current expiry status for UI badge/text
@@ -129,14 +132,6 @@ function SingleTriageControls({
   const isLapsed = isExpiryLapsed(currentExpiryDate);
 
   const save = () => {
-    if (status === "DISMISSED" && !note.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Reason required",
-        description: "Please provide a reason note when dismissing a finding.",
-      });
-      return;
-    }
     startTransition(async () => {
       try {
         const computedExpiry = isDismissal ? computeExpiryDate(expirySelection) : null;
@@ -152,7 +147,9 @@ function SingleTriageControls({
           toast({
             variant: "success",
             title: "PLAN EXECUTED: TRIAGE RECORDED 🛡️",
-            description: `Finding status updated to ${statusLabel(status)}. Vault security updated.`,
+            description:
+              result.warning ??
+              `Finding status updated to ${statusLabel(status)}. Vault security updated.`,
           });
           router.refresh();
         } else {
@@ -264,7 +261,7 @@ function SingleTriageControls({
         onChange={(e) => setNote(e.target.value)}
         placeholder={
           status === "DISMISSED"
-            ? "Required note (why is this being dismissed?)"
+            ? "Optional note (why is this being dismissed?)"
             : "Optional note (why is this being resolved?)"
         }
         rows={2}
@@ -294,6 +291,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [note, setNote] = useState("");
+  const [reason, setReason] = useState<DismissalReason>("FALSE_POSITIVE");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
   const [expiryDays, setExpiryDays] = useState<string>("none");
 
@@ -306,14 +304,6 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const apply = (applyStatus: TriageStatus) => {
     startTransition(async () => {
       try {
-        if (applyStatus === "DISMISSED" && !note.trim()) {
-          toast({
-            variant: "destructive",
-            title: "Reason note required",
-            description: "Please provide a reason note when dismissing findings.",
-          });
-          return;
-        }
         const isDismissal =
           applyStatus === "DISMISSED" ||
           applyStatus === "FALSE_POSITIVE" ||
@@ -323,7 +313,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         const result = await setFindingStatuses({
           items: targets,
           status: applyStatus,
-          reason: applyStatus === "DISMISSED" ? "FALSE_POSITIVE" : undefined,
+          reason: applyStatus === "DISMISSED" ? reason : undefined,
           note,
           expiresAt: computedExpiry,
         });
@@ -331,7 +321,9 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           toast({
             variant: "success",
             title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
-            description: `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
+            description:
+              result.warning ??
+              `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
           setNote("");
           setExpiryDays("none");
@@ -465,6 +457,24 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
               . This updates the database and creates an audit entry for each finding.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingStatus === "DISMISSED" && (
+            <Select
+              value={reason}
+              onValueChange={(value) => setReason(value as DismissalReason)}
+              disabled={isPending}
+            >
+              <SelectTrigger aria-label="Dismissal reason">
+                <SelectValue placeholder="Choose reason" />
+              </SelectTrigger>
+              <SelectContent>
+                {DISMISSAL_REASON_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction

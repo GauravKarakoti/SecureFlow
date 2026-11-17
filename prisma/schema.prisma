@@ -136,8 +136,8 @@ model VerificationToken {
 }
 
 model Repository {
-  id       String  @id @default(cuid())
-  githubId BigInt  @unique
+  id                 String  @id @default(cuid())
+  githubId           BigInt  @unique
   fullName           String
   owner              String
   isActive           Boolean @default(true)
@@ -246,6 +246,8 @@ model ScanResult {
   pullRequestId  String
   pullRequest    PullRequest    @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
   findings       Finding[]
+  headSha        String?
+  gateConfig     Json?
   riskScore      Int
   policyDecision PolicyDecision @default(REVIEW)
   createdAt      DateTime       @default(now())

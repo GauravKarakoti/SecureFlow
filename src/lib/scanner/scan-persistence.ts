@@ -212,6 +212,8 @@ export function storedRiskScore(findings: readonly EnrichedScanFinding[]): numbe
 /** The `data` for the `scanResult.create` a completed scan writes. */
 export interface ScanResultCreateData {
   pullRequestId: string;
+  headSha?: string;
+  gateConfig?: object;
   riskScore: number;
   policyDecision: StoredPolicyDecision;
   findings: { create: FindingCreateInput[] };
@@ -229,12 +231,16 @@ export interface ScanResultCreateData {
  */
 export function scanResultCreateData(args: {
   pullRequestId: string;
+  headSha?: string;
+  gateConfig?: object;
   decision: unknown;
   scoredFindings: readonly EnrichedScanFinding[];
   findingsToPersist: readonly EnrichedScanFinding[];
 }): ScanResultCreateData {
   return {
     pullRequestId: args.pullRequestId,
+    ...(args.headSha ? { headSha: args.headSha } : {}),
+    ...(args.gateConfig ? { gateConfig: args.gateConfig } : {}),
     riskScore: storedRiskScore(args.scoredFindings),
     policyDecision: storedPolicyDecision(args.decision),
     findings: { create: args.findingsToPersist.map(findingCreateInput) },

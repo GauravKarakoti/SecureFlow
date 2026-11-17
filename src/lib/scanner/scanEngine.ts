@@ -559,6 +559,8 @@ export async function processScanJob(
       await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
+          headSha,
+          gateConfig: repositoryGateConfig,
           decision,
           scoredFindings: activeFindings,
           findingsToPersist,

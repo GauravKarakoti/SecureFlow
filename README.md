@@ -98,10 +98,11 @@ Intelligently ignores non-executable files and mock placeholders to reduce noise
 
 Maintainers can dismiss findings directly from the dashboard:
 
-- **Status & Reason**: Triage findings as `DISMISSED` with a mandatory reason category (`False positive`, `Accepted risk`, or `Won't fix`) and a required explanation note.
+- **Status & Reason**: Triage findings as `DISMISSED` with a required reason category (`False positive`, `Accepted risk`, or `Won't fix`) and an optional explanation note.
 - **Stable Fingerprints**: Findings generate deterministic SHA-256 fingerprints (`repositoryId + fileLocation + type + codeSnippet`) so dismissals reliably persist across commits and subsequent scans.
 - **Scan-time Suppression**: Dismissed findings are automatically suppressed during PR scans—they do not block pull requests or inflate open finding tallies, and are reported as previously dismissed in PR scan summaries.
 - **Audit Trail & Reversal**: Every dismissal and reopening action is logged in the Vault Audit Log with actor identity, timestamp, and notes. Reopening restores findings to `OPEN` status instantly.
+- **Current PR Verdict**: Triage refreshes the latest saved scan and its existing GitHub check when that scan matches the PR's current commit. Older scans without a recorded commit, or PRs with a newer unscanned commit, need a fresh scan before the verdict changes. The dashboard shows this pending state after saving.
 
 ---
 
