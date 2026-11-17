@@ -1,10 +1,10 @@
 {
   "findings": [
     {
-      "reasoning": "Container process is explicitly configured to execute as root user, increasing the attack surface if the container is compromised.",
+      "reasoning": "Step 1: The Dockerfile sets the container user to root, which is a security misconfiguration. Running containers as root grants the application full host privileges, increasing the risk of privilege escalation and container breakout. This is an executable vulnerability because the container image will run with root privileges when deployed.",
       "type": "Misconfig",
-      "severity": "MEDIUM",
-      "description": "Container is configured to run as root user instead of a dedicated non-root service account.",
+      "severity": "CRITICAL",
+      "description": "The Dockerfile specifies USER root, causing the container to run as the root user. This exposes the host to potential privilege escalation and container breakout attacks.",
       "fileLocation": "Dockerfile",
       "codeSnippet": "USER root",
       "lineStart": 4,

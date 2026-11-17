@@ -1,10 +1,10 @@
 {
   "findings": [
     {
-      "reasoning": "User-supplied parameter host is concatenated directly into child_process.exec without validation or escaping.",
+      "reasoning": "Step 1: The function pingHost accepts a host string and directly interpolates it into a shell command using exec. This allows an attacker to inject arbitrary shell commands via the host parameter, leading to command injection. The code does not perform any validation or sanitization on the host input, making it a direct vulnerability.",
       "type": "Vulnerability",
       "severity": "HIGH",
-      "description": "Command injection vulnerability: unescaped input parameter passed directly into child_process.exec.",
+      "description": "The host parameter is interpolated into a shell command without sanitization, enabling arbitrary command execution (command injection).",
       "fileLocation": "src/utils/ping.ts",
       "codeSnippet": "exec(`ping -c 4 ${host}`, (err, stdout) => {",
       "lineStart": 4,

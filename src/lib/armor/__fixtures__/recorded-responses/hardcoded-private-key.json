@@ -1,12 +1,12 @@
 {
   "findings": [
     {
-      "reasoning": "Unencrypted RSA private key block is hardcoded directly into the application source code.",
+      "reasoning": "Step 1: The snippet defines a constant RSA_PRIVATE_KEY that contains a full RSA private key in PEM format. This is a hardcoded secret, which is a critical security vulnerability because it exposes a private key directly in source code, allowing anyone with repository access to decrypt data or impersonate the system. Hardcoded secrets are disallowed by the policy and represent a severe risk.",
       "type": "Secret",
       "severity": "CRITICAL",
-      "description": "Hardcoded RSA Private Key detected in authentication source file.",
+      "description": "The RSA private key is embedded directly in the source code, constituting a hardcoded secret. This exposes the key to anyone who can read the repository, enabling potential misuse such as signing tokens with a compromised key or decrypting sensitive data. The policy requires that secrets be stored in environment variables or secure vaults, not in code.",
       "fileLocation": "src/auth/jwt-sign.ts",
-      "codeSnippet": "export const RSA_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----",
+      "codeSnippet": "export const RSA_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEA0Y1+SyntheticDummyPrivateKeyPayloadForRegressionTests==\\n-----END RSA PRIVATE KEY-----`;",
       "lineStart": 1,
       "lineEnd": 3
     }

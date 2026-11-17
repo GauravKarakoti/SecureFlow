@@ -1,14 +1,14 @@
 {
   "findings": [
     {
-      "reasoning": "Overly permissive Access-Control-Allow-Origin header set to wildcard '*' while allowing credentials.",
+      "reasoning": "Step 1: The code sets the CORS header \"Access-Control-Allow-Origin\" to \"*\", which allows any origin to access the resources. This wildcard configuration is a security misconfiguration because it removes origin restrictions, potentially exposing the API to cross-site request forgery (CSRF) and other cross-origin attacks. The presence of \"Access-Control-Allow-Credentials\" set to \"true\" further amplifies the risk by allowing credentials to be sent from any origin, which can lead to credential leakage or unauthorized access.",
       "type": "Misconfig",
-      "severity": "MEDIUM",
-      "description": "Insecure CORS configuration: Access-Control-Allow-Origin is set to wildcard '*' with credentials enabled.",
+      "severity": "HIGH",
+      "description": "Wildcard CORS header with credentials enabled exposes the API to cross-origin attacks and credential leakage.",
       "fileLocation": "src/middleware/cors.ts",
-      "codeSnippet": "res.setHeader(\"Access-Control-Allow-Origin\", \"*\");",
+      "codeSnippet": "res.setHeader(\"Access-Control-Allow-Origin\", \"*\");\nres.setHeader(\"Access-Control-Allow-Credentials\", \"true\");",
       "lineStart": 2,
-      "lineEnd": 2
+      "lineEnd": 3
     }
   ]
 }

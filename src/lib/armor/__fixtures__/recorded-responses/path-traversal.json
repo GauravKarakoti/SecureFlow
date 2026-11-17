@@ -1,13 +1,13 @@
 {
   "findings": [
     {
-      "reasoning": "Path concatenation with untrusted file query parameter allows path traversal sequences like ../ to access arbitrary filesystem files.",
+      "reasoning": "Step 1: The code constructs a file path using user-supplied input 'filename' without validation or sanitization. By using path.join with a base directory and the raw filename, an attacker can supply a path like '../../etc/passwd' to traverse directories and read arbitrary files. This is a classic path traversal vulnerability.",
       "type": "Vulnerability",
       "severity": "HIGH",
-      "description": "Path traversal vulnerability: user input concatenated into filesystem read path without sanitization.",
+      "description": "Path traversal: user-controlled filename is concatenated to a base directory without sanitization, allowing access to files outside the intended directory.",
       "fileLocation": "src/routes/download.ts",
-      "codeSnippet": "const filePath = path.join(\"/var/data/uploads\", filename);\n  return fs.readFileSync(filePath);",
-      "lineStart": 6,
+      "codeSnippet": "const filename = new URL(req.url).searchParams.get(\"file\") || \"\";\nconst filePath = path.join(\"/var/data/uploads\", filename);\nreturn fs.readFileSync(filePath);",
+      "lineStart": 5,
       "lineEnd": 7
     }
   ]
