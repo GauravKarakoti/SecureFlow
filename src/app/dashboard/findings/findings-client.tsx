@@ -13,6 +13,8 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -42,6 +44,7 @@ import {
 } from "@/lib/actions/findings";
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
+import { formatAgeDays } from "@/lib/findings/age";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -433,6 +436,24 @@ export default function FindingsClient({
                                 title="Triage status"
                               >
                                 {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                              </Badge>
+                            )}
+                            {/* Age column */}
+                            <span
+                              className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                              title="Finding age"
+                            >
+                              <Clock className="w-3 h-3" />
+                              {formatAgeDays(finding.createdAt)}
+                            </span>
+                            {/* Overdue badge */}
+                            {finding.isOverdue && (
+                              <Badge
+                                className="bg-red-600/80 text-white border-red-500/60 font-mono text-[10px] animate-pulse"
+                                title="This finding has exceeded its target resolution age"
+                              >
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                Overdue
                               </Badge>
                             )}
                             <Badge

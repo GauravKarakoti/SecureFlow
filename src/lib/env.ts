@@ -105,6 +105,63 @@ const envSchema = z.object({
   ELEVENLABS_MODEL_ID: z.string().optional(),
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
   SCAN_CACHE_TTL_SECONDS: z.string().optional(),
+
+  // Finding age targets (days). Must be positive integers when set.
+  FINDING_AGE_TARGET_CRITICAL: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: "FINDING_AGE_TARGET_CRITICAL must be a positive integer (days)" },
+    ),
+  FINDING_AGE_TARGET_HIGH: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: "FINDING_AGE_TARGET_HIGH must be a positive integer (days)" },
+    ),
+  FINDING_AGE_TARGET_MEDIUM: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: "FINDING_AGE_TARGET_MEDIUM must be a positive integer (days)" },
+    ),
+  FINDING_AGE_TARGET_LOW: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: "FINDING_AGE_TARGET_LOW must be a positive integer (days)" },
+    ),
+  FINDING_AGE_TARGET_INFO: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: "FINDING_AGE_TARGET_INFO must be a positive integer (days)" },
+    ),
 });
 
 export type Env = z.infer<typeof envSchema>;
