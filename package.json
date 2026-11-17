@@ -18,6 +18,7 @@
     "test": "cross-env GROQ_API_KEY=test-key npx vitest run",
     "test:coverage": "vitest run --coverage",
     "test:redteam": "vitest run src/ai/flows/heist-prompt-guard.redteam.test.ts",
+    "test:prompts:live": "tsx scripts/test-prompts-live.ts",
     "threat-feed:sync": "tsx scripts/sync-threat-feed.ts",
     "threat-feed:sync:render": "tsx --env-file=.env scripts/sync-threat-feed.ts",
     "test:e2e": "playwright test",

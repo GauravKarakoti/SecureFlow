@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "reasoning": "Container process is explicitly configured to execute as root user, increasing the attack surface if the container is compromised.",
+      "type": "Misconfig",
+      "severity": "MEDIUM",
+      "description": "Container is configured to run as root user instead of a dedicated non-root service account.",
+      "fileLocation": "Dockerfile",
+      "codeSnippet": "USER root",
+      "lineStart": 4,
+      "lineEnd": 4
+    }
+  ]
+}

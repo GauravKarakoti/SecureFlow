@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "reasoning": "Path concatenation with untrusted file query parameter allows path traversal sequences like ../ to access arbitrary filesystem files.",
+      "type": "Vulnerability",
+      "severity": "HIGH",
+      "description": "Path traversal vulnerability: user input concatenated into filesystem read path without sanitization.",
+      "fileLocation": "src/routes/download.ts",
+      "codeSnippet": "const filePath = path.join(\"/var/data/uploads\", filename);\n  return fs.readFileSync(filePath);",
+      "lineStart": 6,
+      "lineEnd": 7
+    }
+  ]
+}
