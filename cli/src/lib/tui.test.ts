@@ -390,7 +390,11 @@ describe("cli/src/lib/tui (#1712)", () => {
       const pkgPath = path.join(tempDir, "package.json");
       fs.writeFileSync(
         pkgPath,
-        JSON.stringify({ name: "existing-pkg", version: "1.0.0", scripts: { test: "vitest" } }, null, 2),
+        JSON.stringify(
+          { name: "existing-pkg", version: "1.0.0", scripts: { test: "vitest" } },
+          null,
+          2,
+        ),
       );
 
       const mockExec = vi.fn();
@@ -423,7 +427,11 @@ describe("cli/src/lib/tui (#1712)", () => {
       const pkgPath = path.join(tempDir, "package.json");
       fs.writeFileSync(
         pkgPath,
-        JSON.stringify({ name: "existing-pkg", scripts: { prepare: "npm run build && npx secureflow" } }, null, 2),
+        JSON.stringify(
+          { name: "existing-pkg", scripts: { prepare: "npm run build && npx secureflow" } },
+          null,
+          2,
+        ),
       );
 
       const res = initBlankPrepareScript(tempDir);

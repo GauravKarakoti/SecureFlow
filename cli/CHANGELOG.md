@@ -1,5 +1,19 @@
 # secureflow-cli
 
+## 3.6.0
+
+### Minor Changes
+
+- b2b554b: feat(cli): [NSoC_2026] allow choosing between Blank and Husky in secureflow --init (#1758)
+- 79de755: feat(onboarding): add first-run checklist that confirms installation, policies and a test scan (#1787)
+- 232d606: ci(db): fail build on schema-migration drift, add `npm run db:check-drift` script, and document in CONTRIBUTING.md (#1691)
+
+### Patch Changes
+
+- 6ca8597: fix(ai): wire request abort signals into local model generation and enforce semaphore-based VRAM concurrency queue (#1753)
+- c08b715: fix: serve a neutral SVG when the public badge database lookup fails, and copy absolute badge URLs from the current app origin (#1791)
+- 52170d5: feat(helm): [NSoC_2026] tighten worker pod egress rules and document required endpoints in deployment guide (#1767)
+
 ## 3.5.0
 
 ### Minor Changes

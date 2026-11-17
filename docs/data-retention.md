@@ -113,6 +113,7 @@ Total affected: 628
 
 Re-run with --apply to perform the purge.
 ```
+
 **Overriding the window.** `--days=<n>` applies one retention period to every
 target for that run, taking precedence over the per-target environment variables
 and `DATA_RETENTION_DAYS`. It must be a whole number between 1 and 3650. Combine

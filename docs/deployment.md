@@ -52,11 +52,13 @@ SecureFlow orchestrates multiple decoupled services in a production Kubernetes c
 ## 2. Worker Egress Hardening & Default-Deny Policy
 
 In standard Kubernetes installations, pod egress traffic is unrestricted by default (`allow-all`). If a container dependency or scanning job is exploited, unrestricted egress presents severe risks:
+
 - Malicious exfiltration of source code or scanned repository secrets.
 - Communication with Command and Control (C2) servers.
 - Probing internal cluster services and cloud provider instance metadata endpoints (`169.254.169.254`).
 
 To eliminate these attack vectors, SecureFlow implements a **Zero-Trust Default-Deny Egress NetworkPolicy** for worker pods (`*-worker-egress`):
+
 - All outbound traffic to public IP addresses and external networks is blocked by default.
 - Worker pods can only communicate with internal cluster DNS and explicitly whitelisted API destinations.
 - Cloud metadata endpoints (`169.254.169.254/32`, `168.63.129.16/32`) and private RFC 1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) are strictly blocked and cannot be allowed via public egress blocks.
@@ -67,17 +69,17 @@ To eliminate these attack vectors, SecureFlow implements a **Zero-Trust Default-
 
 When deploying SecureFlow with `networkPolicy.enabled: true`, operators must configure the following egress rules depending on enabled features:
 
-| Target Destination | Purpose | Protocol & Port | Helm Configuration Parameter | Destination CIDR Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| **Cluster DNS** (`kube-dns` / `CoreDNS`) | Resolves domain names for internal and external endpoints | UDP & TCP `53` | `networkPolicy.workerEgress.dns` | Targets `kube-system` namespace with label `k8s-app: kube-dns` (or your CNI DNS labels). |
-| **In-Cluster PostgreSQL** | Internal database state & audit logs | TCP `5432` | `postgresql.enabled: true` | Automatically permitted to same-release PostgreSQL StatefulSet. |
-| **In-Cluster Redis** | Asynchronous job queues | TCP `6379` | `redis.enabled: true` | Automatically permitted to same-release Redis StatefulSet. |
-| **LLM Inference Providers** | The Professor AI security engine (Groq, OpenAI) | TCP `443` | `workerEgress.whitelistedEndpoints` | Groq `api.groq.com` (Cloudflare CDN CIDRs) or OpenAI `api.openai.com`. |
-| **Container Registries** | Container image layer scanning and SBOM generation | TCP `443`, `8443` | `workerEgress.whitelistedEndpoints` | GitHub Container Registry `ghcr.io`, Docker Hub `registry-1.docker.io`, AWS ECR, Quay. |
-| **GitHub API & VCS** | Webhook verification, commit checks, PR diffs | TCP `443` | `workerEgress.whitelistedEndpoints` | Public CIDRs from official [GitHub Meta API](https://api.github.com/meta). |
-| **Managed Cloud DB (VPC)** | AWS RDS, Neon, Cloud SQL | TCP `5432` | `workerEgress.extraEgressRules` | Private database subnet CIDR within the VPC. |
-| **Managed Cloud Cache (VPC)** | AWS ElastiCache, Upstash | TCP `6379` / `6380` | `workerEgress.extraEgressRules` | Private cache subnet CIDR within the VPC. |
-| **Outbound Webhooks** | High-severity finding notifications (Slack, Discord) | TCP `443` | `workerEgress.whitelistedEndpoints` | Notification gateway IP ranges. |
+| Target Destination                       | Purpose                                                   | Protocol & Port     | Helm Configuration Parameter        | Destination CIDR Notes                                                                   |
+| :--------------------------------------- | :-------------------------------------------------------- | :------------------ | :---------------------------------- | :--------------------------------------------------------------------------------------- |
+| **Cluster DNS** (`kube-dns` / `CoreDNS`) | Resolves domain names for internal and external endpoints | UDP & TCP `53`      | `networkPolicy.workerEgress.dns`    | Targets `kube-system` namespace with label `k8s-app: kube-dns` (or your CNI DNS labels). |
+| **In-Cluster PostgreSQL**                | Internal database state & audit logs                      | TCP `5432`          | `postgresql.enabled: true`          | Automatically permitted to same-release PostgreSQL StatefulSet.                          |
+| **In-Cluster Redis**                     | Asynchronous job queues                                   | TCP `6379`          | `redis.enabled: true`               | Automatically permitted to same-release Redis StatefulSet.                               |
+| **LLM Inference Providers**              | The Professor AI security engine (Groq, OpenAI)           | TCP `443`           | `workerEgress.whitelistedEndpoints` | Groq `api.groq.com` (Cloudflare CDN CIDRs) or OpenAI `api.openai.com`.                   |
+| **Container Registries**                 | Container image layer scanning and SBOM generation        | TCP `443`, `8443`   | `workerEgress.whitelistedEndpoints` | GitHub Container Registry `ghcr.io`, Docker Hub `registry-1.docker.io`, AWS ECR, Quay.   |
+| **GitHub API & VCS**                     | Webhook verification, commit checks, PR diffs             | TCP `443`           | `workerEgress.whitelistedEndpoints` | Public CIDRs from official [GitHub Meta API](https://api.github.com/meta).               |
+| **Managed Cloud DB (VPC)**               | AWS RDS, Neon, Cloud SQL                                  | TCP `5432`          | `workerEgress.extraEgressRules`     | Private database subnet CIDR within the VPC.                                             |
+| **Managed Cloud Cache (VPC)**            | AWS ElastiCache, Upstash                                  | TCP `6379` / `6380` | `workerEgress.extraEgressRules`     | Private cache subnet CIDR within the VPC.                                                |
+| **Outbound Webhooks**                    | High-severity finding notifications (Slack, Discord)      | TCP `443`           | `workerEgress.whitelistedEndpoints` | Notification gateway IP ranges.                                                          |
 
 ---
 
@@ -174,16 +176,19 @@ helm upgrade --install secureflow ./helm/secureflow -f production-values.yaml
 ## 5. Verification & Diagnostics
 
 1. **Verify NetworkPolicies are applied**:
+
    ```bash
    kubectl get networkpolicy -l "app.kubernetes.io/instance=secureflow"
    ```
 
 2. **Inspect worker egress rules**:
+
    ```bash
    kubectl describe networkpolicy <release-name>-worker-egress
    ```
 
 3. **Verify blocked egress from worker pods**:
+
    ```bash
    # Connection to unauthorized external IP or cloud metadata service should time out:
    kubectl exec -it deployment/<release-name>-worker -- curl --connect-timeout 3 http://169.254.169.254/latest/meta-data/
