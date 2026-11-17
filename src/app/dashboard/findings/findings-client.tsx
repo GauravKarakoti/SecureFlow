@@ -31,7 +31,7 @@ import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
 import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import { SbomReportCard } from "@/components/findings/sbom-report-card"; // [NEW] Import SBOM Card
-import { TriageStatus } from "@/lib/actions/triage";
+import type { TriageStatus, DismissalReason } from "@/lib/actions/triage";
 import {
   getUserFindings,
   type FindingFilterOptions,
@@ -417,6 +417,7 @@ export default function FindingsClient({
                                 fingerprint={finding.fingerprint}
                                 currentStatus={(finding.triageStatus ?? "OPEN") as TriageStatus}
                                 currentNote={finding.triageNote ?? null}
+                                currentReason={finding.triageReason as DismissalReason | null}
                               />
                             )}
                           </div>

@@ -116,6 +116,7 @@ describe("getUserFindings", () => {
       pullRequestNumber: 12,
       triageStatus: "IN_PROGRESS",
       triageNote: "on it",
+      triageReason: null,
     });
     expect(result.findings[1]).toMatchObject({ triageStatus: "OPEN", triageNote: null });
   });
