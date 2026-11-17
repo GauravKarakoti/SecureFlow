@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { triggerRepositorySync } from "@/lib/actions/sync-repositories";
 import { TimeAgo } from "@/components/time-ago";
+import OnboardingChecklist from "@/components/dashboard/onboarding-checklist";
+import type { OnboardingStatus } from "@/lib/actions/onboarding";
 
 interface DashboardClientProps {
   stats: { totalScans: number; blockedPRs: number; approvedPRs: number; secretsDetected: number };
@@ -29,6 +31,7 @@ interface DashboardClientProps {
   repoCount?: number;
   needsGitHubAppInstall?: boolean;
   githubAppUrl?: string;
+  onboardingStatus?: OnboardingStatus;
 }
 
 export default function DashboardClient({
@@ -39,6 +42,7 @@ export default function DashboardClient({
   repoCount = 0,
   needsGitHubAppInstall = false,
   githubAppUrl = "/setup",
+  onboardingStatus,
 }: DashboardClientProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -87,8 +91,15 @@ export default function DashboardClient({
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      {/* GitHub App Onboarding Prompt for Scenario 2 */}
-      {needsGitHubAppInstall && (
+      {/* Onboarding "Get Started" Checklist (#1787) */}
+      {onboardingStatus ? (
+        <OnboardingChecklist
+          status={onboardingStatus}
+          githubAppUrl={githubAppUrl}
+          onSyncRepositories={handleSync}
+          isSyncing={isSyncing}
+        />
+      ) : needsGitHubAppInstall ? (
         <div className="p-6 rounded-2xl bg-gradient-to-r from-primary/20 via-primary/10 to-transparent border border-primary/30 glass-card relative overflow-hidden">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-2">
@@ -113,7 +124,7 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>

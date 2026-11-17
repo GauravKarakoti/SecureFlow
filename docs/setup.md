@@ -168,6 +168,20 @@ SecureFlow is organized as an **npm workspace** monorepo with the root project a
 
 ---
 
+## 8. Verifying Your Setup via Dashboard Checklist
+
+Once SecureFlow is running, sign in to the dashboard at `http://localhost:9002/dashboard`. The **"Get Started with SecureFlow"** onboarding checklist guides you through verifying:
+
+1. **GitHub App installed**: Verifies GitHub App connection to your user account.
+2. **At least one repository connected**: Ensures repository sync has occurred.
+3. **Webhook delivery received**: Click **"Send Test Event"** to simulate and verify an HMAC-SHA256 signed GitHub ping delivery without scanning real code.
+4. **At least one policy enabled**: Confirms guardrails under `/dashboard/policies`.
+5. **First scan completed**: Verifies that opening or updating a PR executes the scan pipeline.
+
+The checklist is dismissible and automatically hides once all 5 setup steps are completed.
+
+---
+
 ## Quick-start checklist
 
 ```
