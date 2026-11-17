@@ -18,6 +18,7 @@ import {
   Activity,
   Settings,
   Cpu,
+  Mail,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "AI Model Health", href: "/dashboard/ai-health", icon: Cpu },
+  { name: "Security Digest", href: "/dashboard/digest", icon: Mail },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
   { name: "System Status", href: "/dashboard/status", icon: Activity },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },

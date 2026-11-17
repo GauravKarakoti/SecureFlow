@@ -109,6 +109,28 @@ describe("environment validation (src/lib/env.ts)", () => {
     }
   });
 
+  it("redacts SMTP_PASS and CRON_SECRET if validation errors occur", () => {
+    const issues = [
+      {
+        code: "custom" as const,
+        path: ["SMTP_PASS"],
+        message: "Invalid secret",
+      },
+      {
+        code: "custom" as const,
+        path: ["CRON_SECRET"],
+        message: "Invalid secret",
+      },
+    ];
+    const formatted = formatEnvErrors(issues as any, {
+      SMTP_PASS: "super-secret-smtp-password",
+      CRON_SECRET: "super-secret-cron-token",
+    });
+    expect(formatted).not.toContain("super-secret-smtp-password");
+    expect(formatted).not.toContain("super-secret-cron-token");
+    expect(formatted).toContain("[value redacted]");
+  });
+
   it("allows optional variables to be omitted", () => {
     expect(validateEnv(validEnv)).toBeDefined();
   });

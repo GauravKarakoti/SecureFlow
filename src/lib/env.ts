@@ -11,6 +11,8 @@ const SECRET_ENV_VARS = new Set([
   "ARMORIQ_API_KEY",
   "UPSTASH_REDIS_REST_TOKEN",
   "ELEVENLABS_API_KEY",
+  "SMTP_PASS",
+  "CRON_SECRET",
 ]);
 
 /**
@@ -105,6 +107,16 @@ const envSchema = z.object({
   ELEVENLABS_MODEL_ID: z.string().optional(),
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
   SCAN_CACHE_TTL_SECONDS: z.string().optional(),
+
+  // Weekly Security Digest & SMTP (#1788)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  SMTP_SECURE: z.string().optional(),
+  CRON_SECRET: z.string().optional(),
+  WEEKLY_DIGEST_SCHEDULE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
