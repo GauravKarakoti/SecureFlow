@@ -42,6 +42,7 @@ import {
 } from "@/lib/actions/findings";
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
+import type { SavedViewDto } from "@/lib/actions/saved-views";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -66,6 +67,7 @@ interface FindingsClientProps {
   totalPages: number;
   nextCursor?: string | null;
   sbomReport?: SbomScanResult | null; // [NEW] Optional SBOM Report prop
+  savedViews?: SavedViewDto[];
 }
 
 export default function FindingsClient({
@@ -78,6 +80,7 @@ export default function FindingsClient({
   totalPages,
   nextCursor,
   sbomReport, // [NEW] Destructure SBOM report
+  savedViews = [],
 }: FindingsClientProps) {
   const [prevFindings, setPrevFindings] = useState(findings);
   const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
@@ -289,6 +292,7 @@ export default function FindingsClient({
         bulkMode={bulkMode}
         onToggleBulkMode={bulkMode ? exitBulkMode : enterBulkMode}
         canBulkSelect={selectableIds.length > 0}
+        savedViews={savedViews}
       />
 
       <Card className="glass-card">

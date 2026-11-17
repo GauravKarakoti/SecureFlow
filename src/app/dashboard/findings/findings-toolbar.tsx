@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { FINDING_SORTS, FINDING_STATUSES } from "@/lib/findings/query";
 import type { FindingFilterOptions } from "@/lib/actions/findings";
+import SavedViewsControl from "./saved-views-control";
+import type { SavedViewDto, SavedViewFilters } from "@/lib/actions/saved-views";
 
 /**
  * Filter and sort controls for the findings list (#561).
@@ -54,6 +56,8 @@ export interface FindingsToolbarProps {
   bulkMode?: boolean;
   onToggleBulkMode?: () => void;
   canBulkSelect?: boolean;
+  /** Saved views for the current user (#1786). */
+  savedViews?: SavedViewDto[];
 }
 
 export default function FindingsToolbar({
@@ -62,6 +66,7 @@ export default function FindingsToolbar({
   bulkMode,
   onToggleBulkMode,
   canBulkSelect,
+  savedViews = [],
 }: FindingsToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -135,8 +140,21 @@ export default function FindingsToolbar({
   const activeStatus = searchParams.get("status") ?? ANY;
   const activeRepo = searchParams.get("repo") ?? ANY;
   const activeSort = searchParams.get("sort") ?? "newest";
+  const activeFrom = searchParams.get("from") ?? "";
+  const activeTo = searchParams.get("to") ?? "";
 
-  const activeCount = ["severity", "type", "status", "repo", "q"].filter((key) =>
+  const activeFilters: SavedViewFilters = {
+    severity: searchParams.getAll("severity"),
+    type: searchParams.getAll("type"),
+    status: searchParams.getAll("status"),
+    repositoryId: searchParams.get("repo"),
+    search: searchParams.get("q"),
+    from: searchParams.get("from"),
+    to: searchParams.get("to"),
+    sort: searchParams.get("sort") ?? undefined,
+  };
+
+  const activeCount = ["severity", "type", "status", "repo", "q", "from", "to"].filter((key) =>
     searchParams.has(key),
   ).length;
 
@@ -228,6 +246,30 @@ export default function FindingsToolbar({
           </SelectContent>
         </Select>
 
+        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1">
+          <span className="text-[11px] font-mono text-muted-foreground uppercase">From:</span>
+          <Input
+            type="date"
+            value={activeFrom}
+            onChange={(e) => setSingle("from", e.target.value)}
+            aria-label="Filter from date"
+            className="w-[125px] h-7 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1">
+          <span className="text-[11px] font-mono text-muted-foreground uppercase">To:</span>
+          <Input
+            type="date"
+            value={activeTo}
+            onChange={(e) => setSingle("to", e.target.value)}
+            aria-label="Filter to date"
+            className="w-[125px] h-7 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
+          />
+        </div>
+
+        <SavedViewsControl initialViews={savedViews} currentFilters={activeFilters} />
+
         {onToggleBulkMode && canBulkSelect && (
           <>
             <Button
@@ -270,7 +312,7 @@ export default function FindingsToolbar({
             className="h-7 px-2 text-xs"
             onClick={() =>
               apply((params) => {
-                for (const key of ["severity", "type", "status", "repo", "q"]) {
+                for (const key of ["severity", "type", "status", "repo", "q", "from", "to"]) {
                   params.delete(key);
                 }
               })
