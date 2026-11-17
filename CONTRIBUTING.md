@@ -60,6 +60,8 @@ Before diving in, please ensure you're familiar with our core stack:
 - **AI/LLM**: Groq SDK & Genkit
 - **GitHub Integration**: Octokit
 
+> 📖 **Architecture Overview**: For visual Mermaid diagrams tracing webhook receipt, BullMQ queues, scanning, policy evaluation, check runs, and data models, see **[docs/architecture.md](./docs/architecture.md)**.
+
 ---
 
 ## 🛠️ Development Workflow
@@ -551,6 +553,8 @@ src/
     │   └── iq.ts          # Policy engine
     └── prisma.ts          # Prisma client
 ```
+
+> 🔍 For an in-depth component diagram and lifecycle walkthrough from webhook ingestion to check runs, see **[docs/architecture.md](./docs/architecture.md)**.
 
 ---
 
