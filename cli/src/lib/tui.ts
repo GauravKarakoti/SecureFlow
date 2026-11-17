@@ -495,9 +495,7 @@ export async function promptInitChoice(
 /**
  * Main initialization entry point allowing users to choose between Blank and Husky (#1758).
  */
-export async function initSecureFlow(
-  options: InitSecureFlowOptions = {},
-): Promise<InitHookResult> {
+export async function initSecureFlow(options: InitSecureFlowOptions = {}): Promise<InitHookResult> {
   const targetDir = options.targetDir || process.cwd();
   const argv = options.argv || process.argv;
   let mode = options.mode;
@@ -507,8 +505,7 @@ export async function initSecureFlow(
   }
 
   if (!mode) {
-    const isInteractive =
-      (options.stdin as any)?.isTTY ?? (process.stdin.isTTY && !process.env.CI);
+    const isInteractive = (options.stdin as any)?.isTTY ?? (process.stdin.isTTY && !process.env.CI);
     if (isInteractive) {
       mode = await promptInitChoice(options.rl, options.stdin, options.stdout);
     } else {

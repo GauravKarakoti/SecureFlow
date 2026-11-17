@@ -201,7 +201,8 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 async function main(): Promise<number> {
   if (
     process.argv.some(
-      (arg) => arg === "--init" || arg.startsWith("--init=") || arg === "--husky" || arg === "--blank",
+      (arg) =>
+        arg === "--init" || arg.startsWith("--init=") || arg === "--husky" || arg === "--blank",
     )
   ) {
     const result = await initSecureFlow();

@@ -1,7 +1,12 @@
 import { InsufficientVRAMError, isInsufficientMemoryError } from "@/ai/local-model";
 import { getModelId } from "@/lib/explanation-cache";
 import { isRateLimitError, isTimeoutError } from "./security-helpers";
-import { getModelCircuitBreaker, CircuitBreakerError, CircuitState, isVramConcurrencyError } from "@/ai/resilience";
+import {
+  getModelCircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+  isVramConcurrencyError,
+} from "@/ai/resilience";
 import {
   AISecurityExplanationOutputSchema,
   type AISecurityExplanationInput,

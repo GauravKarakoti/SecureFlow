@@ -364,7 +364,6 @@ export class InsufficientVRAMError extends Error {
   }
 }
 
-
 // ---------------------------------------------------------------------------
 // Local Model Generation & Streaming Loops with Abort Support (#1753)
 // ---------------------------------------------------------------------------
@@ -390,8 +389,7 @@ export async function* streamLocalModelGeneration(
   const signal = options.signal;
   if (signal?.aborted) return;
 
-  const config =
-    options.config ||
+  const config = options.config ||
     resolveLocalModelConfig() || {
       baseUrl: DEFAULT_LOCAL_AI_URL,
       model: options.model || DEFAULT_LOCAL_AI_MODEL,
