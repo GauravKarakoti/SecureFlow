@@ -14,6 +14,7 @@
  */
 
 import { countBySeverity, SEVERITY_ORDER, type Severity } from "@/lib/severity";
+import { getGitHubWebUrl } from "@/lib/github/app-auth";
 import {
   dispatchOutboundWebhook,
   resolveDispatchConfig,
@@ -31,6 +32,7 @@ export interface BuildTeamsAlertArgs {
   prNumber: number;
   findings: readonly TeamsFindingSummary[];
   dashboardUrl?: string;
+  webUrl?: string;
 }
 
 /** Legacy / standard Office 365 Connector card format for Microsoft Teams. */
@@ -108,7 +110,8 @@ export function assertTeamsWebhookUrl(rawUrl: string): URL {
  */
 export function buildTeamsAlert(args: BuildTeamsAlertArgs): TeamsMessageCard {
   const counts = countBySeverity(args.findings);
-  const prUrl = `https://github.com/${args.repositoryFullName}/pull/${args.prNumber}`;
+  const webUrl = (args.webUrl ?? getGitHubWebUrl()).replace(/\/+$/, "");
+  const prUrl = `${webUrl}/${args.repositoryFullName}/pull/${args.prNumber}`;
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "");
   const dashboardUrl = args.dashboardUrl || `${appUrl}/dashboard`;
 

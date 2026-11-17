@@ -50,6 +50,18 @@ const envSchema = z.object({
   AUTH_URL: z.string().url("AUTH_URL must be a valid URL"),
   NEXT_PUBLIC_APP_URL: z.string().url("NEXT_PUBLIC_APP_URL must be a valid URL"),
 
+  NODE_ENV: z.string().optional(),
+  GITHUB_API_URL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim() !== "" ? val.trim() : "https://api.github.com"))
+    .pipe(z.string().url("GITHUB_API_URL must be a valid URL")),
+  GITHUB_WEB_URL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim() !== "" ? val.trim() : undefined))
+    .pipe(z.string().url("GITHUB_WEB_URL must be a valid URL").optional()),
+
   // Optional
   DB_POOL_MAX: z.string().optional(),
   GITHUB_WEBHOOK_MAX_BYTES: z.string().optional(),
@@ -105,6 +117,39 @@ const envSchema = z.object({
   ELEVENLABS_MODEL_ID: z.string().optional(),
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
   SCAN_CACHE_TTL_SECONDS: z.string().optional(),
+}).superRefine((data, ctx) => {
+  const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
+  if (isProduction) {
+    if (data.GITHUB_API_URL) {
+      try {
+        const u = new URL(data.GITHUB_API_URL);
+        if (u.protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["GITHUB_API_URL"],
+            message: "GITHUB_API_URL must use HTTPS in production",
+          });
+        }
+      } catch {
+        // Handled by URL schema
+      }
+    }
+
+    if (data.GITHUB_WEB_URL) {
+      try {
+        const u = new URL(data.GITHUB_WEB_URL);
+        if (u.protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["GITHUB_WEB_URL"],
+            message: "GITHUB_WEB_URL must use HTTPS in production",
+          });
+        }
+      } catch {
+        // Handled by URL schema
+      }
+    }
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
