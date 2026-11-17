@@ -46,7 +46,12 @@ export async function getOnboardingStatus(
     select: { policyTemplateId: true, isActive: true },
   });
 
-  const toggleMap = new Map(userToggles.map((t: any) => [t.policyTemplateId, t.isActive]));
+  const toggleMap = new Map(
+    userToggles.map((t: { policyTemplateId: string; isActive: boolean }) => [
+      t.policyTemplateId,
+      t.isActive,
+    ]),
+  );
 
   let activePoliciesCount = 0;
   for (const t of templates) {
@@ -127,7 +132,8 @@ export async function sendTestWebhookEvent(): Promise<TestWebhookResult> {
         }
       : undefined,
     sender: {
-      login: (session.user as any)?.githubLogin || session.user?.name || "operator",
+      login:
+        (session.user as { githubLogin?: string })?.githubLogin || session.user?.name || "operator",
     },
   };
 
@@ -155,11 +161,12 @@ export async function sendTestWebhookEvent(): Promise<TestWebhookResult> {
         repositoryId: repo?.id || null,
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("[Onboarding] Failed to record test webhook event:", err);
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
     return {
       success: false,
-      error: `Database Error: Failed to record test webhook delivery (${err?.message || "Unknown error"}).`,
+      error: `Database Error: Failed to record test webhook delivery (${errMsg}).`,
     };
   }
 

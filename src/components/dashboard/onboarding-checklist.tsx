@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useTransition } from "react";
+import React, { useState, useTransition, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,11 +17,30 @@ import {
   X,
   Sparkles,
   AlertCircle,
-  HelpCircle,
 } from "lucide-react";
 import { sendTestWebhookEvent, type OnboardingStatus } from "@/lib/actions/onboarding";
 
 export const ONBOARDING_DISMISS_KEY = "secureflow:onboarding:dismissed";
+
+const emptySubscribe = () => () => {};
+
+function subscribeToStorage(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+function getDismissedSnapshot(): boolean {
+  try {
+    return window.localStorage.getItem(ONBOARDING_DISMISS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function getServerDismissedSnapshot(): boolean {
+  return false;
+}
 
 export interface OnboardingChecklistProps {
   status: OnboardingStatus;
@@ -38,8 +57,22 @@ export default function OnboardingChecklist({
   isSyncing = false,
   className = "",
 }: OnboardingChecklistProps) {
-  const [isDismissed, setIsDismissed] = useState<boolean>(false);
-  const [hasMounted, setHasMounted] = useState<boolean>(false);
+  const isMounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+
+  const [dismissedLocally, setDismissedLocally] = useState<boolean>(false);
+
+  const isStoredDismissed = useSyncExternalStore(
+    subscribeToStorage,
+    getDismissedSnapshot,
+    getServerDismissedSnapshot,
+  );
+
+  const isDismissed = dismissedLocally || isStoredDismissed;
+
   const [localWebhookReceived, setLocalWebhookReceived] = useState<boolean>(status.webhookReceived);
   const [isSendingTest, startSendTestTransition] = useTransition();
   const [testResult, setTestResult] = useState<{
@@ -48,22 +81,8 @@ export default function OnboardingChecklist({
     error?: string;
   } | null>(null);
 
-  useEffect(() => {
-    setHasMounted(true);
-    try {
-      if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(ONBOARDING_DISMISS_KEY);
-        if (stored === "true") {
-          setIsDismissed(true);
-        }
-      }
-    } catch {
-      // Ignore localStorage access issues
-    }
-  }, []);
-
   const handleDismiss = () => {
-    setIsDismissed(true);
+    setDismissedLocally(true);
     try {
       if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.setItem(ONBOARDING_DISMISS_KEY, "true");
@@ -95,8 +114,9 @@ export default function OnboardingChecklist({
           });
           toast.error(result.error || "Webhook test delivery failed.");
         }
-      } catch (err: any) {
-        const errMsg = err?.message || "Failed to dispatch test webhook event.";
+      } catch (err: unknown) {
+        const errMsg =
+          err instanceof Error ? err.message : "Failed to dispatch test webhook event.";
         setTestResult({
           success: false,
           error: errMsg,
@@ -121,7 +141,7 @@ export default function OnboardingChecklist({
     isFirstScanCompleted;
 
   // Hide automatically when every step is complete, or when dismissed
-  if (allStepsComplete || (hasMounted && isDismissed)) {
+  if (allStepsComplete || (isMounted && isDismissed)) {
     return null;
   }
 
