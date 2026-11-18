@@ -48,7 +48,7 @@ Featured in Nexus Spring of Code
 - [🔒 Defense Strategy (Security Policies)](#-defense-strategy-security-policies)
 - [📊 Architecture](#-architecture)
 - [📖 Technical Documentation](#-technical-documentation)
-- [🤝 Contributing](#-contributing)
+- [🤝 Contributing & Difficulty Labels](#-contributing)
 - [❓ FAQ](#-faq)
 - [📄 License](#-license)
 
@@ -591,26 +591,44 @@ The badge reflects the latest scan: **passing** (green), **review required** (ye
 
 ## 🤝 Contributing
 
-Every good heist needs a crew. Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on branching, commit messages, and the PR process.
+Every good heist needs a crew! Contributions are welcome from developers of all skill levels.
+
+For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+
+### 🎯 Issue Difficulty Labels
+
+We label open issues by difficulty so you can immediately find work suited to your experience:
+
+- 🟢 **[`level1`](./CONTRIBUTING.md#🟢-level1-beginner--good-first-issue)** (**Beginner / Good First Issue**): Isolated bug fixes, documentation, styling, accessibility contrast, and unit tests (1–2 files).  
+  _Examples_: Severity badge contrast ratios, `--no-color` CLI support, snapshot tests.  
+  👉 [Browse `level1` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level1)
+- 🟡 **[`level2`](./CONTRIBUTING.md#🟡-level2-intermediate--feature-enhancement)** (**Intermediate / Feature Enhancement**): CLI subcommands, UI components, state synchronization, and database migrations (3–6 files).  
+  _Examples_: Interactive `secureflow init` command, `--since REF` diff scanning, Dark mode toggle, side-by-side code viewer.  
+  👉 [Browse `level2` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level2)
+- 🔴 **[`level3`](./CONTRIBUTING.md#🔴-level3-advanced--architectural-work)** (**Advanced / Architectural Work**): Core scanning engines, BullMQ queue workers, LLM orchestration, and cryptography (7+ files).  
+  _Examples_: Configurable AI model providers, DLQ auto-retries, HMAC audit trail chain, k6 load testing.  
+  👉 [Browse `level3` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level3)
+
+> 📖 **Full Details & Matrix**: See the **[Issue Difficulty Comparison Matrix in CONTRIBUTING.md](./CONTRIBUTING.md#🎯-issue-difficulty-labels-level1-level2-level3)** for detailed expectations and guidelines.
+
+### Branch Naming Conventions
+
+Create a branch from `main` following the `<type>/<description>` format:
 
 ```bash
-# Create a branch following the naming convention
-
-
 git checkout -b fix/your-issue-name   # bug fix
-
 git checkout -b feat/your-feature     # new feature
-
 git checkout -b docs/update-readme    # documentation
+git checkout -b test/add-unit-tests   # testing
 ```
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages:
+### Commit Guidelines
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages:
 
 ```bash
 git commit -m "fix: description of what you fixed"
-
-git commit -m "feat: description of new feature"
-
+git commit -m "feat(cli): description of new feature"
 git commit -m "docs: description of documentation change"
 ```
 
