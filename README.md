@@ -572,6 +572,7 @@ For more in-depth details about the architecture, developer API, and security pr
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
 - **[Operator Runbook](./docs/runbook.md)**: Operational troubleshooting guide for scan outages, webhook delivery failures, queue/Redis stalls, Groq rate limits, database pooling errors, and proxy configuration.
+- **[Webhook Load Testing](./docs/load-testing.md)**: Performance benchmarks and k6 load testing suite for webhook ingestion throughput and response latency.
 - **[Status Badge](./docs/status-badge.md)**: Embed a live SVG badge in your README showing the latest scan status.
 
 ---

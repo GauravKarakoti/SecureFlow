@@ -45,6 +45,7 @@ export default defineConfig({
     alias: [
       { find: "@", replacement: import.meta.dirname + "/src" },
       { find: "__mocks__", replacement: import.meta.dirname + "/__mocks__" },
+      { find: "k6/crypto", replacement: import.meta.dirname + "/__mocks__/k6/crypto.ts" },
       { find: "@armoriq/sdk", replacement: import.meta.dirname + "/__mocks__/@armoriq/sdk.ts" },
       { find: "next/server", replacement: import.meta.dirname + "/__mocks__/next/server.ts" },
       { find: "next/headers", replacement: import.meta.dirname + "/__mocks__/next/headers.ts" },

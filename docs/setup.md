@@ -192,6 +192,8 @@ Once SecureFlow is running, sign in to the dashboard at `http://localhost:9002/d
 4. **At least one policy enabled**: Confirms guardrails under `/dashboard/policies`.
 5. **First scan completed**: Verifies that opening or updating a PR executes the scan pipeline.
 
+For performance benchmarking and burst webhook ingestion testing against your local Docker Compose environment, see the **[Webhook Load Testing Guide](./load-testing.md)**.
+
 The checklist is dismissible and automatically hides once all 5 setup steps are completed.
 
 ---
