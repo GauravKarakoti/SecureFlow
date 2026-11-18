@@ -30,12 +30,17 @@ const m = vi.hoisted(() => ({
   parseVoiceArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
   startMcpServer: vi.fn(),
+  getChangedFilesSince: vi.fn(),
+  getRepoRoot: vi.fn(),
+  parseSinceArg: vi.fn(),
 }));
 
 vi.mock("./git.js", () => ({
   GitError: errors.GitError,
   getStagedFiles: m.getStagedFiles,
   readStagedContent: m.readStagedContent,
+  getChangedFilesSince: m.getChangedFilesSince,
+  getRepoRoot: m.getRepoRoot,
 }));
 vi.mock("./scanner.js", () => ({
   scanFile: m.scanFile,
@@ -63,6 +68,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseOutputPath: m.parseOutputPath,
   parseIgnoreFilePath: m.parseIgnoreFilePath,
   parseVoiceArg: m.parseVoiceArg,
+  parseSinceArg: m.parseSinceArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
@@ -124,6 +130,9 @@ beforeEach(() => {
   m.parseOutputPath.mockReturnValue(null);
   m.parseIgnoreFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
+  m.parseSinceArg.mockReturnValue(undefined);
+  m.getChangedFilesSince.mockReturnValue([]);
+  m.getRepoRoot.mockReturnValue(process.cwd());
   m.getStagedFiles.mockReturnValue([]);
   m.readStagedContent.mockReturnValue("const a = 1;");
   m.loadSecureFlowIgnore.mockReturnValue(null);
@@ -419,5 +428,39 @@ describe("--init flag & initialization modes (#1758)", () => {
     const code = await runCli("--init", "--blank");
     expect(code).toBe(1);
     expect(output(errorSpy)).toContain("Failed to write package.json");
+  });
+});
+
+describe("--since flag (#1760)", () => {
+  it("scans files changed since reference and outputs passed summary", async () => {
+    m.parseSinceArg.mockReturnValue("origin/main");
+    m.getChangedFilesSince.mockReturnValue(["changed.ts"]);
+    m.getRepoRoot.mockReturnValue("/repo");
+
+    const existsSpy = vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    const readSpy = vi.spyOn(fs, "readFileSync").mockReturnValue("const x = 1;" as never);
+
+    const code = await runCli("--since", "origin/main");
+    expect(code).toBe(0);
+    expect(m.getChangedFilesSince).toHaveBeenCalledWith("origin/main");
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+    expect(m.scanFile).toHaveBeenCalledWith("changed.ts", "const x = 1;", []);
+    expect(output(logSpy)).toContain(
+      "✅ SecureFlow scan passed (1 changed file(s) since origin/main).",
+    );
+
+    existsSpy.mockRestore();
+    readSpy.mockRestore();
+  });
+
+  it("exits with code 1 when getChangedFilesSince throws a GitError", async () => {
+    m.parseSinceArg.mockReturnValue("invalid-ref");
+    m.getChangedFilesSince.mockImplementation(() => {
+      throw new errors.GitError('Git reference "invalid-ref" does not exist.');
+    });
+
+    const code = await runCli("--since", "invalid-ref");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain('Git reference "invalid-ref" does not exist.');
   });
 });

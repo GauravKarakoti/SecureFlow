@@ -6,6 +6,7 @@ import {
   parseIgnoreFilePath,
   parseOutputFormat,
   parseOutputPath,
+  parseSinceArg,
   parseVoiceArg,
 } from "./output-args.js";
 
@@ -113,5 +114,25 @@ describe("parseVoiceArg", () => {
   it("first match wins", () => {
     expect(parseVoiceArg(argv("--voice=false", "--voice"))).toBe(false);
     expect(parseVoiceArg(argv("--voice", "--voice=false"))).toBe(true);
+  });
+});
+
+describe("parseSinceArg", () => {
+  it("is undefined when the flag is absent", () => {
+    expect(parseSinceArg(argv())).toBeUndefined();
+    expect(parseSinceArg(argv("--format", "json"))).toBeUndefined();
+  });
+
+  it("reads --since <ref> and --since=<ref>", () => {
+    expect(parseSinceArg(argv("--since", "origin/main"))).toBe("origin/main");
+    expect(parseSinceArg(argv("--since=main"))).toBe("main");
+    expect(parseSinceArg(argv("--since=HEAD~1"))).toBe("HEAD~1");
+  });
+
+  it("rejects a missing or empty ref", () => {
+    expect(() => parseSinceArg(argv("--since"))).toThrow(CliUsageError);
+    expect(() => parseSinceArg(argv("--since"))).toThrow(/--since requires a git reference/);
+    expect(() => parseSinceArg(argv("--since="))).toThrow(CliUsageError);
+    expect(() => parseSinceArg(argv("--since", "--format=json"))).toThrow(CliUsageError);
   });
 });

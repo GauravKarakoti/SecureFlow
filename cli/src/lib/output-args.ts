@@ -114,3 +114,13 @@ export function parseVoiceArg(argv: readonly string[]): boolean {
   }
   return false;
 }
+
+/** `--since <ref>`, or `undefined` when not specified. */
+export function parseSinceArg(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--since"]);
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim().length === 0) {
+    throw new CliUsageError("--since requires a git reference (e.g. --since origin/main)");
+  }
+  return raw.trim();
+}
