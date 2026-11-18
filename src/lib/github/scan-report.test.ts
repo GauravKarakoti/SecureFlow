@@ -157,4 +157,29 @@ describe("renderScanReportSummary", () => {
     });
     expect(body).toContain("1 previously dismissed");
   });
+
+  it("renders expired ignore rules notice in the summary report", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      expiredIgnoreRules: [
+        {
+          pattern: "tests/fixtures/**",
+          expires: "2026-11-01",
+          reason: "Temporary test mocks",
+        },
+        {
+          pattern: "legacy/old-auth.ts",
+          expires: "2026-10-15",
+        },
+      ],
+    });
+
+    expect(body).toContain("### ⚠️ Expired Ignore Rules (2)");
+    expect(body).toContain(
+      "- ⚠️ ignore rule `tests/fixtures/**` expired on 2026-11-01 — reason: Temporary test mocks",
+    );
+    expect(body).toContain("- ⚠️ ignore rule `legacy/old-auth.ts` expired on 2026-10-15");
+  });
 });

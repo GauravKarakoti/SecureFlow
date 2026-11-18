@@ -554,9 +554,17 @@ export default function FindingsClient({
                           </div>
 
                           <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                              <Terminal className="w-3 h-3" /> Source Context
-                            </h4>
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                <Terminal className="w-3 h-3" /> Source Context
+                              </h4>
+                              <Link
+                                href={`/dashboard/findings/${finding.id}`}
+                                className="text-xs text-primary hover:underline inline-flex items-center gap-1 font-mono"
+                              >
+                                Side-by-side review & fix &rarr;
+                              </Link>
+                            </div>
                             <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
                               {finding.codeSnippet || "Code snippet unavailable."}
                             </div>

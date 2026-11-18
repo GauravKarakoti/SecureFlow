@@ -122,6 +122,8 @@ Options:
   --severity <level>     Severity level (low, medium, high, critical)
   --poll                 Poll until SBOM scan completion (for sbom command)
   -v, --voice            Play an audio summary debrief of scan findings upon completion
+  --color                Force colored output even on non-TTY terminals
+  --no-color             Disable colored output
   -h, --help             Show this help message
 
 Examples:

@@ -1,9 +1,29 @@
 import fs from "fs";
 import path from "path";
 
+export interface IgnoreRuleEntry {
+  pattern: string;
+  reason?: string | undefined;
+  expires?: string | undefined;
+  rawExpires?: string | undefined;
+}
+
+export interface ExpiredIgnoreRule {
+  pattern: string;
+  expires: string;
+  reason?: string | undefined;
+}
+
 export interface SecureFlowIgnoreConfig {
   ignoredPaths: string[];
   placeholders: string[];
+  rules?: IgnoreRuleEntry[] | undefined;
+  expiredRules?: ExpiredIgnoreRule[] | undefined;
+  warnings?: string[] | undefined;
+}
+
+export interface ParseSecureFlowIgnoreOptions {
+  now?: Date | undefined;
 }
 
 /**
@@ -15,17 +35,257 @@ export function normalizeScanPath(filename: string): string {
 }
 
 /**
+ * Parse an ISO date or calendar date in YYYY-MM-DD or standard parseable format.
+ * Returns null if the date is invalid (e.g. 2026-02-31, 2026-13-45, or "tomorrow").
+ * When YYYY-MM-DD is supplied, it is evaluated through the end of that day in UTC (23:59:59.999 UTC).
+ */
+export function parseExpiryDateUtc(dateStr: string): Date | null {
+  const trimmed = dateStr.trim();
+  const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (ymdMatch && ymdMatch[1] && ymdMatch[2] && ymdMatch[3]) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10);
+    const day = parseInt(ymdMatch[3], 10);
+
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+    const date = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  }
+
+  const parsed = new Date(trimmed);
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+/**
+ * Parses an individual ignore rule line, extracting the glob pattern and optional reason and expiry date.
+ */
+export function parseIgnoreRuleLine(rawLine: string): {
+  pattern: string;
+  reason?: string | undefined;
+  expires?: string | undefined;
+} {
+  const line = rawLine.trim();
+
+  // 1. JSON line support: {"pattern": "...", "reason": "...", "expires": "..."}
+  if (line.startsWith("{") && line.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(line);
+      const pattern = parsed.pattern ?? parsed.path ?? parsed.glob;
+      if (typeof pattern === "string" && pattern.trim()) {
+        const reason =
+          typeof parsed.reason === "string" && parsed.reason.trim()
+            ? parsed.reason.trim()
+            : undefined;
+        const rawExpiry = parsed.expires ?? parsed.expiry;
+        const expires =
+          typeof rawExpiry === "string" && rawExpiry.trim() ? rawExpiry.trim() : undefined;
+        return {
+          pattern: pattern.trim(),
+          ...(reason !== undefined ? { reason } : {}),
+          ...(expires !== undefined ? { expires } : {}),
+        };
+      }
+    } catch {
+      // Fall through to text parsing
+    }
+  }
+
+  let expires: string | undefined;
+  let reason: string | undefined;
+  let remaining = line;
+
+  // 2. Bracket attributes: [expires=YYYY-MM-DD] / [expires: YYYY-MM-DD]
+  const expiresMatch = remaining.match(/\[expires[:=]\s*([^\]]+)\]/i);
+  if (expiresMatch && expiresMatch[0] && expiresMatch[1]) {
+    expires = expiresMatch[1].trim();
+    remaining = remaining.replace(expiresMatch[0], " ").trim();
+  }
+
+  // Bracket reason: [reason=...] / [reason: ...]
+  const reasonMatch = remaining.match(/\[reason[:=]\s*([^\]]+)\]/i);
+  if (reasonMatch && reasonMatch[0] && reasonMatch[1]) {
+    reason = reasonMatch[1].trim();
+    remaining = remaining.replace(reasonMatch[0], " ").trim();
+  }
+
+  // 3. Trailing hash comment: pattern # reason or pattern # expires=... reason
+  const commentIdx = remaining.search(/\s+#/);
+  if (commentIdx !== -1) {
+    const patternPart = remaining.slice(0, commentIdx).trim();
+    const commentPart = remaining.slice(commentIdx).replace(/^\s+#\s*/, "").trim();
+
+    if (!reason && commentPart) {
+      const commentExpires = commentPart.match(/expires[:=]\s*(\S+)/i);
+      if (commentExpires && commentExpires[1] && !expires) {
+        expires = commentExpires[1].trim();
+      }
+      const commentReason = commentPart.match(/reason[:=]\s*(.+)/i);
+      if (commentReason && commentReason[1]) {
+        reason = commentReason[1].trim();
+      } else if (!commentExpires) {
+        reason = commentPart;
+      }
+    }
+    remaining = patternPart;
+  }
+
+  // 4. Colon separator: pattern: reason
+  const colonIdx = remaining.indexOf(":");
+  if (colonIdx > 0 && !reason) {
+    const possiblePattern = remaining.slice(0, colonIdx).trim();
+    const possibleReason = remaining.slice(colonIdx + 1).trim();
+    if (possiblePattern) {
+      remaining = possiblePattern;
+      if (possibleReason) {
+        reason = possibleReason;
+      }
+    }
+  }
+
+  const pattern = remaining.trim();
+  return {
+    pattern,
+    ...(reason !== undefined ? { reason } : {}),
+    ...(expires !== undefined ? { expires } : {}),
+  };
+}
+
+/**
  * Parses the raw text of a `.secureflowignore` file into structured configuration.
  *
  * Supports comments (`#`), whitespace trimming, and optional section headers:
  * - `[paths]` or `[files]`: file paths and glob patterns to ignore
  * - `[placeholders]` or `[mocks]`: test credential values/patterns to suppress
+ * - entries with optional reason and expires date
  */
-export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
+export function parseSecureFlowIgnore(
+  content: string,
+  options?: ParseSecureFlowIgnoreOptions,
+): SecureFlowIgnoreConfig {
   const ignoredPaths: string[] = [];
   const placeholders: string[] = [];
-  let currentSection: "paths" | "placeholders" = "paths";
+  const rules: IgnoreRuleEntry[] = [];
+  const expiredRules: ExpiredIgnoreRule[] = [];
+  const warnings: string[] = [];
 
+  const now = options?.now ?? new Date();
+
+  const handleEntry = (entry: {
+    pattern: string;
+    reason?: string | undefined;
+    expires?: string | undefined;
+  }) => {
+    const { pattern, reason, expires } = entry;
+    if (!pattern) return;
+
+    if (!reason) {
+      const msg = `Ignore rule "${pattern}" has no reason specified.`;
+      console.warn(`[IgnoreConfig] ${msg}`);
+      warnings.push(msg);
+    }
+
+    if (expires) {
+      const parsedDate = parseExpiryDateUtc(expires);
+      if (!parsedDate) {
+        const msg = `Invalid expiration date "${expires}" for rule "${pattern}"; ignoring expiration date.`;
+        console.warn(`[IgnoreConfig] ${msg}`);
+        warnings.push(msg);
+        ignoredPaths.push(pattern);
+        rules.push({
+          pattern,
+          ...(reason !== undefined ? { reason } : {}),
+          rawExpires: expires,
+        });
+      } else {
+        const isExpired = now.getTime() > parsedDate.getTime();
+        if (isExpired) {
+          expiredRules.push({
+            pattern,
+            expires,
+            ...(reason !== undefined ? { reason } : {}),
+          });
+          rules.push({
+            pattern,
+            expires,
+            rawExpires: expires,
+            ...(reason !== undefined ? { reason } : {}),
+          });
+        } else {
+          ignoredPaths.push(pattern);
+          rules.push({
+            pattern,
+            expires,
+            rawExpires: expires,
+            ...(reason !== undefined ? { reason } : {}),
+          });
+        }
+      }
+    } else {
+      ignoredPaths.push(pattern);
+      rules.push({
+        pattern,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+    }
+  };
+
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const json = JSON.parse(trimmed);
+      const rawPaths = json.ignoredPaths ?? json.paths;
+      if (Array.isArray(rawPaths)) {
+        for (const raw of rawPaths) {
+          if (typeof raw === "string" && raw.trim()) {
+            handleEntry(parseIgnoreRuleLine(raw.trim()));
+          } else if (raw && typeof raw === "object") {
+            const pattern = raw.pattern ?? raw.path ?? raw.glob;
+            if (typeof pattern === "string" && pattern.trim()) {
+              handleEntry({
+                pattern: pattern.trim(),
+                reason:
+                  typeof raw.reason === "string" && raw.reason.trim()
+                    ? raw.reason.trim()
+                    : undefined,
+                expires:
+                  typeof raw.expires === "string" && raw.expires.trim()
+                    ? raw.expires.trim()
+                    : typeof raw.expiry === "string" && raw.expiry.trim()
+                      ? raw.expiry.trim()
+                      : undefined,
+              });
+            }
+          }
+        }
+      }
+      const rawPlaceholders = json.placeholders ?? json.mocks;
+      if (Array.isArray(rawPlaceholders)) {
+        for (const raw of rawPlaceholders) {
+          if (typeof raw === "string" && raw.trim()) {
+            placeholders.push(raw.trim());
+          }
+        }
+      }
+      return { ignoredPaths, placeholders, rules, expiredRules, warnings };
+    } catch {
+      // Fall through to line-by-line parsing
+    }
+  }
+
+  let currentSection: "paths" | "placeholders" = "paths";
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
@@ -47,11 +307,12 @@ export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
     if (currentSection === "placeholders") {
       placeholders.push(trimmed);
     } else {
-      ignoredPaths.push(trimmed);
+      const parsed = parseIgnoreRuleLine(trimmed);
+      handleEntry(parsed);
     }
   }
 
-  return { ignoredPaths, placeholders };
+  return { ignoredPaths, placeholders, rules, expiredRules, warnings };
 }
 
 /**
