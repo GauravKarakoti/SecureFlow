@@ -14,26 +14,58 @@ import readline from "node:readline";
 import type { FileScanResult, Violation } from "../scanner.js";
 import type { AiFinding } from "./api-client.js";
 
-// Standard ANSI styling escapes (supports 16/256-color and gracefully degrades when NO_COLOR is set)
-const supportsColor =
-  !process.env.NO_COLOR &&
-  (process.env.FORCE_COLOR !== "0" || process.stdout.isTTY || process.env.CI === "true");
+let colorOverride: boolean | null = null;
+
+/**
+ * Explicitly enable or disable ANSI color styling across TUI formatters.
+ * Pass `null` to revert to environment detection (`NO_COLOR`, `FORCE_COLOR`, TTY, CI).
+ */
+export function setColorEnabled(enabled: boolean | null): void {
+  colorOverride = enabled;
+}
+
+/**
+ * Returns whether ANSI color styling is supported and enabled in the current environment.
+ */
+export function isColorSupported(): boolean {
+  if (colorOverride !== null) {
+    return colorOverride;
+  }
+  if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== "") {
+    return false;
+  }
+  if (process.env.FORCE_COLOR === "0") {
+    return false;
+  }
+  if (process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== "0") {
+    return true;
+  }
+  return Boolean(process.stdout?.isTTY || process.env.CI === "true");
+}
+
+/**
+ * Strip ANSI color codes and terminal escapes from a string.
+ */
+export function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
 
 export const colors = {
-  reset: (s: string) => (supportsColor ? `\x1b[0m${s}\x1b[0m` : s),
-  bold: (s: string) => (supportsColor ? `\x1b[1m${s}\x1b[22m` : s),
-  dim: (s: string) => (supportsColor ? `\x1b[2m${s}\x1b[22m` : s),
-  red: (s: string) => (supportsColor ? `\x1b[31m${s}\x1b[39m` : s),
-  green: (s: string) => (supportsColor ? `\x1b[32m${s}\x1b[39m` : s),
-  yellow: (s: string) => (supportsColor ? `\x1b[33m${s}\x1b[39m` : s),
-  blue: (s: string) => (supportsColor ? `\x1b[34m${s}\x1b[39m` : s),
-  magenta: (s: string) => (supportsColor ? `\x1b[35m${s}\x1b[39m` : s),
-  cyan: (s: string) => (supportsColor ? `\x1b[36m${s}\x1b[39m` : s),
-  gray: (s: string) => (supportsColor ? `\x1b[90m${s}\x1b[39m` : s),
-  bgRed: (s: string) => (supportsColor ? `\x1b[41m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
-  bgYellow: (s: string) => (supportsColor ? `\x1b[43m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
-  bgGreen: (s: string) => (supportsColor ? `\x1b[42m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
-  bgBlue: (s: string) => (supportsColor ? `\x1b[44m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
+  reset: (s: string) => (isColorSupported() ? `\x1b[0m${s}\x1b[0m` : s),
+  bold: (s: string) => (isColorSupported() ? `\x1b[1m${s}\x1b[22m` : s),
+  dim: (s: string) => (isColorSupported() ? `\x1b[2m${s}\x1b[22m` : s),
+  red: (s: string) => (isColorSupported() ? `\x1b[31m${s}\x1b[39m` : s),
+  green: (s: string) => (isColorSupported() ? `\x1b[32m${s}\x1b[39m` : s),
+  yellow: (s: string) => (isColorSupported() ? `\x1b[33m${s}\x1b[39m` : s),
+  blue: (s: string) => (isColorSupported() ? `\x1b[34m${s}\x1b[39m` : s),
+  magenta: (s: string) => (isColorSupported() ? `\x1b[35m${s}\x1b[39m` : s),
+  cyan: (s: string) => (isColorSupported() ? `\x1b[36m${s}\x1b[39m` : s),
+  gray: (s: string) => (isColorSupported() ? `\x1b[90m${s}\x1b[39m` : s),
+  bgRed: (s: string) => (isColorSupported() ? `\x1b[41m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
+  bgYellow: (s: string) => (isColorSupported() ? `\x1b[43m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
+  bgGreen: (s: string) => (isColorSupported() ? `\x1b[42m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
+  bgBlue: (s: string) => (isColorSupported() ? `\x1b[44m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
 };
 
 export class TerminalSpinner {
