@@ -551,4 +551,49 @@ describe("CLI End-to-End (E2E) Test Suite (#1245)", () => {
       expect(res.stdout).toContain("Remediation Recommendations");
     });
   });
+
+  describe("9. Color Handling and Terminal Conventions", () => {
+    const ansiRegex = /\x1b\[[0-9;]*[a-zA-Z]/;
+
+    it("produces no ANSI escape codes when spawned non-interactive (piped stdout)", () => {
+      const repoDir = path.join(tempBaseDir, "piped-repo");
+      initGitRepo(repoDir);
+
+      const res = runCli([], repoDir, { NO_COLOR: undefined, FORCE_COLOR: undefined });
+      expect(res.status).toBe(0);
+      expect(ansiRegex.test(res.stdout)).toBe(false);
+      expect(ansiRegex.test(res.stderr)).toBe(false);
+    });
+
+    it("produces no ANSI escape codes when NO_COLOR environment variable is set", () => {
+      const repoDir = path.join(tempBaseDir, "no-color-env-repo");
+      initGitRepo(repoDir);
+
+      const res = runCli([], repoDir, { NO_COLOR: "1" });
+      expect(res.status).toBe(0);
+      expect(ansiRegex.test(res.stdout)).toBe(false);
+      expect(ansiRegex.test(res.stderr)).toBe(false);
+    });
+
+    it("produces no ANSI escape codes when --no-color flag is passed", () => {
+      const repoDir = path.join(tempBaseDir, "no-color-flag-repo");
+      initGitRepo(repoDir);
+
+      const res = runCli(["--no-color"], repoDir, { NO_COLOR: undefined, FORCE_COLOR: undefined });
+      expect(res.status).toBe(0);
+      expect(ansiRegex.test(res.stdout)).toBe(false);
+      expect(ansiRegex.test(res.stderr)).toBe(false);
+    });
+
+    it("forces ANSI escape codes on when --color flag is passed even in non-TTY piped output", () => {
+      const repoDir = path.join(tempBaseDir, "force-color-flag-repo");
+      initGitRepo(repoDir);
+
+      fs.writeFileSync(path.join(repoDir, "leak.ts"), "console.log(process.env.SECRET_KEY);");
+      execSync("git add leak.ts", { cwd: repoDir, stdio: "ignore" });
+
+      const res = runCli(["--color"], repoDir, { NO_COLOR: "1" });
+      expect(ansiRegex.test(res.stdout)).toBe(true);
+    });
+  });
 });

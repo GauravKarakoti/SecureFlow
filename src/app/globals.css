@@ -37,7 +37,7 @@
     --secondary: 0 0% 90%;
     --secondary-foreground: 0 0% 9%;
     --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 40%;
+    --muted-foreground: 0 0% 35%;
 
     --accent: 356 96% 47%;
     --accent-foreground: 0 0% 100%;
@@ -110,6 +110,36 @@
     --sidebar-border: 0 0% 12%;
     --sidebar-ring: 356 96% 47%;
   }
+}
+
+/* ── Light / Dark Mode Color-Scheme and Contrast Adaptations ─────────────── */
+html:not(.dark) {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+html:not(.dark) .border-white\/5,
+html:not(.dark) .border-white\/10,
+html:not(.dark) .border-white\/15,
+html:not(.dark) .border-white\/20 {
+  border-color: hsl(var(--border));
+}
+
+html:not(.dark) .bg-black\/40,
+html:not(.dark) .bg-black\/60,
+html:not(.dark) .bg-black\/70,
+html:not(.dark) .bg-black\/80 {
+  background-color: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+}
+
+html:not(.dark) .bg-white\/5,
+html:not(.dark) .bg-white\/10,
+html:not(.dark) .bg-white\/\[0\.02\],
+html:not(.dark) .bg-white\/\[0\.03\] {
+  background-color: hsl(var(--muted) / 0.5);
 }
 
 @layer base {

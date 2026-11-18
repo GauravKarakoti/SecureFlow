@@ -1,22 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/armor/scanner", () => ({
-  parseSecureFlowIgnore: (content: string) => {
-    const ignoredPaths: string[] = [];
-    const placeholders: string[] = [];
-    let section: "paths" | "placeholders" = "paths";
-    for (const line of content.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      if (trimmed.toLowerCase() === "[placeholders]") {
-        section = "placeholders";
-        continue;
-      }
-      (section === "placeholders" ? placeholders : ignoredPaths).push(trimmed);
-    }
-    return { ignoredPaths, placeholders };
-  },
-}));
+vi.mock("@/lib/armor/scanner", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/armor/ignore-rules")>(
+    "@/lib/armor/ignore-rules",
+  );
+  return {
+    parseSecureFlowIgnore: actual.parseSecureFlowIgnore,
+  };
+});
 
 import {
   loadBaseIgnoreConfig,
@@ -50,10 +41,33 @@ describe("loadBaseIgnoreConfig", () => {
     const config = await loadBaseIgnoreConfig(client, { ...repo, baseRef: "main" });
 
     expect(getContent).toHaveBeenCalledWith({ ...repo, path: ".secureflowignore", ref: "main" });
-    expect(config).toEqual({
+    expect(config).toMatchObject({
       ignoredPaths: ["docs/**", "tests/**"],
       placeholders: ["my_fake_key"],
     });
+  });
+
+  it("evaluates expired entries at base ref with given clock", async () => {
+    getContent.mockResolvedValue(
+      file(
+        "active/** [expires=2026-12-31]: Active rule\nexpired/** [expires=2026-11-01]: Expired rule",
+      ),
+    );
+
+    const config = await loadBaseIgnoreConfig(client, {
+      ...repo,
+      baseRef: "main",
+      now: new Date("2026-11-18T12:00:00Z"),
+    });
+
+    expect(config.ignoredPaths).toEqual(["active/**"]);
+    expect(config.expiredRules).toEqual([
+      {
+        pattern: "expired/**",
+        expires: "2026-11-01",
+        reason: "Expired rule",
+      },
+    ]);
   });
 
   it("treats a repository without the file as having no rules, without logging", async () => {
@@ -168,5 +182,29 @@ describe("loadTrustedIgnoreConfig", () => {
     for (const [params] of getContent.mock.calls) {
       expect(params.ref).toBe("main");
     }
+  });
+
+  it("loads trusted base ignore rules and honors expiration with clock", async () => {
+    getContent.mockResolvedValue(
+      file(
+        "src/valid/** [expires=2026-12-31]: Valid through Dec\nsrc/old/** [expires=2026-10-01]: Expired",
+      ),
+    );
+
+    const config = await loadTrustedIgnoreConfig(client, {
+      ...repo,
+      prNumber: 7,
+      baseRef: "main",
+      now: new Date("2026-11-18T12:00:00Z"),
+    });
+
+    expect(config.ignoredPaths).toEqual(["src/valid/**"]);
+    expect(config.expiredRules).toEqual([
+      {
+        pattern: "src/old/**",
+        expires: "2026-10-01",
+        reason: "Expired",
+      },
+    ]);
   });
 });

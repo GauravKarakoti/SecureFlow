@@ -114,3 +114,41 @@ export function parseVoiceArg(argv: readonly string[]): boolean {
   }
   return false;
 }
+
+/** `--since <ref>`, or `undefined` when not specified. */
+export function parseSinceArg(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--since"]);
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim().length === 0) {
+    throw new CliUsageError("--since requires a git reference (e.g. --since origin/main)");
+  }
+  return raw.trim();
+}
+
+/**
+ * Parse `--color` / `--no-color` CLI flags.
+ * Returns `true` if `--color` is specified, `false` if `--no-color` is specified,
+ * or `undefined` if neither is specified.
+ * When multiple flags appear, the last flag takes precedence.
+ */
+export function parseColorArg(argv: readonly string[]): boolean | undefined {
+  let result: boolean | undefined = undefined;
+  for (const arg of argv) {
+    if (arg === "--no-color") {
+      result = false;
+    } else if (arg === "--color") {
+      result = true;
+    } else if (arg.startsWith("--color=")) {
+      const val = arg.slice("--color=".length).toLowerCase();
+      if (val === "false" || val === "0" || val === "never") {
+        result = false;
+      } else if (val === "true" || val === "1" || val === "always" || val === "") {
+        result = true;
+      }
+    } else if (arg.startsWith("--no-color=")) {
+      const val = arg.slice("--no-color=".length).toLowerCase();
+      result = val === "false" || val === "0" ? true : false;
+    }
+  }
+  return result;
+}

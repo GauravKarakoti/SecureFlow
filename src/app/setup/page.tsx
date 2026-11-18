@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { App } from "octokit";
 import { env } from "@/lib/env";
+import { createGitHubAppClient } from "@/lib/github/app-auth";
 
 export default async function GitHubSetupPage({
   searchParams,
@@ -43,11 +44,7 @@ export default async function GitHubSetupPage({
     redirect("/dashboard");
   }
 
-  const appId = env.GITHUB_APP_ID || process.env.GITHUB_APP_ID!;
-  const rawKey = env.GITHUB_PRIVATE_KEY || process.env.GITHUB_PRIVATE_KEY!;
-  const privateKey = rawKey.replace(/\\n/g, "\n");
-
-  const appClient = new App({ appId, privateKey });
+  const appClient = createGitHubAppClient();
   const octokit = await appClient.getInstallationOctokit(Number(installation_id));
 
   const repositories = await octokit.paginate(octokit.rest.apps.listReposAccessibleToInstallation, {
