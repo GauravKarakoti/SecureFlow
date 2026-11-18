@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostedAiScanSkipReason, localModeEnv } from "./local-mode.js";
+import { hostedAiScanSkipReason, localModeEnv, validateCliAiConfig } from "./local-mode.js";
 
 describe("hostedAiScanSkipReason", () => {
   it("allows the hosted AI pass by default", () => {
@@ -108,5 +108,49 @@ describe("localModeEnv", () => {
     expect(localModeEnv(argv("--local", "--local-model", "--verbose"), {})).toEqual({
       LOCAL_AI_URL: "http://localhost:11434/v1",
     });
+  });
+});
+
+describe("validateCliAiConfig", () => {
+  const argv = (...args: string[]) => ["node", "secureflow", ...args];
+
+  it("returns default groq and gpt-oss-20b when no config is provided", () => {
+    const config = validateCliAiConfig(argv(), {});
+    expect(config.provider).toBe("groq");
+    expect(config.model).toBe("openai/gpt-oss-20b");
+    expect(config.baseUrl).toBeUndefined();
+  });
+
+  it("resolves custom AI_MODEL without code change", () => {
+    const config = validateCliAiConfig(argv(), {
+      AI_MODEL: "openai/gpt-oss-120b",
+    });
+    expect(config.provider).toBe("groq");
+    expect(config.model).toBe("openai/gpt-oss-120b");
+  });
+
+  it("resolves local provider and flags", () => {
+    const config = validateCliAiConfig(argv("--ollama", "--ollama-model", "codellama"), {});
+    expect(config.provider).toBe("ollama");
+    expect(config.model).toBe("codellama");
+    expect(config.baseUrl).toBe("http://localhost:11434/v1");
+  });
+
+  it("rejects invalid AI provider with clear error", () => {
+    expect(() => {
+      validateCliAiConfig(argv(), { AI_PROVIDER: "unknown-ai" });
+    }).toThrowError(/Invalid AI provider "unknown-ai"/);
+  });
+
+  it("rejects empty AI_MODEL with clear error", () => {
+    expect(() => {
+      validateCliAiConfig(argv(), { AI_MODEL: "" });
+    }).toThrowError(/AI_MODEL cannot be empty/);
+  });
+
+  it("rejects malformed AI_BASE_URL with clear error", () => {
+    expect(() => {
+      validateCliAiConfig(argv(), { AI_BASE_URL: "not-a-valid-url" });
+    }).toThrowError(/Invalid AI base URL "not-a-valid-url"/);
   });
 });

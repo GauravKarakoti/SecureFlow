@@ -390,26 +390,29 @@ SecureFlow's Docker image uses a secure multi-stage build running as an unprivil
 
 ## 🔑 Environment Variables Reference
 
-| Variable                  | Required | Description                                                                                   |
-| ------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`            | ✅       | PostgreSQL connection string (Direct/Standard)                                                |
-| `DATABASE_POOL_URL`       | ⬜       | Recommended for production serverless connection pooler (PgBouncer/Neon Pooler)               |
-| `DB_POOL_MAX`             | ⬜       | Max connections per serverless function instance (default: 10)                                |
-| `GROQ_API_KEY`            | ✅       | API key from [console.groq.com](https://console.groq.com)                                     |
-| `GITHUB_APP_ID`           | ✅       | Numeric ID of your GitHub App                                                                 |
-| `GITHUB_WEBHOOK_SECRET`   | ✅       | Secret used to verify webhook payloads                                                        |
-| `GITHUB_PRIVATE_KEY`      | ✅       | RSA private key from your GitHub App (`.pem` contents)                                        |
-| `GITHUB_APP_URL`          | ✅       | Public URL of your GitHub App (e.g. `https://github.com/apps/your-app`)                       |
-| `GITHUB_CLIENT_ID`        | ✅       | OAuth Client ID for GitHub login                                                              |
-| `GITHUB_CLIENT_SECRET`    | ✅       | OAuth Client Secret for GitHub login                                                          |
-| `AUTH_SECRET`             | ✅       | Random secret for NextAuth session encryption — generate with `openssl rand -base64 32`       |
-| `ARMORIQ_API_KEY`         | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                       |
-| `USER_ID`                 | ⬜       | Optional — ArmorIQ user ID                                                                    |
-| `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                   |
-| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below |
-| `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count    |
-| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings, scans, and audit logs (default: unset / keep forever) |
-| `SCAN_CACHE_TTL_SECONDS`  | ⬜       | Scan deduplication cache TTL in seconds (default: `86400` / 24 hours)                         |
+| Variable                  | Required | Description                                                                                               |
+| ------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | ✅       | PostgreSQL connection string (Direct/Standard)                                                            |
+| `DATABASE_POOL_URL`       | ⬜       | Recommended for production serverless connection pooler (PgBouncer/Neon Pooler)                           |
+| `DB_POOL_MAX`             | ⬜       | Max connections per serverless function instance (default: 10)                                            |
+| `GROQ_API_KEY`            | ✅       | API key from [console.groq.com](https://console.groq.com)                                                 |
+| `AI_PROVIDER`             | ⬜       | AI provider for remediation & explanations: `groq` (default), `ollama`, `vllm`, `openai`, `custom`        |
+| `AI_MODEL`                | ⬜       | Model identifier override (e.g. `openai/gpt-oss-20b`, `llama-3.3-70b-versatile`, `llama3`, `gpt-4o-mini`) |
+| `AI_BASE_URL`             | ⬜       | Optional API base URL override for local or custom inference gateways (e.g. `http://localhost:11434/v1`)  |
+| `GITHUB_APP_ID`           | ✅       | Numeric ID of your GitHub App                                                                             |
+| `GITHUB_WEBHOOK_SECRET`   | ✅       | Secret used to verify webhook payloads                                                                    |
+| `GITHUB_PRIVATE_KEY`      | ✅       | RSA private key from your GitHub App (`.pem` contents)                                                    |
+| `GITHUB_APP_URL`          | ✅       | Public URL of your GitHub App (e.g. `https://github.com/apps/your-app`)                                   |
+| `GITHUB_CLIENT_ID`        | ✅       | OAuth Client ID for GitHub login                                                                          |
+| `GITHUB_CLIENT_SECRET`    | ✅       | OAuth Client Secret for GitHub login                                                                      |
+| `AUTH_SECRET`             | ✅       | Random secret for NextAuth session encryption — generate with `openssl rand -base64 32`                   |
+| `ARMORIQ_API_KEY`         | ⬜       | Optional — ArmorIQ SDK key for advanced policy features                                                   |
+| `USER_ID`                 | ⬜       | Optional — ArmorIQ user ID                                                                                |
+| `AGENT_ID`                | ⬜       | Optional — ArmorIQ agent ID                                                                               |
+| `TRUSTED_PROXY_HOP_COUNT` | ⬜       | Trusted proxies in front of the app (default: `0`). Set `1` behind a single proxy — see below             |
+| `TRUSTED_PROXY_IPS`       | ⬜       | Optional — comma-separated proxy addresses / IPv4 CIDRs, used instead of a fixed hop count                |
+| `DATA_RETENTION_DAYS`     | ⬜       | Optional — Auto-cleanup older findings, scans, and audit logs (default: unset / keep forever)             |
+| `SCAN_CACHE_TTL_SECONDS`  | ⬜       | Scan deduplication cache TTL in seconds (default: `86400` / 24 hours)                                     |
 
 ### Trusted proxies and rate limiting
 
@@ -458,6 +461,51 @@ Retention operations can be executed via the unified CLI script:
 - **CLI Target Isolation**: `npm run retention -- --only=auditLog --apply`
 
 > 🛡️ **Safety Guarantee**: The retention cleanup strictly deletes older `Finding`, `ScanResult`, and `AuditLog` rows in safe batches. It **never deletes users, repositories, or policies**.
+
+### 🤖 Configurable AI Models for Remediation & Explanations
+
+The AI model powering vulnerability remediation patches and interactive security explanations can be configured via environment variables without modifying code. This enables operators to choose faster, cheaper, or air-gapped local models.
+
+| Variable      | Supported Values                             | Default                                                                                                                                      | Description                                            |
+| ------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `AI_PROVIDER` | `groq`, `ollama`, `vllm`, `openai`, `custom` | `groq`                                                                                                                                       | Backend inference provider                             |
+| `AI_MODEL`    | Any model identifier or tag                  | `openai/gpt-oss-20b` (for `groq`), `llama3` (for `ollama`), `meta-llama/Meta-Llama-3-8B-Instruct` (for `vllm`), `gpt-4o-mini` (for `openai`) | Model used for analysis and patch generation           |
+| `AI_BASE_URL` | Valid HTTP/HTTPS endpoint                    | Provider default (`http://localhost:11434/v1` for Ollama, `http://localhost:8000/v1` for vLLM)                                               | Endpoint base URL for custom gateways or local engines |
+
+#### Examples
+
+**Alternative cloud models with Groq:**
+
+```env
+AI_PROVIDER=groq
+AI_MODEL=groq/llama-3.3-70b-versatile
+```
+
+**Local air-gapped inference with Ollama:**
+
+```env
+AI_PROVIDER=ollama
+AI_MODEL=codellama
+AI_BASE_URL=http://localhost:11434/v1
+```
+
+**Enterprise custom or on-prem gateway:**
+
+```env
+AI_PROVIDER=custom
+AI_MODEL=my-fine-tuned-model
+AI_BASE_URL=https://llm.corp.internal/v1
+```
+
+#### Startup Validation & Verbose Mode
+
+At application or CLI startup, configuration values are validated immediately to prevent silent failures. Run with `--verbose` (or set `LOG_LEVEL=verbose`) to inspect the active model:
+
+```bash
+secureflow scan --verbose
+# Output:
+# ℹ️  [SecureFlow] Active AI model: provider=groq, model=openai/gpt-oss-20b
+```
 
 ---
 

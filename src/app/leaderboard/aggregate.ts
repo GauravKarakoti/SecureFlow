@@ -11,8 +11,9 @@ import {
   type SeverityCounts,
 } from "./scoring";
 import type { ContributorRow } from "./leaderboard-client";
+import { getGitHubWebUrl } from "@/lib/github/app-auth";
 
-const ghAvatar = (login: string) => `https://github.com/${login}.png?size=80`;
+const ghAvatar = (login: string) => `${getGitHubWebUrl()}/${login}.png?size=80`;
 const LEADERBOARD_REVALIDATE_SECONDS = 60;
 
 /**
@@ -297,7 +298,7 @@ async function aggregateContributors(): Promise<Omit<ContributorRow, "rank">[]> 
       login,
       codename,
       avatarUrl: avatarByLogin.get(login) ?? ghAvatar(login),
-      htmlUrl: `https://github.com/${login}`,
+      htmlUrl: `${getGitHubWebUrl()}/${login}`,
       // The security score, not the merged-PR count. A contributor who merges a
       // lot of vulnerable code now ranks below one who merges less clean code.
       score: computeContributorScore(metrics),

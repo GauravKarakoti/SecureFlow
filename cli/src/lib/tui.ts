@@ -1,5 +1,5 @@
 /**
- * Terminal UI (TUI) & Pre-Commit Formatting Ergonomics (#1712)
+ * @file Terminal UI & Pre-Commit Formatting Ergonomics (#1712)
  *
  * Provides interactive terminal formatting utilities:
  * - Animated and static progress spinners for long-running audit steps.
@@ -18,7 +18,7 @@ import { parseColorArg } from "./output-args.js";
 let colorOverride: boolean | null = null;
 
 /**
- * Programmatically enable or disable ANSI color styling across TUI formatters.
+ * Explicitly enable or disable ANSI color styling across TUI formatters.
  * Pass `null` to revert to environment / flag / TTY detection.
  */
 export function setColorEnabled(enabled: boolean | null): void {
