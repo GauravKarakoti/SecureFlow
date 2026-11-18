@@ -990,6 +990,7 @@ export const worker = new Worker<WebhookJobData>(
                 rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
                 previouslyDismissedCount: suppressedFindings.length,
                 commitSha: pull_request.head?.sha,
+                expiredIgnoreRules: scanResult.expiredIgnoreRules,
               });
 
             // Try to post the anchored findings as an inline review. If that fails
@@ -1048,11 +1049,25 @@ export const worker = new Worker<WebhookJobData>(
                 ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
                 : "";
 
+            const cleanExpiredNotice =
+              scanResult.expiredIgnoreRules && scanResult.expiredIgnoreRules.length > 0
+                ? `\n\n### ⚠️ Expired Ignore Rules (${scanResult.expiredIgnoreRules.length})\n\n` +
+                  scanResult.expiredIgnoreRules
+                    .map(
+                      (r) =>
+                        `- ⚠️ ignore rule \`${r.pattern}\` expired on ${r.expires}${
+                          r.reason ? ` — reason: ${r.reason}` : ""
+                        }`,
+                    )
+                    .join("\n")
+                : "";
+
             const cleanBody =
               `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
               (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
               `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
               cleanDismissedNotice +
+              cleanExpiredNotice +
               // A clean result on a partial scan must say so — this is exactly the
               // case where silent truncation was most misleading.
               (coverageNotice ? `\n\n${coverageNotice}` : "");
