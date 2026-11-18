@@ -14,6 +14,7 @@ import prisma from "@/lib/prisma";
 import { redis } from "@/lib/queue/redis";
 import { countBySeverity, type Severity } from "@/lib/severity";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { getGitHubWebUrl } from "@/lib/github/app-auth";
 import { sendSlackAlert, type SlackMessage } from "./slack";
 import { sendTeamsAlert, buildTeamsAlert, type TeamsFindingSummary } from "./teams";
 
@@ -76,7 +77,7 @@ export function buildBlockedSlackAlert(
   findings: readonly BlockedScanFinding[],
 ): SlackMessage {
   const counts = countBySeverity(findings as any);
-  const prUrl = `https://github.com/${repositoryFullName}/pull/${prNumber}`;
+  const prUrl = `${getGitHubWebUrl()}/${repositoryFullName}/pull/${prNumber}`;
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "");
   const dashboardUrl = `${appUrl}/dashboard`;
 

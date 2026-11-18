@@ -35,7 +35,10 @@ import {
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
-import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import {
+  getGitHubAppCredentials,
+  WebhookConfigurationError,
+} from "@/lib/github/app-auth";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
@@ -692,9 +695,12 @@ export const worker = new Worker<WebhookJobData>(
             });
           }
 
-          const { appId, privateKey } = getGitHubAppCredentials();
-
-          const appClient = new App({ appId, privateKey });
+          const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+          const appClient = new App({
+            appId,
+            privateKey,
+            ...(customOctokit ? { Octokit: customOctokit } : {}),
+          });
           const octokit = await appClient.getInstallationOctokit(installation.id);
 
           // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
@@ -1240,8 +1246,12 @@ export async function postScanFailureCheck(
 
     const { ownerLogin, repoName, headSha } = assertPullRequestContext(payload);
 
-    const { appId, privateKey } = getGitHubAppCredentials();
-    const appClient = new App({ appId, privateKey });
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const appClient = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
     const octokit = await appClient.getInstallationOctokit(installationId);
 
     await postScanErrorCheckRun(octokit as any, {

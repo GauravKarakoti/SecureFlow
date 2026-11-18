@@ -112,4 +112,60 @@ describe("environment validation (src/lib/env.ts)", () => {
   it("allows optional variables to be omitted", () => {
     expect(validateEnv(validEnv)).toBeDefined();
   });
+
+  describe("GitHub Enterprise Server environment validation", () => {
+    it("defaults GITHUB_API_URL to https://api.github.com when not supplied", () => {
+      const parsed = validateEnv(validEnv);
+      expect(parsed.GITHUB_API_URL).toBe("https://api.github.com");
+      expect(parsed.GITHUB_WEB_URL).toBeUndefined();
+    });
+
+    it("accepts custom GITHUB_API_URL and GITHUB_WEB_URL", () => {
+      const parsed = validateEnv({
+        ...validEnv,
+        GITHUB_API_URL: "https://ghe.mycorp.com/api/v3",
+        GITHUB_WEB_URL: "https://ghe.mycorp.com",
+      });
+      expect(parsed.GITHUB_API_URL).toBe("https://ghe.mycorp.com/api/v3");
+      expect(parsed.GITHUB_WEB_URL).toBe("https://ghe.mycorp.com");
+    });
+
+    it("rejects non-HTTPS GITHUB_API_URL in production mode", () => {
+      expect(() =>
+        validateEnv({
+          ...validEnv,
+          NODE_ENV: "production",
+          GITHUB_API_URL: "http://ghe.mycorp.com/api/v3",
+        }),
+      ).toThrowError(/GITHUB_API_URL must use HTTPS in production/);
+    });
+
+    it("rejects non-HTTPS GITHUB_WEB_URL in production mode", () => {
+      expect(() =>
+        validateEnv({
+          ...validEnv,
+          NODE_ENV: "production",
+          GITHUB_WEB_URL: "http://ghe.mycorp.com",
+        }),
+      ).toThrowError(/GITHUB_WEB_URL must use HTTPS in production/);
+    });
+
+    it("allows non-HTTPS GITHUB_API_URL in development mode", () => {
+      const parsed = validateEnv({
+        ...validEnv,
+        NODE_ENV: "development",
+        GITHUB_API_URL: "http://localhost:8080/api/v3",
+      });
+      expect(parsed.GITHUB_API_URL).toBe("http://localhost:8080/api/v3");
+    });
+
+    it("rejects malformed GITHUB_API_URL", () => {
+      expect(() =>
+        validateEnv({
+          ...validEnv,
+          GITHUB_API_URL: "not-a-valid-url",
+        }),
+      ).toThrowError(/GITHUB_API_URL must be a valid URL/);
+    });
+  });
 });

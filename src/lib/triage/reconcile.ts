@@ -93,8 +93,12 @@ export async function reconcileTriageVerdicts(
 
   let updated = 0;
   let pending = 0;
-  const { appId, privateKey } = getGitHubAppCredentials();
-  const app = new App({ appId, privateKey });
+  const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+  const app = new App({
+    appId,
+    privateKey,
+    ...(customOctokit ? { Octokit: customOctokit } : {}),
+  });
   const [owner, repo] = affected[0].repository.fullName.split("/");
   if (!owner || !repo) return { updated: 0, pending: affected.length };
 
