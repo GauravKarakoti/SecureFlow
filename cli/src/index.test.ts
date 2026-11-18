@@ -30,6 +30,9 @@ const m = vi.hoisted(() => ({
   parseVoiceArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
   startMcpServer: vi.fn(),
+  initConfigFile: vi.fn(),
+  loadConfigFile: vi.fn(),
+  compilePathPatterns: vi.fn(),
 }));
 
 vi.mock("./git.js", () => ({
@@ -66,6 +69,11 @@ vi.mock("./lib/output-args.js", () => ({
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
+vi.mock("./config.js", () => ({
+  initConfigFile: m.initConfigFile,
+  loadConfigFile: m.loadConfigFile,
+  compilePathPatterns: m.compilePathPatterns,
+}));
 
 vi.mock("./lib/tui.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/tui.js")>();
@@ -138,6 +146,14 @@ beforeEach(() => {
   m.playVoiceDebrief.mockResolvedValue(undefined);
   m.requestAiFileScan.mockResolvedValue([]);
   m.startMcpServer.mockResolvedValue(undefined);
+  m.initConfigFile.mockResolvedValue({
+    success: true,
+    message: "Created configuration file at .secureflow.json",
+    configPath: ".secureflow.json",
+    created: true,
+  });
+  m.loadConfigFile.mockReturnValue(null);
+  m.compilePathPatterns.mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -419,5 +435,84 @@ describe("--init flag & initialization modes (#1758)", () => {
     const code = await runCli("--init", "--blank");
     expect(code).toBe(1);
     expect(output(errorSpy)).toContain("Failed to write package.json");
+  });
+});
+
+describe("secureflow init command", () => {
+  it("prints init help with --help", async () => {
+    const code = await runCli("init", "--help");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain("SecureFlow CLI - Initialize configuration");
+    expect(m.initConfigFile).not.toHaveBeenCalled();
+  });
+
+  it("calls initConfigFile with defaults for interactive mode", async () => {
+    const code = await runCli("init");
+    expect(code).toBe(0);
+    expect(m.initConfigFile).toHaveBeenCalledWith({ force: false, yes: false });
+    expect(output(logSpy)).toContain("✅ [SecureFlow]");
+  });
+
+  it("passes --yes and --force flags to initConfigFile", async () => {
+    const code = await runCli("init", "--yes", "--force");
+    expect(code).toBe(0);
+    expect(m.initConfigFile).toHaveBeenCalledWith({ force: true, yes: true });
+  });
+
+  it("exits with code 1 when initConfigFile reports failure", async () => {
+    m.initConfigFile.mockResolvedValueOnce({
+      success: false,
+      message: "Configuration file already exists at .secureflow.json. Use --force to overwrite.",
+      configPath: ".secureflow.json",
+      created: false,
+    });
+
+    const code = await runCli("init");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("Configuration file already exists");
+  });
+});
+
+describe("config file scan integration", () => {
+  it("skips AI scan when config has aiRemediation: false", async () => {
+    m.loadConfigFile.mockReturnValue({
+      config: { aiRemediation: false },
+      configPath: ".secureflow.json",
+    });
+    m.getStagedFiles.mockReturnValue(["a.ts"]);
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.requestAiFileScan).not.toHaveBeenCalled();
+  });
+
+  it("filters staged files by config.paths", async () => {
+    m.loadConfigFile.mockReturnValue({
+      config: { paths: ["src/**"] },
+      configPath: ".secureflow.json",
+    });
+    m.compilePathPatterns.mockReturnValue([/^src\/.*$/i]);
+    m.getStagedFiles.mockReturnValue(["src/app.ts", "docs/readme.md"]);
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.scanFile).toHaveBeenCalledWith("src/app.ts", expect.any(String), expect.any(Array));
+    expect(m.scanFile).not.toHaveBeenCalledWith(
+      "docs/readme.md",
+      expect.any(String),
+      expect.any(Array),
+    );
+  });
+
+  it("uses config.severity as failOnThreshold when not passed on CLI", async () => {
+    m.loadConfigFile.mockReturnValue({
+      config: { severity: "critical" },
+      configPath: ".secureflow.json",
+    });
+    m.parseFailOnArg.mockReturnValue(null);
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.shouldFailScan).toHaveBeenCalledWith(0, [], "CRITICAL");
   });
 });
