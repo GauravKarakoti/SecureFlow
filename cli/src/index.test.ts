@@ -32,6 +32,7 @@ const m = vi.hoisted(() => ({
   parseOutputPath: vi.fn(),
   parseIgnoreFilePath: vi.fn(),
   parseVoiceArg: vi.fn(),
+  parseColorArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
   startMcpServer: vi.fn(),
 }));
@@ -68,6 +69,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseOutputPath: m.parseOutputPath,
   parseIgnoreFilePath: m.parseIgnoreFilePath,
   parseVoiceArg: m.parseVoiceArg,
+  parseColorArg: m.parseColorArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
@@ -129,6 +131,7 @@ beforeEach(() => {
   m.parseOutputPath.mockReturnValue(null);
   m.parseIgnoreFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
+  m.parseColorArg.mockReturnValue(undefined);
   m.getStagedFiles.mockReturnValue([]);
   m.readStagedContent.mockReturnValue("const a = 1;");
   m.loadSecureFlowIgnore.mockReturnValue(null);
