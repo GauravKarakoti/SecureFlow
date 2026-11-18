@@ -20,6 +20,12 @@ import {
   promptInitChoice,
   initSecureFlow,
   formatInitGreeting,
+  setColorEnabled,
+  getColorOverride,
+  isColorSupported,
+  resolveColorSupport,
+  stripAnsi,
+  hasAnsi,
   type TableRow,
 } from "./tui.js";
 import fs from "node:fs";
@@ -44,6 +50,210 @@ describe("cli/src/lib/tui (#1712)", () => {
       expect(high).toContain("HIGH");
       expect(med).toContain("MEDIUM");
       expect(low).toContain("LOW");
+    });
+  });
+
+  describe("NO_COLOR, CLI flags, and TTY detection", () => {
+    const origEnv = process.env;
+    const origArgv = process.argv;
+
+    beforeEach(() => {
+      setColorEnabled(null);
+      process.env = { ...origEnv };
+      delete process.env.NO_COLOR;
+      delete process.env.FORCE_COLOR;
+      process.argv = ["node", "secureflow"];
+    });
+
+    afterEach(() => {
+      setColorEnabled(null);
+      process.env = origEnv;
+      process.argv = origArgv;
+    });
+
+    describe("isColorSupported / resolveColorSupport", () => {
+      it("disables color automatically when output is not a TTY (piped output)", () => {
+        expect(resolveColorSupport({ isTTY: false })).toBe(false);
+        expect(resolveColorSupport({ stream: { isTTY: false } })).toBe(false);
+      });
+
+      it("enables color in an interactive terminal (isTTY = true) by default", () => {
+        expect(resolveColorSupport({ isTTY: true })).toBe(true);
+        expect(resolveColorSupport({ stream: { isTTY: true } })).toBe(true);
+      });
+
+      it("disables color when NO_COLOR environment variable is set", () => {
+        expect(resolveColorSupport({ isTTY: true, env: { NO_COLOR: "1" } })).toBe(false);
+        expect(resolveColorSupport({ isTTY: true, env: { NO_COLOR: "true" } })).toBe(false);
+        expect(resolveColorSupport({ isTTY: true, env: { NO_COLOR: "anything" } })).toBe(false);
+      });
+
+      it("does not disable color when NO_COLOR is an empty string per no-color.org", () => {
+        expect(resolveColorSupport({ isTTY: true, env: { NO_COLOR: "" } })).toBe(true);
+      });
+
+      it("disables color when --no-color flag is passed even on an interactive TTY", () => {
+        expect(resolveColorSupport({ isTTY: true, argv: ["node", "secureflow", "--no-color"] })).toBe(false);
+      });
+
+      it("allows --color flag to force color on even when output is not a TTY (piped)", () => {
+        expect(resolveColorSupport({ isTTY: false, argv: ["node", "secureflow", "--color"] })).toBe(true);
+      });
+
+      it("allows --color flag to override NO_COLOR", () => {
+        expect(
+          resolveColorSupport({
+            isTTY: false,
+            env: { NO_COLOR: "1" },
+            argv: ["node", "secureflow", "--color"],
+          }),
+        ).toBe(true);
+      });
+
+      it("respects FORCE_COLOR=0 and FORCE_COLOR=1", () => {
+        expect(resolveColorSupport({ isTTY: true, env: { FORCE_COLOR: "0" } })).toBe(false);
+        expect(resolveColorSupport({ isTTY: false, env: { FORCE_COLOR: "1" } })).toBe(true);
+      });
+
+      it("respects programmatic setColorEnabled override", () => {
+        setColorEnabled(true);
+        expect(getColorOverride()).toBe(true);
+        expect(isColorSupported()).toBe(true);
+        setColorEnabled(false);
+        expect(getColorOverride()).toBe(false);
+        expect(isColorSupported()).toBe(false);
+        setColorEnabled(null);
+        expect(getColorOverride()).toBeNull();
+      });
+    });
+
+    describe("No ANSI escape codes appear when color is disabled", () => {
+      beforeEach(() => {
+        setColorEnabled(false);
+      });
+
+      it("colors methods return plain unescaped strings", () => {
+        expect(hasAnsi(colors.red("sample text"))).toBe(false);
+        expect(colors.red("sample text")).toBe("sample text");
+        expect(hasAnsi(colors.green("ok"))).toBe(false);
+        expect(colors.green("ok")).toBe("ok");
+        expect(hasAnsi(colors.bold("heading"))).toBe(false);
+        expect(colors.bold("heading")).toBe("heading");
+        expect(hasAnsi(colors.bgRed("danger"))).toBe(false);
+        expect(colors.bgRed("danger")).toBe("danger");
+      });
+
+      it("formatSeverityBadge contains no ANSI escape codes", () => {
+        for (const sev of ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]) {
+          const badge = formatSeverityBadge(sev);
+          expect(hasAnsi(badge)).toBe(false);
+          expect(badge).toBe(stripAnsi(badge));
+        }
+      });
+
+      it("renderWarningTable contains no ANSI escape codes", () => {
+        const table = renderWarningTable([
+          {
+            severity: "CRITICAL",
+            location: "src/auth.ts:12",
+            rule: "Secret Logging",
+            details: "token leaked to logger",
+          },
+          {
+            severity: "HIGH",
+            location: "src/db.ts:50",
+            rule: "SQL Injection",
+            details: "unparameterized query",
+          },
+        ]);
+        expect(hasAnsi(table)).toBe(false);
+        expect(table).toContain("CRITICAL");
+        expect(table).toContain("HIGH");
+      });
+
+      it("formatTuiScanSummary contains no ANSI escape codes", () => {
+        const cleanSummary = formatTuiScanSummary([]);
+        expect(hasAnsi(cleanSummary)).toBe(false);
+
+        const violationsSummary = formatTuiScanSummary(
+          [
+            {
+              path: "src/key.ts",
+              violations: [
+                { line: 5, text: "console.log(key)", reason: "api key", severity: "HIGH" },
+              ],
+            },
+          ],
+          [
+            {
+              type: "Hardcoded Secret",
+              severity: "CRITICAL",
+              description: "API key hardcoded",
+              fileLocation: "src/key.ts",
+              codeSnippet: "const apiKey = 'secret';",
+              lineStart: 5,
+            },
+          ],
+        );
+        expect(hasAnsi(violationsSummary)).toBe(false);
+      });
+
+      it("formatInitGreeting contains no ANSI escape codes", () => {
+        const greeting = formatInitGreeting({
+          success: true,
+          message: "Hook created",
+          hookPath: ".husky/pre-commit",
+        });
+        expect(hasAnsi(greeting)).toBe(false);
+      });
+
+      it("TerminalSpinner outputs no ANSI escape codes when color is disabled on non-TTY stream", () => {
+        let output = "";
+        const mockStream = {
+          isTTY: false,
+          write: (chunk: string) => {
+            output += chunk;
+          },
+        } as any;
+
+        const spinner = new TerminalSpinner("Inspecting", mockStream);
+        spinner.start();
+        spinner.succeed("Completed");
+        spinner.warn("Warning");
+        spinner.fail("Failed");
+
+        expect(hasAnsi(output)).toBe(false);
+      });
+    });
+
+    describe("ANSI escape codes appear when color is enabled in interactive terminal or forced", () => {
+      beforeEach(() => {
+        setColorEnabled(true);
+      });
+
+      it("colors methods include ANSI escape codes", () => {
+        expect(hasAnsi(colors.red("sample text"))).toBe(true);
+        expect(hasAnsi(colors.bold("heading"))).toBe(true);
+        expect(hasAnsi(colors.bgRed("danger"))).toBe(true);
+      });
+
+      it("stripAnsi removes all ANSI escapes and restores plain text", () => {
+        const colored = colors.red("hello world");
+        expect(hasAnsi(colored)).toBe(true);
+        expect(stripAnsi(colored)).toBe("hello world");
+      });
+
+      it("formatTuiScanSummary includes ANSI escapes when color is enabled", () => {
+        const summary = formatTuiScanSummary([
+          {
+            path: "src/key.ts",
+            violations: [
+              { line: 5, text: "console.log(key)", reason: "api key", severity: "HIGH" },
+            ],
+          },
+        ]);
+        expect(hasAnsi(summary)).toBe(true);
+      });
     });
   });
 

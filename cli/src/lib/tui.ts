@@ -13,27 +13,121 @@ import { execSync } from "node:child_process";
 import readline from "node:readline";
 import type { FileScanResult, Violation } from "../scanner.js";
 import type { AiFinding } from "./api-client.js";
+import { parseColorArg } from "./output-args.js";
 
-// Standard ANSI styling escapes (supports 16/256-color and gracefully degrades when NO_COLOR is set)
-const supportsColor =
-  !process.env.NO_COLOR &&
-  (process.env.FORCE_COLOR !== "0" || process.stdout.isTTY || process.env.CI === "true");
+let colorOverride: boolean | null = null;
+
+/**
+ * Programmatically enable or disable ANSI color styling across TUI formatters.
+ * Pass `null` to revert to environment / flag / TTY detection.
+ */
+export function setColorEnabled(enabled: boolean | null): void {
+  colorOverride = enabled;
+}
+
+/**
+ * Returns the active programmatic color override, if any.
+ */
+export function getColorOverride(): boolean | null {
+  return colorOverride;
+}
+
+/**
+ * Strip ANSI color codes and terminal escape sequences from a string.
+ */
+export function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+/**
+ * Check if a string contains any ANSI escape sequences.
+ */
+export function hasAnsi(str: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /\x1b\[[0-9;]*[a-zA-Z]/.test(str);
+}
+
+export interface ColorSupportOptions {
+  argv?: readonly string[] | undefined;
+  env?: Record<string, string | undefined> | undefined;
+  stream?: { isTTY?: boolean } | undefined;
+  isTTY?: boolean | undefined;
+}
+
+/**
+ * Resolves whether ANSI colors should be enabled based on:
+ * 1. Programmatic override (`setColorEnabled`)
+ * 2. Explicit CLI flags: `--color` (forces on) or `--no-color` (disables)
+ * 3. `NO_COLOR` environment variable (https://no-color.org/): disables when present and non-empty
+ * 4. `FORCE_COLOR` environment variable: "0" disables, non-"0" forces on
+ * 5. TTY detection: disabled automatically when stdout is not a TTY (piped/redirected)
+ */
+export function resolveColorSupport(options: ColorSupportOptions = {}): boolean {
+  if (colorOverride !== null) {
+    return colorOverride;
+  }
+
+  const argv = options.argv ?? (typeof process !== "undefined" ? process.argv : []);
+  const flagColor = parseColorArg(argv);
+  if (flagColor !== undefined) {
+    return flagColor;
+  }
+
+  const env: Record<string, string | undefined> =
+    options.env ?? (typeof process !== "undefined" ? process.env : {});
+
+  // NO_COLOR standard: present and not an empty string
+  if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") {
+    return false;
+  }
+
+  // FORCE_COLOR standard
+  if (env.FORCE_COLOR === "0") {
+    return false;
+  }
+  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== "0") {
+    return true;
+  }
+
+  // Automatic TTY detection: disable color when output is not a TTY (piped/redirected)
+  const isTTY =
+    options.isTTY !== undefined
+      ? options.isTTY
+      : options.stream?.isTTY !== undefined
+        ? options.stream.isTTY
+        : typeof process !== "undefined" && Boolean(process.stdout?.isTTY);
+
+  return Boolean(isTTY);
+}
+
+/**
+ * Checks whether ANSI color styling is supported and active in the current environment.
+ */
+export function isColorSupported(
+  optionsOrStream?: ColorSupportOptions | NodeJS.WriteStream,
+): boolean {
+  if (optionsOrStream && "write" in optionsOrStream) {
+    return resolveColorSupport({ stream: optionsOrStream });
+  }
+  return resolveColorSupport(optionsOrStream);
+}
 
 export const colors = {
-  reset: (s: string) => (supportsColor ? `\x1b[0m${s}\x1b[0m` : s),
-  bold: (s: string) => (supportsColor ? `\x1b[1m${s}\x1b[22m` : s),
-  dim: (s: string) => (supportsColor ? `\x1b[2m${s}\x1b[22m` : s),
-  red: (s: string) => (supportsColor ? `\x1b[31m${s}\x1b[39m` : s),
-  green: (s: string) => (supportsColor ? `\x1b[32m${s}\x1b[39m` : s),
-  yellow: (s: string) => (supportsColor ? `\x1b[33m${s}\x1b[39m` : s),
-  blue: (s: string) => (supportsColor ? `\x1b[34m${s}\x1b[39m` : s),
-  magenta: (s: string) => (supportsColor ? `\x1b[35m${s}\x1b[39m` : s),
-  cyan: (s: string) => (supportsColor ? `\x1b[36m${s}\x1b[39m` : s),
-  gray: (s: string) => (supportsColor ? `\x1b[90m${s}\x1b[39m` : s),
-  bgRed: (s: string) => (supportsColor ? `\x1b[41m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
-  bgYellow: (s: string) => (supportsColor ? `\x1b[43m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
-  bgGreen: (s: string) => (supportsColor ? `\x1b[42m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
-  bgBlue: (s: string) => (supportsColor ? `\x1b[44m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
+  reset: (s: string) => (isColorSupported() ? `\x1b[0m${s}\x1b[0m` : s),
+  bold: (s: string) => (isColorSupported() ? `\x1b[1m${s}\x1b[22m` : s),
+  dim: (s: string) => (isColorSupported() ? `\x1b[2m${s}\x1b[22m` : s),
+  red: (s: string) => (isColorSupported() ? `\x1b[31m${s}\x1b[39m` : s),
+  green: (s: string) => (isColorSupported() ? `\x1b[32m${s}\x1b[39m` : s),
+  yellow: (s: string) => (isColorSupported() ? `\x1b[33m${s}\x1b[39m` : s),
+  blue: (s: string) => (isColorSupported() ? `\x1b[34m${s}\x1b[39m` : s),
+  magenta: (s: string) => (isColorSupported() ? `\x1b[35m${s}\x1b[39m` : s),
+  cyan: (s: string) => (isColorSupported() ? `\x1b[36m${s}\x1b[39m` : s),
+  gray: (s: string) => (isColorSupported() ? `\x1b[90m${s}\x1b[39m` : s),
+  bgRed: (s: string) => (isColorSupported() ? `\x1b[41m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
+  bgYellow: (s: string) => (isColorSupported() ? `\x1b[43m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
+  bgGreen: (s: string) => (isColorSupported() ? `\x1b[42m\x1b[30m${s}\x1b[49m\x1b[39m` : s),
+  bgBlue: (s: string) => (isColorSupported() ? `\x1b[44m\x1b[37m${s}\x1b[49m\x1b[39m` : s),
 };
 
 export class TerminalSpinner {
@@ -73,19 +167,22 @@ export class TerminalSpinner {
   succeed(finalText?: string): void {
     this.stop();
     const text = finalText || this.message;
-    this.stream.write(`\r${colors.green("✔")} ${text}\n`);
+    const prefix = this.stream.isTTY ? "\r" : "";
+    this.stream.write(`${prefix}${colors.green("✔")} ${text}\n`);
   }
 
   fail(finalText?: string): void {
     this.stop();
     const text = finalText || this.message;
-    this.stream.write(`\r${colors.red("✖")} ${text}\n`);
+    const prefix = this.stream.isTTY ? "\r" : "";
+    this.stream.write(`${prefix}${colors.red("✖")} ${text}\n`);
   }
 
   warn(finalText?: string): void {
     this.stop();
     const text = finalText || this.message;
-    this.stream.write(`\r${colors.yellow("⚠")} ${text}\n`);
+    const prefix = this.stream.isTTY ? "\r" : "";
+    this.stream.write(`${prefix}${colors.yellow("⚠")} ${text}\n`);
   }
 
   stop(): void {
@@ -151,7 +248,8 @@ export function renderWarningTable(rows: TableRow[]): string {
     const details = row.details.slice(0, colWidths.details).padEnd(colWidths.details);
 
     // Ensure ANSI padding remains aligned
-    const padDiff = badge.length - row.severity.length;
+    const visibleBadgeLength = stripAnsi(badge).length;
+    const padDiff = badge.length - visibleBadgeLength;
     const paddedBadge = badge.padEnd(colWidths.severity + padDiff);
 
     lines.push(`│ ${paddedBadge} │ ${colors.cyan(loc)} │ ${colors.magenta(rule)} │ ${details} │`);
