@@ -13,6 +13,7 @@ This runbook provides operators with actionable troubleshooting steps for diagno
 | **Groq / AI Scanner**   | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`GROQ_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                      | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
 | **Database Pooling**    | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
 | **Proxy Rate Limiting** | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
+| **Dependency Audits**   | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
 
 ---
 
