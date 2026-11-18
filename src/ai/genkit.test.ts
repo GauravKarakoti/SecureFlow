@@ -79,3 +79,40 @@ describe("model defaults", () => {
     expect(defaultModel).toBe(expected);
   });
 });
+
+describe("dynamic model configuration for remediation & explanations", () => {
+  it("resolves AI_MODEL override for getDefaultModelRef without code changes", async () => {
+    vi.resetModules();
+    vi.stubEnv("AI_MODEL", "openai/gpt-oss-120b");
+    try {
+      const { getDefaultModelRef } = await import("./genkit");
+      expect(getDefaultModelRef()).toBe("groq/openai/gpt-oss-120b");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("resolves AI_PROVIDER=ollama and AI_MODEL=codellama to openai/codellama", async () => {
+    vi.resetModules();
+    vi.stubEnv("AI_PROVIDER", "ollama");
+    vi.stubEnv("AI_MODEL", "codellama");
+    try {
+      const { getDefaultModelRef } = await import("./genkit");
+      expect(getDefaultModelRef()).toBe("openai/codellama");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("updates model chain with custom AI_MODEL at the front", async () => {
+    vi.resetModules();
+    vi.stubEnv("AI_MODEL", "groq/llama-3.3-70b-versatile");
+    try {
+      const { getSecurityExplanationModelChain } = await import("./genkit");
+      const chain = getSecurityExplanationModelChain();
+      expect(chain[0]).toBe("groq/llama-3.3-70b-versatile");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

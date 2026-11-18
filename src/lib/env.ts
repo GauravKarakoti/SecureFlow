@@ -83,6 +83,46 @@ const envSchema = z.object({
   TRUSTED_PROXY_IPS: z.string().optional(),
 
   GROQ_MODEL: z.string().optional(),
+  AI_PROVIDER: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val.trim() === "") return true;
+        const normalized = val.toLowerCase().trim();
+        return ["groq", "ollama", "vllm", "openai", "custom"].includes(normalized);
+      },
+      {
+        message: "AI_PROVIDER must be one of: groq, ollama, vllm, openai, custom",
+      },
+    ),
+  AI_MODEL: z
+    .string()
+    .optional()
+    .refine((val) => val === undefined || val.trim().length > 0, {
+      message: "AI_MODEL cannot be empty if specified",
+    }),
+  AI_MODEL_NAME: z.string().optional(),
+  AI_BASE_URL: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val.trim() === "") return true;
+        try {
+          const parsed = new URL(val.trim());
+          return parsed.protocol === "http:" || parsed.protocol === "https:";
+        } catch {
+          return false;
+        }
+      },
+      {
+        message: "AI_BASE_URL must be a valid HTTP or HTTPS URL",
+      },
+    ),
+  REMEDIATION_PROVIDER: z.string().optional(),
+  REMEDIATION_MODEL: z.string().optional(),
+  REMEDIATION_BASE_URL: z.string().optional(),
 
   DIFF_CHUNK_MAX_CHARS: z.string().optional(),
   DIFF_FILE_MAX_CHARS: z.string().optional(),
