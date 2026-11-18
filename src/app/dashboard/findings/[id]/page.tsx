@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
+import { SeverityBadge } from "@/components/ui/severity-badge";
 import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import StreamingExplanation from "@/components/streaming-explanation";
 import CodeContextViewer from "@/components/findings/code-context-viewer";
@@ -134,7 +135,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                 <CardTitle className="text-xl font-bold tracking-tight">
                   {finding.type} Detected
                 </CardTitle>
-                <Badge className={theme.badgeClass}>{theme.label}</Badge>
+                <SeverityBadge severity={finding.severity} />
                 {policyDecision && (
                   <Badge variant="outline" className="text-xs border-white/20 gap-1">
                     <Shield className="w-3 h-3" />

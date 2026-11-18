@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
+import { SeverityBadge } from "@/components/ui/severity-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import BulkRemediationBar from "./bulk-remediation-bar";
@@ -487,20 +488,18 @@ export default function FindingsClient({
                                 {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
                               </Badge>
                             )}
-                            <Badge
-                              className={theme.badgeClass}
+                            <SeverityBadge
+                              severity={finding.severity}
                               title={`Raw severity: ${finding.severity}`}
-                            >
-                              {theme.label}
-                            </Badge>
+                            />
                             <Link
                               href={`/dashboard/findings/${finding.id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                               title="View finding permalink"
                               aria-label={`View finding ${finding.id} details`}
                             >
-                              <ExternalLink className="w-3.5 h-3.5" />
+                              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                               <span className="hidden sm:inline">Details</span>
                             </Link>
                           </div>

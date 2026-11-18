@@ -3,6 +3,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SeverityBadge } from "@/components/ui/severity-badge";
 import { SbomScanResult, VulnerabilityMatch } from "@/types/sbom";
 import { AlertCircle, CheckCircle, Package, ShieldAlert } from "lucide-react";
 
@@ -68,7 +69,9 @@ export function SbomReportCard({ result }: SbomReportCardProps) {
                   <span className="font-mono text-sm font-bold text-gray-900 dark:text-gray-100">
                     {vuln.dependency.name}@{vuln.dependency.version}
                   </span>
-                  <Badge className={severityColors[vuln.severity]}>{vuln.severity}</Badge>
+                  <SeverityBadge severity={vuln.severity} showCanonical>
+                    {vuln.severity}
+                  </SeverityBadge>
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">{vuln.description}</p>
                 <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
