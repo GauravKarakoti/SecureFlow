@@ -45,6 +45,12 @@ export interface RejectedSuppressionReport {
   severity?: unknown;
 }
 
+export interface ExpiredIgnoreRuleReport {
+  pattern: string;
+  expires: string;
+  reason?: string;
+}
+
 export interface ScanReportSummaryInput {
   /** The findings to write out in this comment. */
   findings: readonly ScanReportFinding[];
@@ -62,6 +68,8 @@ export interface ScanReportSummaryInput {
   previouslyDismissedCount?: number;
   /** Scanned commit SHA to show in the report. */
   commitSha?: string | null;
+  /** Ignore rules (.secureflowignore) that have expired. */
+  expiredIgnoreRules?: readonly ExpiredIgnoreRuleReport[];
 }
 
 /** Quote every line of `text`, so a multi-paragraph value stays one blockquote. */
@@ -99,6 +107,7 @@ export function renderScanReportSummary({
   rejectedSuppressions = [],
   previouslyDismissedCount = 0,
   commitSha,
+  expiredIgnoreRules = [],
 }: ScanReportSummaryInput): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
@@ -159,6 +168,15 @@ export function renderScanReportSummary({
     for (const r of rejectedSuppressions) {
       const loc = r.line ? `${r.fileLocation}:${r.line}` : r.fileLocation;
       body += `- Directive in ${toCodeSpan(loc)}: ${r.reason}\n`;
+    }
+    body += `\n`;
+  }
+
+  if (expiredIgnoreRules.length > 0) {
+    body += `### ⚠️ Expired Ignore Rules (${expiredIgnoreRules.length})\n\n`;
+    for (const rule of expiredIgnoreRules) {
+      const reasonText = rule.reason ? ` — reason: ${rule.reason}` : "";
+      body += `- ⚠️ ignore rule \`${rule.pattern}\` expired on ${rule.expires}${reasonText}\n`;
     }
     body += `\n`;
   }

@@ -10,7 +10,7 @@ import {
 import { normalizeFindingTypeLabel } from "@/lib/finding-taxonomy";
 import { normalizeSeverity, type Severity } from "@/lib/severity";
 import { parseUnifiedPatch, renderNumberedLines } from "./diff";
-import { ignoreReasonFor, shouldIgnorePath } from "./ignore-rules";
+import { shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent, maskSecrets } from "./secret-masking";
 import { detectSecretsInFiles, mergeFindings } from "./secret-detector";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
@@ -154,49 +154,33 @@ const MAX_SANITIZED_LENGTH = 100_000;
 // the scan with no warning, and the pull request still got a clean report.
 //
 // Re-exported so the existing importers of the constants are unchanged.
+import {
+  IGNORED_EXTENSIONS,
+  IGNORED_DIRECTORIES,
+  IGNORED_BASENAMES,
+  ignoreReasonFor,
+  parseExpiryDateUtc,
+  parseIgnoreRuleLine,
+  parseSecureFlowIgnore,
+  type IgnoreRuleEntry,
+  type ExpiredIgnoreRule,
+  type SecureFlowIgnoreConfig,
+  type ParseSecureFlowIgnoreOptions,
+} from "./ignore-rules";
+
 export {
   IGNORED_EXTENSIONS,
   IGNORED_DIRECTORIES,
   IGNORED_BASENAMES,
   ignoreReasonFor,
-} from "./ignore-rules";
-
-export interface SecureFlowIgnoreConfig {
-  ignoredPaths: string[];
-  placeholders: string[];
-}
-
-export function parseSecureFlowIgnore(content: string): SecureFlowIgnoreConfig {
-  const ignoredPaths: string[] = [];
-  const placeholders: string[] = [];
-  let currentSection: "paths" | "placeholders" = "paths";
-
-  const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    if (trimmed.toLowerCase() === "[placeholders]" || trimmed.toLowerCase() === "[mocks]") {
-      currentSection = "placeholders";
-      continue;
-    }
-
-    if (trimmed.toLowerCase() === "[paths]" || trimmed.toLowerCase() === "[files]") {
-      currentSection = "paths";
-      continue;
-    }
-
-    if (currentSection === "placeholders") {
-      placeholders.push(trimmed);
-    } else {
-      ignoredPaths.push(trimmed);
-    }
-  }
-
-  return { ignoredPaths, placeholders };
-}
+  parseExpiryDateUtc,
+  parseIgnoreRuleLine,
+  parseSecureFlowIgnore,
+  type IgnoreRuleEntry,
+  type ExpiredIgnoreRule,
+  type SecureFlowIgnoreConfig,
+  type ParseSecureFlowIgnoreOptions,
+};
 
 /**
  * Translate one glob into a regular-expression source, reading it left to right.

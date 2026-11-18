@@ -1,51 +1,101 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 
-type Theme = "light" | "dark";
+export type Theme = "light" | "dark" | "system";
+export type ResolvedTheme = "light" | "dark";
 
-interface ThemeContextType {
+export interface ThemeContextType {
   theme: Theme;
+  resolvedTheme: ResolvedTheme;
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const STORAGE_KEY = "secureflow-theme";
+export const STORAGE_KEY = "secureflow-theme";
+
+/**
+ * Resolves the user's OS color scheme preference.
+ */
+export function getSystemTheme(): ResolvedTheme {
+  if (typeof window === "undefined") return "dark";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Default stays "dark" so it matches the current look of the app
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setThemeState] = useState<Theme>("system");
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
   const [mounted, setMounted] = useState(false);
 
-  // On first load, read the saved preference from localStorage (if any).
-  // This is the standard client-only "mounted" pattern used to avoid a
-  // server/client hydration mismatch (see React docs, Next.js docs, and
-  // next-themes' own docs, which all use this exact pattern). The new
-  // react-hooks/set-state-in-effect rule currently flags this as a false
-  // positive with no equivalent alternative yet: https://github.com/react/react/issues/34743
+  // Synchronize on mount from localStorage (defaulting to "system")
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const initialTheme = stored === "light" || stored === "dark" ? stored : "dark";
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
-    setTheme(initialTheme);
-    setMounted(true);
-  }, []);
+    const initialTheme: Theme =
+      stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
 
-  // Whenever the theme changes, update the <html> class and save it
-  useEffect(() => {
-    if (!mounted) return;
+    const resolved: ResolvedTheme = initialTheme === "system" ? getSystemTheme() : initialTheme;
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setThemeState(initialTheme);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResolvedTheme(resolved);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+
     const root = document.documentElement;
     root.classList.remove("light", "dark");
-    root.classList.add(theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    root.classList.add(resolved);
+
+    // Save default if not set
+    if (!stored) {
+      localStorage.setItem(STORAGE_KEY, "system");
+    }
+  }, []);
+
+  // Update theme, local storage, and DOM class
+  const setTheme = useCallback((newTheme: Theme) => {
+    setThemeState(newTheme);
+    localStorage.setItem(STORAGE_KEY, newTheme);
+
+    const resolved: ResolvedTheme = newTheme === "system" ? getSystemTheme() : newTheme;
+    setResolvedTheme(resolved);
+
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(resolved);
+  }, []);
+
+  // When theme is "system", listen for system color-scheme changes
+  useEffect(() => {
+    if (!mounted || theme !== "system") return;
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (e: MediaQueryListEvent) => {
+      const isDark = typeof e?.matches === "boolean" ? e.matches : mediaQuery.matches;
+      const resolved: ResolvedTheme = isDark ? "dark" : "light";
+      setResolvedTheme(resolved);
+      const root = document.documentElement;
+      root.classList.remove("light", "dark");
+      root.classList.add(resolved);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
   }, [theme, mounted]);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
+  // Toggle function for quick cycling or command palette integration
+  const toggleTheme = useCallback(() => {
+    const nextTheme: Theme = resolvedTheme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+  }, [resolvedTheme, setTheme]);
 
-  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {
@@ -55,3 +105,4 @@ export function useTheme() {
   }
   return context;
 }
+export default ThemeProvider;

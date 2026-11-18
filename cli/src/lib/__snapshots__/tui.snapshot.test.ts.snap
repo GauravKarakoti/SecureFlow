@@ -1,0 +1,101 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for a single AI finding 1`] = `
+"
+🚨 Detected 1 security violation(s):  0 Critical   1 High 
+
+┌────────────┬─────────────────────────────────────────────────┬────────────────┬───────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                                        │ RULE / TYPE    │ DETAILS                                       │
+├────────────┼─────────────────────────────────────────────────┼────────────────┼───────────────────────────────────────────────┤
+│  HIGH        │ src/database/repositories/user-repository.ts:88 │ SQL_INJECTION  │ Unsanitized user-supplied input concatenated  │
+└────────────┴─────────────────────────────────────────────────┴────────────────┴───────────────────────────────────────────────┘
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for a single critical finding 1`] = `
+"
+🚨 Detected 1 security violation(s):  1 Critical   0 High 
+
+┌────────────┬──────────────────────────────┬────────────────┬───────────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                     │ RULE / TYPE    │ DETAILS                                           │
+├────────────┼──────────────────────────────┼────────────────┼───────────────────────────────────────────────────┤
+│  CRITICAL    │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
+└────────────┴──────────────────────────────┴────────────────┴───────────────────────────────────────────────────┘
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for clean staged files (no violations) 1`] = `
+"
+✨ No security violations or secret logging detected in staged files.
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for long file paths and long message descriptions 1`] = `
+"
+🚨 Detected 2 security violation(s):  1 Critical   1 High 
+
+┌────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────┬────────────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                                                                                                                                                                 │ RULE / TYPE                                      │ DETAILS                                            │
+├────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┼────────────────────────────────────────────────────┤
+│  CRITICAL    │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
+│  HIGH        │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerabil      │
+└────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────┴────────────────────────────────────────────────────┘
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for many findings spanning all severities 1`] = `
+"
+🚨 Detected 9 security violation(s):  2 Critical   2 High 
+
+┌────────────┬───────────────────────────────────────┬───────────────────────┬───────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                              │ RULE / TYPE           │ DETAILS                                       │
+├────────────┼───────────────────────────────────────┼───────────────────────┼───────────────────────────────────────────────┤
+│  CRITICAL    │ src/auth/jwt-signer.ts:24             │ Secret Logging        │ Private signing key leaked in logs            │
+│  HIGH        │ src/auth/jwt-signer.ts:77             │ Secret Logging        │ Password hash emitted in warning log          │
+│  MEDIUM      │ src/config/aws-credentials.ts:15      │ Secret Logging        │ Cloud provider identifier in debug log        │
+│  LOW         │ src/telemetry/tracker.ts:102          │ Secret Logging        │ Internal network topology disclosure          │
+│  CRITICAL    │ deploy/helm/values-production.yaml:54 │ HARDCODED_SECRET      │ Plaintext database password in Helm chart con │
+│  HIGH        │ src/services/command-runner.ts:135    │ COMMAND_INJECTION     │ Arbitrary command execution via unsanitized h │
+│  MEDIUM      │ src/crypto/nonce-generator.ts:31      │ INSECURE_RANDOM       │ Cryptographically insecure PRNG used for nonc │
+│  LOW         │ Dockerfile:18                         │ EXCESSIVE_PERMISSIONS │ Container runs as superuser root without drop │
+│  INFO        │ src/crypto/legacy-cipher.ts:9         │ DEPRECATED_CIPHER     │ Deprecated and insecure single-DES ECB encryp │
+└────────────┴───────────────────────────────────────┴───────────────────────┴───────────────────────────────────────────────┘
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (color disabled) > matches snapshot for zero findings (empty results) 1`] = `
+"
+✨ No security violations or secret logging detected in staged files.
+"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (color disabled) > matches snapshot for a single finding table row 1`] = `
+"┌────────────┬──────────────────────────────┬────────────────┬───────────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                     │ RULE / TYPE    │ DETAILS                                           │
+├────────────┼──────────────────────────────┼────────────────┼───────────────────────────────────────────────────┤
+│  CRITICAL    │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
+└────────────┴──────────────────────────────┴────────────────┴───────────────────────────────────────────────────┘"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (color disabled) > matches snapshot for many table rows spanning all severities 1`] = `
+"┌────────────┬──────────────────────────────────┬───────────────────┬────────────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                         │ RULE / TYPE       │ DETAILS                                            │
+├────────────┼──────────────────────────────────┼───────────────────┼────────────────────────────────────────────────────┤
+│  CRITICAL    │ src/auth/jwt-signer.ts:24        │ Secret Logging    │ Private signing key leaked in logs                 │
+│  HIGH        │ src/auth/jwt-signer.ts:77        │ Secret Logging    │ Password hash emitted in warning log               │
+│  MEDIUM      │ src/config/aws-credentials.ts:15 │ Secret Logging    │ Cloud provider identifier in debug log             │
+│  LOW         │ src/telemetry/tracker.ts:102     │ Secret Logging    │ Internal network topology disclosure               │
+│  INFO        │ src/crypto/legacy-cipher.ts:9    │ DEPRECATED_CIPHER │ Deprecated and insecure single-DES ECB encryption  │
+└────────────┴──────────────────────────────────┴───────────────────┴────────────────────────────────────────────────────┘"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (color disabled) > matches snapshot for table with very long file paths and messages 1`] = `
+"┌────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────┬────────────────────────────────────────────────────┐
+│ SEVERITY   │ LOCATION                                                                                                                                                                 │ RULE / TYPE                                      │ DETAILS                                            │
+├────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┼────────────────────────────────────────────────────┤
+│  CRITICAL    │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
+│  HIGH        │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerability a │
+└────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────┴────────────────────────────────────────────────────┘"
+`;
+
+exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (color disabled) > matches snapshot for zero rows 1`] = `""`;

@@ -23,7 +23,14 @@
  * the safe direction: not knowing what to skip means scanning more, never less.
  */
 
-import { parseSecureFlowIgnore, type SecureFlowIgnoreConfig } from "@/lib/armor/scanner";
+import {
+  parseSecureFlowIgnore,
+  type SecureFlowIgnoreConfig,
+  type IgnoreRuleEntry,
+  type ExpiredIgnoreRule,
+} from "@/lib/armor/scanner";
+
+export { type ExpiredIgnoreRule, type IgnoreRuleEntry, type SecureFlowIgnoreConfig };
 
 export const SECUREFLOW_IGNORE_FILE = ".secureflowignore";
 
@@ -96,7 +103,7 @@ export async function resolveBaseRef(
  */
 export async function loadBaseIgnoreConfig(
   client: IgnoreConfigClient,
-  args: { owner: string; repo: string; baseRef: string },
+  args: { owner: string; repo: string; baseRef: string; now?: Date },
 ): Promise<SecureFlowIgnoreConfig> {
   try {
     const { data } = await client.rest.repos.getContent({
@@ -112,7 +119,9 @@ export async function loadBaseIgnoreConfig(
     const { content } = data as { content?: unknown };
     if (typeof content !== "string") return noIgnoreConfig();
 
-    return parseSecureFlowIgnore(Buffer.from(content, "base64").toString("utf8"));
+    return parseSecureFlowIgnore(Buffer.from(content, "base64").toString("utf8"), {
+      now: args.now,
+    });
   } catch (error) {
     if (!isNotFound(error)) {
       console.warn(
@@ -131,7 +140,7 @@ export async function loadBaseIgnoreConfig(
  */
 export async function loadTrustedIgnoreConfig(
   client: IgnoreConfigClient,
-  args: { owner: string; repo: string; prNumber: number; baseRef?: string | null },
+  args: { owner: string; repo: string; prNumber: number; baseRef?: string | null; now?: Date },
 ): Promise<SecureFlowIgnoreConfig> {
   const baseRef = args.baseRef || (await resolveBaseRef(client, args));
 
@@ -142,5 +151,10 @@ export async function loadTrustedIgnoreConfig(
     return noIgnoreConfig();
   }
 
-  return loadBaseIgnoreConfig(client, { owner: args.owner, repo: args.repo, baseRef });
+  return loadBaseIgnoreConfig(client, {
+    owner: args.owner,
+    repo: args.repo,
+    baseRef,
+    now: args.now,
+  });
 }

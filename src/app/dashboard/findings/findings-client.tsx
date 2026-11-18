@@ -13,9 +13,10 @@ import {
   Download,
   ExternalLink,
   FileText,
+  X,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 import {
@@ -101,7 +102,18 @@ export default function FindingsClient({
   // Export every finding matching the current filters, not just this page:
   // `/api/findings/export` reads the same query string as this page and streams
   // the full result. Paging parameters are dropped because the export has none.
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const hasFilters = Boolean(
+    searchParams?.get("q") ||
+    searchParams?.get("severity") ||
+    searchParams?.get("type") ||
+    searchParams?.get("status") ||
+    searchParams?.get("repo") ||
+    searchParams?.get("from") ||
+    searchParams?.get("to"),
+  );
   const exportHref = useMemo(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.delete("page");
@@ -353,20 +365,51 @@ export default function FindingsClient({
               <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
               <h3 className="text-2xl font-bold">
-                {total === 0 ? "No Security Findings" : "No findings match these filters"}
+                {hasFilters ? "No findings match these filters" : "No Security Findings"}
               </h3>
 
               <p className="mt-3 max-w-md text-sm text-muted-foreground">
-                {total === 0
-                  ? "Great news! Your repositories are currently secure."
-                  : "Every finding is filtered out by the current selection."}
+                {hasFilters
+                  ? "Every finding is filtered out by the current selection."
+                  : "Great news! Your repositories are currently secure."}
               </p>
 
               <p className="mt-2 text-xs text-muted-foreground">
-                {total === 0
-                  ? "Continue scanning your repositories to detect future vulnerabilities."
-                  : "Clear the filters above to see the full list again."}
+                {hasFilters
+                  ? "Clear the filters above to see the full list again."
+                  : "Continue scanning your repositories to detect future vulnerabilities."}
               </p>
+
+              {hasFilters && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 gap-2"
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams?.toString() ?? "");
+                    for (const key of [
+                      "severity",
+                      "type",
+                      "status",
+                      "repo",
+                      "q",
+                      "from",
+                      "to",
+                      "page",
+                    ]) {
+                      params.delete(key);
+                    }
+                    const query = params.toString();
+                    const navigate = router.push ?? router.replace;
+                    navigate.call(router, query ? `${pathname}?${query}` : pathname, {
+                      scroll: false,
+                    });
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                  Clear filters
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -511,9 +554,17 @@ export default function FindingsClient({
                           </div>
 
                           <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                              <Terminal className="w-3 h-3" /> Source Context
-                            </h4>
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                <Terminal className="w-3 h-3" /> Source Context
+                              </h4>
+                              <Link
+                                href={`/dashboard/findings/${finding.id}`}
+                                className="text-xs text-primary hover:underline inline-flex items-center gap-1 font-mono"
+                              >
+                                Side-by-side review & fix &rarr;
+                              </Link>
+                            </div>
                             <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
                               {finding.codeSnippet || "Code snippet unavailable."}
                             </div>

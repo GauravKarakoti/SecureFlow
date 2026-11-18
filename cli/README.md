@@ -28,6 +28,7 @@ The SecureFlow CLI intercepts code vulnerabilities and exposed secrets right at 
   - [Available MCP Tools](#available-mcp-tools)
 - [⚙️ Configuration (`.secureflowignore`)](#️-configuration-secureflowignore)
 - [🔄 CI/CD Pipeline Integration](#-cicd-pipeline-integration)
+- [🎨 Terminal Color Support & NO_COLOR](#-terminal-color-support--no_color)
 - [📄 License](#-license)
 
 ---
@@ -139,6 +140,8 @@ Commands:
 | `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                              |
 | `--ignore-file <path>` |           | `.secureflowignore` | Custom path to ignore configuration file                                                           |
 | `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                               |
+| `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                 |
+| `--no-color`           |           |                     | Disable colored output (ANSI escape codes)                                                         |
 | `--verbose`            |           | `false`             | Enable verbose diagnostic logging                                                                  |
 | `--help`               | `-h`      |                     | Display CLI usage instructions and exit                                                            |
 
@@ -363,6 +366,28 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+```
+
+---
+
+## 🎨 Terminal Color Support & NO_COLOR
+
+SecureFlow adheres to modern terminal conventions and the [NO_COLOR specification](https://no-color.org/):
+
+- **Automatic Non-TTY Detection**: When output is piped to another command (e.g. `secureflow | cat`) or redirected to a log file (`secureflow > scan.log`), ANSI color codes are automatically disabled.
+- **NO_COLOR Environment Variable**: Setting `NO_COLOR=1` (or any non-empty value) disables ANSI color codes across all formatted outputs.
+- **`--no-color` Flag**: Explicitly disable colors in interactive terminal sessions.
+- **`--color` Flag**: Force colored output on, even in non-TTY environments (e.g. CI logs supporting ANSI rendering).
+
+```bash
+# Disable color via environment variable
+NO_COLOR=1 secureflow
+
+# Explicitly disable color via flag
+secureflow --no-color
+
+# Force color in CI logs or pipes
+secureflow --color | tee audit.log
 ```
 
 ---

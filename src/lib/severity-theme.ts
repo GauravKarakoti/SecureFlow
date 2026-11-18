@@ -19,11 +19,26 @@ import { normalizeSeverity, parseSeverity, type Severity } from "./severity";
 export type { Severity };
 
 export const SEVERITY_THEME: Record<Severity, { label: string; badgeClass: string }> = {
-  CRITICAL: { label: "Interpol Breach", badgeClass: "bg-red-500" },
-  HIGH: { label: "Hostage Crisis", badgeClass: "bg-orange-500" },
-  MEDIUM: { label: "Camera Glitch", badgeClass: "bg-yellow-500 text-black" },
-  LOW: { label: "Loose Screws", badgeClass: "bg-slate-500" },
-  NONE: { label: "All Clear", badgeClass: "bg-emerald-500" },
+  CRITICAL: {
+    label: "Interpol Breach",
+    badgeClass: "bg-red-600 dark:bg-red-500 text-white font-semibold",
+  },
+  HIGH: {
+    label: "Hostage Crisis",
+    badgeClass: "bg-orange-600 dark:bg-orange-500 text-white font-semibold",
+  },
+  MEDIUM: {
+    label: "Camera Glitch",
+    badgeClass: "bg-yellow-500 text-black font-semibold",
+  },
+  LOW: {
+    label: "Loose Screws",
+    badgeClass: "bg-slate-600 dark:bg-slate-500 text-white font-semibold",
+  },
+  NONE: {
+    label: "All Clear",
+    badgeClass: "bg-emerald-600 dark:bg-emerald-500 text-white font-semibold",
+  },
 };
 
 /**

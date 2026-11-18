@@ -26,6 +26,7 @@ import {
   type Severity,
 } from "@/lib/severity";
 import { maskFindingText } from "@/lib/armor/secret-masking";
+import { getGitHubWebUrl } from "@/lib/github/app-auth";
 
 /** The severity floor that triggers a Slack alert. */
 export const SLACK_ALERT_THRESHOLD: Severity = "HIGH";
@@ -88,8 +89,13 @@ export function findingsAboveThreshold(
 }
 
 /** The canonical GitHub URL for a pull request. */
-export function pullRequestUrl(repositoryFullName: string, prNumber: number): string {
-  return `https://github.com/${repositoryFullName}/pull/${prNumber}`;
+export function pullRequestUrl(
+  repositoryFullName: string,
+  prNumber: number,
+  webUrl?: string,
+): string {
+  const base = (webUrl ?? getGitHubWebUrl()).replace(/\/+$/, "");
+  return `${base}/${repositoryFullName}/pull/${prNumber}`;
 }
 
 /**

@@ -87,3 +87,84 @@ export function hostedAiScanSkipReason(argv: readonly string[]): "no-ai" | "loca
   }
   return null;
 }
+
+export const SUPPORTED_AI_PROVIDERS = ["groq", "ollama", "vllm", "openai", "custom"] as const;
+
+export interface CliAiModelConfig {
+  provider: string;
+  model: string;
+  baseUrl?: string | undefined;
+}
+
+/**
+ * Validates and resolves the active AI provider, model name, and base URL for the CLI.
+ * Catches invalid configuration early at CLI startup with clear, actionable error messages.
+ */
+export function validateCliAiConfig(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): CliAiModelConfig {
+  const localEnv = localModeEnv(argv, env);
+  const effectiveEnv = { ...env, ...localEnv };
+
+  const rawProvider =
+    effectiveEnv.AI_PROVIDER ||
+    effectiveEnv.REMEDIATION_MODEL_PROVIDER ||
+    effectiveEnv.LOCAL_AI_PROVIDER;
+
+  let provider = "groq";
+  if (rawProvider) {
+    const norm = rawProvider.toLowerCase().trim();
+    if (!SUPPORTED_AI_PROVIDERS.includes(norm as any)) {
+      throw new Error(
+        `Invalid AI provider "${rawProvider}". Supported providers are: ${SUPPORTED_AI_PROVIDERS.join(", ")}.`,
+      );
+    }
+    provider = norm;
+  } else if (localEnv.LOCAL_AI_URL || effectiveEnv.LOCAL_AI_URL) {
+    provider = localEnv.LOCAL_AI_PROVIDER || "ollama";
+  }
+
+  const rawModel =
+    effectiveEnv.AI_MODEL ??
+    effectiveEnv.AI_MODEL_NAME ??
+    effectiveEnv.REMEDIATION_MODEL ??
+    effectiveEnv.LOCAL_AI_MODEL;
+
+  if (rawModel !== undefined && rawModel.trim() === "") {
+    throw new Error(
+      "AI_MODEL cannot be empty. Please specify a valid model name or unset the variable to use the default.",
+    );
+  }
+
+  const model =
+    rawModel?.trim() ||
+    effectiveEnv.GROQ_MODEL?.trim() ||
+    (provider === "groq"
+      ? "openai/gpt-oss-20b"
+      : provider === "vllm"
+        ? "meta-llama/Meta-Llama-3-8B-Instruct"
+        : "llama3");
+
+  const rawBaseUrl =
+    effectiveEnv.AI_BASE_URL || effectiveEnv.REMEDIATION_BASE_URL || effectiveEnv.LOCAL_AI_URL;
+
+  if (rawBaseUrl) {
+    try {
+      const parsed = new URL(rawBaseUrl.trim());
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error();
+      }
+    } catch {
+      throw new Error(
+        `Invalid AI base URL "${rawBaseUrl}": must be a valid HTTP or HTTPS URL (e.g. http://localhost:11434/v1).`,
+      );
+    }
+  }
+
+  return {
+    provider,
+    model,
+    baseUrl: rawBaseUrl?.trim(),
+  };
+}

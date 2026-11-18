@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   IGNORED_BASENAMES,
   IGNORED_DIRECTORIES,
@@ -11,6 +11,7 @@ import {
   normalizeScanPath,
   pathSegments,
   shouldIgnorePath,
+  parseSecureFlowIgnore,
 } from "./ignore-rules";
 import { compileIgnorePatterns, shouldIgnore } from "./scanner";
 
@@ -220,5 +221,213 @@ describe("scanner.shouldIgnore still delegates here", () => {
     ]) {
       expect(shouldIgnore(path)).toBe(shouldIgnorePath(path));
     }
+  });
+});
+
+describe("parseSecureFlowIgnore and entry expiration (#1811)", () => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  it("handles old plain format with comments and sections (backward compatibility)", () => {
+    const content = `
+      # Comment at top
+      dist/
+      build/
+      *.test.ts
+
+      [placeholders]
+      mock_token_123
+      # Another comment
+      test_dummy_key
+    `;
+    const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+    expect(config.ignoredPaths).toEqual(["dist/", "build/", "*.test.ts"]);
+    expect(config.placeholders).toEqual(["mock_token_123", "test_dummy_key"]);
+    expect(config.expiredRules).toEqual([]);
+    expect(config.warnings).toHaveLength(3); // 3 rules without reason
+  });
+
+  it("parses new format entries with bracket attributes [expires=...] and [reason=...]", () => {
+    const content = `
+      tests/** [expires=2026-12-31]: Temporary test fixtures
+      legacy/old.ts [expires=2026-12-31] [reason=Deprecated old module]
+      fixtures/*.json [reason=Static test files]
+    `;
+    const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+    expect(config.ignoredPaths).toEqual(["tests/**", "legacy/old.ts", "fixtures/*.json"]);
+    expect(config.expiredRules).toEqual([]);
+    expect(config.warnings).toEqual([]);
+    expect(config.rules).toHaveLength(3);
+    expect(config.rules?.[0]).toEqual({
+      pattern: "tests/**",
+      reason: "Temporary test fixtures",
+      expires: "2026-12-31",
+      rawExpires: "2026-12-31",
+    });
+  });
+
+  it("parses colon reason, hash comment reason, and JSON line entries", () => {
+    const content = `
+      vendor/**: Third party code
+      samples/** # reason: Example files for documentation
+      {"pattern": "mocks/**", "reason": "Test mocks", "expires": "2026-12-31"}
+    `;
+    const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+    expect(config.ignoredPaths).toEqual(["vendor/**", "samples/**", "mocks/**"]);
+    expect(config.rules?.[0]?.reason).toBe("Third party code");
+    expect(config.rules?.[1]?.reason).toBe("Example files for documentation");
+    expect(config.rules?.[2]?.reason).toBe("Test mocks");
+    expect(config.rules?.[2]?.expires).toBe("2026-12-31");
+  });
+
+  it("parses full JSON file format with entries array", () => {
+    const content = JSON.stringify({
+      ignoredPaths: [
+        "dist/**",
+        { pattern: "temp/**", reason: "Temporary scratch", expires: "2026-12-31" },
+      ],
+      placeholders: ["fake_key"],
+    });
+    const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+    expect(config.ignoredPaths).toEqual(["dist/**", "temp/**"]);
+    expect(config.placeholders).toEqual(["fake_key"]);
+    expect(config.rules?.[1]?.reason).toBe("Temporary scratch");
+  });
+
+  it("stops applying expired entries and records them in expiredRules", () => {
+    const content = `
+      active/** [expires=2026-12-31]: Still active through end of year
+      expired-bracket/** [expires=2026-11-01]: Expired earlier this month
+      expired-comment/** # expires=2026-10-15 reason: Expired in October
+      {"pattern": "expired-json/**", "reason": "Expired JSON rule", "expires": "2026-09-01"}
+    `;
+    const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+    // Only active pattern survives in ignoredPaths
+    expect(config.ignoredPaths).toEqual(["active/**"]);
+
+    // Expired patterns are tracked under expiredRules
+    expect(config.expiredRules).toEqual([
+      {
+        pattern: "expired-bracket/**",
+        expires: "2026-11-01",
+        reason: "Expired earlier this month",
+      },
+      {
+        pattern: "expired-comment/**",
+        expires: "2026-10-15",
+        reason: "Expired in October",
+      },
+      {
+        pattern: "expired-json/**",
+        expires: "2026-09-01",
+        reason: "Expired JSON rule",
+      },
+    ]);
+  });
+
+  describe("boundary testing (exactly at target, just over, no date)", () => {
+    it("evaluates YYYY-MM-DD through the end of that day in UTC (active on same day, expired next day)", () => {
+      const content = `tests/** [expires=2026-11-18]: Test fixtures for sprint`;
+
+      // 1. Same day in UTC (before 23:59:59.999Z): still active
+      const duringDay = new Date("2026-11-18T23:59:59.000Z");
+      const activeConfig = parseSecureFlowIgnore(content, { now: duringDay });
+      expect(activeConfig.ignoredPaths).toEqual(["tests/**"]);
+      expect(activeConfig.expiredRules).toEqual([]);
+
+      // 2. Next day in UTC (just after midnight 00:00:00.000Z): expired
+      const nextDay = new Date("2026-11-19T00:00:00.000Z");
+      const expiredConfig = parseSecureFlowIgnore(content, { now: nextDay });
+      expect(expiredConfig.ignoredPaths).toEqual([]);
+      expect(expiredConfig.expiredRules).toEqual([
+        {
+          pattern: "tests/**",
+          expires: "2026-11-18",
+          reason: "Test fixtures for sprint",
+        },
+      ]);
+    });
+
+    it("evaluates exact ISO timestamp boundaries correctly", () => {
+      const targetTime = "2026-11-18T15:30:00.000Z";
+      const content = `precise/** [expires=${targetTime}]: Precise timestamp rule`;
+
+      // Exactly at target: not expired
+      const exactNow = new Date("2026-11-18T15:30:00.000Z");
+      const exactConfig = parseSecureFlowIgnore(content, { now: exactNow });
+      expect(exactConfig.ignoredPaths).toEqual(["precise/**"]);
+      expect(exactConfig.expiredRules).toEqual([]);
+
+      // Just over target (1ms later): expired
+      const justOverNow = new Date("2026-11-18T15:30:00.001Z");
+      const justOverConfig = parseSecureFlowIgnore(content, { now: justOverNow });
+      expect(justOverConfig.ignoredPaths).toEqual([]);
+      expect(justOverConfig.expiredRules).toHaveLength(1);
+    });
+
+    it("entries without a date never expire", () => {
+      const content = `permanent/**: Permanent rule without expiry`;
+      const futureNow = new Date("2035-01-01T00:00:00.000Z");
+      const config = parseSecureFlowIgnore(content, { now: futureNow });
+
+      expect(config.ignoredPaths).toEqual(["permanent/**"]);
+      expect(config.expiredRules).toEqual([]);
+    });
+  });
+
+  describe("malformed and invalid dates", () => {
+    it("reports invalid calendar date (e.g. Feb 31) and keeps rule active without crashing", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const content = `fixtures/** [expires=2026-02-31]: Invalid day in February`;
+
+      const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+      expect(config.ignoredPaths).toEqual(["fixtures/**"]);
+      expect(config.expiredRules).toEqual([]);
+      expect(config.warnings).toEqual([
+        'Invalid expiration date "2026-02-31" for rule "fixtures/**"; ignoring expiration date.',
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid expiration date "2026-02-31"'),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it("reports invalid date strings (e.g. tomorrow, 2026-13-45) without crashing", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const content = `
+        temp1/** [expires=tomorrow]: Not an ISO date
+        temp2/** [expires=2026-13-45]: Month out of range
+      `;
+
+      const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+      expect(config.ignoredPaths).toEqual(["temp1/**", "temp2/**"]);
+      expect(config.expiredRules).toEqual([]);
+      expect(config.warnings).toHaveLength(2);
+      expect(config.warnings?.[0]).toContain('Invalid expiration date "tomorrow"');
+      expect(config.warnings?.[1]).toContain('Invalid expiration date "2026-13-45"');
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe("missing reason warning", () => {
+    it("warns when an entry has no reason without failing or crashing", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const content = `unexplained/**`;
+
+      const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+      expect(config.ignoredPaths).toEqual(["unexplained/**"]);
+      expect(config.warnings).toEqual(['Ignore rule "unexplained/**" has no reason specified.']);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Ignore rule "unexplained/**" has no reason specified.'),
+      );
+      warnSpy.mockRestore();
+    });
   });
 });

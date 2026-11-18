@@ -24,10 +24,15 @@ const m = vi.hoisted(() => ({
   requestAiFileScan: vi.fn(),
   hostedAiScanSkipReason: vi.fn(),
   localModeEnv: vi.fn(),
+  validateCliAiConfig: vi.fn<() => { provider: string; model: string; baseUrl?: string }>(() => ({
+    provider: "groq",
+    model: "openai/gpt-oss-20b",
+  })),
   parseOutputFormat: vi.fn(),
   parseOutputPath: vi.fn(),
   parseIgnoreFilePath: vi.fn(),
   parseVoiceArg: vi.fn(),
+  parseColorArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
   startMcpServer: vi.fn(),
   getChangedFilesSince: vi.fn(),
@@ -61,6 +66,7 @@ vi.mock("./lib/api-client.js", () => ({
 vi.mock("./lib/local-mode.js", () => ({
   hostedAiScanSkipReason: m.hostedAiScanSkipReason,
   localModeEnv: m.localModeEnv,
+  validateCliAiConfig: m.validateCliAiConfig,
 }));
 vi.mock("./lib/output-args.js", () => ({
   CliUsageError: errors.CliUsageError,
@@ -69,6 +75,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseIgnoreFilePath: m.parseIgnoreFilePath,
   parseVoiceArg: m.parseVoiceArg,
   parseSinceArg: m.parseSinceArg,
+  parseColorArg: m.parseColorArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
@@ -133,6 +140,7 @@ beforeEach(() => {
   m.parseSinceArg.mockReturnValue(undefined);
   m.getChangedFilesSince.mockReturnValue([]);
   m.getRepoRoot.mockReturnValue(process.cwd());
+  m.parseColorArg.mockReturnValue(undefined);
   m.getStagedFiles.mockReturnValue([]);
   m.readStagedContent.mockReturnValue("const a = 1;");
   m.loadSecureFlowIgnore.mockReturnValue(null);
@@ -381,6 +389,31 @@ describe("AI scan integration", () => {
     await runCli("--local", "--local-model", "llama3");
     expect(process.env.LOCAL_AI_MODEL).toBe("llama3");
     delete process.env.LOCAL_AI_MODEL;
+  });
+
+  it("prints the active AI model in verbose mode", async () => {
+    m.validateCliAiConfig.mockReturnValue({
+      provider: "ollama",
+      model: "codellama",
+      baseUrl: "http://localhost:11434/v1",
+    });
+    m.getStagedFiles.mockReturnValue([]);
+    const code = await runCli("--verbose");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Active AI model: provider=ollama, model=codellama, baseUrl=http://localhost:11434/v1",
+    );
+  });
+
+  it("exits 1 and prints an error when AI configuration is invalid at startup", async () => {
+    m.validateCliAiConfig.mockImplementation(() => {
+      throw new Error('Invalid AI provider "bad-provider"');
+    });
+    const code = await runCli();
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      '❌ [SecureFlow] Configuration Error: Invalid AI provider "bad-provider"',
+    );
   });
 });
 

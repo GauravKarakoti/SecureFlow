@@ -191,6 +191,7 @@ export function parseListParam(value: string | string[] | undefined | null): str
  * `?severity=NONE&severity=INFO` is one bucket rather than two.
  */
 export function parseSeverityFilter(values: readonly string[]): StoredSeverity[] {
+  if (!Array.isArray(values)) return [];
   const wanted = new Set<StoredSeverity>();
 
   for (const value of values) {
@@ -203,13 +204,21 @@ export function parseSeverityFilter(values: readonly string[]): StoredSeverity[]
 
 /** Keep only recognised triage statuses, de-duplicated and in declared order. */
 export function parseStatusFilter(values: readonly string[]): FindingStatus[] {
-  const wanted = new Set(values.map((value) => value.trim().toUpperCase()));
+  if (!Array.isArray(values)) return [];
+  const wanted = new Set(
+    values
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim().toUpperCase()),
+  );
   return FINDING_STATUSES.filter((status) => wanted.has(status));
 }
 
 /** Keep only recognised finding types, de-duplicated and in declared order. */
 export function parseTypeFilter(values: readonly string[]): ValidFindingType[] {
-  const wanted = new Set(values.map((v) => v.trim().toUpperCase()));
+  if (!Array.isArray(values)) return [];
+  const wanted = new Set(
+    values.filter((v): v is string => typeof v === "string").map((v) => v.trim().toUpperCase()),
+  );
   return VALID_FINDING_TYPES.filter((t) => wanted.has(t));
 }
 
@@ -633,6 +642,10 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
 export function fromSearchParams(
   params: Record<string, string | string[] | undefined> = {},
 ): NormalizedFindingsQuery {
+  if (!params || typeof params !== "object") {
+    return normalizeFindingsQuery({});
+  }
+
   const single = (value: string | string[] | undefined): string | undefined =>
     Array.isArray(value) ? value[0] : value;
 

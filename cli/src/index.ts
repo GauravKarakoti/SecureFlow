@@ -32,7 +32,7 @@ import {
   type AiFinding,
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
-import { hostedAiScanSkipReason, localModeEnv } from "./lib/local-mode.js";
+import { hostedAiScanSkipReason, localModeEnv, validateCliAiConfig } from "./lib/local-mode.js";
 import {
   CliUsageError,
   parseIgnoreFilePath,
@@ -66,6 +66,21 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
  */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
+
+if (typeof validateCliAiConfig === "function") {
+  try {
+    const cliAiConfig = validateCliAiConfig(process.argv, process.env);
+    if (VERBOSE) {
+      const baseInfo = cliAiConfig.baseUrl ? `, baseUrl=${cliAiConfig.baseUrl}` : "";
+      console.log(
+        `ℹ️  [SecureFlow] Active AI model: provider=${cliAiConfig.provider}, model=${cliAiConfig.model}${baseInfo}`,
+      );
+    }
+  } catch (err: any) {
+    console.error(`❌ [SecureFlow] Configuration Error: ${err.message}`);
+    process.exit(1);
+  }
+}
 
 function printMcpHelp(): void {
   console.log(`
@@ -116,6 +131,8 @@ Options:
   --severity <level>     Severity level (low, medium, high, critical)
   --poll                 Poll until SBOM scan completion (for sbom command)
   -v, --voice            Play an audio summary debrief of scan findings upon completion
+  --color                Force colored output even on non-TTY terminals
+  --no-color             Disable colored output
   -h, --help             Show this help message
 
 Examples:

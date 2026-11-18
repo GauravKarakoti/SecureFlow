@@ -67,6 +67,29 @@ mock_api_key_456
         "mock_api_key_456",
       ]);
     });
+
+    it("parses entries with reason, expiry and handles expiration", () => {
+      const fixedNow = new Date("2026-11-18T12:00:00Z");
+      const content = `
+active/** [expires=2026-12-31]: Active rule
+expired/** [expires=2026-11-01]: Expired rule
+colon/**: Rule with colon reason
+malformed/** [expires=2026-02-31]: Malformed date
+no-reason/**
+`;
+      const config = parseSecureFlowIgnore(content, { now: fixedNow });
+
+      expect(config.ignoredPaths).toEqual(["active/**", "colon/**", "malformed/**", "no-reason/**"]);
+      expect(config.expiredRules).toEqual([
+        {
+          pattern: "expired/**",
+          expires: "2026-11-01",
+          reason: "Expired rule",
+        },
+      ]);
+      expect(config.warnings?.some((w) => w.includes('Invalid expiration date "2026-02-31"'))).toBe(true);
+      expect(config.warnings?.some((w) => w.includes('has no reason specified'))).toBe(true);
+    });
   });
 
   describe("compileIgnorePatterns and shouldIgnorePath", () => {

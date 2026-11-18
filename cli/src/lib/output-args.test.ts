@@ -8,6 +8,7 @@ import {
   parseOutputPath,
   parseSinceArg,
   parseVoiceArg,
+  parseColorArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -134,5 +135,46 @@ describe("parseSinceArg", () => {
     expect(() => parseSinceArg(argv("--since"))).toThrow(/--since requires a git reference/);
     expect(() => parseSinceArg(argv("--since="))).toThrow(CliUsageError);
     expect(() => parseSinceArg(argv("--since", "--format=json"))).toThrow(CliUsageError);
+  });
+});
+
+describe("parseColorArg", () => {
+  it("returns undefined when neither flag is provided", () => {
+    expect(parseColorArg(argv())).toBeUndefined();
+    expect(parseColorArg(argv("--format", "json"))).toBeUndefined();
+  });
+
+  it("returns true for bare --color", () => {
+    expect(parseColorArg(argv("--color"))).toBe(true);
+  });
+
+  it("returns false for bare --no-color", () => {
+    expect(parseColorArg(argv("--no-color"))).toBe(false);
+  });
+
+  it("supports --color=always, --color=1, --color=true", () => {
+    expect(parseColorArg(argv("--color=always"))).toBe(true);
+    expect(parseColorArg(argv("--color=1"))).toBe(true);
+    expect(parseColorArg(argv("--color=true"))).toBe(true);
+    expect(parseColorArg(argv("--color=TRUE"))).toBe(true);
+  });
+
+  it("supports --color=never, --color=0, --color=false", () => {
+    expect(parseColorArg(argv("--color=never"))).toBe(false);
+    expect(parseColorArg(argv("--color=0"))).toBe(false);
+    expect(parseColorArg(argv("--color=false"))).toBe(false);
+    expect(parseColorArg(argv("--color=FALSE"))).toBe(false);
+  });
+
+  it("supports --no-color=false and --no-color=0 to retain color", () => {
+    expect(parseColorArg(argv("--no-color=false"))).toBe(true);
+    expect(parseColorArg(argv("--no-color=0"))).toBe(true);
+  });
+
+  it("last flag in argv takes precedence", () => {
+    expect(parseColorArg(argv("--color", "--no-color"))).toBe(false);
+    expect(parseColorArg(argv("--no-color", "--color"))).toBe(true);
+    expect(parseColorArg(argv("--no-color", "--color=never"))).toBe(false);
+    expect(parseColorArg(argv("--no-color", "--color=always"))).toBe(true);
   });
 });
