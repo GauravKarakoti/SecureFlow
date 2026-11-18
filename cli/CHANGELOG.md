@@ -1,5 +1,29 @@
 # secureflow-cli
 
+## 3.7.0
+
+### Minor Changes
+
+- f9cc22a: Follow NO_COLOR specification and automatically detect non-interactive terminals to disable ANSI color formatting, with `--color` to force color on and `--no-color` to explicitly disable it.
+- 891037b: Add `--since REF` option to scan only files changed versus a git reference (e.g. `--since origin/main`). Includes added, copied, modified, and renamed files while skipping deleted files, and fails with clear user guidance when outside a git repository or when the specified git ref does not exist.
+- 9fca054: Add environment variables (`AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL`) for remediation and explanation models with startup validation and verbose active model logging.
+- 7fcdfb7: Add side-by-side vulnerable code and remediation review view per finding with highlighted affected lines, line number gutter, secret masking, one-click copy buttons for code and suggested fix, direct shareable URL route with copy link button, graceful empty state handling for missing code context, a dedicated not-found page for missing findings, and navigation links from the findings table rows.
+- ec2109f: Refresh the latest scanned PR verdict and existing SecureFlow check after a repository owner suppresses or reopens a finding. Store scan context in Prisma migration `20261117084000_finding_triage_scan_context`, allow optional notes with a required dismissal category, and preserve suppression across rescans.
+- cf20549: Support GitHub Enterprise Server through configurable API and web base URLs (#1809). Adds `GITHUB_API_URL` (defaulting to `https://api.github.com`) and `GITHUB_WEB_URL` (defaulting to `https://github.com` or custom instance origin), validates them with the typed environment schema, routes all Octokit and GitHub App client calls through the configured API base URL, ensures comments, notifications, and dashboard links use the configured web URL, rejects non-HTTPS URLs in production mode, and documents setup in `docs/setup.md`.
+- f7504d0: Support reasons and expiry dates for `.secureflowignore` entries (#1811). Allows ignore patterns to specify an optional `reason` and optional `expires` date (via bracket syntax `[expires=YYYY-MM-DD]: <reason>`, comment syntax, colon separator, or JSON entries) while maintaining backward compatibility with plain patterns. Expired entries are no longer applied and are reported in the pull request comment so they can be reviewed. Entries without reasons emit a scan log warning, and invalid dates are reported safely without crashing the scan.
+- 7e45a3d: Add saved filter views and shareable URL query state for the Findings table. Active filters (severity, status, repository, type, search, sort, date range) sync to URL parameters, query parameters are validated on the server with fallback to defaults, and users can save, apply, and delete private named filter views.
+- 11cd06b: Add golden-file regression test suite for scanner prompts (#1807). Adds 12 code samples (positives and negatives covering hardcoded secrets, SQL injection, wildcard CORS, root containers, command injection, path traversal, and safe code) with recorded Groq LLM fixtures, CI unit tests running without network or real API keys, an opt-in live prompt regression runner (`npm run test:prompts:live`) with readable diff reporting and `--update` support, and updated documentation in CONTRIBUTING.md.
+- a56ff09: Add Light, Dark, and System theme options in the application header with persistent user preference in localStorage. Default to system preference, avoid flash of wrong theme on first paint via inline blocking script, ensure high contrast across severity badges and UI cards in both themes, and handle dynamic system color-scheme changes.
+- 7068da5: Add k6 load test suite for webhook endpoint with documented thresholds (#1810). Adds `load-tests/webhook.k6.js` and `load-tests/helpers/signature.js` to simulate ramping GitHub pull request webhook traffic with authentic HMAC-SHA256 signatures and synthetic repository data, defines p95 response time (< 500ms) and failure rate (< 1%) thresholds, adds an opt-in manual GitHub Actions workflow (`.github/workflows/webhook-load-test.yml`), and documents local Docker Compose execution and metric interpretation in `docs/load-testing.md`.
+
+### Patch Changes
+
+- dd6e654: Add comprehensive architecture documentation and Mermaid diagrams in docs/architecture.md (#1808). Includes end-to-end webhook-to-check-run sequence diagram, system component topology, failure routing (DLQ, circuit breaker), simplified PostgreSQL data model, and links from README.md and CONTRIBUTING.md.
+- a792a38: Add snapshot test suite and deterministic fixtures for CLI output formatting to catch accidental layout, border, badge, and summary regressions with color disabled.
+- 00aae29: Add Dependabot configuration for npm package folders and GitHub Actions with weekly grouped updates, add a scheduled and on-demand workflow running npm audit that fails on high or critical advisories, and document maintainer triage procedures.
+- 5695aa6: feat(reports): [NSoC_2026] add themed heist metrics and one-click shareable report export (#1711)
+- 4b196df: Sync severity, status, search text, and sort order with URL query parameters on the findings table. Restore active filters on page load, fallback invalid query parameters to defaults without crashing, enable browser back/forward history navigation, and add a Clear filters button.
+
 ## 3.6.0
 
 ### Minor Changes

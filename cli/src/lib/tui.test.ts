@@ -10,9 +10,6 @@ vi.mock("child_process", () => ({
 
 import {
   colors,
-  setColorEnabled,
-  isColorSupported,
-  stripAnsi,
   TerminalSpinner,
   formatSeverityBadge,
   renderWarningTable,
@@ -122,11 +119,15 @@ describe("cli/src/lib/tui (#1712)", () => {
       });
 
       it("disables color when --no-color flag is passed even on an interactive TTY", () => {
-        expect(resolveColorSupport({ isTTY: true, argv: ["node", "secureflow", "--no-color"] })).toBe(false);
+        expect(
+          resolveColorSupport({ isTTY: true, argv: ["node", "secureflow", "--no-color"] }),
+        ).toBe(false);
       });
 
       it("allows --color flag to force color on even when output is not a TTY (piped)", () => {
-        expect(resolveColorSupport({ isTTY: false, argv: ["node", "secureflow", "--color"] })).toBe(true);
+        expect(resolveColorSupport({ isTTY: false, argv: ["node", "secureflow", "--color"] })).toBe(
+          true,
+        );
       });
 
       it("allows --color flag to override NO_COLOR", () => {

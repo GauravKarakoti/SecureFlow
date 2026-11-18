@@ -34,163 +34,165 @@ const privateKeySchema = z
     },
   );
 
-const envSchema = z.object({
-  // Required
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  DATABASE_POOL_URL: z.string().min(1, "DATABASE_POOL_URL is required"),
-  GROQ_API_KEY: z.string().min(1, "GROQ_API_KEY is required"),
+const envSchema = z
+  .object({
+    // Required
+    DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+    DATABASE_POOL_URL: z.string().min(1, "DATABASE_POOL_URL is required"),
+    GROQ_API_KEY: z.string().min(1, "GROQ_API_KEY is required"),
 
-  GITHUB_APP_ID: z.string().min(1, "GITHUB_APP_ID is required"),
-  GITHUB_WEBHOOK_SECRET: z.string().min(1, "GITHUB_WEBHOOK_SECRET is required"),
-  GITHUB_PRIVATE_KEY: privateKeySchema,
-  GITHUB_CLIENT_ID: z.string().min(1, "GITHUB_CLIENT_ID is required"),
-  GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
+    GITHUB_APP_ID: z.string().min(1, "GITHUB_APP_ID is required"),
+    GITHUB_WEBHOOK_SECRET: z.string().min(1, "GITHUB_WEBHOOK_SECRET is required"),
+    GITHUB_PRIVATE_KEY: privateKeySchema,
+    GITHUB_CLIENT_ID: z.string().min(1, "GITHUB_CLIENT_ID is required"),
+    GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
 
-  AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
-  AUTH_URL: z.string().url("AUTH_URL must be a valid URL"),
-  NEXT_PUBLIC_APP_URL: z.string().url("NEXT_PUBLIC_APP_URL must be a valid URL"),
+    AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
+    AUTH_URL: z.string().url("AUTH_URL must be a valid URL"),
+    NEXT_PUBLIC_APP_URL: z.string().url("NEXT_PUBLIC_APP_URL must be a valid URL"),
 
-  NODE_ENV: z.string().optional(),
-  GITHUB_API_URL: z
-    .string()
-    .optional()
-    .transform((val) => (val && val.trim() !== "" ? val.trim() : "https://api.github.com"))
-    .pipe(z.string().url("GITHUB_API_URL must be a valid URL")),
-  GITHUB_WEB_URL: z
-    .string()
-    .optional()
-    .transform((val) => (val && val.trim() !== "" ? val.trim() : undefined))
-    .pipe(z.string().url("GITHUB_WEB_URL must be a valid URL").optional()),
+    NODE_ENV: z.string().optional(),
+    GITHUB_API_URL: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim() !== "" ? val.trim() : "https://api.github.com"))
+      .pipe(z.string().url("GITHUB_API_URL must be a valid URL")),
+    GITHUB_WEB_URL: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim() !== "" ? val.trim() : undefined))
+      .pipe(z.string().url("GITHUB_WEB_URL must be a valid URL").optional()),
 
-  // Optional
-  DB_POOL_MAX: z.string().optional(),
-  GITHUB_WEBHOOK_MAX_BYTES: z.string().optional(),
-  WEBHOOK_MAX_BYTES: z.string().optional(),
-  WEBHOOK_ALLOW_UNBOUND_LEGACY_SIGNATURES: z.string().optional(),
-  GITHUB_APP_URL: z.string().url().optional(),
-  ARMORIQ_API_KEY: z.string().optional(),
-  USER_ID: z.string().optional(),
-  AGENT_ID: z.string().optional(),
+    // Optional
+    DB_POOL_MAX: z.string().optional(),
+    GITHUB_WEBHOOK_MAX_BYTES: z.string().optional(),
+    WEBHOOK_MAX_BYTES: z.string().optional(),
+    WEBHOOK_ALLOW_UNBOUND_LEGACY_SIGNATURES: z.string().optional(),
+    GITHUB_APP_URL: z.string().url().optional(),
+    ARMORIQ_API_KEY: z.string().optional(),
+    USER_ID: z.string().optional(),
+    AGENT_ID: z.string().optional(),
 
-  CSP_REPORT_ONLY: z.string().optional(),
-  CSP_REPORT_URI: z.string().optional(),
+    CSP_REPORT_ONLY: z.string().optional(),
+    CSP_REPORT_URI: z.string().optional(),
 
-  REDIS_URL: z.string().url().optional(),
-  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+    REDIS_URL: z.string().url().optional(),
+    UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
-  TRUSTED_PROXY_HOP_COUNT: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (val === undefined || val.trim() === "") return true;
-        const num = Number(val.trim());
-        return Number.isInteger(num) && num >= 0 && num <= 100;
-      },
-      {
-        message: "TRUSTED_PROXY_HOP_COUNT must be a non-negative integer (between 0 and 100)",
-      },
-    ),
-  TRUSTED_PROXY_IPS: z.string().optional(),
+    TRUSTED_PROXY_HOP_COUNT: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (val === undefined || val.trim() === "") return true;
+          const num = Number(val.trim());
+          return Number.isInteger(num) && num >= 0 && num <= 100;
+        },
+        {
+          message: "TRUSTED_PROXY_HOP_COUNT must be a non-negative integer (between 0 and 100)",
+        },
+      ),
+    TRUSTED_PROXY_IPS: z.string().optional(),
 
-  AI_MODEL: z.string().optional(),
-  AI_PROVIDER: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val || val.trim() === "") return true;
-        const normalized = val.toLowerCase().trim();
-        return ["groq", "ollama", "vllm", "openai", "custom"].includes(normalized);
-      },
-      {
-        message: "AI_PROVIDER must be one of: groq, ollama, vllm, openai, custom",
-      },
-    ),
-  AI_MODEL: z
-    .string()
-    .optional()
-    .refine((val) => val === undefined || val.trim().length > 0, {
-      message: "AI_MODEL cannot be empty if specified",
-    }),
-  AI_MODEL_NAME: z.string().optional(),
-  AI_BASE_URL: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val || val.trim() === "") return true;
+    AI_MODEL: z.string().optional(),
+    AI_PROVIDER: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val || val.trim() === "") return true;
+          const normalized = val.toLowerCase().trim();
+          return ["groq", "ollama", "vllm", "openai", "custom"].includes(normalized);
+        },
+        {
+          message: "AI_PROVIDER must be one of: groq, ollama, vllm, openai, custom",
+        },
+      ),
+    AI_MODEL: z
+      .string()
+      .optional()
+      .refine((val) => val === undefined || val.trim().length > 0, {
+        message: "AI_MODEL cannot be empty if specified",
+      }),
+    AI_MODEL_NAME: z.string().optional(),
+    AI_BASE_URL: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val || val.trim() === "") return true;
+          try {
+            const parsed = new URL(val.trim());
+            return parsed.protocol === "http:" || parsed.protocol === "https:";
+          } catch {
+            return false;
+          }
+        },
+        {
+          message: "AI_BASE_URL must be a valid HTTP or HTTPS URL",
+        },
+      ),
+    REMEDIATION_PROVIDER: z.string().optional(),
+    REMEDIATION_MODEL: z.string().optional(),
+    REMEDIATION_BASE_URL: z.string().optional(),
+
+    DIFF_CHUNK_MAX_CHARS: z.string().optional(),
+    DIFF_FILE_MAX_CHARS: z.string().optional(),
+    FINDING_SNIPPET_REDACT_DAYS: z.string().optional(),
+    WEBHOOK_EVENT_RETENTION_DAYS: z.string().optional(),
+    SCAN_RESULT_RETENTION_DAYS: z.string().optional(),
+    AUDIT_LOG_RETENTION_DAYS: z.string().optional(),
+    DATA_RETENTION_DAYS: z.string().optional(),
+    LOG_LEVEL: z.string().optional(),
+
+    OUTBOUND_WEBHOOK_TIMEOUT_MS: z.string().optional(),
+    OUTBOUND_WEBHOOK_MAX_RESPONSE_BYTES: z.string().optional(),
+    OUTBOUND_WEBHOOK_ALLOWED_HOSTS: z.string().optional(),
+    OUTBOUND_WEBHOOK_ALLOW_INSECURE_HTTP: z.string().optional(),
+    OUTBOUND_WEBHOOK_ALLOW_PRIVATE_NETWORKS: z.string().optional(),
+    ELEVENLABS_API_KEY: z.string().optional(),
+    ELEVENLABS_VOICE_ID_DEFAULT: z.string().optional(),
+    ELEVENLABS_VOICE_ID_ALERT: z.string().optional(),
+    ELEVENLABS_VOICE_ID_HEIST: z.string().optional(),
+    ELEVENLABS_MODEL_ID: z.string().optional(),
+    AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
+    SCAN_CACHE_TTL_SECONDS: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
+    if (isProduction) {
+      if (data.GITHUB_API_URL) {
         try {
-          const parsed = new URL(val.trim());
-          return parsed.protocol === "http:" || parsed.protocol === "https:";
+          const u = new URL(data.GITHUB_API_URL);
+          if (u.protocol !== "https:") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["GITHUB_API_URL"],
+              message: "GITHUB_API_URL must use HTTPS in production",
+            });
+          }
         } catch {
-          return false;
+          // Handled by URL schema
         }
-      },
-      {
-        message: "AI_BASE_URL must be a valid HTTP or HTTPS URL",
-      },
-    ),
-  REMEDIATION_PROVIDER: z.string().optional(),
-  REMEDIATION_MODEL: z.string().optional(),
-  REMEDIATION_BASE_URL: z.string().optional(),
+      }
 
-  DIFF_CHUNK_MAX_CHARS: z.string().optional(),
-  DIFF_FILE_MAX_CHARS: z.string().optional(),
-  FINDING_SNIPPET_REDACT_DAYS: z.string().optional(),
-  WEBHOOK_EVENT_RETENTION_DAYS: z.string().optional(),
-  SCAN_RESULT_RETENTION_DAYS: z.string().optional(),
-  AUDIT_LOG_RETENTION_DAYS: z.string().optional(),
-  DATA_RETENTION_DAYS: z.string().optional(),
-  LOG_LEVEL: z.string().optional(),
-
-  OUTBOUND_WEBHOOK_TIMEOUT_MS: z.string().optional(),
-  OUTBOUND_WEBHOOK_MAX_RESPONSE_BYTES: z.string().optional(),
-  OUTBOUND_WEBHOOK_ALLOWED_HOSTS: z.string().optional(),
-  OUTBOUND_WEBHOOK_ALLOW_INSECURE_HTTP: z.string().optional(),
-  OUTBOUND_WEBHOOK_ALLOW_PRIVATE_NETWORKS: z.string().optional(),
-  ELEVENLABS_API_KEY: z.string().optional(),
-  ELEVENLABS_VOICE_ID_DEFAULT: z.string().optional(),
-  ELEVENLABS_VOICE_ID_ALERT: z.string().optional(),
-  ELEVENLABS_VOICE_ID_HEIST: z.string().optional(),
-  ELEVENLABS_MODEL_ID: z.string().optional(),
-  AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
-  SCAN_CACHE_TTL_SECONDS: z.string().optional(),
-}).superRefine((data, ctx) => {
-  const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
-  if (isProduction) {
-    if (data.GITHUB_API_URL) {
-      try {
-        const u = new URL(data.GITHUB_API_URL);
-        if (u.protocol !== "https:") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["GITHUB_API_URL"],
-            message: "GITHUB_API_URL must use HTTPS in production",
-          });
+      if (data.GITHUB_WEB_URL) {
+        try {
+          const u = new URL(data.GITHUB_WEB_URL);
+          if (u.protocol !== "https:") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["GITHUB_WEB_URL"],
+              message: "GITHUB_WEB_URL must use HTTPS in production",
+            });
+          }
+        } catch {
+          // Handled by URL schema
         }
-      } catch {
-        // Handled by URL schema
       }
     }
-
-    if (data.GITHUB_WEB_URL) {
-      try {
-        const u = new URL(data.GITHUB_WEB_URL);
-        if (u.protocol !== "https:") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["GITHUB_WEB_URL"],
-            message: "GITHUB_WEB_URL must use HTTPS in production",
-          });
-        }
-      } catch {
-        // Handled by URL schema
-      }
-    }
-  }
-});
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

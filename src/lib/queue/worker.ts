@@ -35,10 +35,7 @@ import {
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
-import {
-  getGitHubAppCredentials,
-  WebhookConfigurationError,
-} from "@/lib/github/app-auth";
+import { getGitHubAppCredentials, WebhookConfigurationError } from "@/lib/github/app-auth";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
