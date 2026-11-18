@@ -2,4 +2,4 @@
 "secureflow": minor
 ---
 
-feat(reports): generate weekly security digest summarizing findings and trends (#1788)
+feat(reports): generate weekly security digest summarizing findings and trends via Brevo mailing service (#1788)

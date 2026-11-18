@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,10 @@ import {
 } from "@/lib/actions/settings";
 import { Save, MessageSquare, Volume2, Send, Shield, Copy, Mail } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
+
+const subscribeToOrigin = () => () => {};
+const getBrowserOrigin = () => window.location.origin;
+const getServerOrigin = () => "";
 
 export default function SettingsClient({
   initialWebhookUrl,
@@ -53,6 +57,7 @@ export default function SettingsClient({
   // --- Status badges state ---
   const [repositories, setRepositories] = useState<RepoBadgeSetting[]>(initialRepositories);
   const [isBadgePending, startBadgeTransition] = useTransition();
+  const appOrigin = useSyncExternalStore(subscribeToOrigin, getBrowserOrigin, getServerOrigin);
 
   const handleSave = () => {
     startTransition(async () => {
@@ -391,9 +396,9 @@ export default function SettingsClient({
             </p>
           ) : (
             repositories.map((repo) => {
-              const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-              const badgeUrl = `${appUrl}/api/badge/${repo.fullName}`;
-              const markdown = `[![SecureFlow Status](${badgeUrl})](${appUrl || "/"})`;
+              const badgePath = `/api/badge/${repo.fullName.split("/").map(encodeURIComponent).join("/")}`;
+              const badgeUrl = `${appOrigin}${badgePath}`;
+              const markdown = `[![SecureFlow Status](${badgeUrl})](${appOrigin || "/"})`;
               return (
                 <div
                   key={repo.id}

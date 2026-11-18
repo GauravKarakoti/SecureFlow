@@ -223,6 +223,21 @@ describe("scanResultCreateData", () => {
     expect(data.riskScore).toBeLessThan(storedRiskScore([...active, ...suppressed]));
   });
 
+  it("stores the scanned head and trusted gate for later triage reconciliation", () => {
+    const gateConfig = { blockOn: "HIGH", reviewOn: "MEDIUM" };
+    const data = scanResultCreateData({
+      pullRequestId: "pr-1",
+      headSha: "abc123",
+      gateConfig,
+      decision: "BLOCKED",
+      scoredFindings: active,
+      findingsToPersist: active,
+    });
+
+    expect(data.headSha).toBe("abc123");
+    expect(data.gateConfig).toEqual(gateConfig);
+  });
+
   it("carries the pull request id through unchanged", () => {
     const data = scanResultCreateData({
       pullRequestId: "pr-42",

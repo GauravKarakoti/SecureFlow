@@ -71,7 +71,7 @@ Options:
   --user=<id>     Generate digest only for the specified user ID
   --force         Force generation even if a digest was created in the last 7 days
   --dry-run       Calculate and render digest preview without database writes or sending emails
-  --no-email      Store digest in database but skip sending SMTP notification emails
+  --no-email      Store digest in database but skip sending notification emails
   --quiet, -q     Suppress informational output
   --help, -h      Show this help message
 

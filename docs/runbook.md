@@ -13,13 +13,16 @@ This runbook provides operators with actionable troubleshooting steps for diagno
 | **Groq / AI Scanner**    | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`GROQ_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                      | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
 | **Database Pooling**     | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
 | **Proxy Rate Limiting**  | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
-| **Weekly Digest & SMTP** | Emails not arriving; cron endpoint 401; SMTP connection timeouts                   | `CRON_SECRET`<br>`SMTP_HOST`<br>`SMTP_PORT`<br>`SMTP_USER`<br>`SMTP_PASS`<br>`SMTP_FROM`         | [6. Weekly Security Digest & Email Delivery](#6-weekly-security-digest--email-delivery)  |
+| **Weekly Digest & Brevo**| Digest emails not arriving; Brevo API errors; digests not generating               | `BREVO_API_KEY`<br>`BREVO_SENDER_EMAIL`<br>`BREVO_SENDER_NAME`                                   | [6. Weekly Security Digest & Email Delivery](#6-weekly-security-digest--email-delivery)  |
+| **Dependency Audits**    | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
 
 ---
 
 ## 1. Webhook Deliveries Failing
 
 Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are validated in a strict sequence: payload size &rarr; delivery ID presence &rarr; HMAC-SHA256 signature verification &rarr; payload JSON parsing &rarr; BullMQ queue delegation.
+
+> 💡 **Performance & Load Testing**: To measure webhook throughput and latency under burst loads or verify SLA thresholds, see the **[Webhook Load Testing Guide](./load-testing.md)**.
 
 ### Relevant Environment Variables
 
@@ -532,13 +535,15 @@ SecureFlow builds a weekly roll-up per user or organization covering new finding
 
 ### Relevant Environment Variables
 
-- `CRON_SECRET` _(Recommended in production)_: Shared secret token for invoking `/api/cron/weekly-digest`. Required in production to prevent unauthorized triggers. Pass as `Authorization: Bearer <CRON_SECRET>` or header `x-cron-secret`.
+- `BREVO_API_KEY` _(Recommended in production, Secret)_: API key for Brevo transactional email delivery via REST API v3 (`https://api.brevo.com/v3/smtp/email`). Redacted from logs and error messages.
+- `BREVO_SENDER_EMAIL` _(Optional, default: `security@secureflow.dev`)_: Verified sender email address configured in Brevo.
+- `BREVO_SENDER_NAME` _(Optional, default: `SecureFlow Security`)_: Display name for outbound digest emails.
 - `WEEKLY_DIGEST_SCHEDULE` _(Optional, default: `0 8 * * 1`)_: Cron schedule syntax indicating when digests are scheduled (default: Mondays at 08:00 UTC).
-- `SMTP_HOST` _(Optional)_: SMTP hostname (e.g. `smtp.sendgrid.net`, `smtp.mailgun.org`). When omitted, emails are skipped and digests are stored for dashboard display only.
+- `SMTP_HOST` _(Optional fallback)_: SMTP hostname (e.g. `smtp-relay.brevo.com`). When both Brevo and SMTP are omitted, emails are skipped and digests are stored for dashboard display only.
 - `SMTP_PORT` _(Optional, default: `587`)_: SMTP port (`465` for TLS, `587` for STARTTLS).
 - `SMTP_USER` _(Optional)_: SMTP username / API key.
 - `SMTP_PASS` _(Optional, Secret)_: SMTP password or API token. Redacted from logs and error messages.
-- `SMTP_FROM` _(Optional, default: `SecureFlow <security@secureflow.local>`)_: Sender email address.
+- `SMTP_FROM` _(Optional, default: `SecureFlow Security <security@secureflow.dev>`)_: Sender email address.
 - `SMTP_SECURE` _(Optional, default: `false`)_: Set `true` to mandate direct TLS connection (typically port 465).
 
 ### Operational Commands
@@ -554,11 +559,6 @@ SecureFlow builds a weekly roll-up per user or organization covering new finding
 - Generate for a specific user ID:
   ```bash
   npx tsx scripts/generate-weekly-digest.ts --user=<userId> --force
-  ```
-- Trigger via HTTP cron runner:
-  ```bash
-  curl -X POST https://<your-domain>/api/cron/weekly-digest \
-    -H "Authorization: Bearer $CRON_SECRET"
   ```
 
 ### Privacy & Redaction Guarantees
@@ -583,6 +583,6 @@ Use this checklist to verify your deployment configuration when diagnosing syste
 [ ] DATABASE_POOL_URL is configured for serverless production queries (PgBouncer/Neon Pooler)
 [ ] DB_POOL_MAX is tuned to stay within PostgreSQL max_connections (default 10)
 [ ] TRUSTED_PROXY_HOP_COUNT is set to 1 (single proxy) or 2 (Cloudflare + proxy) in production
-[ ] CRON_SECRET is configured for securing scheduled weekly digest endpoints
-[ ] SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM configured if weekly email delivery is desired
+[ ] BREVO_API_KEY is configured for delivering weekly security digests via Brevo
+[ ] SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM configured if fallback SMTP delivery is desired
 ```

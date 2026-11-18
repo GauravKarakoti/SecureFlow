@@ -5,6 +5,7 @@ import { getSessionWithGitHubToken } from "@/lib/github/user-access-token";
 import { redirect } from "next/navigation";
 import { getSuppressedFingerprints } from "@/lib/triage/queries";
 import { syncUserRepositories } from "@/lib/github/sync-user-repos";
+import { getOnboardingStatus } from "@/lib/actions/onboarding";
 import {
   bucketScansByUtcDay,
   generateDateRange,
@@ -125,6 +126,13 @@ export default async function OverviewPage() {
   const stats = { totalScans, blockedPRs, approvedPRs, secretsDetected };
   const distribution = { critical, high, medium, low };
 
+  const onboardingStatus = await getOnboardingStatus(
+    userId,
+    needsGitHubAppInstall,
+    repoCount,
+    totalScans,
+  );
+
   return (
     <DashboardClient
       stats={stats}
@@ -134,6 +142,7 @@ export default async function OverviewPage() {
       repoCount={repoCount}
       needsGitHubAppInstall={needsGitHubAppInstall}
       githubAppUrl={process.env.GITHUB_APP_URL || "/setup"}
+      onboardingStatus={onboardingStatus}
     />
   );
 }

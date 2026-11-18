@@ -123,6 +123,14 @@ describe("DashboardClient component (#1446)", () => {
       const values = screen.getAllByTestId("countup-value").map((el) => el.textContent);
       expect(values).toEqual(["48", "5", "40", "3"]);
     });
+
+    it("renders themed Heist Risk Score and Vault Integrity Status metrics (#1711)", () => {
+      render(<DashboardClient {...defaultProps} />);
+
+      expect(screen.getByText(/Heist Risk Score/i)).toBeInTheDocument();
+      expect(screen.getByText(/Vault Integrity Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/Shareable Report/i)).toBeInTheDocument();
+    });
   });
 
   describe("GitHub App Onboarding Prompt", () => {
@@ -308,6 +316,28 @@ describe("DashboardClient component (#1446)", () => {
           screen.getByText("Sync failed. Please check GitHub App permissions."),
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Onboarding Checklist Integration (#1787)", () => {
+    it("renders OnboardingChecklist when onboardingStatus is supplied", () => {
+      render(
+        <DashboardClient
+          {...defaultProps}
+          onboardingStatus={{
+            appInstalled: true,
+            repoConnected: true,
+            webhookReceived: false,
+            policyEnabled: true,
+            firstScanCompleted: false,
+            allComplete: false,
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId("onboarding-checklist")).toBeInTheDocument();
+      expect(screen.getByText("Get Started with SecureFlow")).toBeInTheDocument();
+      expect(screen.getByText("3 of 5 Complete")).toBeInTheDocument();
     });
   });
 });

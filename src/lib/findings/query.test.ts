@@ -17,6 +17,7 @@ import {
   hasActiveFilters,
   normalizeFindingsQuery,
   normalizeSearch,
+  parseDateParam,
   parseListParam,
   parseSeverityFilter,
   parseSort,
@@ -170,6 +171,44 @@ describe("parseSort", () => {
   });
 });
 
+describe("parseDateParam", () => {
+  it("parses valid ISO date YYYY-MM-DD", () => {
+    expect(parseDateParam("2026-11-15")).toBe("2026-11-15");
+    expect(parseDateParam("2026-01-01")).toBe("2026-01-01");
+  });
+
+  it("trims whitespace", () => {
+    expect(parseDateParam("  2026-11-15  ")).toBe("2026-11-15");
+  });
+
+  it("returns null for non-string or empty input", () => {
+    expect(parseDateParam(null)).toBeNull();
+    expect(parseDateParam(undefined)).toBeNull();
+    expect(parseDateParam("")).toBeNull();
+    expect(parseDateParam("   ")).toBeNull();
+    expect(parseDateParam(12345)).toBeNull();
+  });
+
+  it("returns null for malformed date formats", () => {
+    expect(parseDateParam("15-11-2026")).toBeNull();
+    expect(parseDateParam("2026/11/15")).toBeNull();
+    expect(parseDateParam("2026-11")).toBeNull();
+    expect(parseDateParam("not-a-date")).toBeNull();
+  });
+
+  it("returns null for invalid day or month without throwing", () => {
+    expect(parseDateParam("2026-13-01")).toBeNull();
+    expect(parseDateParam("2026-02-31")).toBeNull(); // February 31st does not exist
+    expect(parseDateParam("2026-00-10")).toBeNull();
+    expect(parseDateParam("2026-04-31")).toBeNull(); // April has 30 days
+  });
+
+  it("returns null for out-of-range years", () => {
+    expect(parseDateParam("1800-01-01")).toBeNull();
+    expect(parseDateParam("3000-01-01")).toBeNull();
+  });
+});
+
 describe("normalizeSearch", () => {
   it("returns null for anything empty", () => {
     // An empty-string search would build three `contains: ''` clauses that
@@ -196,6 +235,8 @@ describe("normalizeFindingsQuery", () => {
       repositoryId: null,
       search: null,
       sort: DEFAULT_SORT,
+      from: null,
+      to: null,
     });
   });
 
@@ -576,6 +617,10 @@ describe("searchParams round-trip", () => {
       severity: "DROP TABLE",
       sort: ["../../etc/passwd"],
       q: " ".repeat(50),
+      from: "invalid-date",
+      to: "2026-02-31",
+      token: "secret-bearer-token",
+      snippet: "API_KEY=xyz",
     });
 
     expect(parsed.page).toBe(1);
@@ -583,5 +628,51 @@ describe("searchParams round-trip", () => {
     expect(parsed.severity).toEqual([]);
     expect(parsed.sort).toBe(DEFAULT_SORT);
     expect(parsed.search).toBeNull();
+    expect(parsed.from).toBeNull();
+    expect(parsed.to).toBeNull();
+    // Sensitive keys in URL are completely ignored
+    expect((parsed as any).token).toBeUndefined();
+    expect((parsed as any).snippet).toBeUndefined();
+  });
+
+  it("handles valid date ranges and swaps when from > to", () => {
+    const parsed = fromSearchParams({
+      from: "2026-11-20",
+      to: "2026-11-10",
+    });
+
+    expect(parsed.from).toBe("2026-11-10");
+    expect(parsed.to).toBe("2026-11-20");
+  });
+
+  it("serialises date range filters into query params", () => {
+    const query = normalizeFindingsQuery({
+      from: "2026-11-01",
+      to: "2026-11-15",
+    });
+
+    const params = toSearchParams(query);
+    expect(params).toContain("from=2026-11-01");
+    expect(params).toContain("to=2026-11-15");
+  });
+
+  it("applies date range filter to where clause", () => {
+    const query = normalizeFindingsQuery({
+      from: "2026-11-01",
+      to: "2026-11-15",
+    });
+
+    const where = buildFindingsWhere(CONTEXT, query) as any;
+    expect(where.createdAt).toBeDefined();
+    expect(where.createdAt.gte).toEqual(new Date("2026-11-01T00:00:00.000Z"));
+    expect(where.createdAt.lte).toEqual(new Date("2026-11-15T23:59:59.999Z"));
+  });
+
+  it("marks hasActiveFilters true when date range is set", () => {
+    const q1 = normalizeFindingsQuery({ from: "2026-11-01" });
+    expect(hasActiveFilters(q1)).toBe(true);
+
+    const q2 = normalizeFindingsQuery({ to: "2026-11-15" });
+    expect(hasActiveFilters(q2)).toBe(true);
   });
 });

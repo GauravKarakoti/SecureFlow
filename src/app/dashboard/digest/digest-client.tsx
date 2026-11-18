@@ -9,16 +9,11 @@ import { TimeAgo } from "@/components/time-ago";
 import { requestManualDigestGeneration } from "@/lib/actions/digest";
 import {
   Mail,
-  ShieldAlert,
-  CheckCircle2,
-  XCircle,
-  GitPullRequest,
   RefreshCw,
   FolderGit2,
   Bug,
   Calendar,
   AlertCircle,
-  ArrowUpRight,
 } from "lucide-react";
 
 export interface SerializedDigestRepoMetric {

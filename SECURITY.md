@@ -96,6 +96,7 @@ one of these areas:
 - [HTTP security response headers](docs/security/response-headers.md)
 - [API rate limiting](docs/security/rate-limiting.md)
 - [Outbound webhook dispatch](docs/security/outbound-webhooks.md)
+- [Dependency vulnerability triage and maintenance](docs/security/dependency-triage.md)
 
 These documents describe existing defenses and are not a substitute for
 privately reporting a suspected vulnerability as described above.

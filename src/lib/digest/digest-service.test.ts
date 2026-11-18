@@ -4,7 +4,6 @@ import { MockMailTransport } from "@/lib/email/mail-transport";
 import {
   generateWeeklyDigestForUser,
   generateAllWeeklyDigests,
-  calculateDigestMetricsForUser,
   SEVEN_DAYS_MS,
 } from "./digest-service";
 import { renderDigestText, renderDigestHtml } from "./email-template";

@@ -148,7 +148,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex justify-end px-4 pt-4">
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Close menu"
           >
             <X className="w-5 h-5" />
@@ -181,7 +181,7 @@ export function DashboardHeader({
         {/* Hamburger — mobile only */}
         <button
           onClick={onMenuClick}
-          className="lg:hidden w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+          className="lg:hidden w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
@@ -199,7 +199,7 @@ export function DashboardHeader({
           onClick={() => {
             window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
           }}
-          className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors"
+          className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title="Open Command Palette (Ctrl+K or ⌘K)"
           aria-label="Open Command Palette (Ctrl+K or ⌘K)"
         >
@@ -221,8 +221,9 @@ export function DashboardHeader({
         {/* Logout Button */}
         <button
           onClick={() => signOut({ callbackUrl: "/" })}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title="Log out"
+          aria-label="Log out"
         >
           <LogOut className="w-4 h-4" />
         </button>

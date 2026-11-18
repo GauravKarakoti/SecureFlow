@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "reasoning": "Step 1: The code constructs an SQL query by directly interpolating the user-provided 'userId' into the query string without sanitization or parameterization. This allows an attacker to inject arbitrary SQL statements, leading to potential data exfiltration, modification, or deletion. The vulnerability exists because the query string is built using template literals with user input, which is a classic SQL injection vector.",
+      "type": "Vulnerability",
+      "severity": "CRITICAL",
+      "description": "The function 'getUser' builds a raw SQL query using the 'userId' extracted from the request URL. Since 'userId' is not validated or escaped, an attacker can supply a value like \"1'; DROP TABLE users; --\" to execute malicious SQL. This is a classic SQL injection vulnerability that can compromise the database integrity and confidentiality.",
+      "fileLocation": "src/api/users.ts",
+      "codeSnippet": "const query = `SELECT * FROM users WHERE id = '${userId}'`;",
+      "lineStart": 3,
+      "lineEnd": 3
+    }
+  ]
+}

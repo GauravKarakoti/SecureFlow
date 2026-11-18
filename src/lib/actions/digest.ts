@@ -2,11 +2,7 @@
 
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
-import {
-  generateWeeklyDigestForUser,
-  getUserDigests,
-  getLatestDigest,
-} from "@/lib/digest/digest-service";
+import { generateWeeklyDigestForUser } from "@/lib/digest/digest-service";
 
 export async function requestManualDigestGeneration(): Promise<{
   success: boolean;

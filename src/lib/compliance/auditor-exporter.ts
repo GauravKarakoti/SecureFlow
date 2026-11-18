@@ -6,6 +6,7 @@ import {
   type ComplianceFramework,
 } from "@/lib/compliance/taxonomy";
 import { enrichFindingsWithComplianceTags } from "@/lib/policies/compliance-engine";
+import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 /**
  * Compliance Auditor Export Engine
  *
@@ -429,6 +430,21 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
     )
     .join("");
 
+  const totalCrit = Object.values(dossier.frameworks).reduce(
+    (acc, f) => acc + f.criticalFindings,
+    0,
+  );
+  const totalHigh = Object.values(dossier.frameworks).reduce((acc, f) => acc + f.highFindings, 0);
+  const totalMed = Object.values(dossier.frameworks).reduce((acc, f) => acc + f.mediumFindings, 0);
+  const heistRisk = calculateHeistRiskScore({
+    critical: totalCrit,
+    high: totalHigh,
+    medium: totalMed,
+  });
+  const vaultIntegrity = calculateVaultIntegrity({
+    passRate: dossier.metrics.prPassRatePercentage,
+  });
+
   return `
 <!DOCTYPE html>
 <html>
@@ -438,12 +454,19 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111; padding: 40px; margin: 0 auto; max-width: 800px; line-height: 1.5; }
     h1 { margin-bottom: 4px; font-size: 24px; color: #0f172a; }
-    .header-bar { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .header-bar { border-bottom: 2px solid #5A29E4; padding-bottom: 12px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
     .meta { font-size: 12px; color: #64748b; font-family: monospace; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
     .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; text-align: center; }
     .card-num { font-size: 20px; font-weight: bold; color: #0f172a; font-family: monospace; }
     .card-lbl { font-size: 11px; text-transform: uppercase; color: #64748b; margin-top: 4px; }
+    .heist-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
+    .heist-card { border-radius: 8px; padding: 14px; text-align: left; }
+    .heist-card.risk { background: #fbf9ff; border: 1px solid #5A29E4; border-left: 5px solid #5A29E4; }
+    .heist-card.vault { background: #f0fdf4; border: 1px solid #0A5C3E; border-left: 5px solid #0A5C3E; }
+    .heist-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+    .heist-val { font-size: 22px; font-weight: 800; font-family: monospace; margin: 4px 0; }
+    .heist-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
     th { background: #f1f5f9; padding: 8px; border: 1px solid #cbd5e1; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569; }
     .footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 11px; color: #94a3b8; text-align: center; }
@@ -456,7 +479,21 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
       <div class="meta">REPORT ID: ${dossier.reportId} | WINDOW: ${dossier.timeWindow.from.slice(0, 10)} to ${dossier.timeWindow.to.slice(0, 10)}</div>
     </div>
     <div class="meta" style="text-align: right;">
-      CHAIN INTEGRITY: <strong style="color: #15803d;">${dossier.cryptographicProof.chainIntegrity}</strong>
+      CHAIN INTEGRITY: <strong style="color: #0A5C3E;">${dossier.cryptographicProof.chainIntegrity}</strong>
+    </div>
+  </div>
+
+  <!-- Themed Heist & Vault Metrics -->
+  <div class="heist-grid">
+    <div class="heist-card risk">
+      <div class="heist-title" style="color: #5A29E4;">Heist Risk Score</div>
+      <div class="heist-val" style="color: #5A29E4;">${heistRisk.score} <span style="font-size: 14px; color: #64748b;">/ 100</span></div>
+      <span class="heist-badge" style="background: rgba(90, 41, 228, 0.12); color: #5A29E4;">${heistRisk.badge}</span>
+    </div>
+    <div class="heist-card vault">
+      <div class="heist-title" style="color: #0A5C3E;">Vault Integrity Status</div>
+      <div class="heist-val" style="color: #0A5C3E;">${vaultIntegrity.percentage}%</div>
+      <span class="heist-badge" style="background: #0A5C3E; color: #FFFFFF;">${vaultIntegrity.status}</span>
     </div>
   </div>
 
@@ -466,7 +503,7 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
       <div class="card-lbl">Scanned PRs</div>
     </div>
     <div class="card">
-      <div class="card-num" style="color: #15803d;">${dossier.metrics.prPassRatePercentage}%</div>
+      <div class="card-num" style="color: #0A5C3E;">${dossier.metrics.prPassRatePercentage}%</div>
       <div class="card-lbl">PR Pass Rate</div>
     </div>
     <div class="card">

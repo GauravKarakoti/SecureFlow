@@ -38,7 +38,12 @@ import {
   type EnrichedScanFinding,
 } from "./scan-persistence";
 import { resolvePullRequestRecord, splitRepositoryFullName } from "./pull-request-record";
-import { loadTrustedIgnoreConfig, type IgnoreConfigClient } from "./ignore-config";
+import {
+  loadTrustedIgnoreConfig,
+  type IgnoreConfigClient,
+  type SecureFlowIgnoreConfig,
+  type ExpiredIgnoreRule,
+} from "./ignore-config";
 import {
   loadTrustedGateConfig,
   formatGateSummaryLine,
@@ -86,6 +91,7 @@ export interface ScanJobResult {
   findings: EnrichedScanFinding[];
   skippedFiles?: Array<{ filename: string; reason: string }>;
   reusedFromCache?: boolean;
+  expiredIgnoreRules?: ExpiredIgnoreRule[];
 }
 
 export interface ScanProgress {
@@ -196,8 +202,12 @@ export async function processScanJob(
     progress: 0,
   });
 
-  const { appId, privateKey } = getGitHubAppCredentials();
-  const appClient = new App({ appId, privateKey });
+  const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+  const appClient = new App({
+    appId,
+    privateKey,
+    ...(customOctokit ? { Octokit: customOctokit } : {}),
+  });
   // Narrowed rather than asserted: `installationId` is `number | string` because
   // the route accepts either and BullMQ round-trips job data through JSON.
   const octokit = await appClient.getInstallationOctokit(parseInstallationId(installationId));
@@ -210,9 +220,12 @@ export async function processScanJob(
   // `initialCustomIgnores` / `initialCustomPlaceholders` are server-supplied
   // (never request fields) and are kept as an addition to the repository's own.
   let repositoryGateConfig: GateConfig = { ...DEFAULT_GATE_CONFIG };
-  let repositoryIgnoreConfig: { ignoredPaths: string[]; placeholders: string[] } = {
+  let repositoryIgnoreConfig: SecureFlowIgnoreConfig = {
     ignoredPaths: [],
     placeholders: [],
+    rules: [],
+    expiredRules: [],
+    warnings: [],
   };
   try {
     const { owner, repo } = splitRepositoryFullName(repositoryFullName);
@@ -238,6 +251,12 @@ export async function processScanJob(
       `[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`,
       err,
     );
+  }
+
+  if (repositoryIgnoreConfig.warnings && repositoryIgnoreConfig.warnings.length > 0) {
+    for (const warning of repositoryIgnoreConfig.warnings) {
+      log.warn(`[ScanEngine] ${warning}`);
+    }
   }
 
   const customIgnores = [...(initialCustomIgnores ?? []), ...repositoryIgnoreConfig.ignoredPaths];
@@ -480,9 +499,10 @@ export async function processScanJob(
         findings: enrichedFindings,
       });
 
-      // Post PR comment if there are findings or skipped files
+      // Post PR comment if there are findings, skipped files, or expired ignore rules
+      const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
       const suppressedCount = allFindings.length - activeFindings.length;
-      if (enrichedFindings.length > 0 || allSkippedFiles.length > 0) {
+      if (enrichedFindings.length > 0 || allSkippedFiles.length > 0 || expiredRules.length > 0) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
           body += `Scanned commit: \`${headSha}\`\n\n`;
@@ -491,6 +511,15 @@ export async function processScanJob(
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
         } else {
           body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
+        }
+
+        if (expiredRules.length > 0) {
+          body += `### ⚠️ Expired Ignore Rules (${expiredRules.length})\n\n`;
+          expiredRules.forEach((rule) => {
+            const reasonText = rule.reason ? ` — reason: ${rule.reason}` : "";
+            body += `- ⚠️ ignore rule \`${rule.pattern}\` expired on ${rule.expires}${reasonText}\n`;
+          });
+          body += `\n`;
         }
 
         if (allSkippedFiles.length > 0) {
@@ -559,6 +588,8 @@ export async function processScanJob(
       await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
+          headSha,
+          gateConfig: repositoryGateConfig,
           decision,
           scoredFindings: activeFindings,
           findingsToPersist,
@@ -673,5 +704,6 @@ export async function processScanJob(
     findings: enrichedFindings,
     skippedFiles: allSkippedFiles,
     reusedFromCache,
+    expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
   };
 }

@@ -35,7 +35,10 @@ import {
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
-import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import {
+  getGitHubAppCredentials,
+  WebhookConfigurationError,
+} from "@/lib/github/app-auth";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
@@ -692,9 +695,12 @@ export const worker = new Worker<WebhookJobData>(
             });
           }
 
-          const { appId, privateKey } = getGitHubAppCredentials();
-
-          const appClient = new App({ appId, privateKey });
+          const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+          const appClient = new App({
+            appId,
+            privateKey,
+            ...(customOctokit ? { Octokit: customOctokit } : {}),
+          });
           const octokit = await appClient.getInstallationOctokit(installation.id);
 
           // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
@@ -990,6 +996,7 @@ export const worker = new Worker<WebhookJobData>(
                 rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
                 previouslyDismissedCount: suppressedFindings.length,
                 commitSha: pull_request.head?.sha,
+                expiredIgnoreRules: scanResult.expiredIgnoreRules,
               });
 
             // Try to post the anchored findings as an inline review. If that fails
@@ -1048,11 +1055,25 @@ export const worker = new Worker<WebhookJobData>(
                 ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
                 : "";
 
+            const cleanExpiredNotice =
+              scanResult.expiredIgnoreRules && scanResult.expiredIgnoreRules.length > 0
+                ? `\n\n### ⚠️ Expired Ignore Rules (${scanResult.expiredIgnoreRules.length})\n\n` +
+                  scanResult.expiredIgnoreRules
+                    .map(
+                      (r) =>
+                        `- ⚠️ ignore rule \`${r.pattern}\` expired on ${r.expires}${
+                          r.reason ? ` — reason: ${r.reason}` : ""
+                        }`,
+                    )
+                    .join("\n")
+                : "";
+
             const cleanBody =
               `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
               (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
               `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
               cleanDismissedNotice +
+              cleanExpiredNotice +
               // A clean result on a partial scan must say so — this is exactly the
               // case where silent truncation was most misleading.
               (coverageNotice ? `\n\n${coverageNotice}` : "");
@@ -1106,6 +1127,8 @@ export const worker = new Worker<WebhookJobData>(
             await prisma.scanResult.create({
               data: {
                 pullRequestId: dbPr.id,
+                headSha: pull_request.head.sha,
+                gateConfig,
                 riskScore,
                 policyDecision: normalizePolicyDecisionEnum(decision),
                 findings: {
@@ -1238,8 +1261,12 @@ export async function postScanFailureCheck(
 
     const { ownerLogin, repoName, headSha } = assertPullRequestContext(payload);
 
-    const { appId, privateKey } = getGitHubAppCredentials();
-    const appClient = new App({ appId, privateKey });
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const appClient = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
     const octokit = await appClient.getInstallationOctokit(installationId);
 
     await postScanErrorCheckRun(octokit as any, {

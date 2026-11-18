@@ -1158,37 +1158,6 @@ When there are no further records, `nextCursor` is `null`.
 
 ---
 
-### 12. Weekly Security Digest Cron — `GET /api/cron/weekly-digest` & `POST /api/cron/weekly-digest`
-
-Triggers weekly digest compilation across all opted-in users and repositories (#1788). For each user:
-
-- Aggregates new findings, resolved findings, and dismissed findings over the past 7 days.
-- Identifies the top 5 repositories by open findings and top 5 recurring finding types.
-- Records the count of blocked pull requests.
-- Stores the digest in the database and optionally sends an email briefing when SMTP is configured.
-- Enforces strict zero-leakage: raw code snippets, secrets, and file paths are never included.
-
-#### Authentication
-
-Requires `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret: <CRON_SECRET>`. In production, requests lacking a valid secret are rejected with `401 Unauthorized`.
-
-#### Query Parameters
-
-- `force` (boolean, optional): When `true`, overrides the 7-day cooldown throttling and generates a new digest even if one was created recently.
-
-#### Response: `200 OK`
-
-```json
-{
-  "success": true,
-  "totalUsers": 14,
-  "generated": 12,
-  "skipped": 2,
-  "errorsCount": 0,
-  "errors": []
-}
-```
-
 ---
 
 ## Type Reference

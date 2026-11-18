@@ -8,6 +8,12 @@ import {
   GitPullRequest,
   CheckCircle,
   AlertTriangle,
+  AlertOctagon,
+  AlertCircle,
+  Info,
+  XCircle,
+  CheckCircle2,
+  Clock,
   Zap,
   RefreshCw,
   GitBranch,
@@ -20,6 +26,9 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { triggerRepositorySync } from "@/lib/actions/sync-repositories";
 import { TimeAgo } from "@/components/time-ago";
+import OnboardingChecklist from "@/components/dashboard/onboarding-checklist";
+import type { OnboardingStatus } from "@/lib/actions/onboarding";
+import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 
 interface DashboardClientProps {
   stats: { totalScans: number; blockedPRs: number; approvedPRs: number; secretsDetected: number };
@@ -29,6 +38,7 @@ interface DashboardClientProps {
   repoCount?: number;
   needsGitHubAppInstall?: boolean;
   githubAppUrl?: string;
+  onboardingStatus?: OnboardingStatus;
 }
 
 export default function DashboardClient({
@@ -39,6 +49,7 @@ export default function DashboardClient({
   repoCount = 0,
   needsGitHubAppInstall = false,
   githubAppUrl = "/setup",
+  onboardingStatus,
 }: DashboardClientProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -84,11 +95,23 @@ export default function DashboardClient({
 
   const totalFindings =
     distribution.critical + distribution.high + distribution.medium + distribution.low;
+  const heistRisk = calculateHeistRiskScore(distribution);
+  const totalPRs = stats.approvedPRs + stats.blockedPRs;
+  const vaultIntegrity = calculateVaultIntegrity(
+    totalPRs > 0 ? { passRate: (stats.approvedPRs / totalPRs) * 100 } : distribution,
+  );
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      {/* GitHub App Onboarding Prompt for Scenario 2 */}
-      {needsGitHubAppInstall && (
+      {/* Onboarding "Get Started" Checklist (#1787) */}
+      {onboardingStatus ? (
+        <OnboardingChecklist
+          status={onboardingStatus}
+          githubAppUrl={githubAppUrl}
+          onSyncRepositories={handleSync}
+          isSyncing={isSyncing}
+        />
+      ) : needsGitHubAppInstall ? (
         <div className="p-6 rounded-2xl bg-gradient-to-r from-primary/20 via-primary/10 to-transparent border border-primary/30 glass-card relative overflow-hidden">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-2">
@@ -113,7 +136,7 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -191,6 +214,59 @@ export default function DashboardClient({
         />
       </div>
 
+      {/* Themed Mission Defense & Vault Status Metrics (#1711) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-5 rounded-xl bg-gradient-to-r from-[#5A29E4]/15 via-[#5A29E4]/5 to-transparent border border-[#5A29E4]/30 glass-card relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold font-mono tracking-wider uppercase text-violet-400 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-[#5A29E4]" /> The Professor // Heist Risk Score
+            </span>
+            <Badge className="bg-[#5A29E4]/20 text-violet-300 border-[#5A29E4]/40 font-mono text-[11px]">
+              {heistRisk.level}
+            </Badge>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-headline font-extrabold text-foreground tracking-tight">
+                {heistRisk.score}
+              </span>
+              <span className="text-sm font-mono text-muted-foreground">/ 100 Risk Index</span>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground">{heistRisk.badge}</span>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold font-mono tracking-wider uppercase text-emerald-400 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#0A5C3E] dark:text-emerald-400" /> Vault
+              Integrity Status
+            </span>
+            <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-[11px]">
+              {vaultIntegrity.status}
+            </Badge>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-headline font-extrabold text-foreground tracking-tight">
+                {vaultIntegrity.percentage}%
+              </span>
+              <span className="text-sm font-mono text-muted-foreground">
+                Perimeter Fortification
+              </span>
+            </div>
+            <Link
+              href="/api/findings/export?format=html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-mono text-primary hover:underline flex items-center gap-1"
+            >
+              Shareable Report &rarr;
+            </Link>
+          </div>
+        </div>
+      </div>
+
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <Card className="lg:col-span-2 glass-card">
@@ -214,24 +290,35 @@ export default function DashboardClient({
                 </p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorScans" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+              <div
+                role="region"
+                aria-label="Daily scan activity chart over the last 30 days"
+                tabIndex={0}
+                className="h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+              >
+                <span className="sr-only">
+                  Daily scan activity chart displaying scans over the last 30 days. Total scans:{" "}
+                  {stats.totalScans}.
+                </span>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} accessibilityLayer>
+                    <defs>
+                      <linearGradient id="colorScans" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
 
-                  <Area
-                    type="monotone"
-                    dataKey="scans"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    fill="url(#colorScans)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+                    <Area
+                      type="monotone"
+                      dataKey="scans"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      fill="url(#colorScans)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -335,15 +422,26 @@ export default function DashboardClient({
 
                   <div className="flex items-center pl-8 sm:pl-0">
                     <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      role="status"
+                      aria-label={`PR status: ${pr.status}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
                         pr.status === "BLOCKED"
-                          ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-300"
+                          ? "bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-300"
                           : pr.status === "PASS"
-                            ? "bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-300"
-                            : "bg-yellow-500/10 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+                            : "bg-amber-500/10 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300"
                       }`}
                     >
-                      {pr.status}
+                      {pr.status === "BLOCKED" && (
+                        <XCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      {pr.status === "PASS" && (
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      {pr.status !== "BLOCKED" && pr.status !== "PASS" && (
+                        <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>{pr.status}</span>
                     </span>
                   </div>
                 </div>
@@ -402,15 +500,48 @@ function DistributionRow({
   total: number;
   color: string;
 }) {
-  const percentage = Math.max(2, Math.round((count / total) * 100));
+  const percentage = total > 0 ? Math.max(2, Math.round((count / total) * 100)) : 0;
+  const normalized = label.toUpperCase();
+
+  const Icon =
+    normalized === "CRITICAL"
+      ? AlertOctagon
+      : normalized === "HIGH"
+        ? AlertTriangle
+        : normalized === "MEDIUM"
+          ? AlertCircle
+          : Info;
+
+  const iconColor =
+    normalized === "CRITICAL"
+      ? "text-red-600 dark:text-red-400"
+      : normalized === "HIGH"
+        ? "text-orange-600 dark:text-orange-400"
+        : normalized === "MEDIUM"
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-blue-600 dark:text-blue-400";
+
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div
+      className="flex items-center justify-between"
+      role="progressbar"
+      aria-valuenow={count}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-label={`${label} severity distribution: ${count} of ${total} findings (${percentage}%)`}
+    >
       <div className="flex items-center gap-2">
-        <div className="h-1.5 w-32 bg-foreground/10 rounded-full overflow-hidden">
+        <Icon className={`w-3.5 h-3.5 shrink-0 ${iconColor}`} aria-hidden="true" />
+        <span className="text-xs text-foreground font-medium">{label}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div
+          className="h-1.5 w-32 bg-foreground/10 rounded-full overflow-hidden"
+          aria-hidden="true"
+        >
           <div className={`h-full ${color}`} style={{ width: `${percentage}%` }} />
         </div>
-        <span className="text-xs font-bold w-6">{count}</span>
+        <span className="text-xs font-bold w-6 font-mono text-right">{count}</span>
       </div>
     </div>
   );

@@ -20,6 +20,19 @@ export interface MailTransport {
 }
 
 /**
+ * Parses an RFC-like string `Name <email@example.com>` or `email@example.com` into name and email.
+ */
+export function parseEmailAndName(raw: string): { email: string; name?: string } {
+  const match = raw.match(/^(?:["']?([^"']*)["']?\s*)?<([^>]+)>$/);
+  if (match) {
+    const name = match[1]?.trim();
+    const email = match[2]?.trim();
+    return { email: email || raw.trim(), ...(name ? { name } : {}) };
+  }
+  return { email: raw.trim() };
+}
+
+/**
  * Mock Mail Transport for unit tests and local sandboxes (#1788).
  * Captures all dispatched emails in-memory without making network connections.
  */
@@ -47,6 +60,100 @@ export class MockMailTransport implements MailTransport {
   }
 }
 
+export interface BrevoConfig {
+  apiKey?: string;
+  senderEmail?: string;
+  senderName?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Brevo (formerly Sendinblue) REST API v3 Mail Transport (#1788).
+ * Communicates directly with https://api.brevo.com/v3/smtp/email using native fetch.
+ * Fully compatible with serverless/edge runtimes without requiring raw SMTP socket ports.
+ */
+export class BrevoMailTransport implements MailTransport {
+  private config: BrevoConfig;
+
+  constructor(config: BrevoConfig = {}) {
+    this.config = {
+      apiKey: config.apiKey || process.env.BREVO_API_KEY,
+      senderEmail: config.senderEmail || process.env.BREVO_SENDER_EMAIL || "security@secureflow.dev",
+      senderName: config.senderName || process.env.BREVO_SENDER_NAME || "SecureFlow Security",
+      timeoutMs: config.timeoutMs ?? 15000,
+    };
+  }
+
+  async sendMail(payload: EmailPayload): Promise<SendMailResult> {
+    const apiKey = this.config.apiKey;
+    if (!apiKey) {
+      return {
+        success: false,
+        error: "BREVO_API_KEY is not configured; email delivery skipped.",
+      };
+    }
+
+    const fromParsed = payload.from ? parseEmailAndName(payload.from) : undefined;
+    const senderEmail = fromParsed?.email || this.config.senderEmail || "security@secureflow.dev";
+    const senderName = fromParsed?.name || this.config.senderName || "SecureFlow Security";
+
+    const toParsed = parseEmailAndName(payload.to);
+
+    const body = {
+      sender: {
+        name: senderName,
+        email: senderEmail,
+      },
+      to: [
+        {
+          email: toParsed.email,
+          ...(toParsed.name ? { name: toParsed.name } : {}),
+        },
+      ],
+      subject: payload.subject,
+      htmlContent: payload.html,
+      textContent: payload.text,
+    };
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": apiKey,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          success: false,
+          error: `Brevo API error [${response.status}]: ${errorText}`,
+        };
+      }
+
+      const data = (await response.json()) as { messageId?: string };
+      return {
+        success: true,
+        messageId: data.messageId || `brevo-${Date.now()}`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+}
+
 export interface SmtpConfig {
   host?: string;
   port?: number;
@@ -58,8 +165,9 @@ export interface SmtpConfig {
 }
 
 /**
- * Native, zero-dependency SMTP Mail Transport (#1788).
+ * Native, zero-dependency SMTP Mail Transport fallback (#1788).
  * Communicates with standard SMTP servers (TLS/STARTTLS/Plain) using Node.js net/tls sockets.
+ * Enforces strict TLS certificate validation.
  */
 export class SmtpMailTransport implements MailTransport {
   private config: SmtpConfig;
@@ -223,7 +331,7 @@ export class SmtpMailTransport implements MailTransport {
       };
 
       if (this.config.secure || port === 465) {
-        socket = tls.connect({ host, port, rejectUnauthorized: false }, () => {
+        socket = tls.connect({ host, port, rejectUnauthorized: true }, () => {
           socket.on("data", onData);
         });
       } else {
@@ -254,7 +362,13 @@ export function getMailTransport(): MailTransport {
   if (process.env.NODE_ENV === "test") {
     return new MockMailTransport();
   }
-  return new SmtpMailTransport();
+  if (process.env.BREVO_API_KEY) {
+    return new BrevoMailTransport();
+  }
+  if (process.env.SMTP_HOST) {
+    return new SmtpMailTransport();
+  }
+  return new BrevoMailTransport();
 }
 
 export function setMailTransport(transport: MailTransport | null): void {

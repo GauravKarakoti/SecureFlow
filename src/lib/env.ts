@@ -11,8 +11,8 @@ const SECRET_ENV_VARS = new Set([
   "ARMORIQ_API_KEY",
   "UPSTASH_REDIS_REST_TOKEN",
   "ELEVENLABS_API_KEY",
+  "BREVO_API_KEY",
   "SMTP_PASS",
-  "CRON_SECRET",
 ]);
 
 /**
@@ -52,6 +52,18 @@ const envSchema = z.object({
   AUTH_URL: z.string().url("AUTH_URL must be a valid URL"),
   NEXT_PUBLIC_APP_URL: z.string().url("NEXT_PUBLIC_APP_URL must be a valid URL"),
 
+  NODE_ENV: z.string().optional(),
+  GITHUB_API_URL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim() !== "" ? val.trim() : "https://api.github.com"))
+    .pipe(z.string().url("GITHUB_API_URL must be a valid URL")),
+  GITHUB_WEB_URL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim() !== "" ? val.trim() : undefined))
+    .pipe(z.string().url("GITHUB_WEB_URL must be a valid URL").optional()),
+
   // Optional
   DB_POOL_MAX: z.string().optional(),
   GITHUB_WEBHOOK_MAX_BYTES: z.string().optional(),
@@ -85,6 +97,46 @@ const envSchema = z.object({
   TRUSTED_PROXY_IPS: z.string().optional(),
 
   GROQ_MODEL: z.string().optional(),
+  AI_PROVIDER: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val.trim() === "") return true;
+        const normalized = val.toLowerCase().trim();
+        return ["groq", "ollama", "vllm", "openai", "custom"].includes(normalized);
+      },
+      {
+        message: "AI_PROVIDER must be one of: groq, ollama, vllm, openai, custom",
+      },
+    ),
+  AI_MODEL: z
+    .string()
+    .optional()
+    .refine((val) => val === undefined || val.trim().length > 0, {
+      message: "AI_MODEL cannot be empty if specified",
+    }),
+  AI_MODEL_NAME: z.string().optional(),
+  AI_BASE_URL: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val.trim() === "") return true;
+        try {
+          const parsed = new URL(val.trim());
+          return parsed.protocol === "http:" || parsed.protocol === "https:";
+        } catch {
+          return false;
+        }
+      },
+      {
+        message: "AI_BASE_URL must be a valid HTTP or HTTPS URL",
+      },
+    ),
+  REMEDIATION_PROVIDER: z.string().optional(),
+  REMEDIATION_MODEL: z.string().optional(),
+  REMEDIATION_BASE_URL: z.string().optional(),
 
   DIFF_CHUNK_MAX_CHARS: z.string().optional(),
   DIFF_FILE_MAX_CHARS: z.string().optional(),
@@ -108,15 +160,50 @@ const envSchema = z.object({
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
   SCAN_CACHE_TTL_SECONDS: z.string().optional(),
 
-  // Weekly Security Digest & SMTP (#1788)
+  // Weekly Security Digest & Mailing (Brevo / SMTP) (#1788)
+  BREVO_API_KEY: z.string().optional(),
+  BREVO_SENDER_EMAIL: z.string().optional(),
+  BREVO_SENDER_NAME: z.string().optional(),
+  WEEKLY_DIGEST_SCHEDULE: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
   SMTP_SECURE: z.string().optional(),
-  CRON_SECRET: z.string().optional(),
-  WEEKLY_DIGEST_SCHEDULE: z.string().optional(),
+}).superRefine((data, ctx) => {
+  const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
+  if (isProduction) {
+    if (data.GITHUB_API_URL) {
+      try {
+        const u = new URL(data.GITHUB_API_URL);
+        if (u.protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["GITHUB_API_URL"],
+            message: "GITHUB_API_URL must use HTTPS in production",
+          });
+        }
+      } catch {
+        // Handled by URL schema
+      }
+    }
+
+    if (data.GITHUB_WEB_URL) {
+      try {
+        const u = new URL(data.GITHUB_WEB_URL);
+        if (u.protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["GITHUB_WEB_URL"],
+            message: "GITHUB_WEB_URL must use HTTPS in production",
+          });
+        }
+      } catch {
+        // Handled by URL schema
+      }
+    }
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

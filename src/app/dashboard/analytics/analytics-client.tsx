@@ -17,7 +17,10 @@ import {
   Target,
   Activity,
   CheckCircle,
+  CheckCircle2,
   AlertTriangle,
+  AlertOctagon,
+  AlertCircle,
   Clock,
   Filter,
 } from "lucide-react";
@@ -302,6 +305,17 @@ export default function AnalyticsClient({
             <Download className="w-3.5 h-3.5 mr-2" />
             Export JSON
           </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300 cursor-pointer font-mono text-xs"
+          >
+            <a href="/api/findings/export?format=html" target="_blank" rel="noopener noreferrer">
+              <Download className="w-3.5 h-3.5 mr-2" />
+              Shareable Report
+            </a>
+          </Button>
         </div>
       </div>
 
@@ -334,6 +348,55 @@ export default function AnalyticsClient({
         />
       </div>
 
+      {/* Themed Heist Risk & Vault Integrity Metrics (#1711) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#5A29E4]/15 via-[#5A29E4]/5 to-transparent border border-[#5A29E4]/30 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-violet-400">
+              Heist Risk Score
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {Math.round(summary.avgRiskScore)}
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">/ 100 Index</span>
+            </div>
+          </div>
+          <Badge className="bg-[#5A29E4]/25 text-violet-300 border-[#5A29E4]/40 font-mono text-xs">
+            {summary.avgRiskScore < 25
+              ? "MINIMAL"
+              : summary.avgRiskScore < 50
+                ? "GUARDED"
+                : summary.avgRiskScore < 80
+                  ? "ELEVATED"
+                  : "CRITICAL"}
+          </Badge>
+        </div>
+
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#0A5C3E]/20 via-[#0A5C3E]/5 to-transparent border border-[#0A5C3E]/40 glass-card flex items-center justify-between">
+          <div>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">
+              Vault Integrity Status
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-headline font-bold text-foreground">
+                {summary.overallPassRate}%
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">Perimeter Clearance</span>
+            </div>
+          </div>
+          <Badge className="bg-[#0A5C3E] text-emerald-100 border-emerald-500/40 font-mono text-xs">
+            {summary.overallPassRate >= 90
+              ? "FORTIFIED"
+              : summary.overallPassRate >= 75
+                ? "SECURED"
+                : summary.overallPassRate >= 50
+                  ? "GUARDED"
+                  : "COMPROMISED"}
+          </Badge>
+        </div>
+      </div>
+
       {/* Scan Activity + Scan Velocity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <Card className="lg:col-span-2 glass-card">
@@ -351,57 +414,67 @@ export default function AnalyticsClient({
                 description="Analytics will appear after your first repository scan."
               />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyMetrics}>
-                  <defs>
-                    <linearGradient id="gradientScans" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="gradientFindings" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgba(0,0,0,0.8)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="scans"
-                    name="Scans"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    fill="url(#gradientScans)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="findings"
-                    name="Findings"
-                    stroke="#f97316"
-                    strokeWidth={2}
-                    fill="url(#gradientFindings)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <div
+                role="region"
+                aria-label={`Scan activity and findings trend chart for the last ${rangeDays} days`}
+                tabIndex={0}
+                className="h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+              >
+                <span className="sr-only">
+                  Area chart showing daily scans and findings trends over the last {rangeDays} days.
+                </span>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dailyMetrics} accessibilityLayer>
+                    <defs>
+                      <linearGradient id="gradientScans" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="gradientFindings" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "rgba(0,0,0,0.8)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Legend />
+                    <Area
+                      type="monotone"
+                      dataKey="scans"
+                      name="Scans"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      fill="url(#gradientScans)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="findings"
+                      name="Findings"
+                      stroke="#f97316"
+                      strokeWidth={2}
+                      fill="url(#gradientFindings)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -419,9 +492,17 @@ export default function AnalyticsClient({
               />
             ) : (
               <div className="flex flex-col h-full">
-                <div className="flex-1 min-h-0">
+                <div
+                  role="region"
+                  aria-label="Finding types distribution pie chart"
+                  tabIndex={0}
+                  className="flex-1 min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+                >
+                  <span className="sr-only">
+                    Pie chart showing distribution of finding types across scanned repositories.
+                  </span>
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
+                    <PieChart accessibilityLayer>
                       <Pie
                         data={pieData}
                         cx="50%"
@@ -486,40 +567,51 @@ export default function AnalyticsClient({
               description="Severity distribution trends will appear after scans produce findings."
             />
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={severityTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "rgba(0,0,0,0.8)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                />
-                <Legend />
-                <Bar
-                  dataKey="critical"
-                  name="Critical"
-                  stackId="a"
-                  fill={SEVERITY_COLORS.critical}
-                />
-                <Bar dataKey="high" name="High" stackId="a" fill={SEVERITY_COLORS.high} />
-                <Bar dataKey="medium" name="Medium" stackId="a" fill={SEVERITY_COLORS.medium} />
-                <Bar dataKey="low" name="Low" stackId="a" fill={SEVERITY_COLORS.low} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div
+              role="region"
+              aria-label="Severity trend stacked bar chart over time"
+              tabIndex={0}
+              className="h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+            >
+              <span className="sr-only">
+                Stacked bar chart displaying critical, high, medium, and low severity trends over
+                time.
+              </span>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={severityTrend} accessibilityLayer>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "rgba(0,0,0,0.8)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="critical"
+                    name="Critical"
+                    stackId="a"
+                    fill={SEVERITY_COLORS.critical}
+                  />
+                  <Bar dataKey="high" name="High" stackId="a" fill={SEVERITY_COLORS.high} />
+                  <Bar dataKey="medium" name="Medium" stackId="a" fill={SEVERITY_COLORS.medium} />
+                  <Bar dataKey="low" name="Low" stackId="a" fill={SEVERITY_COLORS.low} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -540,41 +632,51 @@ export default function AnalyticsClient({
               description="Finding type distribution will appear after scans."
             />
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topFindingTypes} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis
-                  type="number"
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  dataKey="type"
-                  type="category"
-                  width={120}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "rgba(0,0,0,0.8)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                  {topFindingTypes.map((_, index) => (
-                    <Cell
-                      key={`bar-${index}`}
-                      fill={FINDING_TYPE_COLORS[index % FINDING_TYPE_COLORS.length]}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div
+              role="region"
+              aria-label="Top finding types bar chart"
+              tabIndex={0}
+              className="h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+            >
+              <span className="sr-only">
+                Horizontal bar chart showing top finding types by occurrence frequency.
+              </span>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topFindingTypes} layout="vertical" accessibilityLayer>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    dataKey="type"
+                    type="category"
+                    width={120}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "rgba(0,0,0,0.8)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    {topFindingTypes.map((_, index) => (
+                      <Cell
+                        key={`bar-${index}`}
+                        fill={FINDING_TYPE_COLORS[index % FINDING_TYPE_COLORS.length]}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -608,32 +710,64 @@ export default function AnalyticsClient({
               description="Connect repositories to see scan comparison data."
             />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Repository comparison table"
+              className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+            >
+              <table className="w-full text-sm" aria-label="Repository Comparison">
+                <caption className="sr-only">
+                  Security scan comparison across connected repositories
+                </caption>
                 <thead>
                   <tr className="border-b border-white/10">
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Repository
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Scans
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Findings
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Critical
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       High
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Risk Score
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Pass Rate
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <th
+                      scope="col"
+                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
                       Last Scan
                     </th>
                   </tr>
@@ -655,20 +789,32 @@ export default function AnalyticsClient({
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span
-                          className={`font-mono text-xs font-bold ${
-                            repo.criticalFindings > 0 ? "text-red-400" : "text-muted-foreground"
+                          aria-label={`${repo.criticalFindings} critical findings`}
+                          className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
+                            repo.criticalFindings > 0
+                              ? "text-red-700 dark:text-red-400"
+                              : "text-muted-foreground"
                           }`}
                         >
-                          {repo.criticalFindings}
+                          {repo.criticalFindings > 0 && (
+                            <AlertOctagon className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          )}
+                          <span>{repo.criticalFindings}</span>
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span
-                          className={`font-mono text-xs font-bold ${
-                            repo.highFindings > 0 ? "text-orange-400" : "text-muted-foreground"
+                          aria-label={`${repo.highFindings} high findings`}
+                          className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
+                            repo.highFindings > 0
+                              ? "text-orange-800 dark:text-orange-400"
+                              : "text-muted-foreground"
                           }`}
                         >
-                          {repo.highFindings}
+                          {repo.highFindings > 0 && (
+                            <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          )}
+                          <span>{repo.highFindings}</span>
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -754,30 +900,50 @@ function SummaryCard({
 }
 
 function RiskScoreBadge({ score }: { score: number }) {
-  let className = "bg-green-500/10 text-green-400";
-  if (score >= 70) className = "bg-red-500/10 text-red-400";
-  else if (score >= 40) className = "bg-orange-500/10 text-orange-400";
-  else if (score >= 20) className = "bg-yellow-500/10 text-yellow-400";
+  let className = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  let Icon = CheckCircle2;
+  if (score >= 70) {
+    className = "bg-red-500/10 text-red-700 dark:text-red-300";
+    Icon = AlertOctagon;
+  } else if (score >= 40) {
+    className = "bg-orange-500/10 text-orange-800 dark:text-orange-300";
+    Icon = AlertTriangle;
+  } else if (score >= 20) {
+    className = "bg-amber-500/10 text-amber-800 dark:text-amber-300";
+    Icon = AlertCircle;
+  }
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold font-mono ${className}`}
+      role="status"
+      aria-label={`Risk score: ${score}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold font-mono ${className}`}
     >
-      {score}
+      <Icon className="w-3 h-3 shrink-0" aria-hidden="true" />
+      <span>{score}</span>
     </span>
   );
 }
 
 function PassRateBadge({ rate }: { rate: number }) {
-  let className = "bg-green-500/10 text-green-400";
-  if (rate < 50) className = "bg-red-500/10 text-red-400";
-  else if (rate < 80) className = "bg-yellow-500/10 text-yellow-400";
+  let className = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  let Icon = CheckCircle2;
+  if (rate < 50) {
+    className = "bg-red-500/10 text-red-700 dark:text-red-300";
+    Icon = AlertOctagon;
+  } else if (rate < 80) {
+    className = "bg-amber-500/10 text-amber-800 dark:text-amber-300";
+    Icon = AlertTriangle;
+  }
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold font-mono ${className}`}
+      role="status"
+      aria-label={`Pass rate: ${rate}%`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold font-mono ${className}`}
     >
-      {rate}%
+      <Icon className="w-3 h-3 shrink-0" aria-hidden="true" />
+      <span>{rate}%</span>
     </span>
   );
 }

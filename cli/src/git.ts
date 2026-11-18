@@ -1,5 +1,5 @@
 /**
- * Git access for the pre-commit hook.
+ * Git access for the pre-commit hook and incremental branch scanning.
  *
  * The one thing this module exists to get right: a pre-commit hook must check
  * **staged content**, not what happens to be on disk. The previous
@@ -42,19 +42,39 @@ export class GitError extends Error {
   }
 }
 
-function git(args: string[]): string {
+function git(args: string[], cwd?: string): string {
   return execFileSync("git", args, {
     encoding: "utf-8",
     maxBuffer: MAX_GIT_BUFFER,
+    cwd,
   });
 }
 
-/** Whether the current directory is inside a work tree. */
-export function isGitRepository(): boolean {
+/** Whether the directory is inside a git work tree. */
+export function isGitRepository(cwd?: string): boolean {
   try {
-    return git(["rev-parse", "--is-inside-work-tree"]).trim() === "true";
+    return git(["rev-parse", "--is-inside-work-tree"], cwd).trim() === "true";
   } catch {
     return false;
+  }
+}
+
+/** Check whether a given git reference (branch, tag, or commit) resolves. */
+export function refExists(ref: string, cwd?: string): boolean {
+  try {
+    git(["rev-parse", "--verify", ref], cwd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Returns the absolute root directory of the current git repository. */
+export function getRepoRoot(cwd?: string): string {
+  try {
+    return git(["rev-parse", "--show-toplevel"], cwd).trim();
+  } catch {
+    return cwd || process.cwd();
   }
 }
 
@@ -71,18 +91,44 @@ export function isGitRepository(): boolean {
  * `--diff-filter=ACMR` drops deletions, which have no staged content to read,
  * and keeps renames, which do.
  */
-export function getStagedFiles(): string[] {
+export function getStagedFiles(cwd?: string): string[] {
   let output: string;
 
   try {
-    output = git(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"]);
+    output = git(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"], cwd);
   } catch (error) {
     throw new GitError(
-      isGitRepository()
+      isGitRepository(cwd)
         ? "Could not list staged files. `git diff --cached` failed."
         : "Not a git repository (or git is not on PATH).",
       error,
     );
+  }
+
+  // NUL-separated, with a trailing separator on a non-empty list.
+  return output.split("\u0000").filter((entry) => entry.length > 0);
+}
+
+/**
+ * Files added, copied, modified, or renamed between `ref` and the current working tree.
+ * Deletions are dropped (--diff-filter=ACMR).
+ *
+ * Throws GitError with clear message when the directory is not a git repo or the ref does not exist.
+ */
+export function getChangedFilesSince(ref: string, cwd?: string): string[] {
+  if (!isGitRepository(cwd)) {
+    throw new GitError("Not a git repository (or git is not on PATH).");
+  }
+
+  if (!refExists(ref, cwd)) {
+    throw new GitError(`Git reference "${ref}" does not exist.`);
+  }
+
+  let output: string;
+  try {
+    output = git(["diff", "--name-only", "-z", "--diff-filter=ACMR", ref], cwd);
+  } catch (error) {
+    throw new GitError(`Could not list files changed since "${ref}". \`git diff\` failed.`, error);
   }
 
   // NUL-separated, with a trailing separator on a non-empty list.
@@ -96,9 +142,9 @@ export function getStagedFiles(): string[] {
  * null when the blob cannot be read (a conflicted entry, a submodule pointer,
  * a symlink), so the caller can report it rather than treat it as clean.
  */
-export function readStagedContent(path: string): string | null {
+export function readStagedContent(path: string, cwd?: string): string | null {
   try {
-    return git(["show", `:${path}`]);
+    return git(["show", `:${path}`], cwd);
   } catch {
     return null;
   }
@@ -107,9 +153,9 @@ export function readStagedContent(path: string): string | null {
 /**
  * Detects the currently checked out branch name, or null if detached or outside git repository.
  */
-export function getCurrentBranch(): string | null {
+export function getCurrentBranch(cwd?: string): string | null {
   try {
-    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], cwd).trim();
     return branch === "HEAD" || branch.length === 0 ? null : branch;
   } catch {
     return null;

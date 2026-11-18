@@ -29,6 +29,7 @@ import {
   GET,
   buildExportPageWhere,
   findingsExportFilename,
+  findingsReportFilename,
   searchParamsToRecord,
   toFindingsExportRow,
 } from "./route";
@@ -126,6 +127,14 @@ describe("findingsExportFilename", () => {
   });
 });
 
+describe("findingsReportFilename", () => {
+  it("stamps the date for html reports", () => {
+    expect(findingsReportFilename(new Date("2026-09-22T10:00:00Z"))).toBe(
+      "secureflow-security-report-2026-09-22.html",
+    );
+  });
+});
+
 describe("GET /api/findings/export", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -205,5 +214,24 @@ describe("GET /api/findings/export", () => {
     });
     // Header-only rather than an error: "nothing matches" is a valid export.
     expect(withoutBom(csv).trimEnd()).toBe(FINDINGS_EXPORT_COLUMNS.join(","));
+  });
+
+  it("exports a dark-mode friendly shareable HTML report with format=html", async () => {
+    findingFindMany.mockResolvedValueOnce([finding(1), finding(2)]);
+
+    const res = await GET(request("?format=html"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(res.headers.get("Content-Disposition")).toMatch(
+      /attachment; filename="secureflow-security-report-\d{4}-\d{2}-\d{2}\.html"/,
+    );
+
+    const html = await res.text();
+    expect(html).toContain("Heist Risk Score");
+    expect(html).toContain("Vault Integrity Status");
+    expect(html).toContain("#5A29E4");
+    expect(html).toContain("#0A5C3E");
+    expect(html).toContain("src/file-1.ts");
+    expect(html).toContain("The Professor's Strategic Directive");
   });
 });
