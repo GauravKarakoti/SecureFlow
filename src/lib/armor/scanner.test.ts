@@ -505,7 +505,7 @@ another_placeholder
 // ─── Model selection ─────────────────────────────────────────────────────────
 
 describe("scan model", () => {
-  const original = process.env.GROQ_MODEL;
+  const original = process.env.AI_MODEL;
 
   beforeEach(() => {
     mockCreate.mockClear();
@@ -513,21 +513,21 @@ describe("scan model", () => {
 
   afterEach(() => {
     if (original === undefined) {
-      delete process.env.GROQ_MODEL;
+      delete process.env.AI_MODEL;
     } else {
-      process.env.GROQ_MODEL = original;
+      process.env.AI_MODEL = original;
     }
   });
 
-  it("resolves an unset or blank GROQ_MODEL to the default model", () => {
+  it("resolves an unset or blank AI_MODEL to the default model", () => {
     expect(resolveScanModel(undefined)).toBe("openai/gpt-oss-20b");
     expect(resolveScanModel("")).toBe("openai/gpt-oss-20b");
     expect(resolveScanModel("   ")).toBe("openai/gpt-oss-20b");
     expect(resolveScanModel(" openai/gpt-oss-20b ")).toBe("openai/gpt-oss-20b");
   });
 
-  it("sends the default model when GROQ_MODEL is unset", async () => {
-    delete process.env.GROQ_MODEL;
+  it("sends the default model when AI_MODEL is unset", async () => {
+    delete process.env.AI_MODEL;
     const scannerInstance = new ArmorIQScanner();
 
     await scannerInstance.scanPullRequest(
@@ -539,8 +539,8 @@ describe("scan model", () => {
     expect(mockCreate.mock.calls[0][0].model).toBe("openai/gpt-oss-20b");
   });
 
-  it("sends GROQ_MODEL when it is set", async () => {
-    process.env.GROQ_MODEL = "openai/gpt-oss-20b";
+  it("sends AI_MODEL when it is set", async () => {
+    process.env.AI_MODEL = "openai/gpt-oss-20b";
     const scannerInstance = new ArmorIQScanner();
 
     await scannerInstance.scanPullRequest(

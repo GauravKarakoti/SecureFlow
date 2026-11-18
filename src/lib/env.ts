@@ -94,7 +94,7 @@ const envSchema = z.object({
     ),
   TRUSTED_PROXY_IPS: z.string().optional(),
 
-  GROQ_MODEL: z.string().optional(),
+  AI_MODEL: z.string().optional(),
   AI_PROVIDER: z
     .string()
     .optional()

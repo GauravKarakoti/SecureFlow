@@ -108,7 +108,7 @@ describe("streamHeistMessage", () => {
 
   // ── Model routing ───────────────────────────────────────────────────────────
 
-  it("uses the Groq instance and GROQ_MODEL-derived model in cloud mode", async () => {
+  it("uses the Groq instance and AI_MODEL-derived model in cloud mode", async () => {
     mockChunks = ["Bella ciao."];
     await collectEvents(baseInput);
     expect(mockLastCall).toEqual({ instance: "cloud", model: "mock-model" });

@@ -56,7 +56,7 @@ describe("security explanation fallback chain", () => {
     const fs = await import("fs");
     const path = await import("path");
     const modelsSource = fs.readFileSync(
-      path.resolve(process.cwd(), "node_modules/genkitx-groq/lib/groq_models.js"),
+      path.resolve(process.cwd(), "node_modules/genkitx-groq/lib/AI_MODELs.js"),
       "utf-8",
     );
 
@@ -74,7 +74,7 @@ describe("security explanation fallback chain", () => {
 
   it("puts the fallbacks after the primary model in the chain", async () => {
     vi.resetModules();
-    vi.stubEnv("GROQ_MODEL", "");
+    vi.stubEnv("AI_MODEL", "");
     vi.stubEnv("LOCAL_AI_URL", ""); // Ensure local mode is explicitly off
     const { getSecurityExplanationModelChain } = await import("./genkit");
 

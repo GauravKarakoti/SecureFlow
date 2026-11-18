@@ -160,7 +160,7 @@ Usage:
 Options:
   --update, -u        Update recorded fixture JSON files with live model responses
   --sample=<id>       Run test on a single sample by its ID
-  --model=<model>     Specify custom Groq model (defaults to GROQ_MODEL or DEFAULT_SCAN_MODEL)
+  --model=<model>     Specify custom Groq model (defaults to AI_MODEL or DEFAULT_SCAN_MODEL)
   --help, -h          Show this help message
 `);
     process.exit(0);

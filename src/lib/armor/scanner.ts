@@ -72,7 +72,7 @@ const groq = new Groq({
 });
 
 /**
- * Model used when `GROQ_MODEL` is not set, the same default as the other Groq callers.
+ * Model used when `AI_MODEL` is not set, the same default as the other Groq callers.
  *
  * `openai/gpt-oss-20b` is the value `.env.example` sets and Groq's replacement
  * for `llama-3.1-8b-instant`, which was the default here until Groq shut it down
@@ -88,11 +88,11 @@ export const SCAN_FALLBACK_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"] 
 /**
  * Groq model id for the PR scan.
  *
- * `GROQ_MODEL` is optional (`src/lib/env.ts`, README), so it cannot be asserted non-null:
+ * `AI_MODEL` is optional (`src/lib/env.ts`, README), so it cannot be asserted non-null:
  * an unset value sent a request with no `model`, and Groq rejects that, failing every scan.
  * Read per call rather than at import so a changed environment is picked up.
  */
-export function resolveScanModel(configured: string | undefined = process.env.GROQ_MODEL): string {
+export function resolveScanModel(configured: string | undefined = process.env.AI_MODEL): string {
   return configured?.trim() || DEFAULT_SCAN_MODEL;
 }
 
