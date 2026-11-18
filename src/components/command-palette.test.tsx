@@ -82,6 +82,8 @@ describe("CommandPalette component", () => {
 
     vi.mocked(themeProvider.useTheme).mockReturnValue({
       theme: "dark",
+      resolvedTheme: "dark",
+      setTheme: vi.fn(),
       toggleTheme: toggleThemeMock,
     });
 
