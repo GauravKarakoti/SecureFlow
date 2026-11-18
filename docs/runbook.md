@@ -20,6 +20,8 @@ This runbook provides operators with actionable troubleshooting steps for diagno
 
 Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are validated in a strict sequence: payload size &rarr; delivery ID presence &rarr; HMAC-SHA256 signature verification &rarr; payload JSON parsing &rarr; BullMQ queue delegation.
 
+> 💡 **Performance & Load Testing**: To measure webhook throughput and latency under burst loads or verify SLA thresholds, see the **[Webhook Load Testing Guide](./load-testing.md)**.
+
 ### Relevant Environment Variables
 
 - `GITHUB_WEBHOOK_SECRET` _(Required)_: The secret string configured in the GitHub App settings used to verify the HMAC-SHA256 signature in the `X-Hub-Signature-256` header.

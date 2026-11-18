@@ -1,0 +1,71 @@
+name: Webhook Load Test (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target URL of the SecureFlow instance (default: http://localhost:9002 via local Docker Compose)"
+        required: false
+        default: "http://localhost:9002"
+      webhook_secret:
+        description: "GitHub Webhook Secret (must match GITHUB_WEBHOOK_SECRET on target instance)"
+        required: false
+        default: "test-webhook-secret-load-testing-only"
+      duration:
+        description: "Custom duration override (e.g. 30s, 1m; leave blank to use ramping stages in webhook.k6.js)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  webhook-load-test:
+    name: Run k6 Webhook Load Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Start Docker Compose environment (if testing localhost)
+        if: startsWith(inputs.target_url, 'http://localhost') || startsWith(inputs.target_url, 'http://127.0.0.1')
+        run: |
+          cat <<EOF > .env
+          DATABASE_URL=postgresql://secureflow:secureflow@db:5432/secureflow
+          DATABASE_POOL_URL=postgresql://secureflow:secureflow@db:5432/secureflow
+          GROQ_API_KEY=dummy-key-for-load-test
+          GITHUB_APP_ID=1
+          GITHUB_WEBHOOK_SECRET=${{ inputs.webhook_secret }}
+          GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Y3y\n-----END RSA PRIVATE KEY-----"
+          GITHUB_CLIENT_ID=dummy-client-id
+          GITHUB_CLIENT_SECRET=dummy-client-secret
+          AUTH_SECRET=loadtest-auth-secret-32-chars-long!!
+          AUTH_URL=http://localhost:9002
+          NEXT_PUBLIC_APP_URL=http://localhost:9002
+          REDIS_URL=redis://redis:6379
+          TRUSTED_PROXY_HOP_COUNT=1
+          EOF
+          docker compose up -d --build
+          echo "Waiting for SecureFlow app container to become healthy..."
+          timeout 120s bash -c 'until docker compose ps app | grep -q "healthy"; do sleep 3; done' || (docker compose logs && exit 1)
+
+      - name: Run k6 Load Test
+        run: |
+          EXTRA_ARGS=()
+          if [ -n "${{ inputs.duration }}" ]; then
+            EXTRA_ARGS+=(--duration "${{ inputs.duration }}")
+          fi
+          k6 run "${EXTRA_ARGS[@]}" \
+            -e TARGET_URL="${{ inputs.target_url }}" \
+            -e GITHUB_WEBHOOK_SECRET="${{ inputs.webhook_secret }}" \
+            load-tests/webhook.k6.js
+
+      - name: Teardown Docker Compose
+        if: always() && (startsWith(inputs.target_url, 'http://localhost') || startsWith(inputs.target_url, 'http://127.0.0.1'))
+        run: |
+          docker compose down -v
