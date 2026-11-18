@@ -189,7 +189,7 @@ export default function SavedViewsControl({
                   <button
                     type="button"
                     onClick={() => applyView(v.filters)}
-                    className="flex-1 text-left truncate font-medium hover:text-primary transition-colors cursor-pointer"
+                    className="flex-1 text-left truncate font-medium hover:text-primary transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-sm"
                     title={`Apply filter "${v.name}"`}
                   >
                     {v.name}
@@ -200,7 +200,7 @@ export default function SavedViewsControl({
                       e.stopPropagation();
                       handleDelete(v.id);
                     }}
-                    className="text-muted-foreground hover:text-red-400 opacity-60 group-hover:opacity-100 p-1 rounded transition-opacity"
+                    className="text-muted-foreground hover:text-red-400 opacity-60 group-hover:opacity-100 focus:opacity-100 p-1 rounded transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                     title={`Delete "${v.name}"`}
                     aria-label={`Delete saved view ${v.name}`}
                   >

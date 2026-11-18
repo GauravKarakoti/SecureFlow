@@ -584,7 +584,8 @@ export default function AuditLogTable({
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground bg-foreground/5 rounded-lg hover:bg-foreground/10 transition-colors"
+              aria-label="Clear all active filters"
+              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground bg-foreground/5 rounded-lg hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="w-3.5 h-3.5" /> Clear
             </button>
@@ -708,7 +709,7 @@ export default function AuditLogTable({
                           <TableRow className="border-b border-foreground/5 bg-emerald-950/[0.08]">
                             <TableCell colSpan={5} className="py-3 px-4">
                               <details className="group rounded-xl border border-emerald-800/40 bg-black/60 p-4 text-xs shadow-inner">
-                                <summary className="cursor-pointer font-mono font-bold text-emerald-400 hover:text-emerald-300 flex items-center justify-between select-none">
+                                <summary className="cursor-pointer font-mono font-bold text-emerald-400 hover:text-emerald-300 flex items-center justify-between select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded p-1">
                                   <span className="flex items-center gap-2 text-sm">
                                     <Lock className="w-3.5 h-3.5 text-emerald-400" />
                                     <span>
@@ -854,7 +855,7 @@ export default function AuditLogTable({
                     <TableRow className="border-b border-foreground/5 bg-foreground/[0.02]">
                       <TableCell colSpan={5} className="py-3 px-4">
                         <details className="group rounded-xl border border-red-900/40 bg-black/60 p-4 text-xs shadow-inner">
-                          <summary className="cursor-pointer font-mono font-bold text-red-400 hover:text-red-300 flex items-center justify-between select-none">
+                          <summary className="cursor-pointer font-mono font-bold text-red-400 hover:text-red-300 flex items-center justify-between select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded p-1">
                             <span className="flex items-center gap-2 text-sm">
                               <span>🎭 Heist Victory Card Preview</span>
                             </span>
@@ -954,7 +955,7 @@ export default function AuditLogTable({
             <button
               onClick={handleLoadMore}
               disabled={isLoadingMore}
-              className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 font-medium text-xs"
+              className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 font-medium text-xs"
               aria-label="Load more logs"
             >
               {isLoadingMore ? "Loading..." : "Load more"}
@@ -963,7 +964,8 @@ export default function AuditLogTable({
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={safePage === 1}
-            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
+            aria-label="Previous page"
+            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
           >
             <ChevronLeft className="w-4 h-4" /> Previous
           </button>
@@ -973,7 +975,8 @@ export default function AuditLogTable({
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={safePage === totalPages}
-            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
+            aria-label="Next page"
+            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>
