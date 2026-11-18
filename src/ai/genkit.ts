@@ -8,6 +8,7 @@ import {
   createLocalAiInstance,
   localModelRef,
 } from "./local-model";
+import { resolveAiConfig } from "./model-config";
 
 /**
  * Configuration options for AI security flow initialization.
@@ -61,33 +62,60 @@ export const ai = genkit({
 /**
  * Return the appropriate Genkit instance for the current environment.
  *
- * When `LOCAL_AI_URL` is set, returns a local Ollama-backed instance so no
- * code is sent to a cloud provider. Falls back to the Groq-backed `ai`
- * instance otherwise.
+ * Honors `AI_PROVIDER`, `AI_MODEL`, and `AI_BASE_URL` (or legacy `LOCAL_AI_*`).
+ * When configured for Ollama, vLLM, OpenAI, or a custom local/private endpoint,
+ * returns an OpenAI-compatible instance so no proprietary code leaves the boundary.
+ * Falls back to the Groq-backed `ai` instance otherwise.
  *
- * Flows should call this instead of importing `ai` directly so the local-
- * model flag is respected without any per-flow conditional logic.
+ * Flows should call this instead of importing `ai` directly so provider and
+ * endpoint settings are respected without per-flow conditional logic.
  */
 export function getAiInstance() {
-  const localConfig = resolveLocalModelConfig();
-  if (localConfig) {
-    return createLocalAiInstance(localConfig);
+  const config = resolveAiConfig();
+  if (config.provider !== "groq") {
+    return createLocalAiInstance({
+      baseUrl:
+        config.baseUrl ||
+        (config.provider === "vllm" ? "http://localhost:8000/v1" : "http://localhost:11434/v1"),
+      model: config.model,
+      provider: config.provider as any,
+      apiKey: config.apiKey,
+    });
   }
+
+  if (config.baseUrl) {
+    return genkit({
+      plugins: [groq({ baseURL: config.baseUrl, apiKey: config.apiKey })],
+      model: toGenkitGroqModel(config.model),
+    });
+  }
+
   return ai;
 }
 
 /**
  * Return the model reference string appropriate for the current environment.
  *
- * Local mode: `openai/<LOCAL_AI_MODEL>` (routed to Ollama).
- * Cloud mode: the pinned `gptOssx20b` reference (Groq).
+ * Non-Groq mode (Ollama, vLLM, OpenAI, Custom): `openai/<model>`.
+ * Cloud mode (Groq): the resolved model reference or default `gptOssx20b`.
  */
 export function getDefaultModelRef(): typeof gptOssx20b | string {
-  const localConfig = resolveLocalModelConfig();
-  if (localConfig) {
-    return localModelRef(localConfig);
+  const config = resolveAiConfig();
+  if (config.provider !== "groq") {
+    return `openai/${config.model}`;
   }
-  return securityExplanationModel;
+
+  if (
+    config.model === DEFAULT_GROQ_MODEL_ID &&
+    !process.env.AI_MODEL &&
+    !process.env.AI_MODEL_NAME &&
+    !process.env.REMEDIATION_MODEL &&
+    !process.env.GROQ_MODEL
+  ) {
+    return securityExplanationModel;
+  }
+
+  return toGenkitGroqModel(config.model);
 }
 
 /** Whether the app is currently configured to use a local inference server. */
@@ -144,17 +172,18 @@ export const securityExplanationFallbackModels = [
  * active one does not fit in GPU memory (#1140).
  */
 export function getSecurityExplanationModelChain(): Array<typeof gptOssx20b | string> {
-  const localConfig = resolveLocalModelConfig();
-  if (localConfig) {
-    return [
-      localModelRef(localConfig),
-      ...resolveLocalFallbackModels().map((model) => localModelRef({ ...localConfig, model })),
-    ];
+  const config = resolveAiConfig();
+  if (config.provider !== "groq") {
+    const primary = `openai/${config.model}`;
+    const fallbacks = resolveLocalFallbackModels().map((model) => `openai/${model}`);
+    return [primary, ...fallbacks];
   }
 
-  const customFallback = configuredGroqModel();
-  if (customFallback) {
-    return [customFallback, securityExplanationModel, ...securityExplanationFallbackModels];
+  const primary = toGenkitGroqModel(config.model);
+  const defaultModelName = toGenkitGroqModel(DEFAULT_GROQ_MODEL_ID);
+
+  if (primary !== defaultModelName) {
+    return [primary, securityExplanationModel, ...securityExplanationFallbackModels];
   }
   return [securityExplanationModel, ...securityExplanationFallbackModels];
 }

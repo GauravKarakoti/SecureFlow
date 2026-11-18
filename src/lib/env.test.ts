@@ -113,6 +113,56 @@ describe("environment validation (src/lib/env.ts)", () => {
     expect(validateEnv(validEnv)).toBeDefined();
   });
 
+  it("validates AI_PROVIDER and accepts supported providers", () => {
+    for (const provider of ["groq", "ollama", "vllm", "openai", "custom"]) {
+      const validAiEnv = {
+        ...validEnv,
+        AI_PROVIDER: provider,
+      };
+      expect(validateEnv(validAiEnv).AI_PROVIDER).toBe(provider);
+    }
+  });
+
+  it("rejects invalid AI_PROVIDER with clear error", () => {
+    const invalidAiEnv = {
+      ...validEnv,
+      AI_PROVIDER: "invalid_provider",
+    };
+    expect(() => validateEnv(invalidAiEnv)).toThrowError(
+      /AI_PROVIDER must be one of: groq, ollama, vllm, openai, custom/,
+    );
+  });
+
+  it("validates AI_BASE_URL and rejects malformed URLs", () => {
+    const badBaseUrlEnv = {
+      ...validEnv,
+      AI_BASE_URL: "not-a-valid-http-url",
+    };
+    expect(() => validateEnv(badBaseUrlEnv)).toThrowError(
+      /AI_BASE_URL must be a valid HTTP or HTTPS URL/,
+    );
+
+    const validBaseUrlEnv = {
+      ...validEnv,
+      AI_BASE_URL: "http://localhost:11434/v1",
+    };
+    expect(validateEnv(validBaseUrlEnv).AI_BASE_URL).toBe("http://localhost:11434/v1");
+  });
+
+  it("validates AI_MODEL and rejects empty string", () => {
+    const emptyModelEnv = {
+      ...validEnv,
+      AI_MODEL: "",
+    };
+    expect(() => validateEnv(emptyModelEnv)).toThrowError(/AI_MODEL cannot be empty if specified/);
+
+    const validModelEnv = {
+      ...validEnv,
+      AI_MODEL: "llama3.3",
+    };
+    expect(validateEnv(validModelEnv).AI_MODEL).toBe("llama3.3");
+  });
+  
   describe("GitHub Enterprise Server environment validation", () => {
     it("defaults GITHUB_API_URL to https://api.github.com when not supplied", () => {
       const parsed = validateEnv(validEnv);
