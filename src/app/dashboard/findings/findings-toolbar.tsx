@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, X, ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FINDING_SORTS, FINDING_STATUSES } from "@/lib/findings/query";
+import {
+  DEFAULT_SORT,
+  FINDING_SORTS,
+  FINDING_STATUSES,
+  VALID_FINDING_TYPES,
+  parseDateParam,
+  parseSort,
+  type FindingStatus,
+} from "@/lib/findings/query";
+import { parseStoredSeverity } from "@/lib/severity";
 import type { FindingFilterOptions } from "@/lib/actions/findings";
 import SavedViewsControl from "./saved-views-control";
 import type { SavedViewDto, SavedViewFilters } from "@/lib/actions/saved-views";
@@ -103,8 +112,9 @@ export default function FindingsToolbar({
       params.delete("page");
 
       const query = params.toString();
+      const navigate = router.push ?? router.replace;
       startTransition(() => {
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        navigate.call(router, query ? `${pathname}?${query}` : pathname, { scroll: false });
       });
     },
     [pathname, router, searchParams],
@@ -135,28 +145,84 @@ export default function FindingsToolbar({
     return () => clearTimeout(timer);
   }, [searchDraft, currentSearch, apply]);
 
-  const activeSeverity = searchParams.get("severity") ?? ANY;
-  const activeType = searchParams.get("type") ?? ANY;
-  const activeStatus = searchParams.get("status") ?? ANY;
-  const activeRepo = searchParams.get("repo") ?? ANY;
-  const activeSort = searchParams.get("sort") ?? "newest";
-  const activeFrom = searchParams.get("from") ?? "";
-  const activeTo = searchParams.get("to") ?? "";
+  // Validate and restore severity from URL, ignoring invalid values and falling back to default (ANY)
+  const rawSeverity = searchParams.get("severity");
+  const parsedSeverity = rawSeverity ? parseStoredSeverity(rawSeverity) : null;
+  const activeSeverity = parsedSeverity ?? ANY;
+
+  // Validate and restore status from URL, ignoring invalid values and falling back to default (ANY)
+  const rawStatus = searchParams.get("status")?.trim().toUpperCase();
+  const activeStatus =
+    rawStatus && (FINDING_STATUSES as readonly string[]).includes(rawStatus)
+      ? (rawStatus as FindingStatus)
+      : ANY;
+
+  // Validate and restore sort from URL, ignoring invalid values and falling back to default ("newest")
+  const activeSort = parseSort(searchParams.get("sort"));
+
+  // Validate and restore type from URL, ignoring invalid values and falling back to default (ANY)
+  const rawType = searchParams.get("type")?.trim().toUpperCase();
+  const validTypes = new Set<string>([...VALID_FINDING_TYPES, ...options.types]);
+  const activeType = rawType && validTypes.has(rawType) ? rawType : ANY;
+
+  // Validate and restore repo from URL, ignoring invalid values and falling back to default (ANY)
+  const rawRepo = searchParams.get("repo")?.trim();
+  const activeRepo =
+    rawRepo && options.repositories.some((repo) => repo.id === rawRepo) ? rawRepo : ANY;
+
+  // Validate and restore date range from URL, ignoring invalid values and falling back to default ("")
+  const activeFrom = parseDateParam(searchParams.get("from")) ?? "";
+  const activeTo = parseDateParam(searchParams.get("to")) ?? "";
+
+  // Ensure select dropdown options include the active choice even if options list is empty or partial
+  const displaySeverities = useMemo(() => {
+    const set = new Set(options.severities);
+    if (parsedSeverity) {
+      set.add(parsedSeverity);
+    }
+    return Array.from(set);
+  }, [options.severities, parsedSeverity]);
+
+  const displayTypes = useMemo(() => {
+    const set = new Set(options.types);
+    if (activeType !== ANY) {
+      set.add(activeType);
+    }
+    return Array.from(set);
+  }, [options.types, activeType]);
 
   const activeFilters: SavedViewFilters = {
-    severity: searchParams.getAll("severity"),
-    type: searchParams.getAll("type"),
-    status: searchParams.getAll("status"),
-    repositoryId: searchParams.get("repo"),
-    search: searchParams.get("q"),
-    from: searchParams.get("from"),
-    to: searchParams.get("to"),
-    sort: searchParams.get("sort") ?? undefined,
+    severity: activeSeverity !== ANY ? [activeSeverity] : [],
+    type: activeType !== ANY ? [activeType] : [],
+    status: activeStatus !== ANY ? [activeStatus] : [],
+    repositoryId: activeRepo !== ANY ? activeRepo : undefined,
+    search: searchDraft.trim() || undefined,
+    from: activeFrom || undefined,
+    to: activeTo || undefined,
+    sort: activeSort !== DEFAULT_SORT ? activeSort : undefined,
   };
 
-  const activeCount = ["severity", "type", "status", "repo", "q", "from", "to"].filter((key) =>
-    searchParams.has(key),
-  ).length;
+  const hasActiveSeverity = activeSeverity !== ANY;
+  const hasActiveType = activeType !== ANY;
+  const hasActiveStatus = activeStatus !== ANY;
+  const hasActiveRepo = activeRepo !== ANY;
+  const hasActiveSearch = Boolean(searchDraft.trim());
+  const hasActiveFrom = Boolean(activeFrom);
+  const hasActiveTo = Boolean(activeTo);
+
+  const activeCount = [
+    hasActiveSeverity,
+    hasActiveType,
+    hasActiveStatus,
+    hasActiveRepo,
+    hasActiveSearch,
+    hasActiveFrom,
+    hasActiveTo,
+  ].filter(Boolean).length;
+
+  const hasFilterParams =
+    activeCount > 0 ||
+    ["severity", "type", "status", "repo", "q", "from", "to"].some((key) => searchParams.has(key));
 
   return (
     <div className="glass-card rounded-xl p-4" data-testid="findings-toolbar">
@@ -181,7 +247,7 @@ export default function FindingsToolbar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>Any severity</SelectItem>
-            {options.severities.map((severity) => (
+            {displaySeverities.map((severity) => (
               <SelectItem key={severity} value={severity}>
                 {severity}
               </SelectItem>
@@ -195,7 +261,7 @@ export default function FindingsToolbar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>Any type</SelectItem>
-            {options.types.map((type) => (
+            {displayTypes.map((type) => (
               <SelectItem key={type} value={type}>
                 {type}
               </SelectItem>
@@ -305,18 +371,20 @@ export default function FindingsToolbar({
           )}
         </div>
 
-        {activeCount > 0 && (
+        {hasFilterParams && (
           <Button
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs"
-            onClick={() =>
+            aria-label="Clear filters"
+            onClick={() => {
+              setSearchDraft("");
               apply((params) => {
                 for (const key of ["severity", "type", "status", "repo", "q", "from", "to"]) {
                   params.delete(key);
                 }
-              })
-            }
+              });
+            }}
           >
             <X className="mr-1 h-3 w-3" aria-hidden="true" />
             Clear filters

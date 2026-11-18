@@ -196,8 +196,12 @@ export async function processScanJob(
     progress: 0,
   });
 
-  const { appId, privateKey } = getGitHubAppCredentials();
-  const appClient = new App({ appId, privateKey });
+  const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+  const appClient = new App({
+    appId,
+    privateKey,
+    ...(customOctokit ? { Octokit: customOctokit } : {}),
+  });
   // Narrowed rather than asserted: `installationId` is `number | string` because
   // the route accepts either and BullMQ round-trips job data through JSON.
   const octokit = await appClient.getInstallationOctokit(parseInstallationId(installationId));

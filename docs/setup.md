@@ -81,6 +81,20 @@ GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE K
 GITHUB_APP_URL="https://github.com/apps/your-app-name"
 ```
 
+### GitHub Enterprise Server (GHES)
+
+Organizations hosting their own GitHub Enterprise Server instance can point SecureFlow at it using two environment variables:
+
+- `GITHUB_API_URL`: The REST API base URL for your GHES instance (e.g. `https://ghe.mycorp.com/api/v3`). Defaults to `https://api.github.com`.
+- `GITHUB_WEB_URL`: The web URL for your GHES instance (e.g. `https://ghe.mycorp.com`). If omitted, it automatically infers the origin from `GITHUB_API_URL` when pointing to a custom instance, or defaults to `https://github.com`.
+
+```env
+GITHUB_API_URL="https://ghe.mycorp.com/api/v3"
+GITHUB_WEB_URL="https://ghe.mycorp.com"
+```
+
+> **Security Note:** In production mode (`NODE_ENV=production`), non-HTTPS URLs are rejected at startup to protect installation tokens and repository data.
+
 ---
 
 ## 4. GitHub OAuth / NextAuth (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `AUTH_SECRET`, `AUTH_URL`)

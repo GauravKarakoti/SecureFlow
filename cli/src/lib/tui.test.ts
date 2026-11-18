@@ -10,6 +10,9 @@ vi.mock("child_process", () => ({
 
 import {
   colors,
+  setColorEnabled,
+  isColorSupported,
+  stripAnsi,
   TerminalSpinner,
   formatSeverityBadge,
   renderWarningTable,
@@ -44,6 +47,32 @@ describe("cli/src/lib/tui (#1712)", () => {
       expect(high).toContain("HIGH");
       expect(med).toContain("MEDIUM");
       expect(low).toContain("LOW");
+    });
+
+    it("respects setColorEnabled(false) to suppress ANSI escape codes", () => {
+      setColorEnabled(false);
+      try {
+        expect(colors.red("uncolored")).toBe("uncolored");
+        expect(colors.bold("plain")).toBe("plain");
+        expect(isColorSupported()).toBe(false);
+      } finally {
+        setColorEnabled(null);
+      }
+    });
+
+    it("respects setColorEnabled(true) to force ANSI styling", () => {
+      setColorEnabled(true);
+      try {
+        expect(colors.red("colored")).toContain("\x1b[31m");
+        expect(isColorSupported()).toBe(true);
+      } finally {
+        setColorEnabled(null);
+      }
+    });
+
+    it("strips ANSI escape sequences cleanly with stripAnsi", () => {
+      const styled = `\x1b[31m\x1b[1mAlert!\x1b[22m\x1b[39m`;
+      expect(stripAnsi(styled)).toBe("Alert!");
     });
   });
 
