@@ -9,7 +9,10 @@ vi.mock("child_process", () => ({
 import {
   GitError,
   isGitRepository,
+  refExists,
+  getRepoRoot,
   getStagedFiles,
+  getChangedFilesSince,
   readStagedContent,
   getCurrentBranch,
 } from "./git.js";
@@ -216,6 +219,123 @@ describe("cli/src/git", () => {
       const branch = getCurrentBranch();
 
       expect(branch).toBeNull();
+    });
+  });
+
+  describe("refExists", () => {
+    it("returns true when git rev-parse --verify succeeds", () => {
+      execFileSyncMock.mockReturnValue("abc1234\n");
+
+      expect(refExists("origin/main")).toBe(true);
+      expect(execFileSyncMock).toHaveBeenCalledWith(
+        "git",
+        ["rev-parse", "--verify", "origin/main"],
+        expect.any(Object),
+      );
+    });
+
+    it("returns false when git rev-parse --verify fails", () => {
+      execFileSyncMock.mockImplementation(() => {
+        throw new Error("fatal: Needed a single revision");
+      });
+
+      expect(refExists("nonexistent")).toBe(false);
+    });
+  });
+
+  describe("getRepoRoot", () => {
+    it("returns show-toplevel output when inside repository", () => {
+      execFileSyncMock.mockReturnValue("/path/to/repo\n");
+
+      expect(getRepoRoot()).toBe("/path/to/repo");
+      expect(execFileSyncMock).toHaveBeenCalledWith(
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        expect.any(Object),
+      );
+    });
+
+    it("falls back to cwd when command fails", () => {
+      execFileSyncMock.mockImplementation(() => {
+        throw new Error("fatal: not a git repository");
+      });
+
+      expect(getRepoRoot("/fallback/dir")).toBe("/fallback/dir");
+    });
+  });
+
+  describe("getChangedFilesSince", () => {
+    it("parses NUL-delimited list of changed files with --diff-filter=ACMR", () => {
+      // isGitRepository call
+      execFileSyncMock.mockReturnValueOnce("true\n");
+      // refExists call
+      execFileSyncMock.mockReturnValueOnce("hash\n");
+      // git diff call
+      execFileSyncMock.mockReturnValueOnce(
+        "src/added.ts\u0000src/modified.ts\u0000src/renamed.ts\u0000",
+      );
+
+      const files = getChangedFilesSince("origin/main");
+
+      expect(files).toEqual(["src/added.ts", "src/modified.ts", "src/renamed.ts"]);
+      expect(execFileSyncMock).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--name-only", "-z", "--diff-filter=ACMR", "origin/main"],
+        expect.any(Object),
+      );
+    });
+
+    it("returns empty array when no files have changed since ref", () => {
+      execFileSyncMock.mockReturnValueOnce("true\n");
+      execFileSyncMock.mockReturnValueOnce("hash\n");
+      execFileSyncMock.mockReturnValueOnce("");
+
+      const files = getChangedFilesSince("origin/main");
+      expect(files).toEqual([]);
+    });
+
+    it("handles unicode and spaces in filenames", () => {
+      execFileSyncMock.mockReturnValueOnce("true\n");
+      execFileSyncMock.mockReturnValueOnce("hash\n");
+      execFileSyncMock.mockReturnValueOnce("src/café.ts\u0000path with spaces/file.ts\u0000");
+
+      const files = getChangedFilesSince("main");
+      expect(files).toEqual(["src/café.ts", "path with spaces/file.ts"]);
+    });
+
+    it("throws GitError when outside a git repository", () => {
+      execFileSyncMock.mockImplementation(() => {
+        throw new Error("fatal: not a git repository");
+      });
+
+      expect(() => getChangedFilesSince("origin/main")).toThrowError(
+        "Not a git repository (or git is not on PATH).",
+      );
+    });
+
+    it("throws GitError when the specified git reference does not exist", () => {
+      // isGitRepository succeeds
+      execFileSyncMock.mockReturnValueOnce("true\n");
+      // refExists fails
+      execFileSyncMock.mockImplementationOnce(() => {
+        throw new Error("fatal: Needed a single revision");
+      });
+
+      expect(() => getChangedFilesSince("nonexistent-ref")).toThrowError(
+        'Git reference "nonexistent-ref" does not exist.',
+      );
+    });
+
+    it("throws GitError when git diff fails inside a git repository", () => {
+      execFileSyncMock.mockReturnValueOnce("true\n");
+      execFileSyncMock.mockReturnValueOnce("hash\n");
+      execFileSyncMock.mockImplementationOnce(() => {
+        throw new Error("fatal: diff failed");
+      });
+
+      expect(() => getChangedFilesSince("origin/main")).toThrowError(
+        'Could not list files changed since "origin/main". `git diff` failed.',
+      );
     });
   });
 });

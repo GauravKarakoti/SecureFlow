@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import fs from "fs";
-import { GitError, getStagedFiles, readStagedContent } from "./git.js";
+import path from "path";
+import {
+  GitError,
+  getStagedFiles,
+  readStagedContent,
+  getChangedFilesSince,
+  getRepoRoot,
+} from "./git.js";
 import {
   scanFile,
   formatScanResults,
@@ -32,6 +39,7 @@ import {
   parseOutputFormat,
   parseOutputPath,
   parseVoiceArg,
+  parseSinceArg,
 } from "./lib/output-args.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
@@ -109,6 +117,7 @@ Options:
   --init                 Initialize SecureFlow (choose between Blank and Husky)
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
+  --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -128,6 +137,7 @@ Options:
 
 Examples:
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
   $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
   $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
@@ -374,10 +384,12 @@ async function main(): Promise<number> {
   let format: OutputFormat;
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
+  let sinceRef: string | undefined;
   try {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
+    sinceRef = parseSinceArg(process.argv);
   } catch (error) {
     if (!(error instanceof CliUsageError)) throw error;
     console.error(`❌ [SecureFlow] ${error.message}`);
@@ -385,10 +397,15 @@ async function main(): Promise<number> {
   }
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
-  let staged: string[];
+  const isSinceMode = sinceRef !== undefined;
+  let filesToScan: string[];
 
   try {
-    staged = getStagedFiles();
+    if (sinceRef !== undefined) {
+      filesToScan = getChangedFilesSince(sinceRef);
+    } else {
+      filesToScan = getStagedFiles();
+    }
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
     return 1;
@@ -409,16 +426,33 @@ async function main(): Promise<number> {
 
   let violationCount = 0;
 
-  if (staged.length > 0) {
-    for (const path of staged) {
-      const content = readStagedContent(path);
+  if (filesToScan.length > 0) {
+    const repoRoot = isSinceMode ? getRepoRoot() : undefined;
+
+    for (const filePath of filesToScan) {
+      let content: string | null = null;
+
+      if (isSinceMode) {
+        try {
+          const resolvedPath = repoRoot ? path.resolve(repoRoot, filePath) : filePath;
+          if (fs.existsSync(resolvedPath)) {
+            content = fs.readFileSync(resolvedPath, "utf-8");
+          } else {
+            content = readStagedContent(filePath);
+          }
+        } catch {
+          content = null;
+        }
+      } else {
+        content = readStagedContent(filePath);
+      }
 
       if (content === null) {
-        unreadable.push(path);
+        unreadable.push(filePath);
         continue;
       }
 
-      const result = scanFile(path, content, customIgnores);
+      const result = scanFile(filePath, content, customIgnores);
       fileResults.push(result);
       if (format === "text") {
         reportSkipped(result);
@@ -427,7 +461,7 @@ async function main(): Promise<number> {
       violationCount += result.violations.length;
 
       if (!result.skipped) {
-        stagedForAi.push({ path, content });
+        stagedForAi.push({ path: filePath, content });
       }
     }
   }
@@ -500,8 +534,9 @@ ${textOutput}`);
   // the scan would otherwise silently skip these entries, and stderr cannot
   // corrupt the structured report on stdout.
   if (unreadable.length > 0) {
+    const entryLabel = isSinceMode ? "changed" : "staged";
     console.warn(
-      `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
+      `⚠️  [SecureFlow] Could not read ${unreadable.length} ${entryLabel} entr${
         unreadable.length === 1 ? "y" : "ies"
       } (submodule, symlink or conflicted): ${unreadable.join(", ")}`,
     );
@@ -549,7 +584,8 @@ ${textOutput}`);
         } below ${describeFailThreshold(failOnThreshold)}. Scan passing.`,
       );
     } else {
-      console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+      const modeLabel = isSinceMode ? `changed file(s) since ${sinceRef}` : "staged file(s)";
+      console.log(`✅ SecureFlow scan passed (${filesToScan.length} ${modeLabel}).`);
     }
   }
   return 0;
