@@ -3,6 +3,7 @@ import { getDetailedLandingMetrics } from "@/lib/metrics/landing-stats";
 import { DEFAULT_METRICS_TTL_MS, createTtlCache } from "@/lib/metrics/landing-cache";
 import { TIERS, withRateLimit } from "@/lib/middleware/rate-limit";
 import { withErrorHandler } from "@/lib/middleware/error-handler";
+import { formatPrometheusMetrics, PROMETHEUS_CONTENT_TYPE } from "@/lib/metrics/prometheus";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,30 @@ export function resetLandingMetricsCache(): void {
   metricsCache.invalidate();
 }
 
-async function handler(_req: NextRequest): Promise<NextResponse> {
+async function handler(req: NextRequest): Promise<NextResponse> {
   try {
     // Read before the load, or every response would report a hit — `get()`
     // populates the entry it is being asked about.
     const wasCached = metricsCache.peek() !== null;
     const metrics = await metricsCache.get();
+
+    const accept = req.headers.get("accept") || "";
+    const format = req.nextUrl?.searchParams?.get("format");
+    const wantsPrometheus =
+      format === "prometheus" ||
+      accept.includes("text/plain") ||
+      accept.includes("application/openmetrics-text");
+
+    if (wantsPrometheus) {
+      return new NextResponse(formatPrometheusMetrics(metrics), {
+        status: 200,
+        headers: {
+          "Content-Type": PROMETHEUS_CONTENT_TYPE,
+          "Cache-Control": `public, s-maxage=${METRICS_CACHE_SECONDS}, stale-while-revalidate=300`,
+          "X-Metrics-Cache": wasCached ? "hit" : "miss",
+        },
+      });
+    }
 
     return NextResponse.json(metrics, {
       status: 200,

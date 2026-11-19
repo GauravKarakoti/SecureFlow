@@ -36,6 +36,19 @@ const privateKeySchema = z
     },
   );
 
+const positiveIntStringSchema = (label: string) =>
+  z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined || val.trim() === "") return true;
+        const n = Number(val.trim());
+        return Number.isInteger(n) && n > 0;
+      },
+      { message: `${label} must be a positive integer (days)` },
+    );
+
 const envSchema = z
   .object({
     // Required
@@ -160,10 +173,18 @@ const envSchema = z
     AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
     SCAN_CACHE_TTL_SECONDS: z.string().optional(),
 
+    // Finding age targets (days). Must be positive integers when set.
+    FINDING_AGE_TARGET_CRITICAL: positiveIntStringSchema("FINDING_AGE_TARGET_CRITICAL"),
+    FINDING_AGE_TARGET_HIGH: positiveIntStringSchema("FINDING_AGE_TARGET_HIGH"),
+    FINDING_AGE_TARGET_MEDIUM: positiveIntStringSchema("FINDING_AGE_TARGET_MEDIUM"),
+    FINDING_AGE_TARGET_LOW: positiveIntStringSchema("FINDING_AGE_TARGET_LOW"),
+    FINDING_AGE_TARGET_INFO: positiveIntStringSchema("FINDING_AGE_TARGET_INFO"),
+
     // Weekly Security Digest & Mailing (Brevo / SMTP) (#1788)
     BREVO_API_KEY: z.string().optional(),
     BREVO_SENDER_EMAIL: z.string().optional(),
     BREVO_SENDER_NAME: z.string().optional(),
+    WEEKLY_DIGEST_SCHEDULE: z.string().optional(),
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.string().optional(),
     SMTP_USER: z.string().optional(),

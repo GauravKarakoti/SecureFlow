@@ -18,6 +18,7 @@ import {
 import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 
 import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
+import { findingAgeDays, isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
 
 /**
  * Server actions for the Security Findings dashboard (#561).
@@ -60,6 +61,10 @@ export interface FindingRow {
   triageStatus: FindingStatus;
   triageNote: string | null;
   triageReason: string | null;
+  /** Age of the finding in whole days (from createdAt). */
+  ageDays: number | null;
+  /** True when the finding has exceeded the configurable target age for its severity. */
+  isOverdue: boolean;
 }
 
 export interface FindingsStats {
@@ -231,6 +236,7 @@ export async function getUserFindings(
     const repositoryId = pullRequest.repositoryId;
     const triage = byKey.get(triageKey(repositoryId, finding.fingerprint));
 
+    const triageStatus = (triage?.status as FindingStatus) ?? "OPEN";
     return {
       id: finding.id,
       type: finding.type,
@@ -247,9 +253,11 @@ export async function getUserFindings(
       repositoryId,
       repositoryFullName: pullRequest.repository?.fullName ?? "",
       pullRequestNumber: pullRequest.prNumber,
-      triageStatus: (triage?.status as FindingStatus) ?? "OPEN",
+      triageStatus,
       triageNote: triage?.note ?? null,
       triageReason: triage?.dismissalReason ?? null,
+      ageDays: findingAgeDays(finding.createdAt),
+      isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
     };
   });
 
