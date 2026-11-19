@@ -11,6 +11,8 @@ const SECRET_ENV_VARS = new Set([
   "ARMORIQ_API_KEY",
   "UPSTASH_REDIS_REST_TOKEN",
   "ELEVENLABS_API_KEY",
+  "BREVO_API_KEY",
+  "SMTP_PASS",
 ]);
 
 /**
@@ -157,6 +159,18 @@ const envSchema = z.object({
   ELEVENLABS_MODEL_ID: z.string().optional(),
   AUDIO_CACHE_TTL_SECONDS: z.string().optional(),
   SCAN_CACHE_TTL_SECONDS: z.string().optional(),
+
+  // Weekly Security Digest & Mailing (Brevo / SMTP) (#1788)
+  BREVO_API_KEY: z.string().optional(),
+  BREVO_SENDER_EMAIL: z.string().optional(),
+  BREVO_SENDER_NAME: z.string().optional(),
+  WEEKLY_DIGEST_SCHEDULE: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  SMTP_SECURE: z.string().optional(),
 }).superRefine((data, ctx) => {
   const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
   if (isProduction) {

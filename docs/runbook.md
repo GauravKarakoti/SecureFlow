@@ -6,14 +6,15 @@ This runbook provides operators with actionable troubleshooting steps for diagno
 
 ## 📋 Triage Matrix
 
-| Issue Category          | Primary Symptoms                                                                   | Key Environment Variables                                                                        | Section                                                                                  |
-| :---------------------- | :--------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
-| **Webhook Deliveries**  | PRs opened without scans triggering; 401/413/500 errors in GitHub App delivery log | `GITHUB_WEBHOOK_SECRET`<br>`GITHUB_WEBHOOK_MAX_BYTES`<br>`GITHUB_APP_ID`<br>`GITHUB_PRIVATE_KEY` | [1. Webhook Deliveries Failing](#1-webhook-deliveries-failing)                           |
-| **Queues & Redis**      | PR checks stuck in pending; jobs pile up in `waiting`; `RedisConfigurationError`   | `REDIS_URL`<br>`UPSTASH_REDIS_REST_URL`<br>`UPSTASH_REDIS_REST_TOKEN`                            | [2. Queue Stuck or Redis Unavailable](#2-queue-stuck-or-redis-unavailable)               |
-| **Groq / AI Scanner**   | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`GROQ_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                      | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
-| **Database Pooling**    | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
-| **Proxy Rate Limiting** | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
-| **Dependency Audits**   | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
+| Issue Category           | Primary Symptoms                                                                   | Key Environment Variables                                                                        | Section                                                                                  |
+| :----------------------- | :--------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
+| **Webhook Deliveries**   | PRs opened without scans triggering; 401/413/500 errors in GitHub App delivery log | `GITHUB_WEBHOOK_SECRET`<br>`GITHUB_WEBHOOK_MAX_BYTES`<br>`GITHUB_APP_ID`<br>`GITHUB_PRIVATE_KEY` | [1. Webhook Deliveries Failing](#1-webhook-deliveries-failing)                           |
+| **Queues & Redis**       | PR checks stuck in pending; jobs pile up in `waiting`; `RedisConfigurationError`   | `REDIS_URL`<br>`UPSTASH_REDIS_REST_URL`<br>`UPSTASH_REDIS_REST_TOKEN`                            | [2. Queue Stuck or Redis Unavailable](#2-queue-stuck-or-redis-unavailable)               |
+| **Groq / AI Scanner**    | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`GROQ_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                      | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
+| **Database Pooling**     | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
+| **Proxy Rate Limiting**  | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
+| **Weekly Digest & Brevo**| Digest emails not arriving; Brevo API errors; digests not generating               | `BREVO_API_KEY`<br>`BREVO_SENDER_EMAIL`<br>`BREVO_SENDER_NAME`                                   | [6. Weekly Security Digest & Email Delivery](#6-weekly-security-digest--email-delivery)  |
+| **Dependency Audits**    | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
 
 ---
 
@@ -528,6 +529,48 @@ SecureFlow uses an edge proxy and route-level rate limiting (`src/lib/client-ip.
 
 ---
 
+## 6. Weekly Security Digest & Email Delivery
+
+SecureFlow builds a weekly roll-up per user or organization covering new findings, resolved findings, top 5 repositories by open findings, top 5 recurring finding types, and blocked PRs (#1788).
+
+### Relevant Environment Variables
+
+- `BREVO_API_KEY` _(Recommended in production, Secret)_: API key for Brevo transactional email delivery via REST API v3 (`https://api.brevo.com/v3/smtp/email`). Redacted from logs and error messages.
+- `BREVO_SENDER_EMAIL` _(Optional, default: `security@secureflow.dev`)_: Verified sender email address configured in Brevo.
+- `BREVO_SENDER_NAME` _(Optional, default: `SecureFlow Security`)_: Display name for outbound digest emails.
+- `WEEKLY_DIGEST_SCHEDULE` _(Optional, default: `0 8 * * 1`)_: Cron schedule syntax indicating when digests are scheduled (default: Mondays at 08:00 UTC).
+- `SMTP_HOST` _(Optional fallback)_: SMTP hostname (e.g. `smtp-relay.brevo.com`). When both Brevo and SMTP are omitted, emails are skipped and digests are stored for dashboard display only.
+- `SMTP_PORT` _(Optional, default: `587`)_: SMTP port (`465` for TLS, `587` for STARTTLS).
+- `SMTP_USER` _(Optional)_: SMTP username / API key.
+- `SMTP_PASS` _(Optional, Secret)_: SMTP password or API token. Redacted from logs and error messages.
+- `SMTP_FROM` _(Optional, default: `SecureFlow Security <security@secureflow.dev>`)_: Sender email address.
+- `SMTP_SECURE` _(Optional, default: `false`)_: Set `true` to mandate direct TLS connection (typically port 465).
+
+### Operational Commands
+
+- Run standalone batch generator:
+  ```bash
+  npm run digest
+  ```
+- Dry-run preview in console without database writes or sending emails:
+  ```bash
+  npm run digest:render
+  ```
+- Generate for a specific user ID:
+  ```bash
+  npx tsx scripts/generate-weekly-digest.ts --user=<userId> --force
+  ```
+
+### Privacy & Redaction Guarantees
+
+Digest calculations strictly enforce zero leakage:
+
+- Raw code snippets, file contents, stack traces, and tokens are **never** queried or embedded in digest records or outbound emails.
+- Repositories and finding types are aggregated purely as high-level metadata (counts, rule names, severity categories).
+- Users who opt out (`weeklyDigestEnabled: false` in Settings) are automatically excluded from automated runs.
+
+---
+
 ## 🛠️ Quick Environment Variables Verification Checklist
 
 Use this checklist to verify your deployment configuration when diagnosing system issues:
@@ -540,4 +583,6 @@ Use this checklist to verify your deployment configuration when diagnosing syste
 [ ] DATABASE_POOL_URL is configured for serverless production queries (PgBouncer/Neon Pooler)
 [ ] DB_POOL_MAX is tuned to stay within PostgreSQL max_connections (default 10)
 [ ] TRUSTED_PROXY_HOP_COUNT is set to 1 (single proxy) or 2 (Cloudflare + proxy) in production
+[ ] BREVO_API_KEY is configured for delivering weekly security digests via Brevo
+[ ] SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM configured if fallback SMTP delivery is desired
 ```
