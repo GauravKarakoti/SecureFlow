@@ -14,6 +14,10 @@ import {
 } from "@/lib/triage/statuses";
 import { validateExpiryDate } from "@/lib/triage/expiry";
 import { reconcileTriageVerdicts } from "@/lib/triage/reconcile";
+import {
+  dispatchOutboundWebhooksForUser,
+  buildFindingDismissedPayload,
+} from "@/lib/webhooks/outbound-dispatcher";
 
 export type TriageStatus = SharedTriageStatus;
 export type { DismissalReason };
@@ -155,6 +159,22 @@ export async function setFindingStatus(
   invalidateCachedUserFilters(userId);
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");
+
+  if (status === "DISMISSED") {
+    try {
+      await dispatchOutboundWebhooksForUser(userId, "finding.dismissed", () =>
+        buildFindingDismissedPayload({
+          repository: repo.fullName,
+          fingerprint,
+          status,
+          reason: dismissalReason,
+          dismissedAt: dismissedAt?.toISOString() ?? new Date().toISOString(),
+        }),
+      );
+    } catch (whErr) {
+      console.error("[Triage] Failed to dispatch outbound webhook for finding.dismissed:", whErr);
+    }
+  }
 
   let warning: string | undefined;
   try {
@@ -307,6 +327,28 @@ export async function setFindingStatuses(
   invalidateCachedUserFilters(userId);
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard");
+
+  if (status === "DISMISSED") {
+    const repoMap = new Map<string, string>(
+      (repos as any[]).map((r: any) => [String(r.id), String(r.fullName)]),
+    );
+    for (const item of items) {
+      const repoFullName = repoMap.get(item.repositoryId) || "unknown";
+      try {
+        await dispatchOutboundWebhooksForUser(userId, "finding.dismissed", () =>
+          buildFindingDismissedPayload({
+            repository: repoFullName,
+            fingerprint: String(item.fingerprint),
+            status: String(status),
+            reason: dismissalReason,
+            dismissedAt: dismissedAt?.toISOString() ?? new Date().toISOString(),
+          }),
+        );
+      } catch (whErr) {
+        console.error("[Triage] Failed to dispatch outbound webhook for finding.dismissed:", whErr);
+      }
+    }
+  }
   let warning: string | undefined;
   for (const repositoryId of repoIds) {
     try {

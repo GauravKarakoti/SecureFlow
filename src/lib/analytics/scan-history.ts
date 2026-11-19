@@ -645,8 +645,8 @@ export async function fetchOverdueCount(userId: string): Promise<number> {
   });
 
   const dismissedKeys = new Set(
-    dismissedTriages.map((t: { fingerprint: string; repositoryId: string }) =>
-      `${t.repositoryId}:${t.fingerprint}`,
+    dismissedTriages.map(
+      (t: { fingerprint: string; repositoryId: string }) => `${t.repositoryId}:${t.fingerprint}`,
     ),
   );
 
@@ -698,16 +698,23 @@ export async function getAnalyticsPayload(
   userId: string,
   days: number = DEFAULT_DAYS,
 ): Promise<AnalyticsPayload> {
-  const [dailyMetrics, severityTrend, repoSummaries, topFindingTypes, scanVelocity, summary, overdueFindings] =
-    await Promise.all([
-      fetchDailyScanMetrics(userId, days),
-      fetchSeverityTrend(userId, days),
-      fetchRepoSummaries(userId),
-      fetchTopFindingTypes(userId, days),
-      fetchScanVelocity(userId, days),
-      fetchAnalyticsSummary(userId, days),
-      fetchOverdueCount(userId),
-    ]);
+  const [
+    dailyMetrics,
+    severityTrend,
+    repoSummaries,
+    topFindingTypes,
+    scanVelocity,
+    summary,
+    overdueFindings,
+  ] = await Promise.all([
+    fetchDailyScanMetrics(userId, days),
+    fetchSeverityTrend(userId, days),
+    fetchRepoSummaries(userId),
+    fetchTopFindingTypes(userId, days),
+    fetchScanVelocity(userId, days),
+    fetchAnalyticsSummary(userId, days),
+    fetchOverdueCount(userId),
+  ]);
 
   return {
     dailyMetrics,

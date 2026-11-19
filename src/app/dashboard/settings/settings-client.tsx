@@ -13,11 +13,26 @@ import {
   testSlackWebhook,
   testTeamsWebhook,
   updateRepositoryPublicBadge,
+  updateRepositoryCodeScanning,
   updateWeeklyDigestPreference,
   type RepoBadgeSetting,
+  type ApiTokenItem,
 } from "@/lib/actions/settings";
-import { Save, MessageSquare, Volume2, Send, Shield, Copy, Mail } from "lucide-react";
+import {
+  Save,
+  MessageSquare,
+  Volume2,
+  Send,
+  Shield,
+  ShieldAlert,
+  AlertTriangle,
+  Copy,
+  Mail,
+} from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
+import ApiTokensCard from "@/components/settings/api-tokens-card";
+import OutboundWebhooksCard from "@/components/settings/outbound-webhooks-card";
+import { type OutboundWebhookView } from "@/lib/actions/settings";
 
 const subscribeToOrigin = () => () => {};
 const getBrowserOrigin = () => window.location.origin;
@@ -28,12 +43,16 @@ export default function SettingsClient({
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
   initialRepositories = [],
+  initialApiTokens = [],
+  initialOutboundWebhooks = [],
   initialWeeklyDigestEnabled = true,
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
   initialRepositories?: RepoBadgeSetting[];
+  initialApiTokens?: ApiTokenItem[];
+  initialOutboundWebhooks?: OutboundWebhookView[];
   initialWeeklyDigestEnabled?: boolean;
 }) {
   // --- Slack state ---
@@ -188,6 +207,34 @@ export default function SettingsClient({
     }
   };
 
+  const handleCodeScanningToggle = (repoId: string, checked: boolean) => {
+    setRepositories((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, codeScanningEnabled: checked } : r)),
+    );
+    startBadgeTransition(async () => {
+      try {
+        const res = await updateRepositoryCodeScanning(repoId, checked);
+        if (res.success) {
+          toast.success(
+            checked
+              ? "Code scanning publishing enabled for repository."
+              : "Code scanning publishing disabled for repository.",
+          );
+        } else {
+          setRepositories((prev) =>
+            prev.map((r) => (r.id === repoId ? { ...r, codeScanningEnabled: !checked } : r)),
+          );
+          toast.error(res.error || "Failed to update code scanning setting.");
+        }
+      } catch (e: any) {
+        setRepositories((prev) =>
+          prev.map((r) => (r.id === repoId ? { ...r, codeScanningEnabled: !checked } : r)),
+        );
+        toast.error(e.message || "Failed to update code scanning setting.");
+      }
+    });
+  };
+
   return (
     <div className="space-y-8 w-full animate-in fade-in duration-700 max-w-4xl">
       <div>
@@ -336,6 +383,9 @@ export default function SettingsClient({
         </CardContent>
       </Card>
 
+      {/* ── Outbound Webhooks ── */}
+      <OutboundWebhooksCard initialWebhooks={initialOutboundWebhooks} />
+
       {/* ── Weekly Security Digest ── */}
       <Card className="glass-card">
         <CardHeader>
@@ -381,9 +431,8 @@ export default function SettingsClient({
             <div>
               <CardTitle>Repository Status Badges</CardTitle>
               <CardDescription>
-                Share your repository&apos;s real-time security posture in your README. Private
-                repos remain protected — repositories with public badges disabled return a neutral
-                &quot;unknown&quot; badge without revealing scan status.
+                Share your repository&apos;s real-time security posture in your README, and publish
+                scan results to GitHub Code Scanning (Security tab).
               </CardDescription>
             </div>
           </div>
@@ -399,14 +448,52 @@ export default function SettingsClient({
               const badgePath = `/api/badge/${repo.fullName.split("/").map(encodeURIComponent).join("/")}`;
               const badgeUrl = `${appOrigin}${badgePath}`;
               const markdown = `[![SecureFlow Status](${badgeUrl})](${appOrigin || "/"})`;
+
               return (
                 <div
                   key={repo.id}
-                  className="flex flex-col gap-3 rounded-lg border border-border p-4 transition-all"
+                  className="flex flex-col gap-4 rounded-lg border border-border p-4 transition-all"
                 >
                   <div className="flex items-center justify-between">
+                    <p className="font-semibold text-sm">{repo.fullName}</p>
+                  </div>
+
+                  {/* Code Scanning */}
+                  <div className="flex items-center justify-between border-t border-border/40 pt-3">
                     <div>
-                      <p className="font-semibold text-sm">{repo.fullName}</p>
+                      <p className="text-sm font-medium">
+                        Publish findings to GitHub Code Scanning
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {repo.codeScanningEnabled
+                          ? "Publishing enabled — scan findings are uploaded to GitHub's Security tab (SARIF)"
+                          : "Publishing disabled — scan findings stay in SecureFlow"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={repo.codeScanningEnabled}
+                      onCheckedChange={(checked) => handleCodeScanningToggle(repo.id, checked)}
+                      disabled={isBadgePending}
+                      aria-label={`Toggle code scanning for ${repo.fullName}`}
+                    />
+                  </div>
+
+                  {repo.codeScanningEnabled && repo.codeScanningWarning && (
+                    <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-amber-200 text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">
+                          Missing GitHub Permissions or Advanced Security
+                        </p>
+                        <p className="text-amber-300/80 mt-0.5">{repo.codeScanningWarning}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Public Badge */}
+                  <div className="flex items-center justify-between border-t border-border/40 pt-3">
+                    <div>
+                      <p className="text-sm font-medium">Public Status Badge</p>
                       <p className="text-xs text-muted-foreground">
                         {repo.publicBadgeEnabled
                           ? "Public badge enabled — shows latest scan status"
@@ -452,6 +539,9 @@ export default function SettingsClient({
           )}
         </CardContent>
       </Card>
+
+      {/* Personal API Tokens (#1867) */}
+      <ApiTokensCard initialTokens={initialApiTokens} />
     </div>
   );
 }

@@ -117,6 +117,8 @@ describe("getUserFindings", () => {
       triageStatus: "IN_PROGRESS",
       triageNote: "on it",
       triageReason: null,
+      ageDays: 79,
+      isOverdue: true,
     });
     expect(result.findings[1]).toMatchObject({ triageStatus: "OPEN", triageNote: null });
   });

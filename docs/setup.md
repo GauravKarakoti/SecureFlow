@@ -63,9 +63,14 @@ AI_MODEL="openai/gpt-oss-20b"
      ```
    - **Webhook Secret**: any random string (e.g. `openssl rand -hex 20`) → `GITHUB_WEBHOOK_SECRET`
 3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`, Code scanning alerts `Read & Write`.
-   - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab. Without it the scan still runs and still posts its check run; only the upload is skipped.
-   - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow logs and moves past.
-4. Subscribe to events: `Pull request`, `Installation`, `Installation repositories`.
+   - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab via the GitHub SARIF upload API. Without it the scan still runs and still posts its check run; only the upload is skipped.
+   - **Opt-in per repository**: Enable this in the dashboard under **Settings (`/dashboard/settings`) → Publish findings to GitHub Code Scanning**.
+   - **Permission & failure handling**: Without `security_events: write` (or if Advanced Security is disabled on a private repository, returning 403 or 404), the scan still completes and posts its check run without failing; SecureFlow logs the response and displays an actionable warning banner on the repository card in Settings.
+   - **Secret Masking & Zero Leakage**: All finding messages and remediation summaries uploaded via SARIF are scrubbed with `maskFindingText`. Detected API keys and secrets are strictly redacted with `[REDACTED_BY_THE_PROFESSOR]` prior to upload.
+   - **Deduplication**: Findings include deterministic rule IDs and stable partial fingerprints (`secureflow/finding/v1`), ensuring re-scans update existing alerts on GitHub without duplication.
+   - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow records as a dashboard warning and moves past.
+4. Subscribe to events: `Pull request`, `Merge group`, `Installation`, `Installation repositories`, `Check run`, `Check suite`.
+   - Subscribing to `Check run` and `Check suite` (action `rerequested`) allows developers to trigger a new security scan and update the existing check directly from the GitHub PR "Re-run" button without pushing empty commits.
 5. Click **Create GitHub App**, then:
    - Copy **App ID** → `GITHUB_APP_ID`
    - Scroll to **Private Keys → Generate a private key** → download `.pem` → paste its full contents (including headers) into `GITHUB_PRIVATE_KEY`, replacing newlines with `\n`:
@@ -81,6 +86,23 @@ GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE K
 GITHUB_APP_URL="https://github.com/apps/your-app-name"
 ```
 
+### GitHub Merge Queue Support
+
+Repositories utilizing GitHub's **Merge Queue** feature run required checks on temporary merge groups (`gh-readonly-queue/...`).
+
+To enable SecureFlow checks on merge queues:
+
+1. **GitHub App Permissions & Events**:
+   - Permissions: `Checks: Read & Write`, `Contents: Read`, `Pull Requests: Read & Write`
+   - Event Subscriptions: Ensure **`Merge group`** (`merge_group`) is checked in GitHub App Settings -> Subscribe to events.
+2. **Required Status Check**:
+   - In repository **Settings -> Branches -> Branch protection rules** (or Rulesets), add **`SecureFlow Scan`** under **Require status checks to pass before merging** and include it in your Merge Queue required checks.
+3. **Execution Behavior**:
+   - When a PR enters the merge queue, GitHub dispatches `merge_group` with action `checks_requested`.
+   - SecureFlow compares the merged diff against the PR's diff. If the diff content is unchanged, it reuses the previous PR scan result and gate decision immediately without making redundant LLM calls.
+   - If changes from the base branch produce a new combined diff, SecureFlow performs a fast scan of the combined diff against the base branch policy gate.
+   - A completed check run named `SecureFlow Scan` is reported on the merge group head SHA so the queue never hangs.
+
 ### GitHub Enterprise Server (GHES)
 
 Organizations hosting their own GitHub Enterprise Server instance can point SecureFlow at it using two environment variables:
@@ -94,6 +116,21 @@ GITHUB_WEB_URL="https://ghe.mycorp.com"
 ```
 
 > **Security Note:** In production mode (`NODE_ENV=production`), non-HTTPS URLs are rejected at startup to protect installation tokens and repository data.
+
+### Outbound Webhooks (SIEM, Ticketing, Chatbots)
+
+SecureFlow supports registering HTTPS outbound webhooks to receive real-time JSON event notifications:
+
+- **Supported Events**:
+  - `scan.completed`: Fired whenever a pull request scan finishes.
+  - `scan.blocked`: Fired when a scan fails policy (critical findings).
+  - `finding.created`: Fired when new security findings are detected.
+  - `finding.dismissed`: Fired when a finding is triaged as dismissed or false positive.
+- **HMAC Signature**: Each request carries `X-SecureFlow-Signature` (HMAC-SHA256 computed using a per-endpoint secret shown once at creation).
+- **Replay Protection**: Includes `X-SecureFlow-Event-Id` and `X-SecureFlow-Timestamp`.
+- **SSRF Hardening**: Rejects loopback, link-local, carrier-grade NAT, private IP ranges (RFC 1918), and internal TLDs both upon registration and before dispatch.
+- **Zero-Leakage Guarantee**: Payloads contain strictly metadata (repository, PR number, commit SHA, decision, finding type, severity, file location). Raw code snippets, diffs, and secret values are never included.
+- **Fault-Tolerant Delivery**: Asynchronous delivery with a 5-second timeout, retries with exponential backoff (up to 3 attempts), and a delivery log in Settings.
 
 ---
 

@@ -69,6 +69,8 @@ model User {
   roles          UserRole[]
   auditLogs      AuditLog[]
   savedViews     SavedView[]
+  apiTokens      ApiToken[]
+  outboundWebhooks OutboundWebhook[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -151,6 +153,8 @@ model Repository {
   owner              String
   isActive           Boolean @default(true)
   publicBadgeEnabled Boolean @default(false)
+  codeScanningEnabled Boolean @default(false)
+  codeScanningWarning String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -570,6 +574,71 @@ model ScanCache {
   @@index([cacheKey])
   @@index([expiresAt])
   @@map("scan_cache")
+}
+
+/**
+ * Personal API Tokens for CLI and automated API access (#1867).
+ * Stores only a SHA-256 hash of the token, plus scopes, expiry, and last-used audit info.
+ */
+model ApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String
+  scopes      String[]  @default([])
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([userId, revokedAt])
+}
+
+/**
+ * Generic Outbound Webhooks (#1866).
+ * Delivers signed HMAC-SHA256 notifications for scan and finding events
+ * to user-registered HTTPS endpoints with replay protection and delivery logs.
+ */
+model OutboundWebhook {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url         String
+  secret      String
+  events      String[]
+  description String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deliveries  OutboundWebhookDelivery[]
+
+  @@index([userId])
+  @@index([userId, enabled])
+  @@map("outbound_webhooks")
+}
+
+model OutboundWebhookDelivery {
+  id          String          @id @default(cuid())
+  webhookId   String
+  webhook     OutboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  eventId     String
+  event       String
+  statusCode  Int?
+  error       String?
+  attempts    Int             @default(1)
+  deliveredAt DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([webhookId])
+  @@index([eventId])
+  @@index([webhookId, createdAt(sort: Desc)])
+  @@map("outbound_webhook_deliveries")
 }
 
 /**

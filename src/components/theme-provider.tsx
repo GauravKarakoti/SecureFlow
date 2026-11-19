@@ -39,9 +39,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeState(initialTheme);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setResolvedTheme(resolved);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setMounted(true);
 
     const root = document.documentElement;

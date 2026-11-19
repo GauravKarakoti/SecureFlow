@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { authenticateUserOrToken } from "@/lib/auth/api-token";
 import prisma from "@/lib/prisma";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import { withRateLimit } from "@/lib/middleware/rate-limit";
@@ -42,11 +43,11 @@ import {
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 const handler = withErrorHandler(async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    throw new AppError("Unauthorized", 401);
+  const authRes = await authenticateUserOrToken(req, { requiredScopes: ["scans:write"] });
+  if (!authRes.ok) {
+    throw new AppError(authRes.message, authRes.status);
   }
-  const userId = session.user.id;
+  const userId = authRes.userId;
 
   let body: unknown;
   try {
@@ -105,11 +106,11 @@ export const POST = withRateLimit(handler, {
 
 const getHandler = withErrorHandler(
   async function GET(req: NextRequest) {
-    const session = await auth();
-    if (!session?.user?.id) {
-      throw new AppError("Unauthorized", 401);
+    const authRes = await authenticateUserOrToken(req, { requiredScopes: ["findings:read"] });
+    if (!authRes.ok) {
+      throw new AppError(authRes.message, authRes.status);
     }
-    const userId = session.user.id;
+    const userId = authRes.userId;
 
     const { searchParams } = new URL(req.url);
     const limit = parseLimit(searchParams.get("limit"), DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);

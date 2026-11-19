@@ -36,7 +36,6 @@ export function getColorOverride(): boolean | null {
  * Strip ANSI color codes and terminal escape sequences from a string.
  */
 export function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
@@ -44,7 +43,6 @@ export function stripAnsi(str: string): string {
  * Check if a string contains any ANSI escape sequences.
  */
 export function hasAnsi(str: string): boolean {
-  // eslint-disable-next-line no-control-regex
   return /\x1b\[[0-9;]*[a-zA-Z]/.test(str);
 }
 
