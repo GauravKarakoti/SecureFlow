@@ -9,6 +9,8 @@ import { withRateLimit } from "@/lib/middleware/rate-limit";
 import {
   isPayloadTooLarge,
   isTrackedEvent,
+  isSecureFlowCheckRun,
+  isSecureFlowCheckSuite,
   normalizeDeliveryId,
   parseGithubSignature,
   parseMaxWebhookBytes,
@@ -55,6 +57,8 @@ export {
   verifySignature,
   verifyWebhookSignatureWithRotation,
   resolveWebhookSecrets,
+  isSecureFlowCheckRun,
+  isSecureFlowCheckSuite,
 } from "@/lib/github/webhook-verification";
 export { isDuplicateDelivery, recordWebhookDelivery } from "@/lib/github/webhook-dedup";
 
@@ -237,6 +241,43 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       { message: "Action not tracked", deliveryId, correlationId },
       { status: 200 },
     );
+  }
+  
+  // Pre-filter check_run and check_suite re-requests: ignore foreign checks or untracked actions (#1863)
+  if (event === "check_run") {
+    if (parsed.payload.action !== "rerequested") {
+      log.info(`check_run action not tracked: ${parsed.payload.action}`);
+      return NextResponse.json(
+        { message: "Action not tracked", deliveryId, correlationId },
+        { status: 200 },
+      );
+    }
+    const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
+    if (!isSecureFlowCheckRun(parsed.payload.check_run, configuredAppId)) {
+      log.info("Check run not created by SecureFlow ignored");
+      return NextResponse.json(
+        { message: "Check run not created by SecureFlow ignored", deliveryId, correlationId },
+        { status: 200 },
+      );
+    }
+  }
+
+  if (event === "check_suite") {
+    if (parsed.payload.action !== "rerequested") {
+      log.info(`check_suite action not tracked: ${parsed.payload.action}`);
+      return NextResponse.json(
+        { message: "Action not tracked", deliveryId, correlationId },
+        { status: 200 },
+      );
+    }
+    const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
+    if (!isSecureFlowCheckSuite(parsed.payload.check_suite, configuredAppId)) {
+      log.info("Check suite not created by SecureFlow ignored");
+      return NextResponse.json(
+        { message: "Check suite not created by SecureFlow ignored", deliveryId, correlationId },
+        { status: 200 },
+      );
+    }
   }
 
   // 8. Delegate to the queue.

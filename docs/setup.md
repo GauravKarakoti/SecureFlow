@@ -65,7 +65,8 @@ GROQ_MODEL="openai/gpt-oss-20b"
 3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`, Code scanning alerts `Read & Write`.
    - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab. Without it the scan still runs and still posts its check run; only the upload is skipped.
    - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow logs and moves past.
-4. Subscribe to events: `Pull request`, `Merge group`, `Installation`, `Installation repositories`.
+4. Subscribe to events: `Pull request`, `Merge group`, `Installation`, `Installation repositories`, `Check run`, `Check suite`.
+   - Subscribing to `Check run` and `Check suite` (action `rerequested`) allows developers to trigger a new security scan and update the existing check directly from the GitHub PR "Re-run" button without pushing empty commits.
 5. Click **Create GitHub App**, then:
    - Copy **App ID** → `GITHUB_APP_ID`
    - Scroll to **Private Keys → Generate a private key** → download `.pem` → paste its full contents (including headers) into `GITHUB_PRIVATE_KEY`, replacing newlines with `\n`:
