@@ -109,4 +109,44 @@ describe("GET /api/metrics/landing route (#632, #705)", () => {
     expect(response.headers.get("X-RateLimit-Limit")).toBeTruthy();
     expect(response.headers.get("X-RateLimit-Remaining")).toBeTruthy();
   });
+
+  it("returns Prometheus text format when requested with Accept: text/plain (#1784)", async () => {
+    vi.spyOn(landingStatsModule, "getDetailedLandingMetrics").mockResolvedValue(mockMetrics);
+
+    const req = new NextRequest("http://localhost/api/metrics/landing", {
+      headers: { Accept: "text/plain" },
+    });
+    const response = await GET(req);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/plain");
+    const text = await response.text();
+    expect(text).toContain("secureflow_scans_total 400");
+  });
+
+  it("returns Prometheus text format when format=prometheus query param is sent (#1784)", async () => {
+    vi.spyOn(landingStatsModule, "getDetailedLandingMetrics").mockResolvedValue(mockMetrics);
+
+    const req = new NextRequest("http://localhost/api/metrics/landing?format=prometheus");
+    const response = await GET(req);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/plain");
+    const text = await response.text();
+    expect(text).toContain("secureflow_prs_blocked_total 5");
+  });
+
+  it("returns Prometheus text format when requested with Accept: application/openmetrics-text (#1784)", async () => {
+    vi.spyOn(landingStatsModule, "getDetailedLandingMetrics").mockResolvedValue(mockMetrics);
+
+    const req = new NextRequest("http://localhost/api/metrics/landing", {
+      headers: { Accept: "application/openmetrics-text" },
+    });
+    const response = await GET(req);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/plain");
+    const text = await response.text();
+    expect(text).toContain("secureflow_database_live 1");
+  });
 });

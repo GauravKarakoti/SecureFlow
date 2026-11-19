@@ -159,6 +159,27 @@ serviceMonitor:
   bearerTokenSecret: {}
 
 # ----------------------------------------------------------------------------
+# Grafana Dashboard ConfigMap (#1784)
+# ----------------------------------------------------------------------------
+# Deploys a ConfigMap containing the exportable SecureFlow Grafana dashboard.
+# When kube-prometheus-stack (or any Grafana sidecar) is configured with
+# dashboard discovery enabled (label `grafana_dashboard: "1"`), it automatically
+# discovers and imports this dashboard into Grafana.
+grafanaDashboard:
+  # Set to true to deploy the Grafana dashboard ConfigMap. Disabled by default.
+  enabled: false
+
+  # Namespace to deploy the ConfigMap into.
+  # Defaults to the release namespace when empty.
+  namespace: ""
+
+  # Additional labels added to the ConfigMap (e.g. for folder or sidecar targeting).
+  # Example:
+  #   additionalLabels:
+  #     grafana_dashboard_folder: "Security"
+  additionalLabels: {}
+
+# ----------------------------------------------------------------------------
 # Background Worker (BullMQ Queues)
 # ----------------------------------------------------------------------------
 worker:
