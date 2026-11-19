@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111217" />
+      <stop offset="100%" stop-color="#181b1f" />
+    </linearGradient>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1f232b" />
+      <stop offset="100%" stop-color="#181b1f" />
+    </linearGradient>
+    <linearGradient id="blueGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="680" fill="url(#bg)" />
+
+  <!-- Top Navigation Bar -->
+  <rect width="1200" height="52" fill="#141619" />
+  <circle cx="28" cy="26" r="14" fill="#f97316" />
+  <text x="28" y="31" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="14" font-weight="900" fill="#ffffff" text-anchor="middle">S</text>
+  <text x="56" y="32" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="16" font-weight="700" fill="#ffffff">SecureFlow / System Overview</text>
+  <rect x="1010" y="14" width="80" height="24" rx="4" fill="#22252b" />
+  <text x="1050" y="30" font-family="sans-serif" font-size="12" fill="#9ca3af" text-anchor="middle">Last 6 hours</text>
+  <rect x="1100" y="14" width="70" height="24" rx="4" fill="#22252b" />
+  <text x="1135" y="30" font-family="sans-serif" font-size="12" fill="#3b82f6" text-anchor="middle">Auto: 30s</text>
+
+  <!-- Row 1: Section Title -->
+  <text x="24" y="80" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="700" fill="#9095a2" letter-spacing="0.05em">SERVICE HEALTH &amp; HIGH-LEVEL KPIS</text>
+  <line x1="24" y1="88" x2="1176" y2="88" stroke="#2c323d" stroke-width="1" />
+
+  <!-- KPI Cards -->
+  <!-- Database Status -->
+  <rect x="24" y="98" width="176" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="36" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">Database Status</text>
+  <rect x="36" y="136" width="94" height="28" rx="4" fill="#065f46" />
+  <text x="83" y="155" font-family="sans-serif" font-size="14" font-weight="700" fill="#34d399" text-anchor="middle">HEALTHY</text>
+
+  <!-- Total Scans -->
+  <rect x="216" y="98" width="176" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="228" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">Total Scans Completed</text>
+  <text x="228" y="162" font-family="sans-serif" font-size="32" font-weight="800" fill="#60a5fa">4,289</text>
+
+  <!-- Active Repositories -->
+  <rect x="408" y="98" width="176" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="420" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">Active Repositories</text>
+  <text x="420" y="162" font-family="sans-serif" font-size="32" font-weight="800" fill="#c084fc">28</text>
+
+  <!-- Tracked PRs -->
+  <rect x="600" y="98" width="176" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="612" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">Tracked Pull Requests</text>
+  <text x="612" y="162" font-family="sans-serif" font-size="32" font-weight="800" fill="#38bdf8">1,842</text>
+
+  <!-- PR Pass Rate -->
+  <rect x="792" y="98" width="186" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="804" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">PR Policy Pass Rate</text>
+  <text x="804" y="162" font-family="sans-serif" font-size="32" font-weight="800" fill="#4ade80">96.8%</text>
+
+  <!-- Avg Scan Duration -->
+  <rect x="994" y="98" width="182" height="90" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="1006" y="120" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ca3af">Avg Scan Duration</text>
+  <text x="1006" y="162" font-family="sans-serif" font-size="32" font-weight="800" fill="#fbbf24">1.4 s</text>
+
+  <!-- Row 2: Charts Title -->
+  <text x="24" y="214" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="700" fill="#9095a2" letter-spacing="0.05em">SCAN THROUGHPUT &amp; PR POLICY OUTCOMES</text>
+  <line x1="24" y1="222" x2="1176" y2="222" stroke="#2c323d" stroke-width="1" />
+
+  <!-- Scan Throughput Timeseries -->
+  <rect x="24" y="232" width="564" height="200" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="36" y="254" font-family="sans-serif" font-size="13" font-weight="600" fill="#e5e7eb">Scan Completion Throughput</text>
+  <text x="500" y="254" font-family="sans-serif" font-size="11" fill="#9ca3af">rate(5m) req/s</text>
+  <!-- Sparkline / Area -->
+  <path d="M 40 390 L 80 375 L 120 380 L 160 360 L 200 370 L 240 330 L 280 340 L 320 310 L 360 335 L 400 295 L 440 320 L 480 280 L 520 290 L 560 275 L 560 405 L 40 405 Z" fill="url(#blueGlow)" />
+  <path d="M 40 390 L 80 375 L 120 380 L 160 360 L 200 370 L 240 330 L 280 340 L 320 310 L 360 335 L 400 295 L 440 320 L 480 280 L 520 290 L 560 275" fill="none" stroke="#3b82f6" stroke-width="2.5" />
+  <!-- Grid Lines -->
+  <line x1="40" y1="405" x2="560" y2="405" stroke="#374151" stroke-width="1" />
+  <line x1="40" y1="340" x2="560" y2="340" stroke="#2c323d" stroke-dasharray="3,3" />
+  <line x1="40" y1="275" x2="560" y2="275" stroke="#2c323d" stroke-dasharray="3,3" />
+
+  <!-- PR Policy Outcomes Timeseries -->
+  <rect x="604" y="232" width="572" height="200" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="616" y="254" font-family="sans-serif" font-size="13" font-weight="600" fill="#e5e7eb">PR Outcomes (Passed vs Blocked)</text>
+  <!-- Legend -->
+  <circle cx="990" cy="250" r="4" fill="#22c55e" />
+  <text x="1000" y="254" font-family="sans-serif" font-size="11" fill="#9ca3af">Passed (1,783)</text>
+  <circle cx="1090" cy="250" r="4" fill="#ef4444" />
+  <text x="1100" y="254" font-family="sans-serif" font-size="11" fill="#9ca3af">Blocked (59)</text>
+  <!-- Chart lines -->
+  <path d="M 620 395 L 670 385 L 720 370 L 770 355 L 820 340 L 870 325 L 920 310 L 970 295 L 1020 280 L 1070 270 L 1140 260" fill="none" stroke="#22c55e" stroke-width="2.5" />
+  <path d="M 620 400 L 720 399 L 820 397 L 920 395 L 1020 394 L 1140 392" fill="none" stroke="#ef4444" stroke-width="2" />
+  <!-- Grid Lines -->
+  <line x1="620" y1="405" x2="1140" y2="405" stroke="#374151" stroke-width="1" />
+
+  <!-- Row 3: Security Findings Breakdown -->
+  <text x="24" y="456" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="700" fill="#9095a2" letter-spacing="0.05em">SECURITY FINDINGS &amp; SCAN LATENCY</text>
+  <line x1="24" y1="464" x2="1176" y2="464" stroke="#2c323d" stroke-width="1" />
+
+  <!-- Donut Chart: Findings by Type -->
+  <rect x="24" y="474" width="370" height="186" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="36" y="496" font-family="sans-serif" font-size="13" font-weight="600" fill="#e5e7eb">Findings Distribution</text>
+  <!-- Donut rings -->
+  <circle cx="120" cy="570" r="45" fill="none" stroke="#ef4444" stroke-width="22" stroke-dasharray="80 200" />
+  <circle cx="120" cy="570" r="45" fill="none" stroke="#f97316" stroke-width="22" stroke-dasharray="120 200" stroke-dashoffset="-80" />
+  <circle cx="120" cy="570" r="45" fill="none" stroke="#eab308" stroke-width="22" stroke-dasharray="83 200" stroke-dashoffset="-200" />
+  <!-- Donut Legend -->
+  <circle cx="210" cy="535" r="4" fill="#ef4444" />
+  <text x="222" y="539" font-family="sans-serif" font-size="12" fill="#d1d5db">Secrets (28%)</text>
+  <circle cx="210" cy="565" r="4" fill="#f97316" />
+  <text x="222" y="569" font-family="sans-serif" font-size="12" fill="#d1d5db">Vulnerabilities (42%)</text>
+  <circle cx="210" cy="595" r="4" fill="#eab308" />
+  <text x="222" y="599" font-family="sans-serif" font-size="12" fill="#d1d5db">Misconfigs (30%)</text>
+
+  <!-- Bar Gauge: Findings Count -->
+  <rect x="410" y="474" width="378" height="186" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="422" y="496" font-family="sans-serif" font-size="13" font-weight="600" fill="#e5e7eb">Current Findings by Category</text>
+  <!-- Bar 1 -->
+  <text x="422" y="530" font-family="sans-serif" font-size="11" fill="#9ca3af">vulnerabilities</text>
+  <rect x="422" y="538" width="300" height="14" rx="3" fill="#2a2e39" />
+  <rect x="422" y="538" width="180" height="14" rx="3" fill="#f97316" />
+  <text x="735" y="550" font-family="sans-serif" font-size="11" font-weight="700" fill="#f97316">64</text>
+  <!-- Bar 2 -->
+  <text x="422" y="572" font-family="sans-serif" font-size="11" fill="#9ca3af">secrets</text>
+  <rect x="422" y="580" width="300" height="14" rx="3" fill="#2a2e39" />
+  <rect x="422" y="580" width="120" height="14" rx="3" fill="#ef4444" />
+  <text x="735" y="592" font-family="sans-serif" font-size="11" font-weight="700" fill="#ef4444">42</text>
+  <!-- Bar 3 -->
+  <text x="422" y="614" font-family="sans-serif" font-size="11" fill="#9ca3af">misconfigs</text>
+  <rect x="422" y="622" width="300" height="14" rx="3" fill="#2a2e39" />
+  <rect x="422" y="622" width="90" height="14" rx="3" fill="#eab308" />
+  <text x="735" y="634" font-family="sans-serif" font-size="11" font-weight="700" fill="#eab308">31</text>
+
+  <!-- Gauge: Scan Duration -->
+  <rect x="804" y="474" width="372" height="186" rx="4" fill="url(#cardBg)" stroke="#2c323d" />
+  <text x="816" y="496" font-family="sans-serif" font-size="13" font-weight="600" fill="#e5e7eb">Scan Execution Latency</text>
+  <path d="M 910 610 A 80 80 0 0 1 1070 610" fill="none" stroke="#2a2e39" stroke-width="16" stroke-linecap="round" />
+  <path d="M 910 610 A 80 80 0 0 1 960 545" fill="none" stroke="#22c55e" stroke-width="16" stroke-linecap="round" />
+  <text x="990" y="605" font-family="sans-serif" font-size="28" font-weight="800" fill="#e5e7eb" text-anchor="middle">1.4 s</text>
+  <text x="990" y="625" font-family="sans-serif" font-size="11" fill="#9ca3af" text-anchor="middle">Threshold: &lt; 2.0s</text>
+</svg>

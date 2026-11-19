@@ -7,6 +7,7 @@ import {
   getVoiceAlerts,
   getUserRepositoriesWithBadgeStatus,
   getOutboundWebhooks,
+  getWeeklyDigestPreference,
 } from "@/lib/actions/settings";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +25,14 @@ export default async function SettingsPage() {
     initialVoiceAlertsEnabled,
     initialRepositories,
     initialOutboundWebhooks,
+    initialWeeklyDigestEnabled,
   ] = await Promise.all([
     getSlackWebhook(),
     getTeamsWebhook(),
     getVoiceAlerts(),
     getUserRepositoriesWithBadgeStatus(),
     getOutboundWebhooks(),
+    getWeeklyDigestPreference(),
   ]);
 
   return (
@@ -39,6 +42,7 @@ export default async function SettingsPage() {
       initialVoiceAlertsEnabled={initialVoiceAlertsEnabled}
       initialRepositories={initialRepositories}
       initialOutboundWebhooks={initialOutboundWebhooks}
+      initialWeeklyDigestEnabled={initialWeeklyDigestEnabled}
     />
   );
 }

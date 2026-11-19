@@ -174,6 +174,8 @@ export interface RepoBadgeSetting {
   fullName: string;
   owner: string;
   publicBadgeEnabled: boolean;
+  codeScanningEnabled: boolean;
+  codeScanningWarning?: string | null;
   latestStatus?: string | null;
 }
 
@@ -189,6 +191,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       fullName: true,
       owner: true,
       publicBadgeEnabled: true,
+      codeScanningEnabled: true,
+      codeScanningWarning: true,
       pullRequests: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -204,6 +208,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       fullName: string;
       owner: string;
       publicBadgeEnabled: boolean;
+      codeScanningEnabled: boolean;
+      codeScanningWarning?: string | null;
       pullRequests: Array<{ status: string }>;
     }>
   ).map((repo) => ({
@@ -211,6 +217,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
     fullName: repo.fullName,
     owner: repo.owner,
     publicBadgeEnabled: repo.publicBadgeEnabled,
+    codeScanningEnabled: repo.codeScanningEnabled,
+    codeScanningWarning: repo.codeScanningWarning ?? null,
     latestStatus: repo.pullRequests[0]?.status ?? null,
   }));
 }
@@ -240,6 +248,69 @@ export async function updateRepositoryPublicBadge(
 
   revalidatePath("/dashboard/settings");
   return { success: true };
+}
+
+export async function updateRepositoryCodeScanning(
+  repositoryId: string,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const repo = await prisma.repository.findFirst({
+    where: { id: repositoryId, userId },
+  });
+
+  if (!repo) {
+    return { success: false, error: "Repository not found or unauthorized" };
+  }
+
+  await prisma.repository.update({
+    where: { id: repositoryId },
+    data: {
+      codeScanningEnabled: Boolean(enabled),
+      ...(enabled ? {} : { codeScanningWarning: null }),
+    },
+  });
+
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
+
+export async function getWeeklyDigestPreference(): Promise<boolean> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return true;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { weeklyDigestEnabled: true },
+  });
+
+  return user?.weeklyDigestEnabled ?? true;
+}
+
+export async function updateWeeklyDigestPreference(
+  enabled: boolean,
+): Promise<{ success: boolean; enabled: boolean }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { weeklyDigestEnabled: Boolean(enabled) },
+    select: { weeklyDigestEnabled: true },
+  });
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/digest");
+  return { success: true, enabled: updated.weeklyDigestEnabled };
 }
 
 export interface OutboundWebhookView {

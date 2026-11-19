@@ -1177,4 +1177,168 @@ describe("GitHub webhook route", () => {
       expect(mockEnqueueSbomScan.mock.calls[0][1].jobId).not.toContain(":");
     });
   });
+
+  describe("merge_group event (#1864)", () => {
+    const mergeGroupPayload = JSON.stringify({
+      action: "checks_requested",
+      merge_group: {
+        head_sha: "head-sha-merge-123",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42-base-sha-123",
+        base_sha: "base-sha-123",
+        base_ref: "refs/heads/main",
+      },
+      repository: {
+        id: 12345,
+        name: "test-repo",
+        full_name: "acme/test-repo",
+        owner: { login: "acme" },
+      },
+      installation: { id: 9876 },
+    });
+
+    it("enqueues a webhook job when action is checks_requested", async () => {
+      const req = makeRequest(mergeGroupPayload, {}, "merge_group");
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "merge_group",
+          payload: expect.objectContaining({
+            action: "checks_requested",
+            merge_group: expect.objectContaining({ head_sha: "head-sha-merge-123" }),
+          }),
+         }),
+        expect.any(Object),
+      );
+    }
+  });
+    
+  describe("check_run and check_suite event routing (#1863)", () => {
+    beforeEach(() => {
+      process.env.GITHUB_APP_ID = "12345";
+    });
+
+    it("enqueues a job for check_run rerequested when created by SecureFlow", async () => {
+      const payload = JSON.stringify({
+        action: "rerequested",
+        check_run: {
+          id: 1001,
+          name: "SecureFlow Scan",
+          head_sha: "abc123",
+          app: { id: 12345, name: "SecureFlow" },
+          pull_requests: [{ number: 42, id: 99, head: { sha: "abc123" } }],
+        },
+        repository: { id: 1, full_name: "acme/repo", owner: { login: "acme" } },
+        installation: { id: 111 },
+      });
+
+      const req = makeRequest(payload, {}, "check_run");
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued" });
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "check_run",
+          payload: expect.objectContaining({ action: "rerequested" }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it("acknowledges with 200 without enqueuing when action is not checks_requested", async () => {
+      const untrackedPayload = JSON.stringify({
+        action: "destroyed",
+        merge_group: { head_sha: "head-123" },
+      });
+      const req = makeRequest(untrackedPayload, {}, "merge_group");
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.message).toBe("Action not tracked");
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+    
+    it("ignores check_run actions other than rerequested", async () => {
+      const payload = JSON.stringify({
+        action: "completed",
+        check_run: { id: 1001, name: "SecureFlow Scan" },
+      });
+
+      const req = makeRequest(payload, {}, "check_run");
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ message: "Action not tracked" });
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+
+    it("ignores check_run not created by SecureFlow (foreign app or different check name)", async () => {
+      const foreignCheckPayload = JSON.stringify({
+        action: "rerequested",
+        check_run: {
+          id: 2002,
+          name: "codecov/patch",
+          app: { id: 9999, name: "Codecov" },
+        },
+      });
+
+      const req = makeRequest(foreignCheckPayload, {}, "check_run");
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        message: "Check run not created by SecureFlow ignored",
+      });
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+
+    it("enqueues a job for check_suite rerequested when app matches SecureFlow", async () => {
+      const payload = JSON.stringify({
+        action: "rerequested",
+        check_suite: {
+          id: 3003,
+          head_sha: "def456",
+          app: { id: 12345, name: "SecureFlow", slug: "secureflow" },
+          pull_requests: [{ number: 42, id: 99 }],
+        },
+        repository: { id: 1, full_name: "acme/repo" },
+        installation: { id: 111 },
+      });
+
+      const req = makeRequest(payload, {}, "check_suite");
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({ status: "queued" });
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "check_suite",
+          payload: expect.objectContaining({ action: "rerequested" }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it("ignores check_suite from foreign apps", async () => {
+      const foreignSuitePayload = JSON.stringify({
+        action: "rerequested",
+        check_suite: {
+          id: 4004,
+          app: { id: 8888, name: "Dependabot", slug: "dependabot" },
+        },
+      });
+
+      const req = makeRequest(foreignSuitePayload, {}, "check_suite");
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        message: "Check suite not created by SecureFlow ignored",
+      });
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+  });
 });

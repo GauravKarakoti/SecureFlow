@@ -39,6 +39,8 @@
     "worker:render": "tsx scripts/start-worker.ts",
     "retention": "tsx --env-file=.env scripts/retention.ts",
     "retention:render": "tsx scripts/retention.ts",
+    "digest": "tsx --env-file=.env scripts/generate-weekly-digest.ts",
+    "digest:render": "tsx scripts/generate-weekly-digest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check . || node -e \"console.error('\\n❌ Formatting check failed! Run: npm run format\\n'); process.exit(1)\"",
     "audit:verify": "tsx scripts/verify-audit-chain.ts",

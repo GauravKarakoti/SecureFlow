@@ -89,6 +89,14 @@ model User {
    */
   voiceAlertsEnabled Boolean @default(false)
 
+  /**
+   * Whether the user receives weekly security posture digests.
+   * Enabled by default — users can opt out in settings (#1788).
+   */
+  weeklyDigestEnabled Boolean @default(true)
+
+  digests SecurityDigest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -144,6 +152,8 @@ model Repository {
   owner              String
   isActive           Boolean @default(true)
   publicBadgeEnabled Boolean @default(false)
+  codeScanningEnabled Boolean @default(false)
+  codeScanningWarning String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -604,4 +614,31 @@ model OutboundWebhookDelivery {
   @@index([eventId])
   @@index([webhookId, createdAt(sort: Desc)])
   @@map("outbound_webhook_deliveries")
+}
+
+/*
+ * Weekly Security Digest (#1788).
+ * Stores weekly security posture snapshots per user:
+ * counts of new, dismissed, and resolved findings, top 5 repositories
+ * by open findings, top 5 recurring finding types, and number of BLOCKED PRs.
+ * Never stores code snippets or secrets.
+ */
+model SecurityDigest {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate              DateTime
+  endDate                DateTime
+  newFindingsCount       Int       @default(0)
+  dismissedFindingsCount Int       @default(0)
+  resolvedFindingsCount  Int       @default(0)
+  blockedPrsCount        Int       @default(0)
+  topRepositories        Json      @default("[]")
+  topFindingTypes        Json      @default("[]")
+  sentAt                 DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("security_digests")
 }

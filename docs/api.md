@@ -286,8 +286,11 @@ The `X-Hub-Signature-256` header must be `sha256=` + the hex HMAC of the raw req
 | --------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `pull_request`              | `opened`, `synchronize`, `reopened` | Full scan pipeline (below).                                                                             |
 | `pull_request`              | `closed`                            | Records merge/closure state for leaderboard scoring. No scan.                                           |
+| `merge_group`               | `checks_requested`                  | Merge queue evaluation: reuses PR scan result if diff unchanged or runs fast combined scan.              |
 | `installation`              | `created`                           | Links the installer's GitHub account (via `sender.id`) and bulk-inserts selected repos in chunks of 50. |
 | `installation_repositories` | `added`                             | Inserts newly-added repos for an existing installation.                                                 |
+| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.   |
+| `check_suite`               | `rerequested`                       | Enqueues scan job for attached PR(s). Foreign check suites are ignored.                                 |
 | _(anything else)_           | —                                   | Returns `200 { "message": "Event not tracked" }`.                                                       |
 
 #### Payload schema (validated subset)
@@ -395,6 +398,16 @@ For a tracked `pull_request` event, the handler:
 6. Updates the Check Run conclusion: `success` (PASS), `action_required` (REVIEW REQUIRED), or `failure` (BLOCKED).
 7. Updates the placeholder comment with the full AI Security Report (or a ✅ "no vulnerabilities" message).
 8. Persists `PullRequest`, `ScanResult`, and `Finding` rows.
+9. If `codeScanningEnabled` is turned on for the repository, converts findings to SARIF 2.1.0 with secret masking and uploads them via GitHub's Code Scanning API (`POST /repos/{owner}/{repo}/code-scanning/sarifs`).
+
+#### Code scanning SARIF upload (`POST /repos/{owner}/{repo}/code-scanning/sarifs`)
+
+Repositories with **Publish findings to GitHub Code Scanning** opted in push scan results directly to GitHub's **Security → Code scanning alerts** tab:
+
+- **Format**: SARIF 2.1.0 (gzipped JSON), generated via `buildSarifDocument`.
+- **Tool driver**: `SecureFlow` with deterministic rule IDs (`ruleIdFor`) and stable partial fingerprints (`secureflow/finding/v1`) to prevent alert duplication across commit scans.
+- **Secret Redaction**: Finding messages, snippets, and descriptions pass through `maskFindingText`, ensuring raw API keys and secrets are replaced with `[REDACTED_BY_THE_PROFESSOR]`.
+- **Fault-tolerance**: Failures due to missing GitHub App permissions (`security_events: write`) or disabled Advanced Security (403/404) do not fail the scan check run; a warning is persisted to `Repository.codeScanningWarning` and displayed on the repository card in Settings.
 
 #### Required environment variables
 
@@ -1196,6 +1209,8 @@ Cookie: next-auth.session-token=<jwt>
 ```
 
 When there are no further records, `nextCursor` is `null`.
+
+---
 
 ---
 
