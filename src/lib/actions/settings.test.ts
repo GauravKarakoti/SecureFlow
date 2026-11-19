@@ -41,6 +41,7 @@ import {
   updateSlackWebhook,
   getUserRepositoriesWithBadgeStatus,
   updateRepositoryPublicBadge,
+  updateRepositoryCodeScanning,
 } from "./settings";
 
 const WEBHOOK = "https://hooks.slack.com/services/T000/B000/XXXX";
@@ -198,6 +199,8 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
         fullName: "acme/api",
         owner: "acme",
         publicBadgeEnabled: true,
+        codeScanningEnabled: true,
+        codeScanningWarning: null,
         pullRequests: [{ status: "PASS" }],
       },
       {
@@ -205,6 +208,8 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
         fullName: "acme/web",
         owner: "acme",
         publicBadgeEnabled: false,
+        codeScanningEnabled: false,
+        codeScanningWarning: "Permission denied",
         pullRequests: [],
       },
     ]);
@@ -216,6 +221,8 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
         fullName: "acme/api",
         owner: "acme",
         publicBadgeEnabled: true,
+        codeScanningEnabled: true,
+        codeScanningWarning: null,
         latestStatus: "PASS",
       },
       {
@@ -223,6 +230,8 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
         fullName: "acme/web",
         owner: "acme",
         publicBadgeEnabled: false,
+        codeScanningEnabled: false,
+        codeScanningWarning: "Permission denied",
         latestStatus: null,
       },
     ]);
@@ -234,6 +243,8 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
         fullName: true,
         owner: true,
         publicBadgeEnabled: true,
+        codeScanningEnabled: true,
+        codeScanningWarning: true,
         pullRequests: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -242,6 +253,47 @@ describe("getUserRepositoriesWithBadgeStatus", () => {
       },
       orderBy: { fullName: "asc" },
     });
+  });
+});
+
+describe("updateRepositoryCodeScanning", () => {
+  it("rejects unauthenticated requests", async () => {
+    session = null;
+    await expect(updateRepositoryCodeScanning("repo-1", true)).rejects.toThrow("Unauthorized");
+    expect(mockRepoUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns error if repository not found or not owned by user", async () => {
+    mockRepoFindFirst.mockResolvedValue(null);
+    const res = await updateRepositoryCodeScanning("repo-ghost", true);
+    expect(res).toEqual({ success: false, error: "Repository not found or unauthorized" });
+    expect(mockRepoUpdate).not.toHaveBeenCalled();
+  });
+
+  it("enables code scanning and revalidates dashboard settings", async () => {
+    mockRepoFindFirst.mockResolvedValue({ id: "repo-1", userId: "user-1" });
+    mockRepoUpdate.mockResolvedValue({ id: "repo-1", codeScanningEnabled: true });
+
+    const res = await updateRepositoryCodeScanning("repo-1", true);
+    expect(res).toEqual({ success: true });
+    expect(mockRepoUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: { codeScanningEnabled: true },
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+  });
+
+  it("disables code scanning and clears any existing warning", async () => {
+    mockRepoFindFirst.mockResolvedValue({ id: "repo-1", userId: "user-1" });
+    mockRepoUpdate.mockResolvedValue({ id: "repo-1", codeScanningEnabled: false, codeScanningWarning: null });
+
+    const res = await updateRepositoryCodeScanning("repo-1", false);
+    expect(res).toEqual({ success: true });
+    expect(mockRepoUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: { codeScanningEnabled: false, codeScanningWarning: null },
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
   });
 });
 

@@ -107,6 +107,19 @@ describe("buildSarifDocument", () => {
     expect(doc.runs[0].results[0].partialFingerprints?.[FINGERPRINT_KEY]).toBe("keep-me");
   });
 
+  it("masks secret tokens in finding message text", () => {
+    const rawSecret = "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB";
+    const doc = buildSarifDocument([
+      finding({
+        description: `Hardcoded GitHub token ${rawSecret} found in configuration`,
+      }),
+    ]);
+
+    const message = doc.runs[0].results[0].message.text;
+    expect(message).not.toContain(rawSecret);
+    expect(message).toContain("[REDACTED_BY_THE_PROFESSOR]");
+  });
+
   it("emits a valid empty run when everything is fixed", () => {
     const doc = buildSarifDocument([]);
 

@@ -63,8 +63,12 @@ GROQ_MODEL="openai/gpt-oss-20b"
      ```
    - **Webhook Secret**: any random string (e.g. `openssl rand -hex 20`) → `GITHUB_WEBHOOK_SECRET`
 3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`, Code scanning alerts `Read & Write`.
-   - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab. Without it the scan still runs and still posts its check run; only the upload is skipped.
-   - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow logs and moves past.
+   - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab via the GitHub SARIF upload API.
+   - **Opt-in per repository**: Enable this in the dashboard under **Settings (`/dashboard/settings`) → Publish findings to GitHub Code Scanning**.
+   - **Permission & failure handling**: Without `security_events: write` (or if Advanced Security is disabled on a private repository, returning 403 or 404), the scan still completes and posts its check run without failing; SecureFlow logs the response and displays an actionable warning banner on the repository card in Settings.
+   - **Secret Masking & Zero Leakage**: All finding messages and remediation summaries uploaded via SARIF are scrubbed with `maskFindingText`. Detected API keys and secrets are strictly redacted with `[REDACTED_BY_THE_PROFESSOR]` prior to upload.
+   - **Deduplication**: Findings include deterministic rule IDs and stable partial fingerprints (`secureflow/finding/v1`), ensuring re-scans update existing alerts on GitHub without duplication.
+   - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow records as a dashboard warning and moves past.
 4. Subscribe to events: `Pull request`, `Installation`, `Installation repositories`.
 5. Click **Create GitHub App**, then:
    - Copy **App ID** → `GITHUB_APP_ID`

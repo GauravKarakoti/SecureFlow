@@ -395,6 +395,16 @@ For a tracked `pull_request` event, the handler:
 6. Updates the Check Run conclusion: `success` (PASS), `action_required` (REVIEW REQUIRED), or `failure` (BLOCKED).
 7. Updates the placeholder comment with the full AI Security Report (or a ✅ "no vulnerabilities" message).
 8. Persists `PullRequest`, `ScanResult`, and `Finding` rows.
+9. If `codeScanningEnabled` is turned on for the repository, converts findings to SARIF 2.1.0 with secret masking and uploads them via GitHub's Code Scanning API (`POST /repos/{owner}/{repo}/code-scanning/sarifs`).
+
+#### Code scanning SARIF upload (`POST /repos/{owner}/{repo}/code-scanning/sarifs`)
+
+Repositories with **Publish findings to GitHub Code Scanning** opted in push scan results directly to GitHub's **Security → Code scanning alerts** tab:
+
+- **Format**: SARIF 2.1.0 (gzipped JSON), generated via `buildSarifDocument`.
+- **Tool driver**: `SecureFlow` with deterministic rule IDs (`ruleIdFor`) and stable partial fingerprints (`secureflow/finding/v1`) to prevent alert duplication across commit scans.
+- **Secret Redaction**: Finding messages, snippets, and descriptions pass through `maskFindingText`, ensuring raw API keys and secrets are replaced with `[REDACTED_BY_THE_PROFESSOR]`.
+- **Fault-tolerance**: Failures due to missing GitHub App permissions (`security_events: write`) or disabled Advanced Security (403/404) do not fail the scan check run; a warning is persisted to `Repository.codeScanningWarning` and displayed on the repository card in Settings.
 
 #### Required environment variables
 

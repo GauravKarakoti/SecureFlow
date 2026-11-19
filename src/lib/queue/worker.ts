@@ -28,6 +28,7 @@ import {
   pullRequestRef,
   uploadSarifAnalysis,
   type CodeScanningClient,
+  type CodeScanningFinding,
 } from "@/lib/github/code-scanning";
 import {
   buildPullRequestFacts,
@@ -909,42 +910,19 @@ export const worker = new Worker<WebhookJobData>(
           // Publish the same findings to GitHub's Code Scanning UI, so they show
           // up in the PR's "Security" tab without a trip to the dashboard.
           //
+          // Opt-in per repository (#1865): only uploads when `codeScanningEnabled` is true.
           // Deliberately after the check run and deliberately unable to fail the
-          // scan: a private repository without Advanced Security answers 403 here,
-          // which says nothing about the code that was just scanned. The upload is
-          // built from `enrichedFindings` (active findings only) so a finding the
-          // user dismissed does not reopen as an alert on the next push.
-          //
-          // The try/catch covers `buildSarifDocument` as well as the upload:
-          // `uploadSarifAnalysis` guards its own request, but the document is
-          // built here, and a throw from it would fail a scan job whose check run
-          // has already been posted — turning a delivered result into a retry.
-          try {
-            const sarifOutcome = await uploadSarifAnalysis(
-              octokit as unknown as CodeScanningClient,
-              {
-                owner: repository.owner.login,
-                repo: repository.name,
-                commitSha: pull_request.head.sha,
-                ref: pullRequestRef(pull_request.number),
-                document: buildSarifDocument(enrichedFindings),
-              },
-            );
-
-            const target = `${sanitize(repository.full_name)}#${sanitize(String(pull_request.number))}`;
-
-            log.info(
-              sarifOutcome.status === "uploaded"
-                ? `[Worker] Uploaded SARIF for ${target}`
-                : `[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`,
-            );
-          } catch (err) {
-            log.info(
-              `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(
-                err instanceof Error ? err.message : String(err),
-              )}`,
-            );
-          }
+          // scan: a private repository without Advanced Security or an app without
+          // `security_events: write` permission answers 403/404, which SecureFlow
+          // records as a dashboard warning without failing the scan.
+          await publishScanSarifAnalysis({
+            octokit: octokit as unknown as CodeScanningClient,
+            repository,
+            pullRequest: pull_request,
+            findings: enrichedFindings,
+            dbRepo,
+            log,
+          });
 
           if (enrichedFindings.length > 0) {
             // Badge rendering comes from `@/lib/severity`. The previous inline
@@ -1279,6 +1257,77 @@ export async function postScanFailureCheck(
     log.error("[QUEUE] Could not post fail-closed check run:", {
       error: checkErr?.message ?? String(checkErr),
     });
+  }
+}
+
+export interface PublishScanSarifOptions {
+  octokit: CodeScanningClient;
+  repository: { full_name: string; name: string; owner: { login: string } };
+  pullRequest: { number: number; head: { sha: string } };
+  findings: readonly CodeScanningFinding[];
+  dbRepo: { id: string; codeScanningEnabled?: boolean | null; codeScanningWarning?: string | null } | null | undefined;
+  log?: { info: (msg: string) => void; error?: (msg: string) => void };
+}
+
+/**
+ * Opt-in per repository (#1865): Uploads findings to GitHub's native Code Scanning UI.
+ * Deliberately after the check run and deliberately unable to fail the scan.
+ * When the GitHub App lacks permissions (403/404), records a dashboard warning on the repository.
+ */
+export async function publishScanSarifAnalysis({
+  octokit,
+  repository,
+  pullRequest,
+  findings,
+  dbRepo,
+  log,
+}: PublishScanSarifOptions): Promise<
+  | { status: "uploaded" }
+  | { status: "skipped"; reason: string }
+  | { status: "error"; error: string }
+> {
+  const target = `${sanitize(repository.full_name)}#${sanitize(String(pullRequest.number))}`;
+  if (!dbRepo?.codeScanningEnabled) {
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: code scanning publishing is disabled.`);
+    return { status: "skipped", reason: "code-scanning-disabled" };
+  }
+
+  try {
+    const sarifOutcome = await uploadSarifAnalysis(octokit, {
+      owner: repository.owner.login,
+      repo: repository.name,
+      commitSha: pullRequest.head.sha,
+      ref: pullRequestRef(pullRequest.number),
+      document: buildSarifDocument(findings),
+    });
+
+    if (sarifOutcome.status === "uploaded") {
+      log?.info(`[Worker] Uploaded SARIF for ${target}`);
+      if (dbRepo.codeScanningWarning) {
+        await prisma.repository.update({
+          where: { id: dbRepo.id },
+          data: { codeScanningWarning: null },
+        });
+      }
+      return { status: "uploaded" };
+    }
+
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`);
+    if (sarifOutcome.reason === "code-scanning-unavailable") {
+      const warningMsg =
+        "GitHub App lacks security_events: write permission (Code scanning alerts: Read & Write) or Advanced Security is disabled on this repository.";
+      await prisma.repository.update({
+        where: { id: dbRepo.id },
+        data: { codeScanningWarning: warningMsg },
+      });
+    }
+    return { status: "skipped", reason: sarifOutcome.reason };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    log?.info(
+      `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(errorMsg)}`,
+    );
+    return { status: "error", error: errorMsg };
   }
 }
 
