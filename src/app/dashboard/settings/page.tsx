@@ -6,6 +6,7 @@ import {
   getTeamsWebhook,
   getVoiceAlerts,
   getUserRepositoriesWithBadgeStatus,
+  getApiTokens,
 } from "@/lib/actions/settings";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +23,13 @@ export default async function SettingsPage() {
     initialTeamsWebhookUrl,
     initialVoiceAlertsEnabled,
     initialRepositories,
+    initialApiTokens,
   ] = await Promise.all([
     getSlackWebhook(),
     getTeamsWebhook(),
     getVoiceAlerts(),
     getUserRepositoriesWithBadgeStatus(),
+    getApiTokens(),
   ]);
 
   return (
@@ -35,6 +38,7 @@ export default async function SettingsPage() {
       initialTeamsWebhookUrl={initialTeamsWebhookUrl}
       initialVoiceAlertsEnabled={initialVoiceAlertsEnabled}
       initialRepositories={initialRepositories}
+      initialApiTokens={initialApiTokens}
     />
   );
 }

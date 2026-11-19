@@ -69,6 +69,7 @@ model User {
   roles          UserRole[]
   auditLogs      AuditLog[]
   savedViews     SavedView[]
+  apiTokens      ApiToken[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -563,3 +564,28 @@ model ScanCache {
   @@index([expiresAt])
   @@map("scan_cache")
 }
+
+/**
+ * Personal API Tokens for CLI and automated API access (#1867).
+ * Stores only a SHA-256 hash of the token, plus scopes, expiry, and last-used audit info.
+ */
+model ApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String
+  scopes      String[]  @default([])
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([userId, revokedAt])
+}
+

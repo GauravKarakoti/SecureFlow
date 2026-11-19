@@ -27,6 +27,13 @@ components:
       description: |
         NextAuth.js JWT session cookie. Obtained via GitHub OAuth flow.
         Sessions have a 1-year maxAge. The session contains user ID, codename, and roles.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sft_*
+      description: |
+        Personal API Token (#1867). Created in Settings (/dashboard/settings).
+        Format: `sft_<hex>`. Supports granular scopes (e.g. `findings:read`, `scans:write`).
 
   schemas:
     Error:

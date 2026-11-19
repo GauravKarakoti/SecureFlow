@@ -14,9 +14,11 @@ import {
   testTeamsWebhook,
   updateRepositoryPublicBadge,
   type RepoBadgeSetting,
+  type ApiTokenItem,
 } from "@/lib/actions/settings";
 import { Save, MessageSquare, Volume2, Send, Shield, Copy } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
+import ApiTokensCard from "@/components/settings/api-tokens-card";
 
 const subscribeToOrigin = () => () => {};
 const getBrowserOrigin = () => window.location.origin;
@@ -27,11 +29,13 @@ export default function SettingsClient({
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
   initialRepositories = [],
+  initialApiTokens = [],
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
   initialRepositories?: RepoBadgeSetting[];
+  initialApiTokens?: ApiTokenItem[];
 }) {
   // --- Slack state ---
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl || "");
@@ -390,6 +394,9 @@ export default function SettingsClient({
           )}
         </CardContent>
       </Card>
+
+      {/* Personal API Tokens (#1867) */}
+      <ApiTokensCard initialTokens={initialApiTokens} />
     </div>
   );
 }
