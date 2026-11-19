@@ -1208,12 +1208,12 @@ describe("GitHub webhook route", () => {
             action: "checks_requested",
             merge_group: expect.objectContaining({ head_sha: "head-sha-merge-123" }),
           }),
-         }),
+        }),
         expect.any(Object),
       );
-    }
+    });
   });
-    
+
   describe("check_run and check_suite event routing (#1863)", () => {
     beforeEach(() => {
       process.env.GITHUB_APP_ID = "12345";
@@ -1260,7 +1260,7 @@ describe("GitHub webhook route", () => {
       expect(data.message).toBe("Action not tracked");
       expect(addWebhookJob).not.toHaveBeenCalled();
     });
-    
+
     it("ignores check_run actions other than rerequested", async () => {
       const payload = JSON.stringify({
         action: "completed",

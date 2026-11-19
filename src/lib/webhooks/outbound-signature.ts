@@ -66,7 +66,10 @@ export function verifyOutboundWebhookSignature({
     const currentTimeMs = Date.now();
     const ageSeconds = Math.abs((currentTimeMs - eventTimeMs) / 1000);
     if (ageSeconds > toleranceSeconds) {
-      return { valid: false, reason: `Timestamp outside tolerance window (${ageSeconds.toFixed(1)}s > ${toleranceSeconds}s).` };
+      return {
+        valid: false,
+        reason: `Timestamp outside tolerance window (${ageSeconds.toFixed(1)}s > ${toleranceSeconds}s).`,
+      };
     }
   }
 

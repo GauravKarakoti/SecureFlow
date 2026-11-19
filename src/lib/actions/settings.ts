@@ -6,10 +6,7 @@ import { revalidatePath } from "next/cache";
 import { assertSlackWebhookUrl, sendSlackAlert } from "@/lib/integrations/slack";
 import { assertTeamsWebhookUrl, sendTeamsAlert, buildTeamsAlert } from "@/lib/integrations/teams";
 import { buildBlockedSlackAlert } from "@/lib/integrations/notification-dispatcher";
-import {
-  generateApiToken,
-  isValidScope,
-} from "@/lib/auth/api-token";
+import { generateApiToken, isValidScope } from "@/lib/auth/api-token";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { validateOutboundWebhookUrl } from "@/lib/webhooks/outbound-security";
 import { generateOutboundWebhookSecret } from "@/lib/webhooks/outbound-signature";
@@ -397,9 +394,7 @@ export async function getApiTokens(): Promise<ApiTokenItem[]> {
   }));
 }
 
-export async function createApiToken(
-  input: CreateApiTokenInput,
-): Promise<CreateApiTokenResult> {
+export async function createApiToken(input: CreateApiTokenInput): Promise<CreateApiTokenResult> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
@@ -492,9 +487,7 @@ export async function createApiToken(
   };
 }
 
-export async function revokeApiToken(
-  tokenId: string,
-): Promise<RevokeApiTokenResult> {
+export async function revokeApiToken(tokenId: string): Promise<RevokeApiTokenResult> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
@@ -787,9 +780,12 @@ export async function getOutboundWebhookDeliveries(
 /**
  * Trigger a test delivery (ping) to verify endpoint connectivity.
  */
-export async function testOutboundWebhook(
-  webhookId: string,
-): Promise<{ success: boolean; statusCode?: number | null; error?: string | null; attempts: number }> {
+export async function testOutboundWebhook(webhookId: string): Promise<{
+  success: boolean;
+  statusCode?: number | null;
+  error?: string | null;
+  attempts: number;
+}> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {

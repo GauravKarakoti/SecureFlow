@@ -20,7 +20,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertOctagon,
-  AlertCircle,
   Clock,
   Filter,
   AlertCircle,
@@ -365,12 +364,12 @@ export default function AnalyticsClient({
               excluded.
             </p>
           </div>
-          <a
+          <Link
             href="/dashboard/findings?status=OPEN"
             className="text-xs font-mono text-red-300 hover:text-red-100 underline underline-offset-2 shrink-0"
           >
             View findings →
-          </a>
+          </Link>
         </div>
       )}
 

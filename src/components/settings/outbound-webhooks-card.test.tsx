@@ -31,9 +31,7 @@ describe("OutboundWebhooksCard UI (#1866)", () => {
   it("renders empty state when no webhooks are provided", () => {
     render(<OutboundWebhooksCard initialWebhooks={[]} />);
     expect(screen.getByText("Outbound Webhooks")).toBeDefined();
-    expect(
-      screen.getByText(/No outbound webhooks configured/i),
-    ).toBeDefined();
+    expect(screen.getByText(/No outbound webhooks configured/i)).toBeDefined();
   });
 
   it("renders list of webhooks with URLs and subscribed event badges", () => {

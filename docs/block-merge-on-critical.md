@@ -27,6 +27,7 @@ finding is fixed or triaged as a false positive / ignored.
 ## GitHub Merge Queue
 
 If your repository uses GitHub Merge Queues:
+
 1. Ensure the GitHub App is subscribed to the **`Merge group`** event (`merge_group`) with `Checks: Read & Write`, `Contents: Read`, and `Pull Requests: Read & Write` permissions.
 2. In the branch protection rule or ruleset under **Require merge queue**, make **`SecureFlow Scan`** a required status check.
 3. SecureFlow will automatically validate each temporary merge group ref (`checks_requested`), reusing previous PR scan results when diff content is unchanged or rescanning combined diffs, and report a completed check run on the merge group SHA so PRs merge smoothly.

@@ -376,17 +376,14 @@ describe("Outbound Webhook Dispatcher & Zero-Leakage Payloads (#1866)", () => {
     it("returns empty array when user has no matching webhooks", async () => {
       mockWebhookFindMany.mockResolvedValueOnce([]);
 
-      const results = await dispatchOutboundWebhooksForUser(
-        "user_none",
-        "scan.completed",
-        () =>
-          buildScanCompletedPayload({
-            repository: "acme/repo",
-            prNumber: 5,
-            commitSha: "c1",
-            decision: "PASS",
-            findings: [],
-          }),
+      const results = await dispatchOutboundWebhooksForUser("user_none", "scan.completed", () =>
+        buildScanCompletedPayload({
+          repository: "acme/repo",
+          prNumber: 5,
+          commitSha: "c1",
+          decision: "PASS",
+          findings: [],
+        }),
       );
 
       expect(results).toEqual([]);

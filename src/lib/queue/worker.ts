@@ -10,11 +10,7 @@ import { processScanJob } from "@/lib/scanner/scanEngine";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 import { iq } from "@/lib/armor/iq";
-import {
-  loadTrustedGateConfig,
-  formatGateSummaryLine,
-  type GateConfig,
-} from "@/lib/scanner/gate-config";
+import { loadTrustedGateConfig, formatGateSummaryLine } from "@/lib/scanner/gate-config";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -36,14 +32,8 @@ import {
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
-import {
-  getGitHubAppCredentials,
-  WebhookConfigurationError,
-} from "@/lib/github/app-auth";
-import {
-  isSecureFlowCheckRun,
-  isSecureFlowCheckSuite,
-} from "@/lib/github/webhook-verification";
+import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import { isSecureFlowCheckRun, isSecureFlowCheckSuite } from "@/lib/github/webhook-verification";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
@@ -498,7 +488,13 @@ export async function runPullRequestScan({
       // fail the code scan below. SBOM jobs are keyed by head SHA and file,
       // so a retry of this delivery does not enqueue them twice.
       await handlePullRequestSynchronize(
-        { ...payload, number: pullRequest.number, pull_request: pullRequest, repository, installation },
+        {
+          ...payload,
+          number: pullRequest.number,
+          pull_request: pullRequest,
+          repository,
+          installation,
+        },
         deliveryId ?? undefined,
         correlationId,
       );
@@ -627,9 +623,7 @@ export async function runPullRequestScan({
       body: pendingBody,
     });
 
-    log.info(
-      `[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`,
-    );
+    log.info(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`);
     const scanJobData: ScanJobData = {
       scanJobId: `webhook-${deliveryId || Date.now()}`,
       repositoryId: dbRepo?.id ?? "",
@@ -665,12 +659,7 @@ export async function runPullRequestScan({
     // can be keyed off it and survive the latest-wins re-scan. When the repo
     // isn't in our DB there's nothing to triage against, so use an empty id.
     findings.forEach((f: any) => {
-      f.fingerprint = computeFingerprint(
-        dbRepo?.id ?? "",
-        f.fileLocation,
-        f.type,
-        f.codeSnippet,
-      );
+      f.fingerprint = computeFingerprint(dbRepo?.id ?? "", f.fileLocation, f.type, f.codeSnippet);
     });
 
     // Fingerprints the user has dismissed (false positive / ignored) for this
@@ -685,17 +674,13 @@ export async function runPullRequestScan({
         },
         select: { fingerprint: true },
       });
-      dismissed.forEach((t: { fingerprint: string }) =>
-        suppressedFingerprints.add(t.fingerprint),
-      );
+      dismissed.forEach((t: { fingerprint: string }) => suppressedFingerprints.add(t.fingerprint));
     }
 
     // Findings that still count toward enforcement — everything the user hasn't
     // dismissed. The full `findings` list is still persisted below (with its
     // fingerprint) so the dashboard can show dismissed items and left-join triage.
-    const activeFindings = findings.filter(
-      (f: any) => !suppressedFingerprints.has(f.fingerprint),
-    );
+    const activeFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
 
     // Enrich and post ONLY the active findings: a finding the user dismissed
     // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
@@ -772,8 +757,7 @@ export async function runPullRequestScan({
     }
 
     const gateSummary = formatGateSummaryLine(gateConfig);
-    const combinedNotice =
-      [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
+    const combinedNotice = [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
 
     await postScanCheckRun(octokit as any, {
       owner: repository.owner.login,
@@ -801,16 +785,13 @@ export async function runPullRequestScan({
     // built here, and a throw from it would fail a scan job whose check run
     // has already been posted — turning a delivered result into a retry.
     try {
-      const sarifOutcome = await uploadSarifAnalysis(
-        octokit as unknown as CodeScanningClient,
-        {
-          owner: repository.owner.login,
-          repo: repository.name,
-          commitSha: pullRequest.head?.sha,
-          ref: pullRequestRef(pullRequest.number),
-          document: buildSarifDocument(enrichedFindings),
-        },
-      );
+      const sarifOutcome = await uploadSarifAnalysis(octokit as unknown as CodeScanningClient, {
+        owner: repository.owner.login,
+        repo: repository.name,
+        commitSha: pullRequest.head?.sha,
+        ref: pullRequestRef(pullRequest.number),
+        document: buildSarifDocument(enrichedFindings),
+      });
 
       const target = `${sanitize(repository.full_name)}#${sanitize(String(pullRequest.number))}`;
 
@@ -1413,9 +1394,7 @@ export const worker = new Worker<WebhookJobData>(
       }
 
       const checkRunId =
-        event === "check_run" && payload.check_run?.id
-          ? Number(payload.check_run.id)
-          : undefined;
+        event === "check_run" && payload.check_run?.id ? Number(payload.check_run.id) : undefined;
 
       for (const pr of attachedPrs) {
         const prAny = pr as Record<string, any>;
@@ -1498,8 +1477,7 @@ export const worker = new Worker<WebhookJobData>(
         repository?.owner?.login ||
         (repository?.full_name ? repository.full_name.split("/")[0] : "");
       const repoName =
-        repository?.name ||
-        (repository?.full_name ? repository.full_name.split("/")[1] : "");
+        repository?.name || (repository?.full_name ? repository.full_name.split("/")[1] : "");
 
       const lockKey = `merge-group-scan:${repoFullName}:${headSha}`;
       const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
@@ -1858,14 +1836,14 @@ export async function postScanFailureCheck(
             ? repository.full_name.split("/")[0]
             : undefined;
 
-      const attachedPr = (data.event === "check_run"
-        ? payload.check_run?.pull_requests
-        : payload.check_suite?.pull_requests)?.[0];
+      const attachedPr = (
+        data.event === "check_run"
+          ? payload.check_run?.pull_requests
+          : payload.check_suite?.pull_requests
+      )?.[0];
       headSha =
         attachedPr?.head?.sha ??
-        (data.event === "check_run"
-          ? payload.check_run?.head_sha
-          : payload.check_suite?.head_sha);
+        (data.event === "check_run" ? payload.check_run?.head_sha : payload.check_suite?.head_sha);
 
       if (data.event === "check_run" && payload.check_run?.id) {
         checkRunId = Number(payload.check_run.id);

@@ -13,7 +13,7 @@ data:
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   AUTH_URL: {{ .Values.config.authUrl | quote }}
   NEXT_PUBLIC_APP_URL: {{ .Values.config.nextPublicAppUrl | quote }}
-  GROQ_MODEL: {{ .Values.config.groqModel | quote }}
+  AI_MODEL: {{ .Values.config.groqModel | quote }}
   FINDING_SNIPPET_REDACT_DAYS: {{ .Values.config.findingSnippetRedactDays | quote }}
   WEBHOOK_EVENT_RETENTION_DAYS: {{ .Values.config.webhookEventRetentionDays | quote }}
   SCAN_RESULT_RETENTION_DAYS: {{ .Values.config.scanResultRetentionDays | quote }}

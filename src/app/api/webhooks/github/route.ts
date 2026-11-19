@@ -242,7 +242,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       { status: 200 },
     );
   }
-  
+
   // Pre-filter check_run and check_suite re-requests: ignore foreign checks or untracked actions (#1863)
   if (event === "check_run") {
     if (parsed.payload.action !== "rerequested") {

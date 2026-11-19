@@ -95,6 +95,7 @@ Authorization: Bearer sft_3a8f1b2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b
 ```
 
 ##### Token Security & Storage Guarantees
+
 - **Zero Raw Storage**: The plain token is shown exactly once upon creation. Only its SHA-256 hash (`tokenHash`) and an 8-character prefix (`tokenPrefix`, e.g. `sft_3a8f1b2c`) are stored in PostgreSQL.
 - **Granular Scopes**: Tokens are restricted to specific permissions. If an endpoint requires a scope the token does not possess, the API rejects the request with HTTP `403 Forbidden` (`INSUFFICIENT_SCOPE`).
 - **Expiry & Revocation**: Tokens can be created with 30-day, 90-day, or custom expiry dates. Expired or revoked tokens are rejected immediately with HTTP `401 Unauthorized` (`TOKEN_EXPIRED` or `TOKEN_REVOKED`).
@@ -103,15 +104,15 @@ Authorization: Bearer sft_3a8f1b2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b
 
 ##### Supported Scopes
 
-| Scope | Description | Allowed Operations |
-| :--- | :--- | :--- |
-| `findings:read` | Read findings and triage state | `GET /api/findings`, `GET /api/findings/[id]` |
-| `findings:write` | Modify findings and remediation | `PATCH /api/findings/[id]`, `POST /api/findings/bulk-remediate` |
-| `scans:read` | Query scans and background jobs | `GET /api/findings/status/[jobId]`, `GET /api/sbom/scan/status/[jobId]` |
-| `scans:write` | Trigger automated scans | `POST /api/cli/scan`, `POST /api/findings`, `POST /api/sbom/scan` |
-| `policies:read` | Read and export policies | `GET /api/policies/export`, Policy template inspection |
-| `policies:write` | Configure and test policies | `POST /api/policies/import`, `POST /api/policies/test` |
-| `audit:read` | Read audit logs | `GET /api/audit`, `GET /api/admin/audit/verify` |
+| Scope            | Description                     | Allowed Operations                                                      |
+| :--------------- | :------------------------------ | :---------------------------------------------------------------------- |
+| `findings:read`  | Read findings and triage state  | `GET /api/findings`, `GET /api/findings/[id]`                           |
+| `findings:write` | Modify findings and remediation | `PATCH /api/findings/[id]`, `POST /api/findings/bulk-remediate`         |
+| `scans:read`     | Query scans and background jobs | `GET /api/findings/status/[jobId]`, `GET /api/sbom/scan/status/[jobId]` |
+| `scans:write`    | Trigger automated scans         | `POST /api/cli/scan`, `POST /api/findings`, `POST /api/sbom/scan`       |
+| `policies:read`  | Read and export policies        | `GET /api/policies/export`, Policy template inspection                  |
+| `policies:write` | Configure and test policies     | `POST /api/policies/import`, `POST /api/policies/test`                  |
+| `audit:read`     | Read audit logs                 | `GET /api/audit`, `GET /api/admin/audit/verify`                         |
 
 ##### Browser Session Cookie Auth
 
@@ -318,10 +319,10 @@ The `X-Hub-Signature-256` header must be `sha256=` + the hex HMAC of the raw req
 | --------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `pull_request`              | `opened`, `synchronize`, `reopened` | Full scan pipeline (below).                                                                             |
 | `pull_request`              | `closed`                            | Records merge/closure state for leaderboard scoring. No scan.                                           |
-| `merge_group`               | `checks_requested`                  | Merge queue evaluation: reuses PR scan result if diff unchanged or runs fast combined scan.              |
+| `merge_group`               | `checks_requested`                  | Merge queue evaluation: reuses PR scan result if diff unchanged or runs fast combined scan.             |
 | `installation`              | `created`                           | Links the installer's GitHub account (via `sender.id`) and bulk-inserts selected repos in chunks of 50. |
 | `installation_repositories` | `added`                             | Inserts newly-added repos for an existing installation.                                                 |
-| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.   |
+| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.    |
 | `check_suite`               | `rerequested`                       | Enqueues scan job for attached PR(s). Foreign check suites are ignored.                                 |
 | _(anything else)_           | —                                   | Returns `200 { "message": "Event not tracked" }`.                                                       |
 
@@ -520,12 +521,12 @@ SecureFlow dispatches cryptographically signed JSON webhooks to user-configured 
 
 #### Events Emitted
 
-| Event | Description |
-| :--- | :--- |
-| `scan.completed` | Pull request scan finished; contains decision, metadata, and severity counts. |
-| `scan.blocked` | Emitted when a scan fails policy (decision is `BLOCKED`). |
-| `finding.created` | Emitted for security findings discovered during scans. |
-| `finding.dismissed` | Emitted when a finding is triaged as dismissed or false positive. |
+| Event               | Description                                                                   |
+| :------------------ | :---------------------------------------------------------------------------- |
+| `scan.completed`    | Pull request scan finished; contains decision, metadata, and severity counts. |
+| `scan.blocked`      | Emitted when a scan fails policy (decision is `BLOCKED`).                     |
+| `finding.created`   | Emitted for security findings discovered during scans.                        |
+| `finding.dismissed` | Emitted when a finding is triaged as dismissed or false positive.             |
 
 #### Request Headers
 
@@ -551,6 +552,7 @@ function verifySignature(payload: string, signatureHeader: string, secret: strin
 ```
 
 #### Privacy & Zero-Leakage Guarantee
+
 Outbound payloads strictly omit code snippets, file contents, diffs, and secret values. Only safe metadata (`repository`, `prNumber`, `commitSha`, `decision`, finding `type`, `severity`, and file locations) is included.
 
 ---

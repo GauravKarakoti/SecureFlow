@@ -74,9 +74,7 @@ describe("--since REF CLI Integration Tests", () => {
     }
   });
 
-  it(
-    "scans only added, modified, and renamed files compared to ref, skipping deleted and untouched files",
-    () => {
+  it("scans only added, modified, and renamed files compared to ref, skipping deleted and untouched files", () => {
     tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-since-test-"));
     initGitRepo(tempBaseDir);
 

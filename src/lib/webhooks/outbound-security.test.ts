@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  isBlockedIPv4,
-  isBlockedIPv6,
-  validateOutboundWebhookUrl,
-} from "./outbound-security";
+import { isBlockedIPv4, isBlockedIPv6, validateOutboundWebhookUrl } from "./outbound-security";
 
 describe("Outbound Webhook SSRF & Address Security (#1866)", () => {
   describe("isBlockedIPv4", () => {

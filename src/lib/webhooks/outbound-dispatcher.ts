@@ -10,10 +10,7 @@ import {
 } from "./outbound-signature";
 
 export type OutboundEventType =
-  | "scan.completed"
-  | "scan.blocked"
-  | "finding.created"
-  | "finding.dismissed";
+  "scan.completed" | "scan.blocked" | "finding.created" | "finding.dismissed";
 
 export const OUTBOUND_EVENT_TYPES: readonly OutboundEventType[] = [
   "scan.completed",
@@ -289,7 +286,10 @@ export async function deliverOutboundWebhook(
 
       lastError = `Endpoint answered HTTP ${response.status} ${response.statusText || ""}`.trim();
     } catch (err: any) {
-      lastError = err?.name === "AbortError" ? `Request timed out after ${timeoutMs}ms` : (err?.message || "Network error");
+      lastError =
+        err?.name === "AbortError"
+          ? `Request timed out after ${timeoutMs}ms`
+          : err?.message || "Network error";
     }
 
     // Wait with exponential backoff before retrying

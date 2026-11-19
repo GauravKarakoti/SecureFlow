@@ -65,7 +65,6 @@ import {
   getCommentableLines,
   getGitHubAppCredentials,
   payloadSchema,
-  postScanFailureCheck,
   repositoryIdentity,
   selectRepositoryList,
   shouldScanPullRequestManifests,

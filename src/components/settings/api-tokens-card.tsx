@@ -17,11 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Key,
   Plus,
@@ -33,11 +29,7 @@ import {
   Trash2,
   Terminal,
 } from "lucide-react";
-import {
-  createApiToken,
-  revokeApiToken,
-  type ApiTokenItem,
-} from "@/lib/actions/settings";
+import { createApiToken, revokeApiToken, type ApiTokenItem } from "@/lib/actions/settings";
 import { API_TOKEN_SCOPES, type ApiTokenScope } from "@/lib/auth/api-token";
 
 const SCOPE_DESCRIPTIONS: Record<ApiTokenScope, string> = {
@@ -135,7 +127,11 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
   };
 
   const handleRevoke = (tokenId: string, tokenName: string) => {
-    if (!confirm(`Are you sure you want to revoke "${tokenName}"? Any automation or CLI using this token will stop working immediately.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to revoke "${tokenName}"? Any automation or CLI using this token will stop working immediately.`,
+      )
+    ) {
       return;
     }
 
@@ -148,9 +144,7 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
         }
 
         setTokens((prev) =>
-          prev.map((t) =>
-            t.id === tokenId ? { ...t, revokedAt: new Date().toISOString() } : t,
-          ),
+          prev.map((t) => (t.id === tokenId ? { ...t, revokedAt: new Date().toISOString() } : t)),
         );
         toast.success(`Token "${tokenName}" revoked successfully.`);
       } catch (err: any) {
@@ -181,7 +175,8 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
               Personal API Tokens
             </CardTitle>
             <CardDescription>
-              Create and manage scoped API tokens for automated workflows, CI/CD pipelines, and the SecureFlow CLI.
+              Create and manage scoped API tokens for automated workflows, CI/CD pipelines, and the
+              SecureFlow CLI.
             </CardDescription>
           </div>
 
@@ -321,7 +316,8 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
             </AlertTitle>
             <AlertDescription className="space-y-3 pt-2 text-xs">
               <p>
-                Make sure to copy your personal API token now. <strong>You will not be able to see it again!</strong>
+                Make sure to copy your personal API token now.{" "}
+                <strong>You will not be able to see it again!</strong>
               </p>
               <div className="flex items-center gap-2">
                 <Input
@@ -359,7 +355,8 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
             <div className="space-y-1">
               <p className="text-sm font-medium">No personal API tokens yet</p>
               <p className="text-xs text-muted-foreground">
-                Generate a token to authenticate the CLI or integrate SecureFlow into your pipelines.
+                Generate a token to authenticate the CLI or integrate SecureFlow into your
+                pipelines.
               </p>
             </div>
           </div>
@@ -371,10 +368,7 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
               const isActive = !isRevoked && !isExpired;
 
               return (
-                <div
-                  key={token.id}
-                  className="p-4 space-y-3 hover:bg-muted/20 transition-colors"
-                >
+                <div key={token.id} className="p-4 space-y-3 hover:bg-muted/20 transition-colors">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm text-foreground">{token.name}</span>
@@ -382,17 +376,26 @@ export default function ApiTokensCard({ initialTokens = [] }: ApiTokensCardProps
                         {token.tokenPrefix}...
                       </code>
                       {isActive && (
-                        <Badge variant="outline" className="text-xs border-emerald-500/40 text-emerald-400 bg-emerald-500/10">
+                        <Badge
+                          variant="outline"
+                          className="text-xs border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                        >
                           Active
                         </Badge>
                       )}
                       {isRevoked && (
-                        <Badge variant="outline" className="text-xs border-destructive/40 text-destructive bg-destructive/10">
+                        <Badge
+                          variant="outline"
+                          className="text-xs border-destructive/40 text-destructive bg-destructive/10"
+                        >
                           Revoked
                         </Badge>
                       )}
                       {!isRevoked && isExpired && (
-                        <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-400 bg-amber-500/10">
+                        <Badge
+                          variant="outline"
+                          className="text-xs border-amber-500/40 text-amber-400 bg-amber-500/10"
+                        >
                           Expired
                         </Badge>
                       )}

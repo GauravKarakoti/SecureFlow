@@ -125,7 +125,10 @@ export function parseIgnoreRuleLine(rawLine: string): {
   const commentIdx = remaining.search(/\s+#/);
   if (commentIdx !== -1) {
     const patternPart = remaining.slice(0, commentIdx).trim();
-    const commentPart = remaining.slice(commentIdx).replace(/^\s+#\s*/, "").trim();
+    const commentPart = remaining
+      .slice(commentIdx)
+      .replace(/^\s+#\s*/, "")
+      .trim();
 
     if (!reason && commentPart) {
       const commentExpires = commentPart.match(/expires[:=]\s*(\S+)/i);
