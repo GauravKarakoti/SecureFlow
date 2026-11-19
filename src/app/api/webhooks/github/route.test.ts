@@ -1178,6 +1178,42 @@ describe("GitHub webhook route", () => {
     });
   });
 
+  describe("merge_group event (#1864)", () => {
+    const mergeGroupPayload = JSON.stringify({
+      action: "checks_requested",
+      merge_group: {
+        head_sha: "head-sha-merge-123",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42-base-sha-123",
+        base_sha: "base-sha-123",
+        base_ref: "refs/heads/main",
+      },
+      repository: {
+        id: 12345,
+        name: "test-repo",
+        full_name: "acme/test-repo",
+        owner: { login: "acme" },
+      },
+      installation: { id: 9876 },
+    });
+
+    it("enqueues a webhook job when action is checks_requested", async () => {
+      const req = makeRequest(mergeGroupPayload, {}, "merge_group");
+      const res = await POST(req);
+
+      expect(res.status).toBe(202);
+      expect(addWebhookJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "merge_group",
+          payload: expect.objectContaining({
+            action: "checks_requested",
+            merge_group: expect.objectContaining({ head_sha: "head-sha-merge-123" }),
+          }),
+         }),
+        expect.any(Object),
+      );
+    }
+  });
+    
   describe("check_run and check_suite event routing (#1863)", () => {
     beforeEach(() => {
       process.env.GITHUB_APP_ID = "12345";
@@ -1211,6 +1247,20 @@ describe("GitHub webhook route", () => {
       );
     });
 
+    it("acknowledges with 200 without enqueuing when action is not checks_requested", async () => {
+      const untrackedPayload = JSON.stringify({
+        action: "destroyed",
+        merge_group: { head_sha: "head-123" },
+      });
+      const req = makeRequest(untrackedPayload, {}, "merge_group");
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.message).toBe("Action not tracked");
+      expect(addWebhookJob).not.toHaveBeenCalled();
+    });
+    
     it("ignores check_run actions other than rerequested", async () => {
       const payload = JSON.stringify({
         action: "completed",

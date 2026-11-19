@@ -48,6 +48,8 @@ import {
   assertPullRequestContext,
   getCommentableLines,
   getGitHubAppCredentials,
+  payloadSchema,
+  postScanFailureCheck,
   repositoryIdentity,
   selectRepositoryList,
   shouldScanPullRequestManifests,
@@ -72,6 +74,7 @@ describe("shouldScanPullRequestManifests", () => {
     ["pull_request", undefined],
     ["installation", "created"],
     ["branch_protection_rule", "edited"],
+    ["merge_group", "checks_requested"],
     [null, "synchronize"],
   ])("skips %s / %s", (event, action) => {
     expect(shouldScanPullRequestManifests(event, action)).toBe(false);
@@ -497,6 +500,75 @@ describe("truncateForError", () => {
   it("does not truncate at exactly the limit", () => {
     const exact = "y".repeat(MAX_VALIDATION_ERROR_LENGTH);
     expect(truncateForError(exact)).toBe(exact);
+  });
+});
+
+describe("payloadSchema (merge_group) (#1864)", () => {
+  it("accepts a valid merge_group payload", () => {
+    const payload = {
+      action: "checks_requested",
+      merge_group: {
+        head_sha: "head-sha-123",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42-abc",
+        base_sha: "base-sha-456",
+        base_ref: "refs/heads/main",
+        head_commit: {
+          id: "head-sha-123",
+          message: "Merge pull request #42 from acme/patch-1",
+        },
+      },
+      repository: {
+        id: 12345,
+        name: "repo",
+        full_name: "acme/repo",
+      },
+      installation: { id: 9999 },
+    };
+
+    const parsed = payloadSchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.merge_group?.head_sha).toBe("head-sha-123");
+    }
+  });
+
+  it("fails validation when merge_group is missing head_sha", () => {
+    const payload = {
+      action: "checks_requested",
+      merge_group: {
+        base_sha: "base-sha-456",
+      },
+    };
+
+    const parsed = payloadSchema.safeParse(payload);
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("postScanFailureCheck (merge_group) (#1864)", () => {
+  it("ignores non-checks_requested merge_group actions", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "merge_group",
+        payload: {
+          action: "destroyed",
+          installation: { id: 1 },
+          merge_group: { head_sha: "sha-1" },
+        },
+      }),
+    ).resolves.not.toThrow();
+  });
+
+  it("ignores merge_group without installation id", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "merge_group",
+        payload: {
+          action: "checks_requested",
+          merge_group: { head_sha: "sha-1" },
+        },
+      }),
+    ).resolves.not.toThrow();
   });
 });
 
