@@ -1022,7 +1022,8 @@ export async function runPullRequestScan({
 
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
       const isPartialScan =
-        Boolean(coverageNotice) || Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
+        Boolean(coverageNotice) ||
+        Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
       await autoResolveFixedFindings({
         repositoryId: (dbRepo?.id || repository.id).toString(),
         pullRequestId: dbPr.id,
@@ -1033,7 +1034,9 @@ export async function runPullRequestScan({
         userId,
         repoFullName: repository.full_name,
       }).catch((err: any) => {
-        log.warn(`[WORKER] Failed to auto-resolve fixed findings: ${sanitize(err?.message || String(err))}`);
+        log.warn(
+          `[WORKER] Failed to auto-resolve fixed findings: ${sanitize(err?.message || String(err))}`,
+        );
       });
 
       // Real-time Slack alert for CRITICAL/HIGH findings (#936). Best-effort

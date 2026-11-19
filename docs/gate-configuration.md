@@ -119,6 +119,7 @@ a scan; the default gate (or the rest of the config) is used.
 ## Monorepo Policy Scoping (`policyScopes`)
 
 In monorepos, different directories and components typically require different policies:
+
 - A `terraform/` or `infra/` folder needs infrastructure security and cloud compliance checks.
 - A frontend `src/components/` folder needs Cross-Site Scripting (XSS) and client security policies.
 - A `tests/` or `fixtures/` folder should not be flagged for test mock passwords or hardcoded test keys.
@@ -151,6 +152,7 @@ To prevent noise and accelerate scan times, add an optional `policyScopes` list 
 ### Options & Behavior
 
 Each entry in `policyScopes` specifies:
+
 - **`paths`**: Array of glob patterns matching changed files (e.g. `terraform/**`, `*.tf`). Globs follow the same syntax as `.secureflowignore`.
 - **`enable`**: (Optional) Array of policy names (case-insensitive) to apply to matching files. When specified, only these policies run against the matching file.
 - **`disable`**: (Optional) Array of policy names (case-insensitive) to exclude from matching files.
@@ -158,6 +160,7 @@ Each entry in `policyScopes` specifies:
 ### Precedence and Conflicting Scopes
 
 When a file matches multiple scopes, they are evaluated in definition order:
+
 - An `enable` rule sets the allowed policies for the file.
 - A subsequent `disable` rule removes specific policies from that set.
 - A file that matches no scopes receives all active policies as usual.
@@ -167,4 +170,3 @@ When a file matches multiple scopes, they are evaluated in definition order:
 - **Base branch enforcement**: `.secureflow.json` is loaded exclusively from the base branch, preventing unauthorized changes in PR head branches.
 - **Graceful degradation**: Invalid globs, non-string policy names, or unknown policy names are logged as warnings and ignored without failing or interrupting the scan.
 - **PR comment reporting**: Applied policy scopes and the count of files scanned under each scope are shown in the PR comment summary under `📁 Policy Scopes Applied`.
-

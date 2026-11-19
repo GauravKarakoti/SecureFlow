@@ -71,6 +71,7 @@ import {
   truncateForError,
   publishScanSarifAnalysis,
   runPullRequestScan,
+  postScanFailureCheck,
 } from "./worker";
 
 describe("shouldScanPullRequestManifests", () => {

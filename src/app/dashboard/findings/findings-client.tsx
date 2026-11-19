@@ -496,7 +496,7 @@ export default function FindingsClient({
                               >
                                 {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
                                   ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
-                                  : TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                                  : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
                               </Badge>
                             )}
                             {/* Age column */}

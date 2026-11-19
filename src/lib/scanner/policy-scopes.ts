@@ -147,9 +147,7 @@ export function parsePolicyScopes(
           }
           const trimmed = item.trim();
           if (knownPolicyNames && knownPolicyNames.length > 0) {
-            const isKnown = knownPolicyNames.some(
-              (k) => k.toLowerCase() === trimmed.toLowerCase(),
-            );
+            const isKnown = knownPolicyNames.some((k) => k.toLowerCase() === trimmed.toLowerCase());
             if (!isKnown) {
               const msg = `[PolicyScopes] Unknown policy name '${trimmed}' in ${label}.enable; ignoring.`;
               warnings.push(msg);
@@ -179,9 +177,7 @@ export function parsePolicyScopes(
           }
           const trimmed = item.trim();
           if (knownPolicyNames && knownPolicyNames.length > 0) {
-            const isKnown = knownPolicyNames.some(
-              (k) => k.toLowerCase() === trimmed.toLowerCase(),
-            );
+            const isKnown = knownPolicyNames.some((k) => k.toLowerCase() === trimmed.toLowerCase());
             if (!isKnown) {
               const msg = `[PolicyScopes] Unknown policy name '${trimmed}' in ${label}.disable; ignoring.`;
               warnings.push(msg);

@@ -117,6 +117,8 @@ describe("getUserFindings", () => {
       triageStatus: "IN_PROGRESS",
       triageNote: "on it",
       triageReason: null,
+      resolvedAt: null,
+      resolvedCommitSha: null,
       ageDays: 79,
       isOverdue: true,
     });

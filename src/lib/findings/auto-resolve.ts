@@ -55,12 +55,7 @@ export interface AutoResolveResult {
  * Normalizes a file path for comparison by removing line numbers, leading `./`, and Windows backslashes.
  */
 export function normalizeFilePath(filePath: string): string {
-  return filePath
-    .replace(/:.*$/, "")
-    .replace(/^\.\//, "")
-    .replace(/\\/g, "/")
-    .trim()
-    .toLowerCase();
+  return filePath.replace(/:.*$/, "").replace(/^\.\//, "").replace(/\\/g, "/").trim().toLowerCase();
 }
 
 /**
@@ -160,9 +155,7 @@ export async function autoResolveFixedFindings(
   }
 
   // Changed files set for path relevance check
-  const changedFilePaths = new Set(
-    fileChanges.map((fc) => normalizeFilePath(fc.filename)),
-  );
+  const changedFilePaths = new Set(fileChanges.map((fc) => normalizeFilePath(fc.filename)));
 
   // Find findings that disappeared in this scan
   const disappearedCandidates: AutoResolveCandidate[] = [];
