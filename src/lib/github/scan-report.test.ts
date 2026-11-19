@@ -182,4 +182,28 @@ describe("renderScanReportSummary", () => {
     );
     expect(body).toContain("- ⚠️ ignore rule `legacy/old-auth.ts` expired on 2026-10-15");
   });
+
+  it("renders applied policy scopes section in the summary report (#1868)", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      appliedPolicyScopes: [
+        {
+          paths: ["terraform/**", "*.tf"],
+          enable: ["Terraform Security"],
+          fileCount: 3,
+        },
+        {
+          paths: ["tests/**"],
+          disable: ["Production Secrets"],
+          fileCount: 1,
+        },
+      ],
+    });
+
+    expect(body).toContain("### 📁 Policy Scopes Applied (2)");
+    expect(body).toContain("`terraform/**`, `*.tf`: Enabled **Terraform Security** (3 files)");
+    expect(body).toContain("`tests/**`: Disabled **Production Secrets** (1 file)");
+  });
 });

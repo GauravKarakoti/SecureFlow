@@ -11,6 +11,7 @@ import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 import { iq } from "@/lib/armor/iq";
 import { loadTrustedGateConfig, formatGateSummaryLine } from "@/lib/scanner/gate-config";
+import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -1627,6 +1628,15 @@ export const worker = new Worker<WebhookJobData>(
         let decision: string;
         let findingsCount: number;
         let findingsToReport: any[] = [];
+        let appliedPolicyScopes:
+          | Array<{
+              paths: string[];
+              enable?: string[];
+              disable?: string[];
+              matchedFiles: string[];
+              fileCount: number;
+            }>
+          | undefined;
 
         if (isDiffUnchanged && reusedScan) {
           log.info(
@@ -1689,17 +1699,35 @@ export const worker = new Worker<WebhookJobData>(
           decision = iq.evaluateFindings(activeFindings, gateConfig);
           findingsCount = activeFindings.length;
           findingsToReport = activeFindings;
+          appliedPolicyScopes = scanResult.appliedPolicyScopes?.map((s) => ({
+            paths: s.scope.paths,
+            enable: s.scope.enable,
+            disable: s.scope.disable,
+            matchedFiles: s.matchedFiles,
+            fileCount: s.matchedFiles.length,
+          }));
         }
 
         const gateSummary = formatGateSummaryLine(gateConfig);
-        const notice = [
-          isDiffUnchanged && prNumber
-            ? `Reused scan result from PR #${prNumber} (merge diff unchanged).`
-            : "Evaluated combined merge group diff.",
-          gateSummary,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
+        const scopesNotice =
+          appliedPolicyScopes && appliedPolicyScopes.length > 0
+            ? formatAppliedScopesSection(
+                appliedPolicyScopes.map((s) => ({
+                  scope: { paths: s.paths, enable: s.enable, disable: s.disable },
+                  matchedFiles: s.matchedFiles,
+                })),
+              )
+            : undefined;
+        const notice =
+          [
+            isDiffUnchanged && prNumber
+              ? `Reused scan result from PR #${prNumber} (merge diff unchanged).`
+              : "Evaluated combined merge group diff.",
+            gateSummary,
+            scopesNotice,
+          ]
+            .filter(Boolean)
+            .join("\n\n") || undefined;
 
         await postScanCheckRun(octokit as any, {
           owner: repoOwner,
