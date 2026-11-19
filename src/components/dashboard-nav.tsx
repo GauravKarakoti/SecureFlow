@@ -19,6 +19,7 @@ import {
   Settings,
   Cpu,
   Mail,
+  FolderGit2,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -28,6 +29,7 @@ import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
 const NAV_ITEMS = [
   { name: "Mission Control", href: "/dashboard", icon: LayoutDashboard },
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
+  { name: "Repositories", href: "/dashboard/repositories", icon: FolderGit2 },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "AI Model Health", href: "/dashboard/ai-health", icon: Cpu },
