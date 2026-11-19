@@ -60,6 +60,8 @@ Before diving in, please ensure you're familiar with our core stack:
 - **AI/LLM**: Groq SDK & Genkit
 - **GitHub Integration**: Octokit
 
+> 📖 **Architecture Overview**: For visual Mermaid diagrams tracing webhook receipt, BullMQ queues, scanning, policy evaluation, check runs, and data models, see **[docs/architecture.md](./docs/architecture.md)**.
+
 ---
 
 ## 🛠️ Development Workflow
@@ -443,6 +445,55 @@ describe("detectSecretsInAddedLines", () => {
 });
 ```
 
+### Scanner Prompt Regression Golden-File Tests
+
+Changes to scanner prompts, Groq model defaults, or policy instructions can silently shift what SecureFlow detects or misses. To guard against regressions without introducing slow, non-deterministic live LLM calls into CI, SecureFlow uses a golden-file regression test suite located in `src/lib/armor/__fixtures__/`.
+
+#### CI-Mocked Golden Regression Suite
+
+The mocked suite runs as part of standard `npm test` with zero network access and mock API keys:
+
+```bash
+# Run scanner prompt regression tests
+npx vitest run src/lib/armor/prompt-regression.test.ts
+```
+
+#### Opt-In Live Regression & Drift Runner
+
+To test the samples against the real Groq model and print a readable diff comparing live results against expected behaviors and recorded fixtures:
+
+```bash
+# Run against the live Groq model (opt-in, never in CI)
+GROQ_API_KEY=gsk_... npm run test:prompts:live
+
+# Run against a specific sample
+GROQ_API_KEY=gsk_... npm run test:prompts:live -- --sample=sql-injection
+
+# Use a specific Groq model
+GROQ_API_KEY=gsk_... npm run test:prompts:live -- --model=openai/gpt-oss-120b
+```
+
+#### Adding New Code Samples
+
+1. Open `src/lib/armor/__fixtures__/samples.ts`.
+2. Add a new entry to `PROMPT_REGRESSION_SAMPLES`:
+   - `id`: Unique kebab-case name (e.g. `jwt-none-algorithm`).
+   - `name`: Descriptive name.
+   - `filename`: Simulated file path (e.g. `src/auth/token.ts`).
+   - `code` & `patch`: Snippet and unified diff (`createUnifiedPatch(...)`).
+   - `expected`: `{ shouldDetect: true, category: "VULNERABILITY", minSeverity: "HIGH" }` (or `{ shouldDetect: false }` for safe code/negatives).
+   - `policies`: Policy configuration to test against (defaults to `DEFAULT_PROMPT_REGRESSION_POLICIES`).
+3. Create the recorded fixture in `src/lib/armor/__fixtures__/recorded-responses/<id>.json` containing `{ "findings": [ ... ] }` (or `{ "findings": [] }` for negatives).
+4. Run `npm test` to verify the new sample passes.
+
+#### Refreshing Recorded Fixtures
+
+When updating prompts or models intentionally, refresh the recorded fixtures with the `--update` flag:
+
+```bash
+GROQ_API_KEY=gsk_... npm run test:prompts:live -- --update
+```
+
 ### Integration & E2E Tests
 
 - Test API endpoints
@@ -502,6 +553,8 @@ src/
     │   └── iq.ts          # Policy engine
     └── prisma.ts          # Prisma client
 ```
+
+> 🔍 For an in-depth component diagram and lifecycle walkthrough from webhook ingestion to check runs, see **[docs/architecture.md](./docs/architecture.md)**.
 
 ---
 

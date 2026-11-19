@@ -18,6 +18,10 @@ vi.mock("@/lib/actions/findings", () => ({
   getUserFindingFilters: vi.fn(),
 }));
 
+vi.mock("@/lib/actions/saved-views", () => ({
+  getSavedViews: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("./findings-client", () => ({
   default: ({
     findings,

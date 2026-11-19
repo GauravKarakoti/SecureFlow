@@ -7,7 +7,7 @@ works in one of those and not the others is worse than `console`.
 
 ## Prometheus Metrics (#1143, #1784)
 
-SecureFlow exposes application telemetry at `GET /api/metrics` (standard Prometheus format by default, or JSON via `?format=json` or `Accept: application/json`) and `GET /api/metrics/landing`. Both endpoints are rate-limited and cached (30 s TTL) to protect the database from scrape storms.
+SecureFlow exposes application telemetry at `GET /api/metrics/landing` (standard Prometheus format when requested with `Accept: text/plain`, `?format=prometheus`, or `application/openmetrics-text`, or JSON by default). The endpoint is rate-limited and cached (30 s TTL) to protect the database from scrape storms.
 
 ### Emitted Metrics Reference
 

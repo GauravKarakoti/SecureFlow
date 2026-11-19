@@ -92,6 +92,8 @@ export interface FindingsQuery {
   repositoryId?: string | null;
   search?: string | null;
   sort?: string | null;
+  from?: string | null;
+  to?: string | null;
 }
 
 /** A query with every field resolved to a safe, in-range value. */
@@ -106,6 +108,8 @@ export interface NormalizedFindingsQuery {
   repositoryId: string | null;
   search: string | null;
   sort: FindingSort;
+  from: string | null;
+  to: string | null;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -187,6 +191,7 @@ export function parseListParam(value: string | string[] | undefined | null): str
  * `?severity=NONE&severity=INFO` is one bucket rather than two.
  */
 export function parseSeverityFilter(values: readonly string[]): StoredSeverity[] {
+  if (!Array.isArray(values)) return [];
   const wanted = new Set<StoredSeverity>();
 
   for (const value of values) {
@@ -199,13 +204,21 @@ export function parseSeverityFilter(values: readonly string[]): StoredSeverity[]
 
 /** Keep only recognised triage statuses, de-duplicated and in declared order. */
 export function parseStatusFilter(values: readonly string[]): FindingStatus[] {
-  const wanted = new Set(values.map((value) => value.trim().toUpperCase()));
+  if (!Array.isArray(values)) return [];
+  const wanted = new Set(
+    values
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim().toUpperCase()),
+  );
   return FINDING_STATUSES.filter((status) => wanted.has(status));
 }
 
 /** Keep only recognised finding types, de-duplicated and in declared order. */
 export function parseTypeFilter(values: readonly string[]): ValidFindingType[] {
-  const wanted = new Set(values.map((v) => v.trim().toUpperCase()));
+  if (!Array.isArray(values)) return [];
+  const wanted = new Set(
+    values.filter((v): v is string => typeof v === "string").map((v) => v.trim().toUpperCase()),
+  );
   return VALID_FINDING_TYPES.filter((t) => wanted.has(t));
 }
 
@@ -233,8 +246,54 @@ export function normalizeSearch(value: unknown): string | null {
   return trimmed.slice(0, MAX_SEARCH_LENGTH);
 }
 
+/**
+ * Validate and normalize an ISO date string (YYYY-MM-DD).
+ *
+ * Falls back to null for any non-string, malformed, or out-of-range value
+ * without throwing errors, preventing malicious or broken query parameters
+ * from crashing the server.
+ */
+export function parseDateParam(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+
+  const [yearStr, monthStr, dayStr] = trimmed.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (isNaN(date.getTime())) return null;
+
+  // Strict roundtrip check to prevent rolling overflow (e.g. Feb 31 becoming Mar 3)
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() + 1 !== month ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return trimmed;
+}
+
 /** Resolve a raw query into safe, in-range values. */
 export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFindingsQuery {
+  let from = parseDateParam(query.from);
+  let to = parseDateParam(query.to);
+
+  // If both dates exist and from is after to, gracefully swap them without erroring
+  if (from && to && from > to) {
+    const tmp = from;
+    from = to;
+    to = tmp;
+  }
+
   const result: NormalizedFindingsQuery = {
     page: clampPage(query.page ?? 1),
     pageSize: clampPageSize(query.pageSize ?? query.limit ?? DEFAULT_PAGE_SIZE),
@@ -247,6 +306,8 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
         : null,
     search: normalizeSearch(query.search),
     sort: parseSort(query.sort),
+    from,
+    to,
   };
 
   if (query.cursor !== undefined) {
@@ -437,6 +498,25 @@ export function buildFindingsWhere(
     where.type = { in: query.type };
   }
 
+  if (query.from || query.to) {
+    const createdAtClause: Record<string, Date> = {};
+    if (query.from) {
+      const fromDate = new Date(`${query.from}T00:00:00.000Z`);
+      if (!isNaN(fromDate.getTime())) {
+        createdAtClause.gte = fromDate;
+      }
+    }
+    if (query.to) {
+      const toDate = new Date(`${query.to}T23:59:59.999Z`);
+      if (!isNaN(toDate.getTime())) {
+        createdAtClause.lte = toDate;
+      }
+    }
+    if (Object.keys(createdAtClause).length > 0) {
+      where.createdAt = createdAtClause;
+    }
+  }
+
   // The status clause goes into `AND` alongside the blanket dismissal filter
   // rather than replacing it. For the list `includeDismissed` is already true
   // whenever a dismissed status was asked for, so `where.fingerprint` is unset
@@ -533,7 +613,9 @@ export function hasActiveFilters(query: NormalizedFindingsQuery): boolean {
     query.type.length > 0 ||
     query.status.length > 0 ||
     query.repositoryId !== null ||
-    query.search !== null
+    query.search !== null ||
+    query.from !== null ||
+    query.to !== null
   );
 }
 
@@ -547,6 +629,8 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
   if (query.sort !== DEFAULT_SORT) params.set("sort", query.sort);
   if (query.repositoryId) params.set("repo", query.repositoryId);
   if (query.search) params.set("q", query.search);
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
   for (const severity of query.severity) params.append("severity", severity);
   for (const type of query.type) params.append("type", type);
   for (const status of query.status) params.append("status", status);
@@ -558,6 +642,10 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
 export function fromSearchParams(
   params: Record<string, string | string[] | undefined> = {},
 ): NormalizedFindingsQuery {
+  if (!params || typeof params !== "object") {
+    return normalizeFindingsQuery({});
+  }
+
   const single = (value: string | string[] | undefined): string | undefined =>
     Array.isArray(value) ? value[0] : value;
 
@@ -572,6 +660,8 @@ export function fromSearchParams(
     repositoryId: single(params.repo),
     search: single(params.q),
     sort: single(params.sort),
+    from: single(params.from),
+    to: single(params.to),
   });
 }
 

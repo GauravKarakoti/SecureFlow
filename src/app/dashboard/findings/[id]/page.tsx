@@ -16,9 +16,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSeverityTheme } from "@/lib/severity-theme";
-import { maskSecrets } from "@/lib/armor/secret-masking";
+import { SeverityBadge } from "@/components/ui/severity-badge";
 import FindingAudioPlayer from "@/components/findings/finding-audio-player";
 import StreamingExplanation from "@/components/streaming-explanation";
+import CodeContextViewer from "@/components/findings/code-context-viewer";
+import RemediationGuidanceCard from "@/components/findings/remediation-guidance-card";
+import ShareFindingButton from "@/components/findings/share-finding-button";
 import FindingActions from "./finding-actions";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
@@ -101,9 +104,6 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         ? `Line ${finding.lineStart}`
         : null;
 
-  // Mask secrets in code snippet
-  const maskedSnippet = finding.codeSnippet ? maskSecrets(finding.codeSnippet) : null;
-
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
       {/* Navigation header */}
@@ -115,12 +115,15 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Findings
         </Link>
-        <Link href={`/dashboard/findings/${finding.id}/remediation`}>
-          <Button size="sm" className="gap-2">
-            <Wrench className="w-3.5 h-3.5" />
-            AI Remediation
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ShareFindingButton findingId={finding.id} />
+          <Link href={`/dashboard/findings/${finding.id}/remediation`}>
+            <Button size="sm" className="gap-2">
+              <Wrench className="w-3.5 h-3.5" />
+              AI Remediation
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Main Finding Overview Card */}
@@ -132,7 +135,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                 <CardTitle className="text-xl font-bold tracking-tight">
                   {finding.type} Detected
                 </CardTitle>
-                <Badge className={theme.badgeClass}>{theme.label}</Badge>
+                <SeverityBadge severity={finding.severity} />
                 {policyDecision && (
                   <Badge variant="outline" className="text-xs border-white/20 gap-1">
                     <Shield className="w-3 h-3" />
@@ -180,36 +183,41 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
             initialNote={triage?.note ?? ""}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="space-y-6">
-              {/* AI Security Explanation */}
-              <StreamingExplanation
-                findingId={finding.id}
-                storedExplanation={finding.explanation || "No explanation provided."}
-              />
+          {/* Side-by-Side Vulnerable Code & Remediation Review */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5 text-primary" />
+              Side-by-Side Review: Vulnerable Code & Fix
+            </h3>
 
-              {/* Remediation Steps */}
-              <div>
-                <h4 className="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                  <CheckCircle2 className="w-3 h-3" /> Remediation Guidance
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              {/* Left Column: Vulnerable Source Code with Line Numbers and Affected Lines Highlighted */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                  <Terminal className="w-3 h-3" /> Source Context
+                  {lineInfo && (
+                    <span className="text-xs font-mono text-primary/80 lowercase">
+                      ({lineInfo})
+                    </span>
+                  )}
                 </h4>
-                <div className="text-sm text-muted-foreground leading-relaxed p-4 bg-white/5 border border-white/5 rounded-xl">
-                  {finding.remediation ||
-                    "Follow standard security practices to sanitize input and isolate privileges."}
-                </div>
+                <CodeContextViewer
+                  codeSnippet={finding.codeSnippet}
+                  lineStart={finding.lineStart}
+                  lineEnd={finding.lineEnd}
+                  fileLocation={finding.fileLocation}
+                />
               </div>
-            </div>
 
-            {/* Source Context Snippet (with secrets redacted) */}
-            <div className="space-y-4">
-              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                <Terminal className="w-3 h-3" /> Source Context
-                {lineInfo && (
-                  <span className="text-xs font-mono text-primary/80 lowercase">({lineInfo})</span>
-                )}
-              </h4>
-              <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
-                {maskedSnippet || "Code snippet unavailable."}
+              {/* Right Column: Suggested Fix / Remediation Guidance with Copy Button */}
+              <div className="space-y-6">
+                <RemediationGuidanceCard remediation={finding.remediation} />
+
+                {/* AI Security Explanation */}
+                <StreamingExplanation
+                  findingId={finding.id}
+                  storedExplanation={finding.explanation || "No explanation provided."}
+                />
               </div>
             </div>
           </div>

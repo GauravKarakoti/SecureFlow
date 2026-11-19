@@ -15,9 +15,10 @@ import {
   FileText,
   Clock,
   AlertCircle,
+  X,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
 import {
@@ -27,7 +28,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSeverityTheme } from "@/lib/severity-theme";
+import { SeverityBadge } from "@/components/ui/severity-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import BulkRemediationBar from "./bulk-remediation-bar";
@@ -45,6 +46,7 @@ import {
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
 import { formatAgeDays } from "@/lib/findings/age";
+import type { SavedViewDto } from "@/lib/actions/saved-views";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -69,6 +71,7 @@ interface FindingsClientProps {
   totalPages: number;
   nextCursor?: string | null;
   sbomReport?: SbomScanResult | null; // [NEW] Optional SBOM Report prop
+  savedViews?: SavedViewDto[];
 }
 
 export default function FindingsClient({
@@ -81,6 +84,7 @@ export default function FindingsClient({
   totalPages,
   nextCursor,
   sbomReport, // [NEW] Destructure SBOM report
+  savedViews = [],
 }: FindingsClientProps) {
   const [prevFindings, setPrevFindings] = useState(findings);
   const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
@@ -101,7 +105,18 @@ export default function FindingsClient({
   // Export every finding matching the current filters, not just this page:
   // `/api/findings/export` reads the same query string as this page and streams
   // the full result. Paging parameters are dropped because the export has none.
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const hasFilters = Boolean(
+    searchParams?.get("q") ||
+    searchParams?.get("severity") ||
+    searchParams?.get("type") ||
+    searchParams?.get("status") ||
+    searchParams?.get("repo") ||
+    searchParams?.get("from") ||
+    searchParams?.get("to"),
+  );
   const exportHref = useMemo(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.delete("page");
@@ -292,6 +307,7 @@ export default function FindingsClient({
         bulkMode={bulkMode}
         onToggleBulkMode={bulkMode ? exitBulkMode : enterBulkMode}
         canBulkSelect={selectableIds.length > 0}
+        savedViews={savedViews}
       />
 
       <Card className="glass-card">
@@ -320,7 +336,12 @@ export default function FindingsClient({
                     Export CSV
                   </a>
                 </Button>
-                <Button asChild variant="outline" size="sm" className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300">
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300"
+                >
                   <a
                     href={`${exportHref}${exportHref.includes("?") ? "&" : "?"}format=html`}
                     target="_blank"
@@ -347,20 +368,51 @@ export default function FindingsClient({
               <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
               <h3 className="text-2xl font-bold">
-                {total === 0 ? "No Security Findings" : "No findings match these filters"}
+                {hasFilters ? "No findings match these filters" : "No Security Findings"}
               </h3>
 
               <p className="mt-3 max-w-md text-sm text-muted-foreground">
-                {total === 0
-                  ? "Great news! Your repositories are currently secure."
-                  : "Every finding is filtered out by the current selection."}
+                {hasFilters
+                  ? "Every finding is filtered out by the current selection."
+                  : "Great news! Your repositories are currently secure."}
               </p>
 
               <p className="mt-2 text-xs text-muted-foreground">
-                {total === 0
-                  ? "Continue scanning your repositories to detect future vulnerabilities."
-                  : "Clear the filters above to see the full list again."}
+                {hasFilters
+                  ? "Clear the filters above to see the full list again."
+                  : "Continue scanning your repositories to detect future vulnerabilities."}
               </p>
+
+              {hasFilters && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 gap-2"
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams?.toString() ?? "");
+                    for (const key of [
+                      "severity",
+                      "type",
+                      "status",
+                      "repo",
+                      "q",
+                      "from",
+                      "to",
+                      "page",
+                    ]) {
+                      params.delete(key);
+                    }
+                    const query = params.toString();
+                    const navigate = router.push ?? router.replace;
+                    navigate.call(router, query ? `${pathname}?${query}` : pathname, {
+                      scroll: false,
+                    });
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                  Clear filters
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -387,7 +439,6 @@ export default function FindingsClient({
               )}
               <Accordion type="single" collapsible className="space-y-4">
                 {displayedFindings.map((finding) => {
-                  const theme = getSeverityTheme(finding.severity);
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
 
                   return (
@@ -456,20 +507,18 @@ export default function FindingsClient({
                                 Overdue
                               </Badge>
                             )}
-                            <Badge
-                              className={theme.badgeClass}
+                            <SeverityBadge
+                              severity={finding.severity}
                               title={`Raw severity: ${finding.severity}`}
-                            >
-                              {theme.label}
-                            </Badge>
+                            />
                             <Link
                               href={`/dashboard/findings/${finding.id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                               title="View finding permalink"
                               aria-label={`View finding ${finding.id} details`}
                             >
-                              <ExternalLink className="w-3.5 h-3.5" />
+                              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                               <span className="hidden sm:inline">Details</span>
                             </Link>
                           </div>
@@ -523,9 +572,17 @@ export default function FindingsClient({
                           </div>
 
                           <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                              <Terminal className="w-3 h-3" /> Source Context
-                            </h4>
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                <Terminal className="w-3 h-3" /> Source Context
+                              </h4>
+                              <Link
+                                href={`/dashboard/findings/${finding.id}`}
+                                className="text-xs text-primary hover:underline inline-flex items-center gap-1 font-mono"
+                              >
+                                Side-by-side review & fix &rarr;
+                              </Link>
+                            </div>
                             <div className="rounded-xl border border-primary/20 bg-black/60 p-6 font-mono text-[11px] text-primary overflow-x-auto whitespace-pre shadow-inner">
                               {finding.codeSnippet || "Code snippet unavailable."}
                             </div>

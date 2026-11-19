@@ -95,8 +95,12 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
   }
 
   try {
-    const { appId, privateKey } = getGitHubAppCredentials();
-    const app = new App({ appId, privateKey });
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const app = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
     const installation = await app.octokit.rest.apps.getRepoInstallation({ owner, repo });
     const octokit = await app.getInstallationOctokit(installation.data.id);
     const repository = await octokit.rest.repos.get({ owner, repo });

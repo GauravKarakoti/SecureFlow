@@ -429,7 +429,16 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                   return (
                     <React.Fragment key={job.id}>
                       <tr
-                        className={`border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer ${isSelected ? "bg-white/[0.03]" : ""}`}
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={isExpanded}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleExpand(job.id);
+                          }
+                        }}
+                        className={`border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset ${isSelected ? "bg-white/[0.03]" : ""}`}
                         onClick={() => toggleExpand(job.id)}
                       >
                         <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
@@ -467,7 +476,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                               onClick={() => handleSingleRequeue(job.id)}
                               disabled={isPending || isLoading}
                               title="Requeue Job"
-                              className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 rounded transition-colors disabled:opacity-50"
+                              aria-label={`Requeue job ${job.id}`}
+                              className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                             >
                               {isLoading ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -479,7 +489,8 @@ export default function DLQTable({ initialJobs }: DLQTableProps) {
                               onClick={() => handleSingleDelete(job.id)}
                               disabled={isPending || isLoading}
                               title="Delete Job"
-                              className="p-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 hover:border-destructive/40 rounded transition-colors disabled:opacity-50"
+                              aria-label={`Delete job ${job.id}`}
+                              className="p-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 hover:border-destructive/40 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50"
                             >
                               {isLoading ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

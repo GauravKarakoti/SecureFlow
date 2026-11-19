@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { App } from "octokit";
+import { createGitHubAppClient, getGitHubApiUrl } from "./app-auth";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import {
   REPO_SYNC_CONCURRENCY,
@@ -91,7 +92,10 @@ export async function syncUserRepositories(
   }
 
   const privateKey = rawPrivateKey.replace(/\\n/g, "\n");
-  const appClient = new App({ appId, privateKey });
+  const appClient =
+    typeof createGitHubAppClient === "function"
+      ? createGitHubAppClient({ appId, privateKey })
+      : new App({ appId, privateKey });
 
   let installationId: number | null = null;
 
@@ -116,7 +120,7 @@ export async function syncUserRepositories(
   if (!installationId && accessToken) {
     try {
       const { Octokit } = await import("octokit");
-      const userOctokit = new Octokit({ auth: accessToken });
+      const userOctokit = new Octokit({ auth: accessToken, baseUrl: getGitHubApiUrl() });
       const targetAppId = Number(appId);
       // Every page, not the first ten: a user who belongs to several organisations
       // can have this app's installation anywhere in the list, and stopping at ten

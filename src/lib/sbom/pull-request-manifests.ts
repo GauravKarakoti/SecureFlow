@@ -97,8 +97,12 @@ export async function handlePullRequestSynchronize(
     // and public ones shared the 60-request-per-hour unauthenticated IP budget.
     // Both fetch helpers below swallow their errors, so the scan simply found
     // no manifests and said nothing.
-    const { appId, privateKey } = getGitHubAppCredentials();
-    const appClient = new App({ appId, privateKey });
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const appClient = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
     const octokit = await appClient.getInstallationOctokit(Number(installation.id));
     const owner = repository.owner.login;
     const repo = repository.name;

@@ -430,11 +430,20 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
     )
     .join("");
 
-  const totalCrit = Object.values(dossier.frameworks).reduce((acc, f) => acc + f.criticalFindings, 0);
+  const totalCrit = Object.values(dossier.frameworks).reduce(
+    (acc, f) => acc + f.criticalFindings,
+    0,
+  );
   const totalHigh = Object.values(dossier.frameworks).reduce((acc, f) => acc + f.highFindings, 0);
   const totalMed = Object.values(dossier.frameworks).reduce((acc, f) => acc + f.mediumFindings, 0);
-  const heistRisk = calculateHeistRiskScore({ critical: totalCrit, high: totalHigh, medium: totalMed });
-  const vaultIntegrity = calculateVaultIntegrity({ passRate: dossier.metrics.prPassRatePercentage });
+  const heistRisk = calculateHeistRiskScore({
+    critical: totalCrit,
+    high: totalHigh,
+    medium: totalMed,
+  });
+  const vaultIntegrity = calculateVaultIntegrity({
+    passRate: dossier.metrics.prPassRatePercentage,
+  });
 
   return `
 <!DOCTYPE html>

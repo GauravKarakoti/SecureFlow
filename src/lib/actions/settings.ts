@@ -233,3 +233,36 @@ export async function updateRepositoryPublicBadge(
   revalidatePath("/dashboard/settings");
   return { success: true };
 }
+
+export async function getWeeklyDigestPreference(): Promise<boolean> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return true;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { weeklyDigestEnabled: true },
+  });
+
+  return user?.weeklyDigestEnabled ?? true;
+}
+
+export async function updateWeeklyDigestPreference(
+  enabled: boolean,
+): Promise<{ success: boolean; enabled: boolean }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { weeklyDigestEnabled: Boolean(enabled) },
+    select: { weeklyDigestEnabled: true },
+  });
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/digest");
+  return { success: true, enabled: updated.weeklyDigestEnabled };
+}

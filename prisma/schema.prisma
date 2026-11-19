@@ -68,6 +68,7 @@ model User {
   policyVersions PolicyVersion[]
   roles          UserRole[]
   auditLogs      AuditLog[]
+  savedViews     SavedView[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -86,6 +87,14 @@ model User {
    * Disabled by default — users must explicitly enable (#1307).
    */
   voiceAlertsEnabled Boolean @default(false)
+
+  /**
+   * Whether the user receives weekly security posture digests.
+   * Enabled by default — users can opt out in settings (#1788).
+   */
+  weeklyDigestEnabled Boolean @default(true)
+
+  digests SecurityDigest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -364,6 +373,20 @@ model AuditLog {
   @@index([entryHash])
 }
 
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
 model WebhookEvent {
   id            String       @id @default(cuid())
   deliveryId    String       @unique
@@ -547,4 +570,31 @@ model ScanCache {
   @@index([cacheKey])
   @@index([expiresAt])
   @@map("scan_cache")
+}
+
+/**
+ * Weekly Security Digest (#1788).
+ * Stores weekly security posture snapshots per user:
+ * counts of new, dismissed, and resolved findings, top 5 repositories
+ * by open findings, top 5 recurring finding types, and number of BLOCKED PRs.
+ * Never stores code snippets or secrets.
+ */
+model SecurityDigest {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate              DateTime
+  endDate                DateTime
+  newFindingsCount       Int       @default(0)
+  dismissedFindingsCount Int       @default(0)
+  resolvedFindingsCount  Int       @default(0)
+  blockedPrsCount        Int       @default(0)
+  topRepositories        Json      @default("[]")
+  topFindingTypes        Json      @default("[]")
+  sentAt                 DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("security_digests")
 }
