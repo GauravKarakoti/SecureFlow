@@ -37,6 +37,7 @@ Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are valid
 ### Symptom
 
 - Pull requests are opened or synchronized, but no automated security scan runs, no check runs appear on GitHub commits, and no PR comments are generated.
+- Clicking the "Re-run" button on a check run does not trigger a scan or update the check.
 - The GitHub App settings page displays red failure badges on recent webhook deliveries.
 - Typical HTTP status codes in the GitHub delivery log:
   - `401 Unauthorized`: Body returns `{"statusCode": 401, "message": "Invalid GitHub webhook signature"}` or `Missing or invalid x-hub-signature-256 header`.
@@ -53,7 +54,7 @@ Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are valid
 2. **Missing Secret in Server Environment**: `GITHUB_WEBHOOK_SECRET` was omitted from deployment environment variables.
 3. **Unreachable Webhook URL**: In local development, the local tunnel (e.g. ngrok) expired or restarted with a new subdomain. In production, DNS records or ingress reverse proxies are misrouted or blocking POST requests to `/api/webhooks/github`.
 4. **Oversized Pull Request Payload**: The PR metadata, large diffs, or commit arrays exceed `GITHUB_WEBHOOK_MAX_BYTES` (5 MB default).
-5. **Missing Event Subscriptions**: The GitHub App is not subscribed to `Pull request`, `Installation`, or `Installation repositories` events.
+5. **Missing Event Subscriptions**: The GitHub App is not subscribed to `Pull request`, `Installation`, `Installation repositories`, `Check run`, or `Check suite` events (required for PR check re-runs).
 
 ---
 
