@@ -83,7 +83,39 @@ Two roles are seeded out of the box:
 
 For browser-driven requests (dashboard, share pages), the NextAuth session cookie is sent automatically — no extra headers needed.
 
-For programmatic clients that hold a session cookie, simply include it. There is currently **no bearer-token / API-key flow**; all auth is cookie-based.
+#### Personal API Tokens (Bearer Auth)
+
+For automated workflows, CI/CD pipelines, scripts, and the SecureFlow CLI, SecureFlow supports scoped **Personal API Tokens** (`sft_...`).
+
+To authenticate using a personal token, supply it in the `Authorization` HTTP header:
+
+```http
+GET /api/findings
+Authorization: Bearer sft_3a8f1b2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a
+```
+
+##### Token Security & Storage Guarantees
+- **Zero Raw Storage**: The plain token is shown exactly once upon creation. Only its SHA-256 hash (`tokenHash`) and an 8-character prefix (`tokenPrefix`, e.g. `sft_3a8f1b2c`) are stored in PostgreSQL.
+- **Granular Scopes**: Tokens are restricted to specific permissions. If an endpoint requires a scope the token does not possess, the API rejects the request with HTTP `403 Forbidden` (`INSUFFICIENT_SCOPE`).
+- **Expiry & Revocation**: Tokens can be created with 30-day, 90-day, or custom expiry dates. Expired or revoked tokens are rejected immediately with HTTP `401 Unauthorized` (`TOKEN_EXPIRED` or `TOKEN_REVOKED`).
+- **Audit Logging & Last Used**: Creation and revocation events are recorded in the tamper-evident audit ledger (`API_TOKEN_CREATE`, `API_TOKEN_REVOKE`). Each successful API call records `lastUsedAt` timestamp and `lastUsedIp`.
+- **Per-Token Rate Limiting**: Existing rate limits are enforced per token ID / hash rather than sharing an IP-wide rate-limit bucket.
+
+##### Supported Scopes
+
+| Scope | Description | Allowed Operations |
+| :--- | :--- | :--- |
+| `findings:read` | Read findings and triage state | `GET /api/findings`, `GET /api/findings/[id]` |
+| `findings:write` | Modify findings and remediation | `PATCH /api/findings/[id]`, `POST /api/findings/bulk-remediate` |
+| `scans:read` | Query scans and background jobs | `GET /api/findings/status/[jobId]`, `GET /api/sbom/scan/status/[jobId]` |
+| `scans:write` | Trigger automated scans | `POST /api/cli/scan`, `POST /api/findings`, `POST /api/sbom/scan` |
+| `policies:read` | Read and export policies | `GET /api/policies/export`, Policy template inspection |
+| `policies:write` | Configure and test policies | `POST /api/policies/import`, `POST /api/policies/test` |
+| `audit:read` | Read audit logs | `GET /api/audit`, `GET /api/admin/audit/verify` |
+
+##### Browser Session Cookie Auth
+
+Programmatic clients holding a valid session cookie can alternatively pass:
 
 ```http
 GET /api/admin/export

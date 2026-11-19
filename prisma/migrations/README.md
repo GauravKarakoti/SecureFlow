@@ -58,6 +58,7 @@ Because migration folders use timestamp-only naming, refer to this audit table f
 | `20261113125000_audit_log_hash_chain`        | Audit Log Hash Chain          | Adds `previousHash` and `entryHash` columns to `AuditLog` for cryptographic tamper-evident chaining.            |
 | `20261113133500_policy_versions`             | Policy Version History        | Creates `PolicyVersion` table to track immutable version history, editor attribution, and rollbacks.            |
 | `20261117084000_finding_triage_scan_context` | Triage Scan Context           | Stores the scanned commit and gate policy for safe post-triage verdict updates.                                 |
+| `20261119210000_personal_api_tokens`         | Personal API Tokens           | Creates `ApiToken` model with token hash, scopes, expiry, and last-used tracking (#1867).                        |
 
 ---
 

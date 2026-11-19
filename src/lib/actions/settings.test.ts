@@ -23,6 +23,11 @@ const mockOutboundWebhookUpdate = vi.hoisted(() => vi.fn());
 const mockOutboundWebhookDelete = vi.hoisted(() => vi.fn());
 const mockOutboundDeliveryFindMany = vi.hoisted(() => vi.fn());
 const mockRevalidatePath = vi.hoisted(() => vi.fn());
+const mockApiTokenFindMany = vi.hoisted(() => vi.fn());
+const mockApiTokenCreate = vi.hoisted(() => vi.fn());
+const mockApiTokenFindFirst = vi.hoisted(() => vi.fn());
+const mockApiTokenUpdate = vi.hoisted(() => vi.fn());
+const mockAuditLogCreate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
   default: {
@@ -34,6 +39,15 @@ vi.mock("@/lib/prisma", () => ({
       findMany: mockRepoFindMany,
       findFirst: mockRepoFindFirst,
       update: mockRepoUpdate,
+    },
+    apiToken: {
+      findMany: mockApiTokenFindMany,
+      create: mockApiTokenCreate,
+      findFirst: mockApiTokenFindFirst,
+      update: mockApiTokenUpdate,
+    },
+    auditLog: {
+      create: mockAuditLogCreate,
     },
     outboundWebhook: {
       findMany: mockOutboundWebhookFindMany,
@@ -57,6 +71,9 @@ import {
   updateSlackWebhook,
   getUserRepositoriesWithBadgeStatus,
   updateRepositoryPublicBadge,
+  getApiTokens,
+  createApiToken,
+  revokeApiToken,
   getOutboundWebhooks,
   createOutboundWebhook,
   deleteOutboundWebhook,
@@ -346,6 +363,150 @@ describe("updateRepositoryPublicBadge", () => {
   });
 });
 
+describe("Personal API Tokens Server Actions (#1867)", () => {
+  describe("getApiTokens", () => {
+    it("returns empty array when unauthenticated", async () => {
+      session = null;
+      const res = await getApiTokens();
+      expect(res).toEqual([]);
+      expect(mockApiTokenFindMany).not.toHaveBeenCalled();
+    });
+
+    it("returns mapped token list without sensitive hash", async () => {
+      const now = new Date();
+      mockApiTokenFindMany.mockResolvedValueOnce([
+        {
+          id: "tok-1",
+          name: "CLI Token",
+          tokenPrefix: "sft_abcdef12",
+          scopes: ["findings:read", "scans:write"],
+          expiresAt: new Date(Date.now() + 86400000),
+          revokedAt: null,
+          lastUsedAt: now,
+          lastUsedIp: "203.0.113.1",
+          createdAt: now,
+        },
+      ]);
+
+      const res = await getApiTokens();
+      expect(res).toHaveLength(1);
+      expect(res[0]).toEqual({
+        id: "tok-1",
+        name: "CLI Token",
+        tokenPrefix: "sft_abcdef12",
+        scopes: ["findings:read", "scans:write"],
+        expiresAt: expect.any(String),
+        revokedAt: null,
+        lastUsedAt: now.toISOString(),
+        lastUsedIp: "203.0.113.1",
+        createdAt: now.toISOString(),
+      });
+      expect(res[0]).not.toHaveProperty("tokenHash");
+    });
+  });
+
+  describe("createApiToken", () => {
+    it("rejects unauthenticated requests", async () => {
+      session = null;
+      await expect(
+        createApiToken({ name: "My Token", scopes: ["findings:read"] }),
+      ).rejects.toThrow("Unauthorized");
+    });
+
+    it("validates token name", async () => {
+      const res1 = await createApiToken({ name: "", scopes: ["findings:read"] });
+      expect(res1.success).toBe(false);
+      expect(res1.error).toContain("between 1 and 100 characters");
+
+      const res2 = await createApiToken({ name: "   ", scopes: ["findings:read"] });
+      expect(res2.success).toBe(false);
+    });
+
+    it("validates scopes", async () => {
+      const res1 = await createApiToken({ name: "Token", scopes: [] });
+      expect(res1.success).toBe(false);
+      expect(res1.error).toContain("At least one valid scope");
+
+      const res2 = await createApiToken({ name: "Token", scopes: ["not_real_scope"] });
+      expect(res2.success).toBe(false);
+    });
+
+    it("validates custom expiry date", async () => {
+      const res1 = await createApiToken({
+        name: "Token",
+        scopes: ["findings:read"],
+        customExpiresAt: "invalid-date",
+      });
+      expect(res1.success).toBe(false);
+      expect(res1.error).toContain("valid future date");
+
+      const pastDate = new Date(Date.now() - 3600000).toISOString();
+      const res2 = await createApiToken({
+        name: "Token",
+        scopes: ["findings:read"],
+        customExpiresAt: pastDate,
+      });
+      expect(res2.success).toBe(false);
+      expect(res2.error).toContain("valid future date");
+    });
+
+    it("creates token, stores only hash, writes audit log, and returns raw token once", async () => {
+      const now = new Date();
+      mockApiTokenCreate.mockImplementation(async ({ data }) => ({
+        id: "tok-new-123",
+        userId: data.userId,
+        name: data.name,
+        tokenHash: data.tokenHash,
+        tokenPrefix: data.tokenPrefix,
+        scopes: data.scopes,
+        expiresAt: data.expiresAt,
+        createdAt: now,
+      }));
+
+      const res = await createApiToken({
+        name: "Production CI",
+        scopes: ["scans:write", "findings:read"],
+        expiresInDays: 90,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.token).toMatch(/^sft_[0-9a-f]{64}$/);
+      expect(res.tokenItem).toBeDefined();
+      expect(res.tokenItem?.name).toBe("Production CI");
+      expect(res.tokenItem?.tokenPrefix).toBe(res.token?.slice(0, 12));
+
+      // Verify DB creation: only tokenHash is stored
+      expect(mockApiTokenCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "user-1",
+          name: "Production CI",
+          tokenHash: expect.any(String),
+          tokenPrefix: expect.stringMatching(/^sft_/),
+          scopes: ["scans:write", "findings:read"],
+          expiresAt: expect.any(Date),
+        }),
+      });
+
+      // Verify Audit Log entry
+      expect(mockAuditLogCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "user-1",
+          action: "API_TOKEN_CREATE",
+          resource: "api_token:tok-new-123",
+          decision: "ALLOW",
+          metadata: expect.objectContaining({
+            tokenId: "tok-new-123",
+            tokenName: "Production CI",
+            tokenPrefix: expect.any(String),
+            scopes: ["scans:write", "findings:read"],
+          }),
+        }),
+      });
+      expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+  });
+});
+
 describe("Outbound Webhook Server Actions (#1866)", () => {
   describe("getOutboundWebhooks", () => {
     it("returns empty array when unauthenticated", async () => {
@@ -470,6 +631,68 @@ describe("Outbound Webhook Server Actions (#1866)", () => {
         }),
       });
       expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+  });
+
+  describe("revokeApiToken", () => {
+    it("rejects unauthenticated requests", async () => {
+      session = null;
+      await expect(revokeApiToken("tok-1")).rejects.toThrow("Unauthorized");
+    });
+
+    it("returns error if token not found or unauthorized", async () => {
+      mockApiTokenFindFirst.mockResolvedValueOnce(null);
+      const res = await revokeApiToken("tok-missing");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("not found or unauthorized");
+      expect(mockApiTokenUpdate).not.toHaveBeenCalled();
+    });
+
+    it("revokes active token and writes audit log", async () => {
+      mockApiTokenFindFirst.mockResolvedValueOnce({
+        id: "tok-active",
+        userId: "user-1",
+        name: "Old Token",
+        tokenPrefix: "sft_12345678",
+        revokedAt: null,
+      });
+
+      const res = await revokeApiToken("tok-active");
+      expect(res.success).toBe(true);
+
+      expect(mockApiTokenUpdate).toHaveBeenCalledWith({
+        where: { id: "tok-active" },
+        data: { revokedAt: expect.any(Date) },
+      });
+
+      expect(mockAuditLogCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "user-1",
+          action: "API_TOKEN_REVOKE",
+          resource: "api_token:tok-active",
+          decision: "ALLOW",
+          metadata: expect.objectContaining({
+            tokenId: "tok-active",
+            tokenName: "Old Token",
+          }),
+        }),
+      });
+
+      expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+
+    it("is idempotent when token is already revoked", async () => {
+      mockApiTokenFindFirst.mockResolvedValueOnce({
+        id: "tok-already",
+        userId: "user-1",
+        name: "Already Revoked",
+        tokenPrefix: "sft_12345678",
+        revokedAt: new Date(),
+      });
+
+      const res = await revokeApiToken("tok-already");
+      expect(res.success).toBe(true);
+      expect(mockApiTokenUpdate).not.toHaveBeenCalled();
     });
   });
 

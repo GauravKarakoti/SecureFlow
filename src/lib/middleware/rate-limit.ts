@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { checkRateLimitDetailed, FallbackStrategy, RateLimitResult } from "../redis";
 import { getClientIp } from "../client-ip";
 
@@ -100,12 +101,23 @@ export function withRateLimit(
   config: RateLimitConfig,
 ) {
   return async (req: NextRequest, ...args: any[]) => {
-    // Resolve the client IP from the trusted portion of the forwarding chain
-    // (see getClientIp), so the limit cannot be bypassed by varying the header.
-    // The result is always a normalized IP literal or the `unknown` sentinel, so
-    // nothing attacker-controlled reaches the Redis key.
-    const ip = getClientIp(req.headers);
-    const key = `rate-limit:${config.keyPrefix}:${ip}`;
+    // If an API token is provided via Authorization: Bearer sft_..., rate limit per token (#1867)
+    // Otherwise resolve the client IP from the trusted portion of the forwarding chain (see getClientIp).
+    const authHeader =
+      req?.headers && typeof req.headers.get === "function"
+        ? req.headers.get("authorization") || req.headers.get("Authorization")
+        : null;
+
+    let identifier: string;
+    if (authHeader && authHeader.toLowerCase().startsWith("bearer sft_")) {
+      const rawToken = authHeader.slice(7).trim();
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+      identifier = `token:${tokenHash.slice(0, 16)}`;
+    } else {
+      identifier = getClientIp(req?.headers);
+    }
+
+    const key = `rate-limit:${config.keyPrefix}:${identifier}`;
 
     let result: RateLimitResult;
     try {

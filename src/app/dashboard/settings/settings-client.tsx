@@ -16,9 +16,11 @@ import {
   updateRepositoryCodeScanning,
   updateWeeklyDigestPreference,
   type RepoBadgeSetting,
+  type ApiTokenItem,
 } from "@/lib/actions/settings";
 import { Save, MessageSquare, Volume2, Send, Shield, ShieldAlert, AlertTriangle, Copy, Mail } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
+import ApiTokensCard from "@/components/settings/api-tokens-card";
 import OutboundWebhooksCard from "@/components/settings/outbound-webhooks-card";
 import { type OutboundWebhookView } from "@/lib/actions/settings";
 
@@ -31,6 +33,7 @@ export default function SettingsClient({
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
   initialRepositories = [],
+  initialApiTokens = [],
   initialOutboundWebhooks = [],
   initialWeeklyDigestEnabled = true,
 }: {
@@ -38,6 +41,7 @@ export default function SettingsClient({
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
   initialRepositories?: RepoBadgeSetting[];
+  initialApiTokens?: ApiTokenItem[];
   initialOutboundWebhooks?: OutboundWebhookView[];
   initialWeeklyDigestEnabled?: boolean;
 }) {
@@ -520,6 +524,9 @@ export default function SettingsClient({
           )}
         </CardContent>
       </Card>
+
+      {/* Personal API Tokens (#1867) */}
+      <ApiTokensCard initialTokens={initialApiTokens} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { authenticateUserOrToken } from "@/lib/auth/api-token";
 import prisma from "@/lib/prisma";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
@@ -10,13 +11,13 @@ import type { PolicyExportFile } from "@/lib/policies/export-import";
  * Returns only portable attributes (name, description, severity, action, rules, complianceTags, enabled).
  * Excludes internal IDs and user metadata.
  */
-async function getHandler(_req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    throw new AppError("Unauthorized", 401);
+async function getHandler(req: NextRequest) {
+  const authRes = await authenticateUserOrToken(req, { requiredScopes: ["policies:read"] });
+  if (!authRes.ok) {
+    throw new AppError(authRes.message, authRes.status);
   }
 
-  const userId = session.user.id;
+  const userId = authRes.userId;
 
   const [templates, userToggles] = await Promise.all([
     prisma.policyTemplate.findMany({
