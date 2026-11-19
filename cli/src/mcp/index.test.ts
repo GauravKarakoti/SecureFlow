@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -5,6 +6,7 @@ import {
   verifyDeclaredIntent,
   createThreatIntelMcpServer,
   queryLiveThreatIntelligence,
+  startMcpServer,
 } from "./index.js";
 import { KNOWLEDGE_BASE } from "../threat-intel.js";
 
@@ -988,6 +990,232 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
       );
 
       expect(advisory).toBe("");
+    });
+  });
+
+  describe("startMcpServer (Client Resilience & Stdio Stream Lifecycle #1769)", () => {
+    it("starts MCP server with custom streams and reports active session", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+      });
+
+      expect(session).toBeDefined();
+      expect(session.isAlive()).toBe(true);
+      expect(session.getLastActivity()).toBeGreaterThan(0);
+
+      await session.close();
+      expect(session.isAlive()).toBe(false);
+    });
+
+    it("catches broken pipe (EPIPE) on stdout cleanly without crashing daemon", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      expect(session.isAlive()).toBe(true);
+
+      const epipeError = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+      stdout.emit("error", epipeError);
+
+      await session.waitForClose();
+
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toContain("Broken pipe: EPIPE");
+    });
+
+    it("catches ERR_STREAM_DESTROYED and ECONNRESET on stdout cleanly", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      const streamDestroyed = Object.assign(new Error("Stream destroyed"), {
+        code: "ERR_STREAM_DESTROYED",
+      });
+      stdout.emit("error", streamDestroyed);
+
+      await session.waitForClose();
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toContain("ERR_STREAM_DESTROYED");
+    });
+
+    it("handles EOF on stdin cleanly when client disconnects", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      expect(session.isAlive()).toBe(true);
+
+      stdin.end();
+
+      await session.waitForClose();
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toBe("EOF on stdin");
+    });
+
+    it("handles ECONNRESET error on stdin cleanly without crashing daemon", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      const connReset = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      stdin.emit("error", connReset);
+
+      await session.waitForClose();
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toContain("stdin disconnected: ECONNRESET");
+    });
+
+    it("detects stdio stream stalls when inactivity exceeds stallTimeoutMs", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        stallTimeoutMs: 50,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      expect(session.isAlive()).toBe(true);
+
+      await session.waitForClose();
+
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toContain("Stream stall");
+    });
+
+    it("heartbeat verifies client liveness and gracefully shuts down if client fails to respond", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      let disconnectReason: string | undefined;
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 25,
+        heartbeatTimeoutMs: 50,
+        stallTimeoutMs: 0,
+        exitOnDisconnect: false,
+        onDisconnect: (reason) => {
+          disconnectReason = reason;
+        },
+      });
+
+      expect(session.isAlive()).toBe(true);
+
+      await session.waitForClose();
+
+      expect(session.isAlive()).toBe(false);
+      expect(disconnectReason).toContain("Heartbeat ping failed");
+    });
+
+    it("heartbeat ping succeeds when client responds with pong", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+
+      stdout.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        const lines = text.split("\n").filter((l) => l.trim().length > 0);
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line);
+            if (msg.method === "ping") {
+              const pong = JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n";
+              stdin.write(pong);
+            }
+          } catch {
+            // ignore non-json
+          }
+        }
+      });
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 30,
+        heartbeatTimeoutMs: 100,
+        stallTimeoutMs: 200,
+        exitOnDisconnect: false,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      expect(session.isAlive()).toBe(true);
+
+      await session.close();
+      expect(session.isAlive()).toBe(false);
+    });
+
+    it("records stdin data activity and updates lastActivity timestamp", async () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+
+      const session = await startMcpServer({
+        stdin,
+        stdout,
+        heartbeatIntervalMs: 0,
+        exitOnDisconnect: false,
+      });
+
+      const initialActivity = session.getLastActivity();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      stdin.write('{"jsonrpc":"2.0","method":"ping","id":99}\n');
+
+      expect(session.getLastActivity()).toBeGreaterThanOrEqual(initialActivity);
+
+      await session.close();
     });
   });
 });
