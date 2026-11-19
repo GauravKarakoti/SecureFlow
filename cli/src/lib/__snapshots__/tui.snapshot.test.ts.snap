@@ -7,7 +7,7 @@ exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (
 ┌────────────┬─────────────────────────────────────────────────┬────────────────┬───────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                                        │ RULE / TYPE    │ DETAILS                                       │
 ├────────────┼─────────────────────────────────────────────────┼────────────────┼───────────────────────────────────────────────┤
-│  HIGH      │ src/database/repositories/user-repository.ts:88 │ SQL_INJECTION  │ Unsanitized user-supplied input concatenated  │
+│  HIGH        │ src/database/repositories/user-repository.ts:88 │ SQL_INJECTION  │ Unsanitized user-supplied input concatenated  │
 └────────────┴─────────────────────────────────────────────────┴────────────────┴───────────────────────────────────────────────┘
 "
 `;
@@ -19,7 +19,7 @@ exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (
 ┌────────────┬──────────────────────────────┬────────────────┬───────────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                     │ RULE / TYPE    │ DETAILS                                           │
 ├────────────┼──────────────────────────────┼────────────────┼───────────────────────────────────────────────────┤
-│  CRITICAL  │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
+│  CRITICAL    │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
 └────────────┴──────────────────────────────┴────────────────┴───────────────────────────────────────────────────┘
 "
 `;
@@ -37,8 +37,8 @@ exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (
 ┌────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────┬────────────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                                                                                                                                                                 │ RULE / TYPE                                      │ DETAILS                                            │
 ├────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┼────────────────────────────────────────────────────┤
-│  CRITICAL  │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
-│  HIGH      │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerabil      │
+│  CRITICAL    │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
+│  HIGH        │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerabil      │
 └────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────┴────────────────────────────────────────────────────┘
 "
 `;
@@ -50,15 +50,15 @@ exports[`CLI Output Formatting Snapshot Tests > formatTuiScanSummary snapshots (
 ┌────────────┬───────────────────────────────────────┬───────────────────────┬───────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                              │ RULE / TYPE           │ DETAILS                                       │
 ├────────────┼───────────────────────────────────────┼───────────────────────┼───────────────────────────────────────────────┤
-│  CRITICAL  │ src/auth/jwt-signer.ts:24             │ Secret Logging        │ Private signing key leaked in logs            │
-│  HIGH      │ src/auth/jwt-signer.ts:77             │ Secret Logging        │ Password hash emitted in warning log          │
-│  MEDIUM    │ src/config/aws-credentials.ts:15      │ Secret Logging        │ Cloud provider identifier in debug log        │
-│  LOW       │ src/telemetry/tracker.ts:102          │ Secret Logging        │ Internal network topology disclosure          │
-│  CRITICAL  │ deploy/helm/values-production.yaml:54 │ HARDCODED_SECRET      │ Plaintext database password in Helm chart con │
-│  HIGH      │ src/services/command-runner.ts:135    │ COMMAND_INJECTION     │ Arbitrary command execution via unsanitized h │
-│  MEDIUM    │ src/crypto/nonce-generator.ts:31      │ INSECURE_RANDOM       │ Cryptographically insecure PRNG used for nonc │
-│  LOW       │ Dockerfile:18                         │ EXCESSIVE_PERMISSIONS │ Container runs as superuser root without drop │
-│  INFO      │ src/crypto/legacy-cipher.ts:9         │ DEPRECATED_CIPHER     │ Deprecated and insecure single-DES ECB encryp │
+│  CRITICAL    │ src/auth/jwt-signer.ts:24             │ Secret Logging        │ Private signing key leaked in logs            │
+│  HIGH        │ src/auth/jwt-signer.ts:77             │ Secret Logging        │ Password hash emitted in warning log          │
+│  MEDIUM      │ src/config/aws-credentials.ts:15      │ Secret Logging        │ Cloud provider identifier in debug log        │
+│  LOW         │ src/telemetry/tracker.ts:102          │ Secret Logging        │ Internal network topology disclosure          │
+│  CRITICAL    │ deploy/helm/values-production.yaml:54 │ HARDCODED_SECRET      │ Plaintext database password in Helm chart con │
+│  HIGH        │ src/services/command-runner.ts:135    │ COMMAND_INJECTION     │ Arbitrary command execution via unsanitized h │
+│  MEDIUM      │ src/crypto/nonce-generator.ts:31      │ INSECURE_RANDOM       │ Cryptographically insecure PRNG used for nonc │
+│  LOW         │ Dockerfile:18                         │ EXCESSIVE_PERMISSIONS │ Container runs as superuser root without drop │
+│  INFO        │ src/crypto/legacy-cipher.ts:9         │ DEPRECATED_CIPHER     │ Deprecated and insecure single-DES ECB encryp │
 └────────────┴───────────────────────────────────────┴───────────────────────┴───────────────────────────────────────────────┘
 "
 `;
@@ -73,7 +73,7 @@ exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (co
 "┌────────────┬──────────────────────────────┬────────────────┬───────────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                     │ RULE / TYPE    │ DETAILS                                           │
 ├────────────┼──────────────────────────────┼────────────────┼───────────────────────────────────────────────────┤
-│  CRITICAL  │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
+│  CRITICAL    │ src/auth/token-service.ts:42 │ Secret Logging │ Sensitive authentication token printed to console │
 └────────────┴──────────────────────────────┴────────────────┴───────────────────────────────────────────────────┘"
 `;
 
@@ -81,11 +81,11 @@ exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (co
 "┌────────────┬──────────────────────────────────┬───────────────────┬────────────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                         │ RULE / TYPE       │ DETAILS                                            │
 ├────────────┼──────────────────────────────────┼───────────────────┼────────────────────────────────────────────────────┤
-│  CRITICAL  │ src/auth/jwt-signer.ts:24        │ Secret Logging    │ Private signing key leaked in logs                 │
-│  HIGH      │ src/auth/jwt-signer.ts:77        │ Secret Logging    │ Password hash emitted in warning log               │
-│  MEDIUM    │ src/config/aws-credentials.ts:15 │ Secret Logging    │ Cloud provider identifier in debug log             │
-│  LOW       │ src/telemetry/tracker.ts:102     │ Secret Logging    │ Internal network topology disclosure               │
-│  INFO      │ src/crypto/legacy-cipher.ts:9    │ DEPRECATED_CIPHER │ Deprecated and insecure single-DES ECB encryption  │
+│  CRITICAL    │ src/auth/jwt-signer.ts:24        │ Secret Logging    │ Private signing key leaked in logs                 │
+│  HIGH        │ src/auth/jwt-signer.ts:77        │ Secret Logging    │ Password hash emitted in warning log               │
+│  MEDIUM      │ src/config/aws-credentials.ts:15 │ Secret Logging    │ Cloud provider identifier in debug log             │
+│  LOW         │ src/telemetry/tracker.ts:102     │ Secret Logging    │ Internal network topology disclosure               │
+│  INFO        │ src/crypto/legacy-cipher.ts:9    │ DEPRECATED_CIPHER │ Deprecated and insecure single-DES ECB encryption  │
 └────────────┴──────────────────────────────────┴───────────────────┴────────────────────────────────────────────────────┘"
 `;
 
@@ -93,8 +93,8 @@ exports[`CLI Output Formatting Snapshot Tests > renderWarningTable snapshots (co
 "┌────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────┬────────────────────────────────────────────────────┐
 │ SEVERITY   │ LOCATION                                                                                                                                                                 │ RULE / TYPE                                      │ DETAILS                                            │
 ├────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┼────────────────────────────────────────────────────┤
-│  CRITICAL  │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
-│  HIGH      │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerability a │
+│  CRITICAL    │ packages/enterprise-cloud-infrastructure/src/adapters/secret-store/vault/providers/azure-key-vault-managed-identity/v2/credentials-provider-manager-service-impl.ts:1849 │ Secret Logging                                   │ Detected plaintext enterprise symmetric encryption │
+│  HIGH        │ packages/contracts/smart-contracts/protocols/liquidity-pool/v3/core/isolated-vault-collateral-asset-deposit-handler-impl.sol:2490                                        │ DISTRIBUTED_TRANSACTION_REENTRANCY_VULNERABILITY │ Critical smart contract reentrancy vulnerability a │
 └────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────┴────────────────────────────────────────────────────┘"
 `;
 

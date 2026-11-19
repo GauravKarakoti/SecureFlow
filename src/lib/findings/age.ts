@@ -35,9 +35,7 @@ export function parseAgeTargetEnv(raw: string | undefined, varName: string): num
   if (raw === undefined || raw.trim() === "") return null;
   const n = Number(raw.trim());
   if (!Number.isInteger(n) || n <= 0) {
-    throw new Error(
-      `${varName} must be a positive integer (days), got: "${raw.trim()}"`,
-    );
+    throw new Error(`${varName} must be a positive integer (days), got: "${raw.trim()}"`);
   }
   return n;
 }
@@ -86,7 +84,10 @@ export const AGE_TARGETS: Record<string, number | null> = buildAgeTargets();
  * Returns `null` when `createdAt` is absent (the row predates fingerprinting
  * or was inserted without a date).
  */
-export function findingAgeDays(createdAt: Date | null | undefined, now: Date = new Date()): number | null {
+export function findingAgeDays(
+  createdAt: Date | null | undefined,
+  now: Date = new Date(),
+): number | null {
   if (!createdAt) return null;
   const ms = now.getTime() - createdAt.getTime();
   return Math.floor(ms / (1000 * 60 * 60 * 24));
@@ -141,5 +142,7 @@ export function countOverdue(
   targets: Record<string, number | null> = AGE_TARGETS,
   now: Date = new Date(),
 ): number {
-  return findings.filter((f) => isFindingOverdue(f.severity, f.createdAt, f.triageStatus, targets, now)).length;
+  return findings.filter((f) =>
+    isFindingOverdue(f.severity, f.createdAt, f.triageStatus, targets, now),
+  ).length;
 }

@@ -530,6 +530,7 @@ Closes #
 - [ ] All new and existing tests pass locally
 - [ ] Commits follow Conventional Commits format
 - [ ] Added a changeset via `npx changeset` (if changing runtime or CLI behavior)
+- [ ] Run `npm run db:check-drift` to verify Prisma schema and migration alignment
 ```
 
 ---

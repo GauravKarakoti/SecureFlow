@@ -7,14 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TimeAgo } from "@/components/time-ago";
 import { requestManualDigestGeneration } from "@/lib/actions/digest";
-import {
-  Mail,
-  RefreshCw,
-  FolderGit2,
-  Bug,
-  Calendar,
-  AlertCircle,
-} from "lucide-react";
+import { Mail, RefreshCw, FolderGit2, Bug, Calendar, AlertCircle } from "lucide-react";
 
 export interface SerializedDigestRepoMetric {
   repositoryId: string;

@@ -649,8 +649,8 @@ export async function fetchOverdueCount(userId: string): Promise<number> {
   });
 
   const dismissedKeys = new Set(
-    dismissedTriages.map((t: { fingerprint: string; repositoryId: string }) =>
-      `${t.repositoryId}:${t.fingerprint}`,
+    dismissedTriages.map(
+      (t: { fingerprint: string; repositoryId: string }) => `${t.repositoryId}:${t.fingerprint}`,
     ),
   );
 

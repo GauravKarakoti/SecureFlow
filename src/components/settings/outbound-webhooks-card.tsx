@@ -123,9 +123,7 @@ export default function OutboundWebhooksCard({
       try {
         const res = await toggleOutboundWebhook(id, next);
         if (res.success) {
-          setWebhooks((prev) =>
-            prev.map((w) => (w.id === id ? { ...w, enabled: next } : w)),
-          );
+          setWebhooks((prev) => prev.map((w) => (w.id === id ? { ...w, enabled: next } : w)));
           toast.success(next ? "Webhook enabled." : "Webhook disabled.");
         } else {
           toast.error(res.error || "Failed to update webhook.");
@@ -200,7 +198,8 @@ export default function OutboundWebhooksCard({
             <CardTitle className="text-xl">Outbound Webhooks</CardTitle>
           </div>
           <CardDescription>
-            Stream scan and finding events to external systems (SIEM, ticketing, bots) signed with HMAC-SHA256.
+            Stream scan and finding events to external systems (SIEM, ticketing, bots) signed with
+            HMAC-SHA256.
           </CardDescription>
         </div>
         {!isCreating && (
@@ -224,15 +223,12 @@ export default function OutboundWebhooksCard({
               Webhook Signing Secret (Shown Once)
             </div>
             <p className="text-xs text-muted-foreground">
-              Verify signatures via the <code className="bg-muted px-1 py-0.5 rounded">X-SecureFlow-Signature</code> header.
+              Verify signatures via the{" "}
+              <code className="bg-muted px-1 py-0.5 rounded">X-SecureFlow-Signature</code> header.
               Copy this secret now; it will not be displayed again.
             </p>
             <div className="flex items-center gap-2">
-              <Input
-                readOnly
-                value={createdSecret}
-                className="font-mono text-xs bg-background"
-              />
+              <Input readOnly value={createdSecret} className="font-mono text-xs bg-background" />
               <Button
                 type="button"
                 size="sm"
@@ -240,7 +236,11 @@ export default function OutboundWebhooksCard({
                 onClick={copySecretToClipboard}
                 className="shrink-0"
               >
-                {secretCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                {secretCopied ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
                 {secretCopied ? "Copied" : "Copy"}
               </Button>
               <Button
@@ -264,7 +264,8 @@ export default function OutboundWebhooksCard({
             <div className="space-y-1">
               <h4 className="text-sm font-semibold">Register HTTPS Webhook Endpoint</h4>
               <p className="text-xs text-muted-foreground">
-                Destination must use HTTPS. Private, loopback, and link-local addresses are rejected.
+                Destination must use HTTPS. Private, loopback, and link-local addresses are
+                rejected.
               </p>
             </div>
 
@@ -337,7 +338,8 @@ export default function OutboundWebhooksCard({
         {/* Webhooks List */}
         {webhooks.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
-            No outbound webhooks configured. Register an HTTPS endpoint to stream scan and finding events to your external tools.
+            No outbound webhooks configured. Register an HTTPS endpoint to stream scan and finding
+            events to your external tools.
           </div>
         ) : (
           <div className="space-y-3">
@@ -366,13 +368,16 @@ export default function OutboundWebhooksCard({
 
                   {hook.latestDelivery && (
                     <div className="text-[11px] flex items-center gap-1.5 text-muted-foreground pt-0.5">
-                      {hook.latestDelivery.statusCode && hook.latestDelivery.statusCode >= 200 && hook.latestDelivery.statusCode < 300 ? (
+                      {hook.latestDelivery.statusCode &&
+                      hook.latestDelivery.statusCode >= 200 &&
+                      hook.latestDelivery.statusCode < 300 ? (
                         <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                       ) : (
                         <XCircle className="h-3.5 w-3.5 text-red-500" />
                       )}
                       <span>
-                        Last delivery: HTTP {hook.latestDelivery.statusCode ?? "ERR"} ({hook.latestDelivery.attempts}{" "}
+                        Last delivery: HTTP {hook.latestDelivery.statusCode ?? "ERR"} (
+                        {hook.latestDelivery.attempts}{" "}
                         {hook.latestDelivery.attempts === 1 ? "attempt" : "attempts"})
                       </span>
                     </div>
@@ -432,19 +437,19 @@ export default function OutboundWebhooksCard({
                 <History className="h-4 w-4 text-primary" />
                 <h4 className="text-sm font-semibold">Recent Delivery Logs</h4>
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setViewingWebhookId(null)}
-              >
+              <Button size="sm" variant="ghost" onClick={() => setViewingWebhookId(null)}>
                 Close
               </Button>
             </div>
 
             {isLoadingDeliveries ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">Loading delivery history...</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                Loading delivery history...
+              </div>
             ) : deliveries.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">No delivery logs recorded yet.</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                No delivery logs recorded yet.
+              </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {deliveries.map((d) => (
@@ -469,7 +474,9 @@ export default function OutboundWebhooksCard({
                         HTTP {d.statusCode ?? "ERROR"}
                       </span>
                       <span>•</span>
-                      <span>{d.attempts} {d.attempts === 1 ? "attempt" : "attempts"}</span>
+                      <span>
+                        {d.attempts} {d.attempts === 1 ? "attempt" : "attempts"}
+                      </span>
                       {d.error && (
                         <>
                           <span>•</span>

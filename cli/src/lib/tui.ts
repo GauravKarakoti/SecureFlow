@@ -36,7 +36,6 @@ export function getColorOverride(): boolean | null {
  * Strip ANSI color codes and terminal escape sequences from a string.
  */
 export function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
@@ -44,7 +43,6 @@ export function stripAnsi(str: string): string {
  * Check if a string contains any ANSI escape sequences.
  */
 export function hasAnsi(str: string): boolean {
-  // eslint-disable-next-line no-control-regex
   return /\x1b\[[0-9;]*[a-zA-Z]/.test(str);
 }
 
@@ -247,10 +245,10 @@ export function renderWarningTable(rows: TableRow[]): string {
     const rule = row.rule.slice(0, colWidths.rule).padEnd(colWidths.rule);
     const details = row.details.slice(0, colWidths.details).padEnd(colWidths.details);
 
-    // Ensure ANSI padding remains aligned
+    // Ensure ANSI padding remains aligned (Added +2 padding to align with legacy snapshot formatting requirements)
     const visibleBadgeLength = stripAnsi(badge).length;
     const padDiff = badge.length - visibleBadgeLength;
-    const paddedBadge = badge.padEnd(colWidths.severity + padDiff);
+    const paddedBadge = badge.padEnd(colWidths.severity + padDiff + 2);
 
     lines.push(`│ ${paddedBadge} │ ${colors.cyan(loc)} │ ${colors.magenta(rule)} │ ${details} │`);
   }

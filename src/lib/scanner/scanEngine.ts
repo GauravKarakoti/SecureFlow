@@ -50,6 +50,12 @@ import {
   DEFAULT_GATE_CONFIG,
   type GateConfig,
 } from "./gate-config";
+import {
+  groupFilesByPolicyScope,
+  collectAppliedScopes,
+  formatAppliedScopesSection,
+  type AppliedScopeSummary,
+} from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { activeSuppressionWhere } from "../triage/expiry";
@@ -93,6 +99,7 @@ export interface ScanJobResult {
   skippedFiles?: Array<{ filename: string; reason: string }>;
   reusedFromCache?: boolean;
   expiredIgnoreRules?: ExpiredIgnoreRule[];
+  appliedPolicyScopes?: AppliedScopeSummary[];
 }
 
 export interface ScanProgress {
@@ -300,12 +307,18 @@ export async function processScanJob(
     policyVersion,
     customIgnores,
     customPlaceholders,
+    policyScopes: repositoryGateConfig.policyScopes,
   });
   const cacheKey = scanCacheKey(cacheHash);
 
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+
+  const appliedPolicyScopes = collectAppliedScopes(
+    fileChanges,
+    repositoryGateConfig.policyScopes,
+  );
 
   const cachedFindings = await getCachedScan(cacheKey);
   if (cachedFindings) {
@@ -337,55 +350,64 @@ export async function processScanJob(
 
     let scannedFiles = 0;
 
-    for (let i = 0; i < fileChanges.length; i += CHUNK_SIZE) {
-      const chunk = fileChanges.slice(i, i + CHUNK_SIZE);
+    // Group files by their applicable policy scope (#1868)
+    const fileGroups = groupFilesByPolicyScope(
+      fileChanges,
+      activePolicies as any[],
+      repositoryGateConfig.policyScopes,
+    );
 
-      try {
-        const chunkFindings = await scanner.scanPullRequest(
-          chunk,
-          activePolicies as any[],
-          customIgnores,
-          customPlaceholders,
-        );
-        allFindings.push(...chunkFindings);
-        if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
-          allSkippedFiles.push(...scanner.lastSkippedFiles);
+    for (const group of fileGroups) {
+      for (let i = 0; i < group.files.length; i += CHUNK_SIZE) {
+        const chunk = group.files.slice(i, i + CHUNK_SIZE);
+
+        try {
+          const chunkFindings = await scanner.scanPullRequest(
+            chunk,
+            group.policies as any[],
+            customIgnores,
+            customPlaceholders,
+          );
+          allFindings.push(...chunkFindings);
+          if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
+            allSkippedFiles.push(...scanner.lastSkippedFiles);
+          }
+        } catch (err) {
+          log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
+          // Fail the scan rather than continue: findings from the other chunks would be
+          // evaluated as if these files were clean, and a PR whose risky file sat in this
+          // chunk would pass.
+          throw new ScanIncompleteError(
+            chunk.map((file) => file.filename),
+            err,
+          );
         }
-      } catch (err) {
-        log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
-          error: err instanceof Error ? err.message : String(err),
+
+        scannedFiles += chunk.length;
+        const vulnCount = allFindings.length;
+        const progress = progressPercent(scannedFiles, totalFiles);
+
+        onProgress({
+          phase: "scanning",
+          scannedFiles,
+          totalFiles,
+          vulnerabilitiesFound: vulnCount,
+          progress,
         });
-        console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
-        // Fail the scan rather than continue: findings from the other chunks would be
-        // evaluated as if these files were clean, and a PR whose risky file sat in this
-        // chunk would pass.
-        throw new ScanIncompleteError(
-          chunk.map((file) => file.filename),
-          err,
-        );
-      }
 
-      scannedFiles = Math.min(i + CHUNK_SIZE, totalFiles);
-      const vulnCount = allFindings.length;
-      const progress = progressPercent(scannedFiles, totalFiles);
+        // Update database progress
+        await updateScanJobProgress(scanJobId, {
+          scannedFiles,
+          vulnerabilitiesFound: vulnCount,
+        }).catch(() => {});
 
-      onProgress({
-        phase: "scanning",
-        scannedFiles,
-        totalFiles,
-        vulnerabilitiesFound: vulnCount,
-        progress,
-      });
-
-      // Update database progress
-      await updateScanJobProgress(scanJobId, {
-        scannedFiles,
-        vulnerabilitiesFound: vulnCount,
-      }).catch(() => {});
-
-      // Yield to event loop between chunks
-      if (i + CHUNK_SIZE < fileChanges.length) {
-        await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+        // Yield to event loop between chunks
+        if (scannedFiles < totalFiles) {
+          await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+        }
       }
     }
 
@@ -521,6 +543,10 @@ export async function processScanJob(
             body += `- ⚠️ ignore rule \`${rule.pattern}\` expired on ${rule.expires}${reasonText}\n`;
           });
           body += `\n`;
+        }
+
+        if (appliedPolicyScopes.length > 0) {
+          body += formatAppliedScopesSection(appliedPolicyScopes);
         }
 
         if (allSkippedFiles.length > 0) {
@@ -723,5 +749,6 @@ export async function processScanJob(
     skippedFiles: allSkippedFiles,
     reusedFromCache,
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
+    appliedPolicyScopes,
   };
 }

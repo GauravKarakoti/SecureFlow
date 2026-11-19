@@ -78,7 +78,8 @@ export class BrevoMailTransport implements MailTransport {
   constructor(config: BrevoConfig = {}) {
     this.config = {
       apiKey: config.apiKey || process.env.BREVO_API_KEY,
-      senderEmail: config.senderEmail || process.env.BREVO_SENDER_EMAIL || "security@secureflow.dev",
+      senderEmail:
+        config.senderEmail || process.env.BREVO_SENDER_EMAIL || "security@secureflow.dev",
       senderName: config.senderName || process.env.BREVO_SENDER_NAME || "SecureFlow Security",
       timeoutMs: config.timeoutMs ?? 15000,
     };

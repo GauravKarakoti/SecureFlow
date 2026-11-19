@@ -168,9 +168,7 @@ export async function authenticateApiToken(
   }
 
   if (options?.requiredScopes && options.requiredScopes.length > 0) {
-    const missing = options.requiredScopes.filter(
-      (scope) => !apiToken.scopes.includes(scope),
-    );
+    const missing = options.requiredScopes.filter((scope) => !apiToken.scopes.includes(scope));
     if (missing.length > 0) {
       return {
         ok: false,

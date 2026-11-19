@@ -323,7 +323,11 @@ describe("updateRepositoryCodeScanning", () => {
 
   it("disables code scanning and clears any existing warning", async () => {
     mockRepoFindFirst.mockResolvedValue({ id: "repo-1", userId: "user-1" });
-    mockRepoUpdate.mockResolvedValue({ id: "repo-1", codeScanningEnabled: false, codeScanningWarning: null });
+    mockRepoUpdate.mockResolvedValue({
+      id: "repo-1",
+      codeScanningEnabled: false,
+      codeScanningWarning: null,
+    });
 
     const res = await updateRepositoryCodeScanning("repo-1", false);
     expect(res).toEqual({ success: true });
@@ -408,9 +412,9 @@ describe("Personal API Tokens Server Actions (#1867)", () => {
   describe("createApiToken", () => {
     it("rejects unauthenticated requests", async () => {
       session = null;
-      await expect(
-        createApiToken({ name: "My Token", scopes: ["findings:read"] }),
-      ).rejects.toThrow("Unauthorized");
+      await expect(createApiToken({ name: "My Token", scopes: ["findings:read"] })).rejects.toThrow(
+        "Unauthorized",
+      );
     });
 
     it("validates token name", async () => {

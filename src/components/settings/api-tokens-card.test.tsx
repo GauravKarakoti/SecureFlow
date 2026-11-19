@@ -113,7 +113,9 @@ describe("ApiTokensCard component (#1867)", () => {
     await waitFor(() => {
       expect(screen.getByText("Save your new token")).toBeInTheDocument();
       expect(
-        screen.getByDisplayValue("sft_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+        screen.getByDisplayValue(
+          "sft_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        ),
       ).toBeInTheDocument();
     });
   });

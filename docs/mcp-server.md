@@ -504,6 +504,37 @@ If you are developing inside the SecureFlow repository or testing local modifica
 
 ---
 
+## Client Resilience & Stdio Stream Lifecycle (#1769)
+
+The SecureFlow MCP server implements resilient stream lifecycle management designed for long-running background daemons and IDE assistants (Cursor, Claude Desktop, Windsurf, VS Code):
+
+### 1. Broken Pipe & EOF Handling
+- **Broken Pipe Protection (`EPIPE`, `ERR_STREAM_DESTROYED`, `ECONNRESET`)**:
+  When an IDE client abruptly crashes or terminates its connection pipe, write attempts to `stdout` are intercepted cleanly without throwing unhandled exceptions or crashing the background daemon.
+- **EOF & Stream Termination (`end`, `close`)**:
+  When standard input encounters EOF (such as when the parent process closes the pipe), the server performs a graceful shutdown sequence: flushing pending output, releasing active stream listeners, and shutting down the transport cleanly.
+- **Signal Traps**:
+  Native signal handlers intercept `SIGINT` and `SIGTERM` to perform graceful server cleanup before exiting.
+
+### 2. Heartbeat & Ping-Pong Verification
+- **Bidirectional Liveness**:
+  - **Client-to-Server**: Responds automatically to client JSON-RPC `ping` requests (`PingRequestSchema`) with an empty pong result (`{}`), recording inbound activity.
+  - **Server-to-Client**: When `heartbeatIntervalMs` is configured, the server periodically issues `ping` requests to verify client responsiveness. If an IDE client becomes unresponsive and fails to answer within the heartbeat timeout, the server triggers graceful transport cleanup.
+- **Stdio Stream Stall Detection**:
+  Monitors stream inactivity through an independent watchdog. If no data is transferred within the stall threshold (`stallTimeoutMs`), the server flags the stalled stream and terminates the orphaned transport.
+
+### 3. Configuration & CLI Flags
+
+Liveness monitoring can be customized via command-line flags or environment variables:
+
+| CLI Flag | Environment Variable | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--heartbeat-interval=<ms>` | `SECUREFLOW_MCP_HEARTBEAT_INTERVAL_MS` | `30000` (30s) | Interval between client liveness ping checks (`0` to disable) |
+| `--heartbeat-timeout=<ms>` | `SECUREFLOW_MCP_HEARTBEAT_TIMEOUT_MS` | `10000` (10s) | Timeout waiting for a client pong response |
+| `--stall-timeout=<ms>` | `SECUREFLOW_MCP_LIVENESS_TIMEOUT_MS` | `60000` (60s) | Inactivity threshold before stream stall is detected (`0` to disable) |
+
+---
+
 ## Verifying the Server Manually
 
 You can test that the MCP server starts correctly by running it from your terminal:

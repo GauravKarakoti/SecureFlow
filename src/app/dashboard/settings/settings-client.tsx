@@ -18,7 +18,17 @@ import {
   type RepoBadgeSetting,
   type ApiTokenItem,
 } from "@/lib/actions/settings";
-import { Save, MessageSquare, Volume2, Send, Shield, ShieldAlert, AlertTriangle, Copy, Mail } from "lucide-react";
+import {
+  Save,
+  MessageSquare,
+  Volume2,
+  Send,
+  Shield,
+  ShieldAlert,
+  AlertTriangle,
+  Copy,
+  Mail,
+} from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
 import ApiTokensCard from "@/components/settings/api-tokens-card";
 import OutboundWebhooksCard from "@/components/settings/outbound-webhooks-card";
@@ -375,7 +385,7 @@ export default function SettingsClient({
 
       {/* ── Outbound Webhooks ── */}
       <OutboundWebhooksCard initialWebhooks={initialOutboundWebhooks} />
-      
+
       {/* ── Weekly Security Digest ── */}
       <Card className="glass-card">
         <CardHeader>
@@ -421,7 +431,8 @@ export default function SettingsClient({
             <div>
               <CardTitle>Repository Status Badges</CardTitle>
               <CardDescription>
-                Share your repository&apos;s real-time security posture in your README, and publish scan results to GitHub Code Scanning (Security tab).
+                Share your repository&apos;s real-time security posture in your README, and publish
+                scan results to GitHub Code Scanning (Security tab).
               </CardDescription>
             </div>
           </div>
@@ -450,7 +461,9 @@ export default function SettingsClient({
                   {/* Code Scanning */}
                   <div className="flex items-center justify-between border-t border-border/40 pt-3">
                     <div>
-                      <p className="text-sm font-medium">Publish findings to GitHub Code Scanning</p>
+                      <p className="text-sm font-medium">
+                        Publish findings to GitHub Code Scanning
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {repo.codeScanningEnabled
                           ? "Publishing enabled — scan findings are uploaded to GitHub's Security tab (SARIF)"
@@ -469,7 +482,9 @@ export default function SettingsClient({
                     <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-amber-200 text-xs">
                       <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-medium">Missing GitHub Permissions or Advanced Security</p>
+                        <p className="font-medium">
+                          Missing GitHub Permissions or Advanced Security
+                        </p>
                         <p className="text-amber-300/80 mt-0.5">{repo.codeScanningWarning}</p>
                       </div>
                     </div>

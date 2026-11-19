@@ -374,17 +374,11 @@ describe("isSecureFlowCheckRun (#1863)", () => {
   it("validates app ID when configured and check run carries app object", () => {
     const configuredAppId = "12345";
     expect(
-      isSecureFlowCheckRun(
-        { name: "SecureFlow Scan", app: { id: 12345 } },
-        configuredAppId,
-      ),
+      isSecureFlowCheckRun({ name: "SecureFlow Scan", app: { id: 12345 } }, configuredAppId),
     ).toBe(true);
 
     expect(
-      isSecureFlowCheckRun(
-        { name: "SecureFlow Scan", app: { id: 99999 } },
-        configuredAppId,
-      ),
+      isSecureFlowCheckRun({ name: "SecureFlow Scan", app: { id: 99999 } }, configuredAppId),
     ).toBe(false);
 
     expect(

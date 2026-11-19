@@ -38,16 +38,16 @@ npm run db:seed
 
 ---
 
-## 2. Groq SDK (`GROQ_API_KEY`, `GROQ_MODEL`)
+## 2. Groq SDK (`GROQ_API_KEY`, `AI_MODEL`)
 
 1. Sign up at [console.groq.com](https://console.groq.com).
 2. Go to **API Keys → Create API Key**.
 3. Copy the key → `GROQ_API_KEY`.
-4. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Change only if you want a different supported model (Groq's [deprecation page](https://console.groq.com/docs/deprecations) lists the ones that have been shut down).
+4. `AI_MODEL` defaults to `openai/gpt-oss-20b`. Change only if you want a different supported model (Groq's [deprecation page](https://console.groq.com/docs/deprecations) lists the ones that have been shut down).
 
 ```env
 GROQ_API_KEY="gsk_..."
-GROQ_MODEL="openai/gpt-oss-20b"
+AI_MODEL="openai/gpt-oss-20b"
 ```
 
 ---
@@ -91,6 +91,7 @@ GITHUB_APP_URL="https://github.com/apps/your-app-name"
 Repositories utilizing GitHub's **Merge Queue** feature run required checks on temporary merge groups (`gh-readonly-queue/...`).
 
 To enable SecureFlow checks on merge queues:
+
 1. **GitHub App Permissions & Events**:
    - Permissions: `Checks: Read & Write`, `Contents: Read`, `Pull Requests: Read & Write`
    - Event Subscriptions: Ensure **`Merge group`** (`merge_group`) is checked in GitHub App Settings -> Subscribe to events.

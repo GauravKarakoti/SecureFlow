@@ -161,7 +161,7 @@ export async function* streamHeistMessage(
   // This flow imported the Groq-backed `ai` directly, so a local-model
   // deployment (no Groq key, or no route to Groq at all) failed every
   // transmission and always served the static fallback. The cloud path keeps
-  // `DEFAULT_SECURITY_CONFIG.modelName`, which follows `GROQ_MODEL`.
+  // `DEFAULT_SECURITY_CONFIG.modelName`, which follows `AI_MODEL`.
   const activeAi = getAiInstance();
   const model = isLocalModelEnabled() ? getDefaultModelRef() : DEFAULT_SECURITY_CONFIG.modelName;
 

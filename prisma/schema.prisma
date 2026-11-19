@@ -643,7 +643,7 @@ model OutboundWebhookDelivery {
   @@map("outbound_webhook_deliveries")
 }
 
-/*
+/**
  * Weekly Security Digest (#1788).
  * Stores weekly security posture snapshots per user:
  * counts of new, dismissed, and resolved findings, top 5 repositories

@@ -8,7 +8,7 @@ vi.mock("@/auth", () => ({
 
 import { GET, POST } from "./route";
 import { resetModelCircuitBreakers, getModelCircuitBreaker } from "@/ai/resilience";
-import { clearTelemetry, DEFAULT_PRIMARY_GROQ_MODEL } from "@/ai/telemetry";
+import { clearTelemetry, DEFAULT_PRIMARY_AI_MODEL } from "@/ai/telemetry";
 
 function makeRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(url, "http://localhost:3000"), init as any);
@@ -69,14 +69,14 @@ describe("Admin AI Health API Route (/api/admin/ai-health)", () => {
     });
 
     it("should manually trip a circuit breaker for a specified model", async () => {
-      const breaker = getModelCircuitBreaker(DEFAULT_PRIMARY_GROQ_MODEL);
+      const breaker = getModelCircuitBreaker(DEFAULT_PRIMARY_AI_MODEL);
       expect(breaker.getState()).toBe(0); // CLOSED
 
       const req = makeRequest("http://localhost:3000/api/admin/ai-health", {
         method: "POST",
         body: JSON.stringify({
           action: "trip",
-          modelName: DEFAULT_PRIMARY_GROQ_MODEL,
+          modelName: DEFAULT_PRIMARY_AI_MODEL,
         }),
       });
 
@@ -88,7 +88,7 @@ describe("Admin AI Health API Route (/api/admin/ai-health)", () => {
     });
 
     it("should manually reset a circuit breaker for a specified model", async () => {
-      const breaker = getModelCircuitBreaker(DEFAULT_PRIMARY_GROQ_MODEL);
+      const breaker = getModelCircuitBreaker(DEFAULT_PRIMARY_AI_MODEL);
       breaker.trip();
       expect(breaker.getState()).toBe(1); // OPEN
 
@@ -96,7 +96,7 @@ describe("Admin AI Health API Route (/api/admin/ai-health)", () => {
         method: "POST",
         body: JSON.stringify({
           action: "reset",
-          modelName: DEFAULT_PRIMARY_GROQ_MODEL,
+          modelName: DEFAULT_PRIMARY_AI_MODEL,
         }),
       });
 

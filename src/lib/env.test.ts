@@ -184,7 +184,7 @@ describe("environment validation (src/lib/env.ts)", () => {
     };
     expect(validateEnv(validModelEnv).AI_MODEL).toBe("llama3.3");
   });
-  
+
   describe("GitHub Enterprise Server environment validation", () => {
     it("defaults GITHUB_API_URL to https://api.github.com when not supplied", () => {
       const parsed = validateEnv(validEnv);

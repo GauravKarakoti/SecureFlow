@@ -6,7 +6,7 @@ import {
   clearTelemetry,
   getModelDisplayName,
   normalizeModelName,
-  DEFAULT_PRIMARY_GROQ_MODEL,
+  DEFAULT_PRIMARY_AI_MODEL,
 } from "./telemetry";
 import {
   getModelCircuitBreaker,
@@ -108,18 +108,18 @@ describe("AI Telemetry & Health Monitoring Engine", () => {
       expect(reportBefore.primaryTripped).toBe(false);
 
       // Manually trip the primary model
-      tripModelCircuitBreaker(DEFAULT_PRIMARY_GROQ_MODEL);
+      tripModelCircuitBreaker(DEFAULT_PRIMARY_AI_MODEL);
 
       const reportAfter = await getAiHealthReport();
       expect(reportAfter.primaryTripped).toBe(true);
       const primaryStat = reportAfter.models.find(
-        (m) => m.modelName === DEFAULT_PRIMARY_GROQ_MODEL || m.isPrimary,
+        (m) => m.modelName === DEFAULT_PRIMARY_AI_MODEL || m.isPrimary,
       );
       expect(primaryStat?.circuitState).toBe("OPEN");
       expect(primaryStat?.isHealthy).toBe(false);
 
       // Reset breaker
-      resetModelCircuitBreaker(DEFAULT_PRIMARY_GROQ_MODEL);
+      resetModelCircuitBreaker(DEFAULT_PRIMARY_AI_MODEL);
       const reportReset = await getAiHealthReport();
       expect(reportReset.primaryTripped).toBe(false);
     });
