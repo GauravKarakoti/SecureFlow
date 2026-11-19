@@ -15,6 +15,7 @@ import {
   formatGateSummaryLine,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
+import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -997,6 +998,13 @@ export const worker = new Worker<WebhookJobData>(
                 previouslyDismissedCount: suppressedFindings.length,
                 commitSha: pull_request.head?.sha,
                 expiredIgnoreRules: scanResult.expiredIgnoreRules,
+                appliedPolicyScopes: scanResult.appliedPolicyScopes?.map((s) => ({
+                  paths: s.scope.paths,
+                  enable: s.scope.enable,
+                  disable: s.scope.disable,
+                  matchedFiles: s.matchedFiles,
+                  fileCount: s.matchedFiles.length,
+                })),
               });
 
             // Try to post the anchored findings as an inline review. If that fails
@@ -1068,12 +1076,18 @@ export const worker = new Worker<WebhookJobData>(
                     .join("\n")
                 : "";
 
+            const cleanScopesNotice =
+              scanResult.appliedPolicyScopes && scanResult.appliedPolicyScopes.length > 0
+                ? `\n\n` + formatAppliedScopesSection(scanResult.appliedPolicyScopes)
+                : "";
+
             const cleanBody =
               `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
               (pull_request.head?.sha ? `Scanned commit: \`${pull_request.head.sha}\`\n\n` : "") +
               `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
               cleanDismissedNotice +
               cleanExpiredNotice +
+              cleanScopesNotice +
               // A clean result on a partial scan must say so — this is exactly the
               // case where silent truncation was most misleading.
               (coverageNotice ? `\n\n${coverageNotice}` : "");

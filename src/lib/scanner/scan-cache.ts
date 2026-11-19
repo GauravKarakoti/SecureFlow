@@ -61,6 +61,7 @@ export interface ComputeScanCacheHashInput {
   policyVersion?: string;
   customIgnores?: string[];
   customPlaceholders?: string[];
+  policyScopes?: unknown[];
 }
 
 /**
@@ -86,6 +87,7 @@ export function computeScanCacheHash(input: ComputeScanCacheHashInput): string {
     policyVersion: input.policyVersion ?? "1.0.0",
     customIgnores: (input.customIgnores || []).slice().sort(),
     customPlaceholders: (input.customPlaceholders || []).slice().sort(),
+    policyScopes: input.policyScopes ?? null,
   });
 
   return createHash("sha256").update(payload).digest("hex");

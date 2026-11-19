@@ -51,6 +51,14 @@ export interface ExpiredIgnoreRuleReport {
   reason?: string;
 }
 
+export interface AppliedPolicyScopeReport {
+  paths: string[];
+  enable?: string[];
+  disable?: string[];
+  matchedFiles?: string[];
+  fileCount?: number;
+}
+
 export interface ScanReportSummaryInput {
   /** The findings to write out in this comment. */
   findings: readonly ScanReportFinding[];
@@ -70,6 +78,8 @@ export interface ScanReportSummaryInput {
   commitSha?: string | null;
   /** Ignore rules (.secureflowignore) that have expired. */
   expiredIgnoreRules?: readonly ExpiredIgnoreRuleReport[];
+  /** Policy scopes applied to changed files (#1868). */
+  appliedPolicyScopes?: readonly AppliedPolicyScopeReport[];
 }
 
 /** Quote every line of `text`, so a multi-paragraph value stays one blockquote. */
@@ -108,6 +118,7 @@ export function renderScanReportSummary({
   previouslyDismissedCount = 0,
   commitSha,
   expiredIgnoreRules = [],
+  appliedPolicyScopes = [],
 }: ScanReportSummaryInput): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
@@ -117,6 +128,24 @@ export function renderScanReportSummary({
   }
 
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
+
+  if (appliedPolicyScopes && appliedPolicyScopes.length > 0) {
+    body += `### 📁 Policy Scopes Applied (${appliedPolicyScopes.length})\n\n`;
+    for (const scope of appliedPolicyScopes) {
+      const pathGlobs = scope.paths.map((p) => `\`${p}\``).join(", ");
+      const count = scope.fileCount ?? scope.matchedFiles?.length ?? 0;
+      const countText = count > 0 ? ` (${count} file${count === 1 ? "" : "s"})` : "";
+      const parts: string[] = [];
+      if (scope.enable && scope.enable.length > 0) {
+        parts.push(`Enabled **${scope.enable.join("**, **")}**`);
+      }
+      if (scope.disable && scope.disable.length > 0) {
+        parts.push(`Disabled **${scope.disable.join("**, **")}**`);
+      }
+      body += `- ${pathGlobs}: ${parts.join("; ")}${countText}\n`;
+    }
+    body += `\n`;
+  }
 
   if (previouslyDismissedCount > 0) {
     body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
