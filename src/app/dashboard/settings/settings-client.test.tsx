@@ -13,6 +13,7 @@ const {
   testSlackWebhookMock,
   testTeamsWebhookMock,
   updateRepositoryPublicBadgeMock,
+  updateWeeklyDigestPreferenceMock,
 } = vi.hoisted(() => ({
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
@@ -21,6 +22,7 @@ const {
   testSlackWebhookMock: vi.fn(),
   testTeamsWebhookMock: vi.fn(),
   updateRepositoryPublicBadgeMock: vi.fn(),
+  updateWeeklyDigestPreferenceMock: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -37,6 +39,7 @@ vi.mock("@/lib/actions/settings", () => ({
   testTeamsWebhook: testTeamsWebhookMock,
   updateVoiceAlerts: vi.fn(),
   updateRepositoryPublicBadge: updateRepositoryPublicBadgeMock,
+  updateWeeklyDigestPreference: updateWeeklyDigestPreferenceMock,
 }));
 
 describe("SettingsClient component (#1333)", () => {
@@ -266,5 +269,51 @@ describe("SettingsClient component (#1333)", () => {
       "[![SecureFlow Status](https://secure-flow-six.vercel.app/api/badge/acme/repo-two)](https://secure-flow-six.vercel.app)",
     );
     expect(toastSuccessMock).toHaveBeenCalledWith("Badge Markdown copied to clipboard!");
+  });
+
+  it("renders weekly digest card and allows toggling preference", async () => {
+    updateWeeklyDigestPreferenceMock.mockResolvedValueOnce({
+      success: true,
+      enabled: false,
+    });
+
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialWeeklyDigestEnabled={true}
+      />,
+    );
+
+    expect(screen.getByText("Weekly Security Digest")).toBeDefined();
+    const digestSwitch = screen.getByLabelText("Enable weekly security digest");
+    expect(digestSwitch).toBeDefined();
+
+    fireEvent.click(digestSwitch);
+
+    await waitFor(() => {
+      expect(updateWeeklyDigestPreferenceMock).toHaveBeenCalledWith(false);
+      expect(toastSuccessMock).toHaveBeenCalledWith("Weekly security digest disabled.");
+    });
+  });
+
+  it("handles weekly digest toggle error and reverts state", async () => {
+    updateWeeklyDigestPreferenceMock.mockRejectedValueOnce(new Error("Network error"));
+
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialWeeklyDigestEnabled={true}
+      />,
+    );
+
+    const digestSwitch = screen.getByLabelText("Enable weekly security digest");
+    fireEvent.click(digestSwitch);
+
+    await waitFor(() => {
+      expect(updateWeeklyDigestPreferenceMock).toHaveBeenCalledWith(false);
+      expect(toastErrorMock).toHaveBeenCalledWith("Network error");
+    });
   });
 });

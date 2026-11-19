@@ -66,6 +66,24 @@ describe("Check conclusion logic (unchanged)", () => {
     await postScanCheckRun(o, { ...base, decision: "REVIEW REQUIRED", findings });
     expect(o.rest.checks.create.mock.calls[2][0].conclusion).toBe("action_required");
   });
+
+  it("updates an existing check run when checkRunId is passed (#1863)", async () => {
+    const o = mk(999);
+    await postScanCheckRun(o, { ...base, decision: "PASS", checkRunId: 999 });
+
+    expect(o.rest.checks.create).not.toHaveBeenCalled();
+    expect(o.rest.checks.update).toHaveBeenCalledTimes(1);
+    expect(o.rest.checks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        check_run_id: 999,
+        name: SCAN_CHECK_NAME,
+        status: "completed",
+        conclusion: "success",
+      }),
+    );
+  });
 });
 
 describe("postScanErrorCheckRun", () => {
@@ -76,6 +94,30 @@ describe("postScanErrorCheckRun", () => {
     expect(arg.name).toBe(SCAN_CHECK_NAME);
     expect(arg.conclusion).toBe("failure");
     expect(arg.output.summary).toContain("boom");
+  });
+
+  it("updates existing check run on error when checkRunId is provided (#1863)", async () => {
+    const o = mk(777);
+    await postScanErrorCheckRun(o, {
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      reason: "Rate limit timeout",
+      checkRunId: 777,
+    });
+
+    expect(o.rest.checks.create).not.toHaveBeenCalled();
+    expect(o.rest.checks.update).toHaveBeenCalledTimes(1);
+    expect(o.rest.checks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        check_run_id: 777,
+        name: SCAN_CHECK_NAME,
+        status: "completed",
+        conclusion: "failure",
+      }),
+    );
   });
 });
 

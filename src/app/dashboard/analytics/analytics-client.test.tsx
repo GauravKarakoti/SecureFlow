@@ -61,6 +61,7 @@ const mockProps = {
     overallPassRate: 78,
     avgRiskScore: 34.5,
     trendDirection: "down" as const,
+    overdueFindings: 0,
   },
 };
 

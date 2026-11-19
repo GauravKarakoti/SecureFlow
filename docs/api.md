@@ -286,8 +286,11 @@ The `X-Hub-Signature-256` header must be `sha256=` + the hex HMAC of the raw req
 | --------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `pull_request`              | `opened`, `synchronize`, `reopened` | Full scan pipeline (below).                                                                             |
 | `pull_request`              | `closed`                            | Records merge/closure state for leaderboard scoring. No scan.                                           |
+| `merge_group`               | `checks_requested`                  | Merge queue evaluation: reuses PR scan result if diff unchanged or runs fast combined scan.              |
 | `installation`              | `created`                           | Links the installer's GitHub account (via `sender.id`) and bulk-inserts selected repos in chunks of 50. |
 | `installation_repositories` | `added`                             | Inserts newly-added repos for an existing installation.                                                 |
+| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.   |
+| `check_suite`               | `rerequested`                       | Enqueues scan job for attached PR(s). Foreign check suites are ignored.                                 |
 | _(anything else)_           | —                                   | Returns `200 { "message": "Event not tracked" }`.                                                       |
 
 #### Payload schema (validated subset)
@@ -1165,6 +1168,8 @@ Cookie: next-auth.session-token=<jwt>
 ```
 
 When there are no further records, `nextCursor` is `null`.
+
+---
 
 ---
 
