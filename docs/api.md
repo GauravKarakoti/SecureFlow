@@ -469,6 +469,47 @@ Content-Type: application/json
 
 ---
 
+### 3b. Outbound Webhooks (SIEM, Ticketing, Chatbots) (#1866)
+
+SecureFlow dispatches cryptographically signed JSON webhooks to user-configured HTTPS destinations for automated integration with ticketing systems, SIEMs, and custom bots.
+
+#### Events Emitted
+
+| Event | Description |
+| :--- | :--- |
+| `scan.completed` | Pull request scan finished; contains decision, metadata, and severity counts. |
+| `scan.blocked` | Emitted when a scan fails policy (decision is `BLOCKED`). |
+| `finding.created` | Emitted for security findings discovered during scans. |
+| `finding.dismissed` | Emitted when a finding is triaged as dismissed or false positive. |
+
+#### Request Headers
+
+```http
+POST /your-webhook-endpoint
+Content-Type: application/json
+X-SecureFlow-Signature: sha256=<hmac-sha256-hex>
+X-SecureFlow-Event: scan.completed
+X-SecureFlow-Event-Id: evt_123e4567-e89b-12d3-a456-426614174000
+X-SecureFlow-Timestamp: 2026-11-19T18:00:00.000Z
+User-Agent: SecureFlow-Webhook/1.0
+```
+
+#### Verifying Signatures
+
+```ts
+import crypto from "node:crypto";
+
+function verifySignature(payload: string, signatureHeader: string, secret: string): boolean {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
+}
+```
+
+#### Privacy & Zero-Leakage Guarantee
+Outbound payloads strictly omit code snippets, file contents, diffs, and secret values. Only safe metadata (`repository`, `prNumber`, `commitSha`, `decision`, finding `type`, `severity`, and file locations) is included.
+
+---
+
 ### 4. Finding Explanation Stream — `/api/findings/[id]/explain-stream`
 
 **File**: `src/app/api/findings/[id]/explain-stream/route.ts`

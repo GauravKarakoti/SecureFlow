@@ -95,6 +95,21 @@ GITHUB_WEB_URL="https://ghe.mycorp.com"
 
 > **Security Note:** In production mode (`NODE_ENV=production`), non-HTTPS URLs are rejected at startup to protect installation tokens and repository data.
 
+### Outbound Webhooks (SIEM, Ticketing, Chatbots)
+
+SecureFlow supports registering HTTPS outbound webhooks to receive real-time JSON event notifications:
+
+- **Supported Events**:
+  - `scan.completed`: Fired whenever a pull request scan finishes.
+  - `scan.blocked`: Fired when a scan fails policy (critical findings).
+  - `finding.created`: Fired when new security findings are detected.
+  - `finding.dismissed`: Fired when a finding is triaged as dismissed or false positive.
+- **HMAC Signature**: Each request carries `X-SecureFlow-Signature` (HMAC-SHA256 computed using a per-endpoint secret shown once at creation).
+- **Replay Protection**: Includes `X-SecureFlow-Event-Id` and `X-SecureFlow-Timestamp`.
+- **SSRF Hardening**: Rejects loopback, link-local, carrier-grade NAT, private IP ranges (RFC 1918), and internal TLDs both upon registration and before dispatch.
+- **Zero-Leakage Guarantee**: Payloads contain strictly metadata (repository, PR number, commit SHA, decision, finding type, severity, file location). Raw code snippets, diffs, and secret values are never included.
+- **Fault-Tolerant Delivery**: Asynchronous delivery with a 5-second timeout, retries with exponential backoff (up to 3 attempts), and a delivery log in Settings.
+
 ---
 
 ## 4. GitHub OAuth / NextAuth (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `AUTH_SECRET`, `AUTH_URL`)

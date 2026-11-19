@@ -52,6 +52,12 @@ import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
+import {
+  dispatchOutboundWebhooksForUser,
+  buildScanCompletedPayload,
+  buildScanBlockedPayload,
+  buildFindingCreatedPayload,
+} from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { activeSuppressionWhere } from "../triage/expiry";
 
@@ -1183,6 +1189,46 @@ export const worker = new Worker<WebhookJobData>(
               } catch (err) {
                 log.error(`[Worker] Slack notification step failed:`, {
                   error: err instanceof Error ? err.message : String(err),
+                });
+              }
+
+              // Dispatch generic outbound webhooks (#1866)
+              try {
+                await dispatchOutboundWebhooksForUser(userId, "scan.completed", () =>
+                  buildScanCompletedPayload({
+                    repository: repository.full_name,
+                    prNumber: pull_request.number,
+                    commitSha: pull_request.head.sha,
+                    decision,
+                    findings: enrichedFindings,
+                  }),
+                );
+
+                if (decision === "BLOCKED") {
+                  await dispatchOutboundWebhooksForUser(userId, "scan.blocked", () =>
+                    buildScanBlockedPayload({
+                      repository: repository.full_name,
+                      prNumber: pull_request.number,
+                      commitSha: pull_request.head.sha,
+                      decision,
+                      findings: enrichedFindings,
+                    }),
+                  );
+                }
+
+                for (const finding of enrichedFindings) {
+                  await dispatchOutboundWebhooksForUser(userId, "finding.created", () =>
+                    buildFindingCreatedPayload({
+                      repository: repository.full_name,
+                      prNumber: pull_request.number,
+                      commitSha: pull_request.head.sha,
+                      finding,
+                    }),
+                  );
+                }
+              } catch (whErr) {
+                log.error("[Worker] Outbound webhook dispatch failed:", {
+                  error: whErr instanceof Error ? whErr.message : String(whErr),
                 });
               }
             }

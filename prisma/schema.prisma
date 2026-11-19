@@ -69,6 +69,7 @@ model User {
   roles          UserRole[]
   auditLogs      AuditLog[]
   savedViews     SavedView[]
+  outboundWebhooks OutboundWebhook[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -562,4 +563,45 @@ model ScanCache {
   @@index([cacheKey])
   @@index([expiresAt])
   @@map("scan_cache")
+}
+
+/**
+ * Generic Outbound Webhooks (#1866).
+ * Delivers signed HMAC-SHA256 notifications for scan and finding events
+ * to user-registered HTTPS endpoints with replay protection and delivery logs.
+ */
+model OutboundWebhook {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url         String
+  secret      String
+  events      String[]
+  description String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deliveries  OutboundWebhookDelivery[]
+
+  @@index([userId])
+  @@index([userId, enabled])
+  @@map("outbound_webhooks")
+}
+
+model OutboundWebhookDelivery {
+  id          String          @id @default(cuid())
+  webhookId   String
+  webhook     OutboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  eventId     String
+  event       String
+  statusCode  Int?
+  error       String?
+  attempts    Int             @default(1)
+  deliveredAt DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([webhookId])
+  @@index([eventId])
+  @@index([webhookId, createdAt(sort: Desc)])
+  @@map("outbound_webhook_deliveries")
 }
