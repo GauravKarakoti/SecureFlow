@@ -91,11 +91,38 @@ Usage:
 
 Description:
   Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio.
-  Communicates using JSON-RPC protocol over standard input/output.
+  Communicates using JSON-RPC protocol over standard input/output with automatic
+  heartbeat liveness monitoring and graceful broken pipe / EOF recovery.
 
 Options:
-  -h, --help    Show this help message
+  -h, --help                     Show this help message
+  --heartbeat-interval=<ms>      Interval between client liveness ping checks (default: 30000ms, 0 to disable)
+  --heartbeat-timeout=<ms>       Timeout waiting for client pong response (default: 10000ms)
+  --stall-timeout=<ms>           Timeout for stdio stream inactivity / stall detection (default: 60000ms, 0 to disable)
 `);
+}
+
+function parseMcpOptions(argv: string[]) {
+  const options: {
+    heartbeatIntervalMs?: number;
+    heartbeatTimeoutMs?: number;
+    stallTimeoutMs?: number;
+  } = {};
+
+  for (const arg of argv) {
+    if (arg.startsWith("--heartbeat-interval=")) {
+      const val = Number.parseInt(arg.slice("--heartbeat-interval=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.heartbeatIntervalMs = val;
+    } else if (arg.startsWith("--heartbeat-timeout=")) {
+      const val = Number.parseInt(arg.slice("--heartbeat-timeout=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.heartbeatTimeoutMs = val;
+    } else if (arg.startsWith("--stall-timeout=")) {
+      const val = Number.parseInt(arg.slice("--stall-timeout=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.stallTimeoutMs = val;
+    }
+  }
+
+  return options;
 }
 
 function printHelp(): void {
@@ -253,7 +280,11 @@ async function main(): Promise<number> {
 
     try {
       const { startMcpServer } = await import("./mcp/index.js");
-      await startMcpServer();
+      const mcpOptions = parseMcpOptions(process.argv);
+      const session = await startMcpServer(mcpOptions);
+      if (session && typeof session.waitForClose === "function") {
+        await session.waitForClose();
+      }
       return 0;
     } catch (err) {
       console.error(

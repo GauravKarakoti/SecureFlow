@@ -179,6 +179,35 @@ describe("mcp subcommand routing", () => {
     expect(m.getStagedFiles).not.toHaveBeenCalled();
   });
 
+  it("passes parsed heartbeat and stall options to startMcpServer", async () => {
+    const code = await runCli(
+      "mcp",
+      "--heartbeat-interval=15000",
+      "--heartbeat-timeout=5000",
+      "--stall-timeout=30000",
+    );
+    expect(code).toBe(0);
+    expect(m.startMcpServer).toHaveBeenCalledWith({
+      heartbeatIntervalMs: 15000,
+      heartbeatTimeoutMs: 5000,
+      stallTimeoutMs: 30000,
+    });
+  });
+
+  it("awaits session.waitForClose when returned", async () => {
+    let closed = false;
+    const session = {
+      waitForClose: vi.fn().mockImplementation(async () => {
+        closed = true;
+      }),
+    };
+    m.startMcpServer.mockResolvedValue(session);
+    const code = await runCli("mcp");
+    expect(code).toBe(0);
+    expect(session.waitForClose).toHaveBeenCalledTimes(1);
+    expect(closed).toBe(true);
+  });
+
   it("prints MCP help without starting the server", async () => {
     const code = await runCli("mcp", "--help");
     expect(code).toBe(0);
