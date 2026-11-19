@@ -22,6 +22,7 @@ import {
   type FileScanResult,
   type OutputFormat,
   type Severity,
+  type FailOnSeverity,
 } from "./scanner.js";
 import {
   NetworkUnavailableError,
@@ -42,6 +43,8 @@ import {
   parseSinceArg,
 } from "./lib/output-args.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
+import { initConfigFile, loadConfigFile, compilePathPatterns } from "./config.js";
+import { normalizeScanPath } from "./ignore.js";
 import {
   TerminalSpinner,
   formatTuiScanSummary,
@@ -98,17 +101,37 @@ Options:
 `);
 }
 
+function printInitHelp(): void {
+  console.log(`
+SecureFlow CLI - Initialize configuration
+
+Usage:
+  secureflow init [options]
+
+Options:
+  -y, --yes      Accept default values without prompting (for CI and scripts)
+  -f, --force    Overwrite an existing configuration file
+  -h, --help     Show this help message
+
+Description:
+  Creates a commented .secureflow.json configuration file in the workspace root
+  with settings for scan paths, minimum severity threshold, and AI remediation.
+`);
+}
+
 function printHelp(): void {
   console.log(`
 SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
   secureflow [options]
+  secureflow init [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  init                   Create a working SecureFlow configuration file (.secureflow.json)
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
@@ -137,6 +160,8 @@ Options:
 
 Examples:
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow init                                # Create configuration file interactively
+  $ secureflow init --yes                          # Create configuration file with defaults
   $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
   $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
@@ -239,6 +264,26 @@ async function main(): Promise<number> {
       return 0;
     } else {
       console.error(greeting);
+      return 1;
+    }
+  }
+
+  // Handle `secureflow init` command
+  if (process.argv[2] === "init") {
+    if (process.argv.includes("--help") || process.argv.includes("-h")) {
+      printInitHelp();
+      return 0;
+    }
+
+    const force = process.argv.includes("--force") || process.argv.includes("-f");
+    const yes = process.argv.includes("--yes") || process.argv.includes("-y");
+
+    const result = await initConfigFile({ force, yes });
+    if (result.success) {
+      console.log(`✅ [SecureFlow] ${result.message}`);
+      return 0;
+    } else {
+      console.error(`❌ [SecureFlow] ${result.message}`);
       return 1;
     }
   }
@@ -395,9 +440,19 @@ async function main(): Promise<number> {
     console.error(`❌ [SecureFlow] ${error.message}`);
     return 1;
   }
+  
+  const isSinceMode = sinceRef !== undefined;
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
-  const isSinceMode = sinceRef !== undefined;
+
+  const loadedConfigFile = loadConfigFile();
+  const configFile = loadedConfigFile?.config;
+
+  if (VERBOSE && loadedConfigFile) {
+    console.log(`ℹ️  [SecureFlow] Loaded configuration from ${loadedConfigFile.configPath}`);
+  }
+
+  let staged: string[];
   let filesToScan: string[];
 
   try {
@@ -409,6 +464,13 @@ async function main(): Promise<number> {
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
     return 1;
+  }
+
+  if (staged.length > 0 && configFile?.paths && configFile.paths.length > 0) {
+    const pathMatchers = compilePathPatterns(configFile.paths);
+    staged = staged.filter((filePath) =>
+      pathMatchers.some((re) => re.test(normalizeScanPath(filePath))),
+    );
   }
 
   const fileResults: FileScanResult[] = [];
@@ -474,11 +536,12 @@ async function main(): Promise<number> {
   // affects the text output/exit code today -- JSON/SARIF export stays
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
+  const shouldRunAi = configFile?.aiRemediation !== false;
   const aiSpinner =
-    format === "text" && stagedForAi.length > 0
+    format === "text" && stagedForAi.length > 0 && shouldRunAi
       ? new TerminalSpinner("Running AI security inspection").start()
       : null;
-  const aiFindings = await runAiScanIfAvailable(stagedForAi);
+  const aiFindings = shouldRunAi ? await runAiScanIfAvailable(stagedForAi) : [];
   if (aiSpinner) {
     aiSpinner.succeed(
       `AI inspection completed (${aiFindings.length} finding${aiFindings.length === 1 ? "" : "s"})`,
@@ -542,7 +605,10 @@ ${textOutput}`);
     );
   }
 
-  const failOnThreshold = parseFailOnArg();
+  const parsedFailOn = parseFailOnArg();
+  const failOnThreshold =
+    parsedFailOn ??
+    (configFile?.severity ? (configFile.severity.toUpperCase() as FailOnSeverity) : null);
   // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
   // filter, not a security gate bypass. --fail-on must see every finding.
   const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
