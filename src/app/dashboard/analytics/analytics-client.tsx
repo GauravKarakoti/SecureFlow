@@ -22,6 +22,7 @@ import {
   AlertOctagon,
   Clock,
   Filter,
+  AlertCircle,
 } from "lucide-react";
 import {
   AreaChart,

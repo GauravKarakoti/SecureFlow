@@ -8,11 +8,7 @@ import {
   resolvePoliciesForFile,
   type PolicyScopeRule,
 } from "./policy-scopes";
-import {
-  formatGateSummaryLine,
-  isDefaultGate,
-  parseSecureFlowConfig,
-} from "./gate-config";
+import { formatGateSummaryLine, isDefaultGate, parseSecureFlowConfig } from "./gate-config";
 
 describe("Monorepo Policy Scopes (#1868)", () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -306,9 +302,7 @@ describe("Monorepo Policy Scopes (#1868)", () => {
     it("parses policyScopes in parseSecureFlowConfig at root or gate level", () => {
       const config1 = parseSecureFlowConfig(
         JSON.stringify({
-          policyScopes: [
-            { paths: ["terraform/**"], enable: ["Terraform Security"] },
-          ],
+          policyScopes: [{ paths: ["terraform/**"], enable: ["Terraform Security"] }],
         }),
       );
       expect(config1.policyScopes).toHaveLength(1);
@@ -317,9 +311,7 @@ describe("Monorepo Policy Scopes (#1868)", () => {
       const config2 = parseSecureFlowConfig(
         JSON.stringify({
           gate: {
-            policyScopes: [
-              { paths: ["tests/**"], disable: ["Secrets"] },
-            ],
+            policyScopes: [{ paths: ["tests/**"], disable: ["Secrets"] }],
           },
         }),
       );
@@ -330,9 +322,7 @@ describe("Monorepo Policy Scopes (#1868)", () => {
     it("formats gate summary line with policy scopes indicator", () => {
       const config = parseSecureFlowConfig(
         JSON.stringify({
-          policyScopes: [
-            { paths: ["terraform/**"], enable: ["Terraform Security"] },
-          ],
+          policyScopes: [{ paths: ["terraform/**"], enable: ["Terraform Security"] }],
         }),
       );
       const summary = formatGateSummaryLine(config);

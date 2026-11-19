@@ -315,10 +315,7 @@ export async function processScanJob(
   let allFindings: EnrichedScanFinding[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
 
-  const appliedPolicyScopes = collectAppliedScopes(
-    fileChanges,
-    repositoryGateConfig.policyScopes,
-  );
+  const appliedPolicyScopes = collectAppliedScopes(fileChanges, repositoryGateConfig.policyScopes);
 
   const cachedFindings = await getCachedScan(cacheKey);
   if (cachedFindings) {

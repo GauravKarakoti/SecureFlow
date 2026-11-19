@@ -223,7 +223,11 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
   const root = parsed as Record<string, unknown>;
   const rawGate = root.gate;
 
-  if (rawGate !== undefined && rawGate !== null && (typeof rawGate !== "object" || Array.isArray(rawGate))) {
+  if (
+    rawGate !== undefined &&
+    rawGate !== null &&
+    (typeof rawGate !== "object" || Array.isArray(rawGate))
+  ) {
     console.warn(`[GateConfig] 'gate' in ${SECUREFLOW_CONFIG_FILE} must be an object.`);
   }
 

@@ -972,9 +972,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<Mc
         `[SecureFlow MCP] Client disconnected abruptly (stdout broken pipe: ${code}). Daemon remaining intact; initiating clean transport shutdown.`,
       );
     } else {
-      console.error(
-        `[SecureFlow MCP] stdout stream error: ${error?.message || String(error)}`,
-      );
+      console.error(`[SecureFlow MCP] stdout stream error: ${error?.message || String(error)}`);
     }
     void triggerShutdown(isBrokenPipe ? `Broken pipe: ${code}` : `stdout error: ${error?.message}`);
   };
@@ -989,11 +987,11 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<Mc
         `[SecureFlow MCP] Client input stream disconnected (${code}). Initiating graceful shutdown...`,
       );
     } else {
-      console.error(
-        `[SecureFlow MCP] stdin stream error: ${error?.message || String(error)}`,
-      );
+      console.error(`[SecureFlow MCP] stdin stream error: ${error?.message || String(error)}`);
     }
-    void triggerShutdown(isBrokenPipe ? `stdin disconnected: ${code}` : `stdin error: ${error?.message}`);
+    void triggerShutdown(
+      isBrokenPipe ? `stdin disconnected: ${code}` : `stdin error: ${error?.message}`,
+    );
   };
 
   const handleStdinEnd = () => {
@@ -1057,11 +1055,9 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<Mc
 
       heartbeatInFlight = true;
       try {
-        await server.request(
-          { method: "ping" },
-          EmptyResultSchema,
-          { timeout: heartbeatTimeoutMs },
-        );
+        await server.request({ method: "ping" }, EmptyResultSchema, {
+          timeout: heartbeatTimeoutMs,
+        });
         recordActivity();
       } catch (err: any) {
         if (isShuttingDown) return;
