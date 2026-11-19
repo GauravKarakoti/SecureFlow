@@ -16,6 +16,12 @@ const mockFindUnique = vi.hoisted(() => vi.fn());
 const mockRepoFindMany = vi.hoisted(() => vi.fn());
 const mockRepoFindFirst = vi.hoisted(() => vi.fn());
 const mockRepoUpdate = vi.hoisted(() => vi.fn());
+const mockOutboundWebhookFindMany = vi.hoisted(() => vi.fn());
+const mockOutboundWebhookFindFirst = vi.hoisted(() => vi.fn());
+const mockOutboundWebhookCreate = vi.hoisted(() => vi.fn());
+const mockOutboundWebhookUpdate = vi.hoisted(() => vi.fn());
+const mockOutboundWebhookDelete = vi.hoisted(() => vi.fn());
+const mockOutboundDeliveryFindMany = vi.hoisted(() => vi.fn());
 const mockRevalidatePath = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
@@ -29,6 +35,16 @@ vi.mock("@/lib/prisma", () => ({
       findFirst: mockRepoFindFirst,
       update: mockRepoUpdate,
     },
+    outboundWebhook: {
+      findMany: mockOutboundWebhookFindMany,
+      findFirst: mockOutboundWebhookFindFirst,
+      create: mockOutboundWebhookCreate,
+      update: mockOutboundWebhookUpdate,
+      delete: mockOutboundWebhookDelete,
+    },
+    outboundWebhookDelivery: {
+      findMany: mockOutboundDeliveryFindMany,
+    },
   },
 }));
 
@@ -41,6 +57,11 @@ import {
   updateSlackWebhook,
   getUserRepositoriesWithBadgeStatus,
   updateRepositoryPublicBadge,
+  getOutboundWebhooks,
+  createOutboundWebhook,
+  deleteOutboundWebhook,
+  toggleOutboundWebhook,
+  getOutboundWebhookDeliveries,
   updateRepositoryCodeScanning,
 } from "./settings";
 
@@ -322,5 +343,199 @@ describe("updateRepositoryPublicBadge", () => {
       data: { publicBadgeEnabled: true },
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+  });
+});
+
+describe("Outbound Webhook Server Actions (#1866)", () => {
+  describe("getOutboundWebhooks", () => {
+    it("returns empty array when unauthenticated", async () => {
+      session = null;
+      const res = await getOutboundWebhooks();
+      expect(res).toEqual([]);
+      expect(mockOutboundWebhookFindMany).not.toHaveBeenCalled();
+    });
+
+    it("returns formatted webhooks for authenticated user", async () => {
+      const now = new Date();
+      mockOutboundWebhookFindMany.mockResolvedValueOnce([
+        {
+          id: "wh_1",
+          url: "https://example.com/webhook",
+          events: ["scan.completed"],
+          description: "SIEM Hook",
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          deliveries: [
+            {
+              id: "del_1",
+              event: "scan.completed",
+              statusCode: 200,
+              error: null,
+              attempts: 1,
+              deliveredAt: now,
+              createdAt: now,
+            },
+          ],
+        },
+      ]);
+
+      const res = await getOutboundWebhooks();
+      expect(res).toHaveLength(1);
+      expect(res[0].id).toBe("wh_1");
+      expect(res[0].url).toBe("https://example.com/webhook");
+      expect(res[0].latestDelivery?.statusCode).toBe(200);
+      expect(mockOutboundWebhookFindMany).toHaveBeenCalledWith({
+        where: { userId: "user-1" },
+        orderBy: { createdAt: "desc" },
+        include: {
+          deliveries: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
+      });
+    });
+  });
+
+  describe("createOutboundWebhook", () => {
+    it("rejects unauthenticated requests", async () => {
+      session = null;
+      await expect(
+        createOutboundWebhook({
+          url: "https://example.com/hook",
+          events: ["scan.completed"],
+        }),
+      ).rejects.toThrow("Unauthorized");
+    });
+
+    it("rejects SSRF / private URLs", async () => {
+      const res = await createOutboundWebhook({
+        url: "https://127.0.0.1/hook",
+        events: ["scan.completed"],
+      });
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/loopback|blocked|private/i);
+      expect(mockOutboundWebhookCreate).not.toHaveBeenCalled();
+    });
+
+    it("rejects non-HTTPS URLs", async () => {
+      const res = await createOutboundWebhook({
+        url: "http://example.com/hook",
+        events: ["scan.completed"],
+      });
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("must use https:");
+      expect(mockOutboundWebhookCreate).not.toHaveBeenCalled();
+    });
+
+    it("rejects empty event list", async () => {
+      const res = await createOutboundWebhook({
+        url: "https://example.com/hook",
+        events: [],
+      });
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("at least one event");
+      expect(mockOutboundWebhookCreate).not.toHaveBeenCalled();
+    });
+
+    it("creates webhook with secure secret and revalidates settings", async () => {
+      mockOutboundWebhookCreate.mockResolvedValueOnce({
+        id: "wh_new",
+        url: "https://webhook.site/abc",
+        events: ["scan.completed", "finding.created"],
+        description: "My Ticket Bot",
+        secret: "whsec_mock",
+        enabled: true,
+      });
+
+      const res = await createOutboundWebhook({
+        url: "https://webhook.site/abc",
+        events: ["scan.completed", "finding.created"],
+        description: "My Ticket Bot",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.webhook?.id).toBe("wh_new");
+      expect(res.webhook?.secret).toMatch(/^whsec_[0-9a-f]{64}$/);
+      expect(res.webhook?.events).toEqual(["scan.completed", "finding.created"]);
+      expect(mockOutboundWebhookCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "user-1",
+          url: "https://webhook.site/abc",
+          events: ["scan.completed", "finding.created"],
+          description: "My Ticket Bot",
+          enabled: true,
+          secret: expect.stringMatching(/^whsec_[0-9a-f]{64}$/),
+        }),
+      });
+      expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+  });
+
+  describe("deleteOutboundWebhook", () => {
+    it("rejects when webhook not found or not owned by user", async () => {
+      mockOutboundWebhookFindFirst.mockResolvedValueOnce(null);
+      const res = await deleteOutboundWebhook("wh_ghost");
+      expect(res).toEqual({ success: false, error: "Webhook not found or unauthorized." });
+      expect(mockOutboundWebhookDelete).not.toHaveBeenCalled();
+    });
+
+    it("deletes webhook and revalidates settings", async () => {
+      mockOutboundWebhookFindFirst.mockResolvedValueOnce({ id: "wh_1", userId: "user-1" });
+      mockOutboundWebhookDelete.mockResolvedValueOnce({ id: "wh_1" });
+
+      const res = await deleteOutboundWebhook("wh_1");
+      expect(res).toEqual({ success: true });
+      expect(mockOutboundWebhookDelete).toHaveBeenCalledWith({
+        where: { id: "wh_1" },
+      });
+      expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+  });
+
+  describe("toggleOutboundWebhook", () => {
+    it("updates enabled state of webhook", async () => {
+      mockOutboundWebhookFindFirst.mockResolvedValueOnce({ id: "wh_1", userId: "user-1" });
+      mockOutboundWebhookUpdate.mockResolvedValueOnce({ id: "wh_1", enabled: false });
+
+      const res = await toggleOutboundWebhook("wh_1", false);
+      expect(res).toEqual({ success: true });
+      expect(mockOutboundWebhookUpdate).toHaveBeenCalledWith({
+        where: { id: "wh_1" },
+        data: { enabled: false },
+      });
+      expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/settings");
+    });
+  });
+
+  describe("getOutboundWebhookDeliveries", () => {
+    it("returns delivery history for owned webhook", async () => {
+      mockOutboundWebhookFindFirst.mockResolvedValueOnce({ id: "wh_1", userId: "user-1" });
+      const now = new Date();
+      mockOutboundDeliveryFindMany.mockResolvedValueOnce([
+        {
+          id: "del_1",
+          webhookId: "wh_1",
+          eventId: "evt_1",
+          event: "scan.completed",
+          statusCode: 200,
+          error: null,
+          attempts: 1,
+          deliveredAt: now,
+          createdAt: now,
+        },
+      ]);
+
+      const res = await getOutboundWebhookDeliveries("wh_1");
+      expect(res).toHaveLength(1);
+      expect(res[0].eventId).toBe("evt_1");
+      expect(res[0].statusCode).toBe(200);
+      expect(mockOutboundDeliveryFindMany).toHaveBeenCalledWith({
+        where: { webhookId: "wh_1" },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+    });
   });
 });

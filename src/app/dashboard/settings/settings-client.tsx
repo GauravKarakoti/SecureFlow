@@ -19,6 +19,8 @@ import {
 } from "@/lib/actions/settings";
 import { Save, MessageSquare, Volume2, Send, Shield, ShieldAlert, AlertTriangle, Copy, Mail } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
+import OutboundWebhooksCard from "@/components/settings/outbound-webhooks-card";
+import { type OutboundWebhookView } from "@/lib/actions/settings";
 
 const subscribeToOrigin = () => () => {};
 const getBrowserOrigin = () => window.location.origin;
@@ -29,12 +31,14 @@ export default function SettingsClient({
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
   initialRepositories = [],
+  initialOutboundWebhooks = [],
   initialWeeklyDigestEnabled = true,
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
   initialRepositories?: RepoBadgeSetting[];
+  initialOutboundWebhooks?: OutboundWebhookView[];
   initialWeeklyDigestEnabled?: boolean;
 }) {
   // --- Slack state ---
@@ -365,6 +369,9 @@ export default function SettingsClient({
         </CardContent>
       </Card>
 
+      {/* ── Outbound Webhooks ── */}
+      <OutboundWebhooksCard initialWebhooks={initialOutboundWebhooks} />
+      
       {/* ── Weekly Security Digest ── */}
       <Card className="glass-card">
         <CardHeader>

@@ -57,6 +57,12 @@ import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
+import {
+  dispatchOutboundWebhooksForUser,
+  buildScanCompletedPayload,
+  buildScanBlockedPayload,
+  buildFindingCreatedPayload,
+} from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { activeSuppressionWhere } from "../triage/expiry";
 import {
@@ -1061,6 +1067,47 @@ export async function runPullRequestScan({
             error: err instanceof Error ? err.message : String(err),
           });
         }
+
+        // Dispatch generic outbound webhooks (#1866)
+        try {
+          const commitSha = pullRequest.head?.sha ?? "";
+          await dispatchOutboundWebhooksForUser(userId, "scan.completed", () =>
+            buildScanCompletedPayload({
+              repository: repository.full_name,
+              prNumber: pullRequest.number,
+              commitSha,
+              decision,
+              findings: enrichedFindings,
+            }),
+          );
+
+          if (decision === "BLOCKED") {
+            await dispatchOutboundWebhooksForUser(userId, "scan.blocked", () =>
+              buildScanBlockedPayload({
+                repository: repository.full_name,
+                prNumber: pullRequest.number,
+                commitSha,
+                decision,
+                findings: enrichedFindings,
+              }),
+            );
+          }
+
+          for (const finding of enrichedFindings) {
+            await dispatchOutboundWebhooksForUser(userId, "finding.created", () =>
+              buildFindingCreatedPayload({
+                repository: repository.full_name,
+                prNumber: pullRequest.number,
+                commitSha,
+                finding,
+              }),
+            );
+          }
+        } catch (whErr) {
+          log.error("[Worker] Outbound webhook dispatch failed:", {
+            error: whErr instanceof Error ? whErr.message : String(whErr),
+          });
+        }
       }
 
       // Real-time voice alert for CRITICAL/HIGH findings (#1307). Best-effort,
@@ -1855,7 +1902,10 @@ export interface PublishScanSarifOptions {
   repository: { full_name: string; name: string; owner: { login: string } };
   pullRequest: { number: number; head: { sha: string } };
   findings: readonly CodeScanningFinding[];
-  dbRepo: { id: string; codeScanningEnabled?: boolean | null; codeScanningWarning?: string | null } | null | undefined;
+  dbRepo:
+    | { id: string; codeScanningEnabled?: boolean | null; codeScanningWarning?: string | null }
+    | null
+    | undefined;
   log?: { info: (msg: string) => void; error?: (msg: string) => void };
 }
 

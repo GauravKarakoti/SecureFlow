@@ -6,6 +6,7 @@ import {
   getTeamsWebhook,
   getVoiceAlerts,
   getUserRepositoriesWithBadgeStatus,
+  getOutboundWebhooks,
   getWeeklyDigestPreference,
 } from "@/lib/actions/settings";
 
@@ -23,12 +24,14 @@ export default async function SettingsPage() {
     initialTeamsWebhookUrl,
     initialVoiceAlertsEnabled,
     initialRepositories,
+    initialOutboundWebhooks,
     initialWeeklyDigestEnabled,
   ] = await Promise.all([
     getSlackWebhook(),
     getTeamsWebhook(),
     getVoiceAlerts(),
     getUserRepositoriesWithBadgeStatus(),
+    getOutboundWebhooks(),
     getWeeklyDigestPreference(),
   ]);
 
@@ -38,6 +41,7 @@ export default async function SettingsPage() {
       initialTeamsWebhookUrl={initialTeamsWebhookUrl}
       initialVoiceAlertsEnabled={initialVoiceAlertsEnabled}
       initialRepositories={initialRepositories}
+      initialOutboundWebhooks={initialOutboundWebhooks}
       initialWeeklyDigestEnabled={initialWeeklyDigestEnabled}
     />
   );
