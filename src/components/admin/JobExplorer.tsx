@@ -229,7 +229,7 @@ export default function JobExplorer() {
                   return (
                     <React.Fragment key={job.id}>
                       <tr
-                        className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                        className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                         onClick={() => toggleExpand(job.id)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
@@ -272,7 +272,8 @@ export default function JobExplorer() {
                               onClick={() => handleRemove(job.id)}
                               disabled={isPending || isRemoving}
                               title="Remove from queue"
-                              className="p-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 hover:border-destructive/40 rounded transition-colors disabled:opacity-50 inline-flex"
+                              aria-label={`Remove job ${job.id} from queue`}
+                              className="p-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 hover:border-destructive/40 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 inline-flex"
                             >
                               {isRemoving ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

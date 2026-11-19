@@ -21,23 +21,23 @@ export type { Severity };
 export const SEVERITY_THEME: Record<Severity, { label: string; badgeClass: string }> = {
   CRITICAL: {
     label: "Interpol Breach",
-    badgeClass: "bg-red-600 dark:bg-red-500 text-white font-semibold",
+    badgeClass: "bg-red-700 dark:bg-red-600 text-white font-semibold",
   },
   HIGH: {
     label: "Hostage Crisis",
-    badgeClass: "bg-orange-600 dark:bg-orange-500 text-white font-semibold",
+    badgeClass: "bg-orange-700 dark:bg-orange-700 text-white font-semibold",
   },
   MEDIUM: {
     label: "Camera Glitch",
-    badgeClass: "bg-yellow-500 text-black font-semibold",
+    badgeClass: "bg-yellow-500 dark:bg-yellow-400 text-black font-semibold",
   },
   LOW: {
     label: "Loose Screws",
-    badgeClass: "bg-slate-600 dark:bg-slate-500 text-white font-semibold",
+    badgeClass: "bg-slate-700 dark:bg-slate-600 text-white font-semibold",
   },
   NONE: {
     label: "All Clear",
-    badgeClass: "bg-emerald-600 dark:bg-emerald-500 text-white font-semibold",
+    badgeClass: "bg-emerald-700 dark:bg-emerald-600 text-white font-semibold",
   },
 };
 

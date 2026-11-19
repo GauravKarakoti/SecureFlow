@@ -116,4 +116,24 @@ test.describe("Mission Control Dashboard - Accessibility (a11y)", () => {
       ).toEqual([]);
     });
   }
+
+  test("keyboard navigation through main interactive elements on dashboard", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("body")).toBeVisible({ timeout: 15_000 });
+
+    // Press Tab multiple times to verify keyboard reachability
+    await page.keyboard.press("Tab");
+    const activeTagName = await page.evaluate(() => document.activeElement?.tagName);
+    expect(["A", "BUTTON", "INPUT", "DIV"]).toContain(activeTagName);
+
+    // Verify Tab reaches focused interactive elements without throwing
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("Tab");
+    }
+    const focusedElement = await page.evaluate(() => ({
+      tagName: document.activeElement?.tagName,
+      hasVisibleFocus: document.activeElement !== document.body,
+    }));
+    expect(focusedElement.hasVisibleFocus).toBe(true);
+  });
 });

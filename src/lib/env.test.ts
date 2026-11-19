@@ -109,6 +109,28 @@ describe("environment validation (src/lib/env.ts)", () => {
     }
   });
 
+  it("redacts SMTP_PASS and BREVO_API_KEY if validation errors occur", () => {
+    const issues = [
+      {
+        code: "custom" as const,
+        path: ["SMTP_PASS"],
+        message: "Invalid secret",
+      },
+      {
+        code: "custom" as const,
+        path: ["BREVO_API_KEY"],
+        message: "Invalid secret",
+      },
+    ];
+    const formatted = formatEnvErrors(issues as any, {
+      SMTP_PASS: "super-secret-smtp-password",
+      BREVO_API_KEY: "xkeysib-super-secret-brevo-api-key",
+    });
+    expect(formatted).not.toContain("super-secret-smtp-password");
+    expect(formatted).not.toContain("xkeysib-super-secret-brevo-api-key");
+    expect(formatted).toContain("[value redacted]");
+  });
+
   it("allows optional variables to be omitted", () => {
     expect(validateEnv(validEnv)).toBeDefined();
   });

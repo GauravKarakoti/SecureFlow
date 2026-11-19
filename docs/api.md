@@ -1158,6 +1158,8 @@ When there are no further records, `nextCursor` is `null`.
 
 ---
 
+---
+
 ## Type Reference
 
 These are the persisted data shapes referenced throughout the routes above. All are defined in `prisma/schema.prisma`.

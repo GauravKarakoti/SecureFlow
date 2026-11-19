@@ -13,9 +13,10 @@ import {
   testSlackWebhook,
   testTeamsWebhook,
   updateRepositoryPublicBadge,
+  updateWeeklyDigestPreference,
   type RepoBadgeSetting,
 } from "@/lib/actions/settings";
-import { Save, MessageSquare, Volume2, Send, Shield, Copy } from "lucide-react";
+import { Save, MessageSquare, Volume2, Send, Shield, Copy, Mail } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
 
 const subscribeToOrigin = () => () => {};
@@ -27,11 +28,13 @@ export default function SettingsClient({
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
   initialRepositories = [],
+  initialWeeklyDigestEnabled = true,
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
   initialRepositories?: RepoBadgeSetting[];
+  initialWeeklyDigestEnabled?: boolean;
 }) {
   // --- Slack state ---
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl || "");
@@ -46,6 +49,10 @@ export default function SettingsClient({
   // --- Voice alerts state ---
   const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(initialVoiceAlertsEnabled);
   const [isVoicePending, startVoiceTransition] = useTransition();
+
+  // --- Weekly Security Digest state ---
+  const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(initialWeeklyDigestEnabled);
+  const [isDigestPending, startDigestTransition] = useTransition();
 
   // --- Status badges state ---
   const [repositories, setRepositories] = useState<RepoBadgeSetting[]>(initialRepositories);
@@ -126,6 +133,26 @@ export default function SettingsClient({
         // Roll back optimistic update on failure
         setVoiceAlertsEnabled(!checked);
         toast.error(e.message || "Failed to update voice alert preference.");
+      }
+    });
+  };
+
+  const handleDigestToggle = (checked: boolean) => {
+    setWeeklyDigestEnabled(checked);
+    startDigestTransition(async () => {
+      try {
+        const res = await updateWeeklyDigestPreference(checked);
+        if (res.success) {
+          toast.success(
+            checked ? "Weekly security digest enabled." : "Weekly security digest disabled.",
+          );
+        } else {
+          setWeeklyDigestEnabled(!checked);
+          toast.error("Failed to update weekly digest preference.");
+        }
+      } catch (e: unknown) {
+        setWeeklyDigestEnabled(!checked);
+        toast.error(e instanceof Error ? e.message : "Failed to update weekly digest preference.");
       }
     });
   };
@@ -304,6 +331,41 @@ export default function SettingsClient({
               onCheckedChange={handleVoiceToggle}
               disabled={isVoicePending}
               aria-label="Enable voice alerts"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Weekly Security Digest ── */}
+      <Card className="glass-card">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-500/10 rounded-lg">
+              <Mail className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <CardTitle>Weekly Security Digest</CardTitle>
+              <CardDescription>
+                Receive an automated weekly security briefing highlighting new and resolved
+                vulnerabilities, repeat finding types, and blocked PRs across your repositories.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Enable Weekly Email Digest</p>
+              <p className="text-xs text-muted-foreground">
+                Delivered once a week per user. For your privacy and security, raw code snippets and
+                sensitive secrets are never included.
+              </p>
+            </div>
+            <Switch
+              checked={weeklyDigestEnabled}
+              onCheckedChange={handleDigestToggle}
+              disabled={isDigestPending}
+              aria-label="Enable weekly security digest"
             />
           </div>
         </CardContent>

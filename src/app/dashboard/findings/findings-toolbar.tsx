@@ -312,7 +312,7 @@ export default function FindingsToolbar({
           </SelectContent>
         </Select>
 
-        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1">
+        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1 focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
           <span className="text-[11px] font-mono text-muted-foreground uppercase">From:</span>
           <Input
             type="date"
@@ -323,7 +323,7 @@ export default function FindingsToolbar({
           />
         </div>
 
-        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1">
+        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1 focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
           <span className="text-[11px] font-mono text-muted-foreground uppercase">To:</span>
           <Input
             type="date"
@@ -348,7 +348,11 @@ export default function FindingsToolbar({
               {bulkMode ? "Cancel bulk select" : "Bulk select"}
             </Button>
             {bulkMode && (
-              <Button variant="outline" size="sm" className="gap-2 text-red-500 hover:text-red-600">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
+              >
                 Rollback Patches
               </Button>
             )}

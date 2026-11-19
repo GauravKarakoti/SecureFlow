@@ -133,9 +133,12 @@ export function PolicyHistoryModal({
               {versions.map((ver) => (
                 <button
                   key={ver.id}
+                  type="button"
                   onClick={() => setSelectedVersionId(ver.id)}
+                  aria-pressed={selectedVersionId === ver.id}
+                  aria-label={`Select policy version ${ver.versionNumber}`}
                   data-testid={`version-item-${ver.versionNumber}`}
-                  className={`w-full text-left p-2.5 rounded-lg border transition-all text-xs ${
+                  className={`w-full text-left p-2.5 rounded-lg border transition-all text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     selectedVersionId === ver.id
                       ? "bg-primary/10 border-primary/40 text-white"
                       : "bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10"
