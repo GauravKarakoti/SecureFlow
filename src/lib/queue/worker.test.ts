@@ -17,6 +17,7 @@ const mockWorkerOn = vi.hoisted(() =>
 );
 
 const mockDLQAdd = vi.hoisted(() => vi.fn());
+const mockRedisSet = vi.hoisted(() => vi.fn());
 
 vi.mock("bullmq", () => {
   return {
@@ -26,10 +27,11 @@ vi.mock("bullmq", () => {
     Queue: vi.fn().mockImplementation(function (this: any) {
       this.add = mockDLQAdd;
     }),
+    DelayedError: class DelayedError extends Error {},
   };
 });
 
-vi.mock("./redis", () => ({ redis: {} }));
+vi.mock("./redis", () => ({ redis: { set: mockRedisSet } }));
 vi.mock("@/lib/prisma", () => ({ default: {} }));
 vi.mock("@/lib/armor/scanner", () => ({ scanner: {}, parseSecureFlowIgnore: vi.fn() }));
 vi.mock("@/lib/sbom/pull-request-manifests", () => ({
@@ -50,11 +52,18 @@ import {
   selectRepositoryList,
   shouldScanPullRequestManifests,
   truncateForError,
+  postScanFailureCheck,
+  runPullRequestScan,
 } from "./worker";
 
 describe("shouldScanPullRequestManifests", () => {
   it("runs the manifest (SBOM) scan for new commits on a pull request", () => {
     expect(shouldScanPullRequestManifests("pull_request", "synchronize")).toBe(true);
+  });
+
+  it("runs the manifest (SBOM) scan for check_run and check_suite rerequested (#1863)", () => {
+    expect(shouldScanPullRequestManifests("check_run", "rerequested")).toBe(true);
+    expect(shouldScanPullRequestManifests("check_suite", "rerequested")).toBe(true);
   });
 
   it.each([
@@ -488,5 +497,66 @@ describe("truncateForError", () => {
   it("does not truncate at exactly the limit", () => {
     const exact = "y".repeat(MAX_VALIDATION_ERROR_LENGTH);
     expect(truncateForError(exact)).toBe(exact);
+  });
+});
+
+describe("postScanFailureCheck (#1863)", () => {
+  it("ignores undefined data or untracked events", async () => {
+    await expect(postScanFailureCheck(undefined)).resolves.toBeUndefined();
+    await expect(
+      postScanFailureCheck({ event: "push", payload: {}, deliveryId: "d1" } as any),
+    ).resolves.toBeUndefined();
+  });
+
+  it("ignores check_run with non-rerequested action", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "check_run",
+        payload: { action: "completed", check_run: { id: 123 } },
+        deliveryId: "d1",
+      } as any),
+    ).resolves.toBeUndefined();
+  });
+
+  it("ignores check_suite with non-rerequested action", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "check_suite",
+        payload: { action: "completed", check_suite: { id: 123 } },
+        deliveryId: "d1",
+      } as any),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("runPullRequestScan deduplication & concurrent locking (#1863)", () => {
+  it("delays the job when PR is locked by a concurrent scan", async () => {
+    const mockJob = {
+      id: "job-1",
+      token: "token-1",
+      moveToDelayed: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // When acquireLock fails (returns null) because another scan holds the lock
+    mockRedisSet.mockResolvedValueOnce(null);
+
+    await expect(
+      runPullRequestScan({
+        job: mockJob as any,
+        payload: { action: "rerequested" },
+        pullRequest: { id: 1, number: 10, head: { sha: "abc" } },
+        repository: { id: 2, full_name: "org/repo", owner: { login: "org" }, name: "repo" },
+        installation: { id: 3 },
+        event: "check_run",
+        action: "rerequested",
+        deliveryId: "del-1",
+        correlationId: "corr-1",
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        isRerun: true,
+        checkRunId: 1001,
+      }),
+    ).rejects.toThrow();
+
+    expect(mockJob.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "token-1");
   });
 });

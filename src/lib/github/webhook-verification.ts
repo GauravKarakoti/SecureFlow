@@ -12,6 +12,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { SCAN_CHECK_NAME } from "@/lib/scanner/check-run";
 
 /** Events the worker knows how to process. Anything else is acknowledged and dropped. */
 export const TRACKED_EVENTS = [
@@ -19,6 +20,8 @@ export const TRACKED_EVENTS = [
   "installation",
   "installation_repositories",
   "branch_protection_rule",
+  "check_run",
+  "check_suite",
 ] as const;
 
 export type TrackedEvent = (typeof TRACKED_EVENTS)[number];
@@ -222,6 +225,75 @@ export function parseWebhookPayload(payloadText: string): WebhookPayloadResult {
 /** True for an event the worker can process. */
 export function isTrackedEvent(event: string | null | undefined): event is TrackedEvent {
   return typeof event === "string" && (TRACKED_EVENTS as readonly string[]).includes(event);
+}
+
+/**
+ * Determine whether a check run was created by SecureFlow (#1863).
+ *
+ * Matches on SCAN_CHECK_NAME ("SecureFlow Scan"). When configuredAppId is provided
+ * and the check run carries an app ID, it verifies the app ID matches.
+ */
+export function isSecureFlowCheckRun(
+  checkRun: unknown,
+  configuredAppId?: string | number | null,
+): boolean {
+  if (!checkRun || typeof checkRun !== "object") return false;
+  const cr = checkRun as Record<string, unknown>;
+
+  if (cr.name !== SCAN_CHECK_NAME) {
+    return false;
+  }
+
+  const rawAppId =
+    (cr.app as { id?: unknown } | undefined)?.id ??
+    ((cr.check_suite as Record<string, unknown> | undefined)?.app as { id?: unknown } | undefined)?.id;
+
+  if (configuredAppId !== undefined && configuredAppId !== null && configuredAppId !== "") {
+    const expectedId = Number(configuredAppId);
+    if (Number.isFinite(expectedId) && rawAppId !== undefined && rawAppId !== null) {
+      const actualId = Number(rawAppId);
+      if (Number.isFinite(actualId)) {
+        return actualId === expectedId;
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Determine whether a check suite belongs to SecureFlow (#1863).
+ *
+ * Matches on configuredAppId when provided, falling back to name/slug match.
+ */
+export function isSecureFlowCheckSuite(
+  checkSuite: unknown,
+  configuredAppId?: string | number | null,
+): boolean {
+  if (!checkSuite || typeof checkSuite !== "object") return false;
+  const cs = checkSuite as Record<string, unknown>;
+
+  const app = cs.app as { id?: unknown; name?: unknown; slug?: unknown } | undefined;
+  if (!app) return false;
+
+  if (configuredAppId !== undefined && configuredAppId !== null && configuredAppId !== "") {
+    const expectedId = Number(configuredAppId);
+    if (Number.isFinite(expectedId) && app.id !== undefined && app.id !== null) {
+      const actualId = Number(app.id);
+      if (Number.isFinite(actualId)) {
+        return actualId === expectedId;
+      }
+    }
+  }
+
+  if (typeof app.name === "string" && app.name.toLowerCase().includes("secureflow")) {
+    return true;
+  }
+  if (typeof app.slug === "string" && app.slug.toLowerCase().includes("secureflow")) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

@@ -288,6 +288,8 @@ The `X-Hub-Signature-256` header must be `sha256=` + the hex HMAC of the raw req
 | `pull_request`              | `closed`                            | Records merge/closure state for leaderboard scoring. No scan.                                           |
 | `installation`              | `created`                           | Links the installer's GitHub account (via `sender.id`) and bulk-inserts selected repos in chunks of 50. |
 | `installation_repositories` | `added`                             | Inserts newly-added repos for an existing installation.                                                 |
+| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.   |
+| `check_suite`               | `rerequested`                       | Enqueues scan job for attached PR(s). Foreign check suites are ignored.                                 |
 | _(anything else)_           | —                                   | Returns `200 { "message": "Event not tracked" }`.                                                       |
 
 #### Payload schema (validated subset)

@@ -40,6 +40,7 @@ export interface ScanCheckParams {
   fileCount: number;
   notice?: string;
   findings?: readonly unknown[] | null;
+  checkRunId?: number;
 }
 
 /**
@@ -193,19 +194,35 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
     output.annotations = firstBatch;
   }
 
-  const result = await octokit.rest.checks.create({
-    owner: p.owner,
-    repo: p.repo,
-    name: SCAN_CHECK_NAME,
-    head_sha: p.headSha,
-    status: "completed",
-    conclusion: checkRunConclusion(p.decision),
-    output,
-  });
+  let result: unknown;
+  let checkRunId = p.checkRunId;
 
-  const checkRunId =
-    (result as { data?: { id?: number }; id?: number } | undefined)?.data?.id ??
-    (result as { id?: number } | undefined)?.id;
+  if (checkRunId && typeof octokit.rest.checks.update === "function") {
+    result = await octokit.rest.checks.update({
+      owner: p.owner,
+      repo: p.repo,
+      check_run_id: checkRunId,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion: checkRunConclusion(p.decision),
+      output,
+    });
+  } else {
+    result = await octokit.rest.checks.create({
+      owner: p.owner,
+      repo: p.repo,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion: checkRunConclusion(p.decision),
+      output,
+    });
+
+    checkRunId =
+      (result as { data?: { id?: number }; id?: number } | undefined)?.data?.id ??
+      (result as { id?: number } | undefined)?.id;
+  }
 
   if (checkRunId && typeof octokit.rest.checks.update === "function") {
     for (let i = 1; i < batches.length; i++) {
@@ -228,8 +245,24 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
 /** Fail-closed: a scan that crashed must not look like a pass. */
 export async function postScanErrorCheckRun(
   octokit: ChecksClient,
-  p: { owner: string; repo: string; headSha: string; reason: string },
+  p: { owner: string; repo: string; headSha: string; reason: string; checkRunId?: number },
 ) {
+  if (p.checkRunId && typeof octokit.rest.checks.update === "function") {
+    return octokit.rest.checks.update({
+      owner: p.owner,
+      repo: p.repo,
+      check_run_id: p.checkRunId,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion: "failure",
+      output: {
+        title: "Scan could not complete",
+        summary: `SecureFlow could not finish scanning this PR, so it cannot be treated as safe to merge.\n\nReason: ${p.reason}`,
+      },
+    });
+  }
+
   return octokit.rest.checks.create({
     owner: p.owner,
     repo: p.repo,
