@@ -20,6 +20,8 @@ export interface TriageEntry {
   note: string | null;
   dismissalReason?: string | null;
   expiresAt?: Date | null;
+  resolvedAt?: Date | null;
+  resolvedCommitSha?: string | null;
 }
 
 export interface UserTriage {
@@ -91,6 +93,8 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
       note: true,
       dismissalReason: true,
       expiresAt: true,
+      resolvedAt: true,
+      resolvedCommitSha: true,
     },
     orderBy: { updatedAt: "desc" },
     take: MAX_TRIAGE_ROWS + 1,
@@ -109,6 +113,8 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
       note: row.note,
       dismissalReason: row.dismissalReason,
       expiresAt: row.expiresAt,
+      resolvedAt: row.resolvedAt,
+      resolvedCommitSha: row.resolvedCommitSha,
     });
 
     if (isSuppressionActive({ status: row.status, expiresAt: row.expiresAt }, now)) {

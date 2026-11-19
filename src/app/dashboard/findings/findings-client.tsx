@@ -483,10 +483,20 @@ export default function FindingsClient({
                             {finding.triageStatus && finding.triageStatus !== "OPEN" && (
                               <Badge
                                 variant="outline"
-                                className="border-white/15 bg-white/5 text-muted-foreground"
-                                title="Triage status"
+                                className={
+                                  finding.triageStatus === "RESOLVED"
+                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px]"
+                                    : "border-white/15 bg-white/5 text-muted-foreground"
+                                }
+                                title={
+                                  finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                    ? `Resolved by commit ${finding.resolvedCommitSha}`
+                                    : "Triage status"
+                                }
                               >
-                                {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                                {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                  ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
+                                  : TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
                               </Badge>
                             )}
                             {/* Age column */}

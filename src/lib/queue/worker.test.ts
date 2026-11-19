@@ -70,7 +70,6 @@ import {
   shouldScanPullRequestManifests,
   truncateForError,
   publishScanSarifAnalysis,
-  postScanFailureCheck,
   runPullRequestScan,
 } from "./worker";
 

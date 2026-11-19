@@ -10,7 +10,12 @@ import { processScanJob } from "@/lib/scanner/scanEngine";
 import type { ScanJobData } from "@/lib/queue/scanQueue";
 import { maskFindingText } from "@/lib/armor/secret-masking";
 import { iq } from "@/lib/armor/iq";
-import { loadTrustedGateConfig, formatGateSummaryLine } from "@/lib/scanner/gate-config";
+import {
+  loadTrustedGateConfig,
+  formatGateSummaryLine,
+  type GateConfig,
+} from "@/lib/scanner/gate-config";
+import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
@@ -1013,6 +1018,22 @@ export async function runPullRequestScan({
             })),
           },
         },
+      });
+
+      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
+      const isPartialScan =
+        Boolean(coverageNotice) || Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
+      await autoResolveFixedFindings({
+        repositoryId: (dbRepo?.id || repository.id).toString(),
+        pullRequestId: dbPr.id,
+        headSha: pullRequest.head?.sha,
+        currentFindings: findings,
+        fileChanges,
+        isPartialScan,
+        userId,
+        repoFullName: repository.full_name,
+      }).catch((err: any) => {
+        log.warn(`[WORKER] Failed to auto-resolve fixed findings: ${sanitize(err?.message || String(err))}`);
       });
 
       // Real-time Slack alert for CRITICAL/HIGH findings (#936). Best-effort

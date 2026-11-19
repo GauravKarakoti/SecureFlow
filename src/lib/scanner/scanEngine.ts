@@ -61,6 +61,7 @@ import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { activeSuppressionWhere } from "../triage/expiry";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
+import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;
@@ -620,6 +621,23 @@ export async function processScanJob(
           scoredFindings: activeFindings,
           findingsToPersist,
         }),
+      });
+
+      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
+      const isPartialScan = allSkippedFiles.length > 0;
+      await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId: dbPr.id,
+        headSha,
+        currentFindings: allFindings,
+        fileChanges,
+        isPartialScan,
+        userId,
+        repoFullName: repositoryFullName,
+      }).catch((err) => {
+        log.warn(`[ScanEngine] Failed to auto-resolve fixed findings:`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       // Audit log
