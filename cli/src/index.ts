@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import fs from "fs";
-import { GitError, getStagedFiles, readStagedContent } from "./git.js";
+import path from "path";
+import {
+  GitError,
+  getStagedFiles,
+  readStagedContent,
+  getChangedFilesSince,
+  getRepoRoot,
+} from "./git.js";
 import {
   scanFile,
   formatScanResults,
@@ -25,13 +32,14 @@ import {
   type AiFinding,
   type StagedFileForAiScan,
 } from "./lib/api-client.js";
-import { hostedAiScanSkipReason, localModeEnv } from "./lib/local-mode.js";
+import { hostedAiScanSkipReason, localModeEnv, validateCliAiConfig } from "./lib/local-mode.js";
 import {
   CliUsageError,
   parseIgnoreFilePath,
   parseOutputFormat,
   parseOutputPath,
   parseVoiceArg,
+  parseSinceArg,
 } from "./lib/output-args.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
@@ -58,6 +66,21 @@ const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
  * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
  */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
+
+if (typeof validateCliAiConfig === "function") {
+  try {
+    const cliAiConfig = validateCliAiConfig(process.argv, process.env);
+    if (VERBOSE) {
+      const baseInfo = cliAiConfig.baseUrl ? `, baseUrl=${cliAiConfig.baseUrl}` : "";
+      console.log(
+        `ℹ️  [SecureFlow] Active AI model: provider=${cliAiConfig.provider}, model=${cliAiConfig.model}${baseInfo}`,
+      );
+    }
+  } catch (err: any) {
+    console.error(`❌ [SecureFlow] Configuration Error: ${err.message}`);
+    process.exit(1);
+  }
+}
 
 function printMcpHelp(): void {
   console.log(`
@@ -94,6 +117,7 @@ Options:
   --init                 Initialize SecureFlow (choose between Blank and Husky)
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
+  --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -107,10 +131,13 @@ Options:
   --severity <level>     Severity level (low, medium, high, critical)
   --poll                 Poll until SBOM scan completion (for sbom command)
   -v, --voice            Play an audio summary debrief of scan findings upon completion
+  --color                Force colored output even on non-TTY terminals
+  --no-color             Disable colored output
   -h, --help             Show this help message
 
 Examples:
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
   $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
   $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
@@ -357,10 +384,12 @@ async function main(): Promise<number> {
   let format: OutputFormat;
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
+  let sinceRef: string | undefined;
   try {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
+    sinceRef = parseSinceArg(process.argv);
   } catch (error) {
     if (!(error instanceof CliUsageError)) throw error;
     console.error(`❌ [SecureFlow] ${error.message}`);
@@ -368,10 +397,15 @@ async function main(): Promise<number> {
   }
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
-  let staged: string[];
+  const isSinceMode = sinceRef !== undefined;
+  let filesToScan: string[];
 
   try {
-    staged = getStagedFiles();
+    if (sinceRef !== undefined) {
+      filesToScan = getChangedFilesSince(sinceRef);
+    } else {
+      filesToScan = getStagedFiles();
+    }
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
     return 1;
@@ -392,16 +426,33 @@ async function main(): Promise<number> {
 
   let violationCount = 0;
 
-  if (staged.length > 0) {
-    for (const path of staged) {
-      const content = readStagedContent(path);
+  if (filesToScan.length > 0) {
+    const repoRoot = isSinceMode ? getRepoRoot() : undefined;
+
+    for (const filePath of filesToScan) {
+      let content: string | null = null;
+
+      if (isSinceMode) {
+        try {
+          const resolvedPath = repoRoot ? path.resolve(repoRoot, filePath) : filePath;
+          if (fs.existsSync(resolvedPath)) {
+            content = fs.readFileSync(resolvedPath, "utf-8");
+          } else {
+            content = readStagedContent(filePath);
+          }
+        } catch {
+          content = null;
+        }
+      } else {
+        content = readStagedContent(filePath);
+      }
 
       if (content === null) {
-        unreadable.push(path);
+        unreadable.push(filePath);
         continue;
       }
 
-      const result = scanFile(path, content, customIgnores);
+      const result = scanFile(filePath, content, customIgnores);
       fileResults.push(result);
       if (format === "text") {
         reportSkipped(result);
@@ -410,7 +461,7 @@ async function main(): Promise<number> {
       violationCount += result.violations.length;
 
       if (!result.skipped) {
-        stagedForAi.push({ path, content });
+        stagedForAi.push({ path: filePath, content });
       }
     }
   }
@@ -483,8 +534,9 @@ ${textOutput}`);
   // the scan would otherwise silently skip these entries, and stderr cannot
   // corrupt the structured report on stdout.
   if (unreadable.length > 0) {
+    const entryLabel = isSinceMode ? "changed" : "staged";
     console.warn(
-      `⚠️  [SecureFlow] Could not read ${unreadable.length} staged entr${
+      `⚠️  [SecureFlow] Could not read ${unreadable.length} ${entryLabel} entr${
         unreadable.length === 1 ? "y" : "ies"
       } (submodule, symlink or conflicted): ${unreadable.join(", ")}`,
     );
@@ -532,7 +584,8 @@ ${textOutput}`);
         } below ${describeFailThreshold(failOnThreshold)}. Scan passing.`,
       );
     } else {
-      console.log(`✅ SecureFlow scan passed (${staged.length} staged file(s)).`);
+      const modeLabel = isSinceMode ? `changed file(s) since ${sinceRef}` : "staged file(s)";
+      console.log(`✅ SecureFlow scan passed (${filesToScan.length} ${modeLabel}).`);
     }
   }
   return 0;

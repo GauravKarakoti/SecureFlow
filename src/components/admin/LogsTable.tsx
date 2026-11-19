@@ -233,7 +233,9 @@ export default function LogsTable({ logs, actions }: { logs: AuditLogRow[]; acti
                         hasMeta ? `${isOpen ? "Collapse" : "Expand"} log metadata` : undefined
                       }
                       className={`border-b border-border/50 transition-colors ${
-                        hasMeta ? "cursor-pointer hover:bg-muted/50" : "hover:bg-muted/30"
+                        hasMeta
+                          ? "cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                          : "hover:bg-muted/30"
                       }`}
                     >
                       <td className="px-6 py-4">

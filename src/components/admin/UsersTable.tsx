@@ -290,7 +290,8 @@ export default function UsersTable({
                                   ? "Cannot delete the last admin"
                                   : "Delete user"
                             }
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                            aria-label={`Delete user ${u.name || u.email || u.codename || u.id}`}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

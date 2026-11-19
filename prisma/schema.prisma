@@ -68,6 +68,7 @@ model User {
   policyVersions PolicyVersion[]
   roles          UserRole[]
   auditLogs      AuditLog[]
+  savedViews     SavedView[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -362,6 +363,20 @@ model AuditLog {
   @@index([userId, decision])
   @@index([action, timestamp(sort: Desc)])
   @@index([entryHash])
+}
+
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model WebhookEvent {

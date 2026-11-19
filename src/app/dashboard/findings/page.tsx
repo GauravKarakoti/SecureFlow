@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getUserFindingFilters, getUserFindings } from "@/lib/actions/findings";
 import { fromSearchParams } from "@/lib/findings/query";
 import { buildSbomReport } from "@/lib/sbom/findings-report";
+import { getSavedViews } from "@/lib/actions/saved-views";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +35,10 @@ export default async function FindingsPage({
   const params = await searchParams;
   const query = fromSearchParams(params);
 
-  const [result, filterOptions] = await Promise.all([
+  const [result, filterOptions, savedViews] = await Promise.all([
     getUserFindings(query),
     getUserFindingFilters(),
+    getSavedViews(),
   ]);
 
   // Dependency findings from the SBOM worker are stored as VULNERABILITY rows with a
@@ -54,6 +56,7 @@ export default async function FindingsPage({
       totalPages={result.totalPages}
       nextCursor={result.nextCursor}
       sbomReport={sbomReport}
+      savedViews={savedViews}
     />
   );
 }
