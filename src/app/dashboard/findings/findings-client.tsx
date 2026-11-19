@@ -13,6 +13,8 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Clock,
+  AlertCircle,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -26,7 +28,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSeverityTheme } from "@/lib/severity-theme";
 import { SeverityBadge } from "@/components/ui/severity-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
@@ -44,6 +45,7 @@ import {
 } from "@/lib/actions/findings";
 import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
+import { formatAgeDays } from "@/lib/findings/age";
 import type { SavedViewDto } from "@/lib/actions/saved-views";
 
 const TRIAGE_LABELS: Record<string, string> = {
@@ -437,7 +439,6 @@ export default function FindingsClient({
               )}
               <Accordion type="single" collapsible className="space-y-4">
                 {displayedFindings.map((finding) => {
-                  const theme = getSeverityTheme(finding.severity);
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
 
                   return (
@@ -486,6 +487,24 @@ export default function FindingsClient({
                                 title="Triage status"
                               >
                                 {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                              </Badge>
+                            )}
+                            {/* Age column */}
+                            <span
+                              className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                              title="Finding age"
+                            >
+                              <Clock className="w-3 h-3" />
+                              {formatAgeDays(finding.createdAt)}
+                            </span>
+                            {/* Overdue badge */}
+                            {finding.isOverdue && (
+                              <Badge
+                                className="bg-red-600/80 text-white border-red-500/60 font-mono text-[10px] animate-pulse"
+                                title="This finding has exceeded its target resolution age"
+                              >
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                Overdue
                               </Badge>
                             )}
                             <SeverityBadge

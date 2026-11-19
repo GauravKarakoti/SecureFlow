@@ -17,6 +17,7 @@ const mockWorkerOn = vi.hoisted(() =>
 );
 
 const mockDLQAdd = vi.hoisted(() => vi.fn());
+const mockRedisSet = vi.hoisted(() => vi.fn());
 
 vi.mock("bullmq", () => {
   return {
@@ -26,11 +27,28 @@ vi.mock("bullmq", () => {
     Queue: vi.fn().mockImplementation(function (this: any) {
       this.add = mockDLQAdd;
     }),
+    DelayedError: class DelayedError extends Error {},
   };
 });
 
-vi.mock("./redis", () => ({ redis: {} }));
-vi.mock("@/lib/prisma", () => ({ default: {} }));
+const mockRepositoryUpdate = vi.hoisted(() => vi.fn());
+const mockUploadSarifAnalysis = vi.hoisted(() => vi.fn());
+const mockBuildSarifDocument = vi.hoisted(() => vi.fn(() => ({ runs: [] })));
+const mockPullRequestRef = vi.hoisted(() => vi.fn((num: number) => `refs/pull/${num}/merge`));
+
+vi.mock("./redis", () => ({ redis: { set: mockRedisSet } }));
+vi.mock("@/lib/prisma", () => ({
+  default: {
+    repository: {
+      update: mockRepositoryUpdate,
+    },
+  },
+}));
+vi.mock("@/lib/github/code-scanning", () => ({
+  uploadSarifAnalysis: mockUploadSarifAnalysis,
+  buildSarifDocument: mockBuildSarifDocument,
+  pullRequestRef: mockPullRequestRef,
+}));
 vi.mock("@/lib/armor/scanner", () => ({ scanner: {}, parseSecureFlowIgnore: vi.fn() }));
 vi.mock("@/lib/sbom/pull-request-manifests", () => ({
   handlePullRequestSynchronize: vi.fn(),
@@ -46,15 +64,25 @@ import {
   assertPullRequestContext,
   getCommentableLines,
   getGitHubAppCredentials,
+  payloadSchema,
+  postScanFailureCheck,
   repositoryIdentity,
   selectRepositoryList,
   shouldScanPullRequestManifests,
   truncateForError,
+  publishScanSarifAnalysis,
+  postScanFailureCheck,
+  runPullRequestScan,
 } from "./worker";
 
 describe("shouldScanPullRequestManifests", () => {
   it("runs the manifest (SBOM) scan for new commits on a pull request", () => {
     expect(shouldScanPullRequestManifests("pull_request", "synchronize")).toBe(true);
+  });
+
+  it("runs the manifest (SBOM) scan for check_run and check_suite rerequested (#1863)", () => {
+    expect(shouldScanPullRequestManifests("check_run", "rerequested")).toBe(true);
+    expect(shouldScanPullRequestManifests("check_suite", "rerequested")).toBe(true);
   });
 
   it.each([
@@ -63,6 +91,7 @@ describe("shouldScanPullRequestManifests", () => {
     ["pull_request", undefined],
     ["installation", "created"],
     ["branch_protection_rule", "edited"],
+    ["merge_group", "checks_requested"],
     [null, "synchronize"],
   ])("skips %s / %s", (event, action) => {
     expect(shouldScanPullRequestManifests(event, action)).toBe(false);
@@ -488,5 +517,287 @@ describe("truncateForError", () => {
   it("does not truncate at exactly the limit", () => {
     const exact = "y".repeat(MAX_VALIDATION_ERROR_LENGTH);
     expect(truncateForError(exact)).toBe(exact);
+  });
+});
+
+describe("publishScanSarifAnalysis", () => {
+  const fakeOctokit = {} as any;
+  const fakeRepository = {
+    full_name: "acme/repo-one",
+    name: "repo-one",
+    owner: { login: "acme" },
+  };
+  const fakePullRequest = {
+    number: 42,
+    head: { sha: "abc12345" },
+  };
+  const fakeFindings = [
+    {
+      type: "HARDCODED_SECRET",
+      severity: "CRITICAL",
+      fileLocation: "index.ts",
+      lineStart: 10,
+      description: "Secret token leaked",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("skips SARIF upload when codeScanningEnabled is false or dbRepo is null", async () => {
+    const resDisabled = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: { id: "repo-1", codeScanningEnabled: false },
+    });
+
+    expect(resDisabled).toEqual({ status: "skipped", reason: "code-scanning-disabled" });
+    expect(mockUploadSarifAnalysis).not.toHaveBeenCalled();
+    expect(mockRepositoryUpdate).not.toHaveBeenCalled();
+
+    const resNull = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: null,
+    });
+
+    expect(resNull).toEqual({ status: "skipped", reason: "code-scanning-disabled" });
+    expect(mockUploadSarifAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("uploads SARIF analysis when codeScanningEnabled is true and clears prior warning", async () => {
+    mockUploadSarifAnalysis.mockResolvedValueOnce({
+      status: "uploaded",
+      sarifId: "analysis-999",
+    });
+
+    const res = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: {
+        id: "repo-1",
+        codeScanningEnabled: true,
+        codeScanningWarning: "Prior permission error",
+      },
+    });
+
+    expect(res).toEqual({ status: "uploaded" });
+    expect(mockUploadSarifAnalysis).toHaveBeenCalledWith(
+      fakeOctokit,
+      expect.objectContaining({
+        owner: "acme",
+        repo: "repo-one",
+        commitSha: "abc12345",
+        ref: "refs/pull/42/merge",
+      }),
+    );
+    expect(mockRepositoryUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: { codeScanningWarning: null },
+    });
+  });
+
+  it("uploads SARIF analysis without updating DB when no warning was present", async () => {
+    mockUploadSarifAnalysis.mockResolvedValueOnce({
+      status: "uploaded",
+      sarifId: "analysis-999",
+    });
+
+    const res = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: {
+        id: "repo-1",
+        codeScanningEnabled: true,
+        codeScanningWarning: null,
+      },
+    });
+
+    expect(res).toEqual({ status: "uploaded" });
+    expect(mockUploadSarifAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockRepositoryUpdate).not.toHaveBeenCalled();
+  });
+
+  it("records warning on repository when code-scanning-unavailable occurs (403/404)", async () => {
+    mockUploadSarifAnalysis.mockResolvedValueOnce({
+      status: "skipped",
+      reason: "code-scanning-unavailable",
+    });
+
+    const res = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: {
+        id: "repo-1",
+        codeScanningEnabled: true,
+      },
+    });
+
+    expect(res).toEqual({ status: "skipped", reason: "code-scanning-unavailable" });
+    expect(mockRepositoryUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: {
+        codeScanningWarning:
+          "GitHub App lacks security_events: write permission (Code scanning alerts: Read & Write) or Advanced Security is disabled on this repository.",
+      },
+    });
+  });
+
+  it("handles unexpected upload failure gracefully without throwing", async () => {
+    mockUploadSarifAnalysis.mockRejectedValueOnce(new Error("GitHub API timed out"));
+
+    const res = await publishScanSarifAnalysis({
+      octokit: fakeOctokit,
+      repository: fakeRepository,
+      pullRequest: fakePullRequest,
+      findings: fakeFindings,
+      dbRepo: {
+        id: "repo-1",
+        codeScanningEnabled: true,
+      },
+    });
+
+    expect(res).toEqual({ status: "error", error: "GitHub API timed out" });
+  });
+});
+
+describe("payloadSchema (merge_group) (#1864)", () => {
+  it("accepts a valid merge_group payload", () => {
+    const payload = {
+      action: "checks_requested",
+      merge_group: {
+        head_sha: "head-sha-123",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42-abc",
+        base_sha: "base-sha-456",
+        base_ref: "refs/heads/main",
+        head_commit: {
+          id: "head-sha-123",
+          message: "Merge pull request #42 from acme/patch-1",
+        },
+      },
+      repository: {
+        id: 12345,
+        name: "repo",
+        full_name: "acme/repo",
+      },
+      installation: { id: 9999 },
+    };
+
+    const parsed = payloadSchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.merge_group?.head_sha).toBe("head-sha-123");
+    }
+  });
+
+  it("fails validation when merge_group is missing head_sha", () => {
+    const payload = {
+      action: "checks_requested",
+      merge_group: {
+        base_sha: "base-sha-456",
+      },
+    };
+
+    const parsed = payloadSchema.safeParse(payload);
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("postScanFailureCheck (merge_group) (#1864)", () => {
+  it("ignores non-checks_requested merge_group actions", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "merge_group",
+        payload: {
+          action: "destroyed",
+          installation: { id: 1 },
+          merge_group: { head_sha: "sha-1" },
+        },
+      }),
+    ).resolves.not.toThrow();
+  });
+
+  it("ignores merge_group without installation id", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "merge_group",
+        payload: {
+          action: "checks_requested",
+          merge_group: { head_sha: "sha-1" },
+        },
+      }),
+    ).resolves.not.toThrow();
+  });
+});
+
+describe("postScanFailureCheck (#1863)", () => {
+  it("ignores undefined data or untracked events", async () => {
+    await expect(postScanFailureCheck(undefined)).resolves.toBeUndefined();
+    await expect(
+      postScanFailureCheck({ event: "push", payload: {}, deliveryId: "d1" } as any),
+    ).resolves.toBeUndefined();
+  });
+
+  it("ignores check_run with non-rerequested action", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "check_run",
+        payload: { action: "completed", check_run: { id: 123 } },
+        deliveryId: "d1",
+      } as any),
+    ).resolves.toBeUndefined();
+  });
+
+  it("ignores check_suite with non-rerequested action", async () => {
+    await expect(
+      postScanFailureCheck({
+        event: "check_suite",
+        payload: { action: "completed", check_suite: { id: 123 } },
+        deliveryId: "d1",
+      } as any),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("runPullRequestScan deduplication & concurrent locking (#1863)", () => {
+  it("delays the job when PR is locked by a concurrent scan", async () => {
+    const mockJob = {
+      id: "job-1",
+      token: "token-1",
+      moveToDelayed: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // When acquireLock fails (returns null) because another scan holds the lock
+    mockRedisSet.mockResolvedValueOnce(null);
+
+    await expect(
+      runPullRequestScan({
+        job: mockJob as any,
+        payload: { action: "rerequested" },
+        pullRequest: { id: 1, number: 10, head: { sha: "abc" } },
+        repository: { id: 2, full_name: "org/repo", owner: { login: "org" }, name: "repo" },
+        installation: { id: 3 },
+        event: "check_run",
+        action: "rerequested",
+        deliveryId: "del-1",
+        correlationId: "corr-1",
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        isRerun: true,
+        checkRunId: 1001,
+      }),
+    ).rejects.toThrow();
+
+    expect(mockJob.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "token-1");
   });
 });

@@ -46,6 +46,37 @@ if [ "$(grep -c 'secureflow-metrics: "true"' <<< "$default_render")" -ne 1 ]; th
   exit 1
 fi
 
+# Grafana Dashboard ConfigMap (#1784)
+for gd_enabled in false true; do
+  "$helm_bin" lint "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set grafanaDashboard.enabled="$gd_enabled"
+  "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set grafanaDashboard.enabled="$gd_enabled" > /dev/null
+done
+
+# When disabled, no ConfigMap with grafana_dashboard: "1" should be rendered
+if grep -Fq 'grafana_dashboard: "1"' <<< "$default_render"; then
+  echo 'Default render must not include Grafana dashboard ConfigMap' >&2
+  exit 1
+fi
+
+# When enabled, ConfigMap must be rendered with grafana_dashboard: "1", custom labels, and dashboard content
+gd_rendered="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/grafana-dashboard-configmap.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set grafanaDashboard.enabled=true \
+  --set grafanaDashboard.namespace=monitoring \
+  --set grafanaDashboard.additionalLabels.folder=Security)"
+
+grep -Fq 'name: check-secureflow-grafana-dashboard' <<< "$gd_rendered"
+grep -Fq 'namespace: monitoring' <<< "$gd_rendered"
+grep -Fq 'grafana_dashboard: "1"' <<< "$gd_rendered"
+grep -Fq 'folder: Security' <<< "$gd_rendered"
+grep -Fq 'secureflow-overview.json:' <<< "$gd_rendered"
+grep -Fq 'secureflow_scans_total' <<< "$gd_rendered"
+
 for np_enabled in false true; do
   "$helm_bin" lint "$chart_dir" \
     --set secrets.authSecret=local-test-only \
