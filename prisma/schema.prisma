@@ -151,6 +151,8 @@ model Repository {
   owner              String
   isActive           Boolean @default(true)
   publicBadgeEnabled Boolean @default(false)
+  codeScanningEnabled Boolean @default(false)
+  codeScanningWarning String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

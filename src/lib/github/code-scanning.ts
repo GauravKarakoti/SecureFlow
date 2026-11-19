@@ -1,6 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { normalizeFindingType, type FindingCategory } from "@/lib/finding-taxonomy";
 import { storedSeverityRank, toStoredSeverity, type StoredSeverity } from "@/lib/severity";
+import { maskFindingText } from "@/lib/armor/secret-masking";
 
 /**
  * Publishing scan results to GitHub's native Code Scanning UI.
@@ -158,7 +159,7 @@ function messageFor(finding: CodeScanningFinding, category: FindingCategory): st
 
   for (const candidate of candidates) {
     if (typeof candidate === "string" && candidate.trim().length > 0) {
-      return candidate.trim();
+      return maskFindingText(candidate.trim());
     }
   }
 

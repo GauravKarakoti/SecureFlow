@@ -28,6 +28,7 @@ import {
   pullRequestRef,
   uploadSarifAnalysis,
   type CodeScanningClient,
+  type CodeScanningFinding,
 } from "@/lib/github/code-scanning";
 import {
   buildPullRequestFacts,
@@ -1846,6 +1847,77 @@ export async function postScanFailureCheck(
     log.error("[QUEUE] Could not post fail-closed check run:", {
       error: checkErr?.message ?? String(checkErr),
     });
+  }
+}
+
+export interface PublishScanSarifOptions {
+  octokit: CodeScanningClient;
+  repository: { full_name: string; name: string; owner: { login: string } };
+  pullRequest: { number: number; head: { sha: string } };
+  findings: readonly CodeScanningFinding[];
+  dbRepo: { id: string; codeScanningEnabled?: boolean | null; codeScanningWarning?: string | null } | null | undefined;
+  log?: { info: (msg: string) => void; error?: (msg: string) => void };
+}
+
+/**
+ * Opt-in per repository (#1865): Uploads findings to GitHub's native Code Scanning UI.
+ * Deliberately after the check run and deliberately unable to fail the scan.
+ * When the GitHub App lacks permissions (403/404), records a dashboard warning on the repository.
+ */
+export async function publishScanSarifAnalysis({
+  octokit,
+  repository,
+  pullRequest,
+  findings,
+  dbRepo,
+  log,
+}: PublishScanSarifOptions): Promise<
+  | { status: "uploaded" }
+  | { status: "skipped"; reason: string }
+  | { status: "error"; error: string }
+> {
+  const target = `${sanitize(repository.full_name)}#${sanitize(String(pullRequest.number))}`;
+  if (!dbRepo?.codeScanningEnabled) {
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: code scanning publishing is disabled.`);
+    return { status: "skipped", reason: "code-scanning-disabled" };
+  }
+
+  try {
+    const sarifOutcome = await uploadSarifAnalysis(octokit, {
+      owner: repository.owner.login,
+      repo: repository.name,
+      commitSha: pullRequest.head.sha,
+      ref: pullRequestRef(pullRequest.number),
+      document: buildSarifDocument(findings),
+    });
+
+    if (sarifOutcome.status === "uploaded") {
+      log?.info(`[Worker] Uploaded SARIF for ${target}`);
+      if (dbRepo.codeScanningWarning) {
+        await prisma.repository.update({
+          where: { id: dbRepo.id },
+          data: { codeScanningWarning: null },
+        });
+      }
+      return { status: "uploaded" };
+    }
+
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`);
+    if (sarifOutcome.reason === "code-scanning-unavailable") {
+      const warningMsg =
+        "GitHub App lacks security_events: write permission (Code scanning alerts: Read & Write) or Advanced Security is disabled on this repository.";
+      await prisma.repository.update({
+        where: { id: dbRepo.id },
+        data: { codeScanningWarning: warningMsg },
+      });
+    }
+    return { status: "skipped", reason: sarifOutcome.reason };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    log?.info(
+      `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(errorMsg)}`,
+    );
+    return { status: "error", error: errorMsg };
   }
 }
 

@@ -166,6 +166,8 @@ export interface RepoBadgeSetting {
   fullName: string;
   owner: string;
   publicBadgeEnabled: boolean;
+  codeScanningEnabled: boolean;
+  codeScanningWarning?: string | null;
   latestStatus?: string | null;
 }
 
@@ -181,6 +183,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       fullName: true,
       owner: true,
       publicBadgeEnabled: true,
+      codeScanningEnabled: true,
+      codeScanningWarning: true,
       pullRequests: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -196,6 +200,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       fullName: string;
       owner: string;
       publicBadgeEnabled: boolean;
+      codeScanningEnabled: boolean;
+      codeScanningWarning?: string | null;
       pullRequests: Array<{ status: string }>;
     }>
   ).map((repo) => ({
@@ -203,6 +209,8 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
     fullName: repo.fullName,
     owner: repo.owner,
     publicBadgeEnabled: repo.publicBadgeEnabled,
+    codeScanningEnabled: repo.codeScanningEnabled,
+    codeScanningWarning: repo.codeScanningWarning ?? null,
     latestStatus: repo.pullRequests[0]?.status ?? null,
   }));
 }
@@ -228,6 +236,36 @@ export async function updateRepositoryPublicBadge(
   await prisma.repository.update({
     where: { id: repositoryId },
     data: { publicBadgeEnabled: Boolean(enabled) },
+  });
+
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
+
+export async function updateRepositoryCodeScanning(
+  repositoryId: string,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const repo = await prisma.repository.findFirst({
+    where: { id: repositoryId, userId },
+  });
+
+  if (!repo) {
+    return { success: false, error: "Repository not found or unauthorized" };
+  }
+
+  await prisma.repository.update({
+    where: { id: repositoryId },
+    data: {
+      codeScanningEnabled: Boolean(enabled),
+      ...(enabled ? {} : { codeScanningWarning: null }),
+    },
   });
 
   revalidatePath("/dashboard/settings");
