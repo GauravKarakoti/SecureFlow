@@ -6,7 +6,7 @@ import {
   logActiveModelIfVerbose,
   validateAndLogAiConfigStartup,
   AiConfigError,
-  DEFAULT_GROQ_MODEL,
+  DEFAULT_AI_MODEL,
   DEFAULT_OLLAMA_MODEL,
   DEFAULT_VLLM_MODEL,
   DEFAULT_OPENAI_MODEL,
@@ -32,7 +32,7 @@ describe("src/ai/model-config.ts (Configurable Remediation & Explanation Models)
     delete process.env.REMEDIATION_MODEL_NAME;
     delete process.env.REMEDIATION_BASE_URL;
     delete process.env.REMEDIATION_MODEL_BASE_URL;
-    delete process.env.GROQ_MODEL;
+    delete process.env.AI_MODEL;
     delete process.env.GROQ_BASE_URL;
     delete process.env.LOCAL_AI_URL;
     delete process.env.LOCAL_AI_MODEL;
@@ -52,13 +52,13 @@ describe("src/ai/model-config.ts (Configurable Remediation & Explanation Models)
     it("defaults to groq provider and openai/gpt-oss-20b when no variables are set", () => {
       const config = resolveAiConfig({});
       expect(config.provider).toBe("groq");
-      expect(config.model).toBe(DEFAULT_GROQ_MODEL);
+      expect(config.model).toBe(DEFAULT_AI_MODEL);
       expect(config.baseUrl).toBeUndefined();
     });
 
-    it("preserves existing GROQ_MODEL environment variable", () => {
+    it("preserves existing AI_MODEL environment variable", () => {
       const config = resolveAiConfig({
-        GROQ_MODEL: "openai/gpt-oss-120b",
+        AI_MODEL: "openai/gpt-oss-120b",
       });
       expect(config.provider).toBe("groq");
       expect(config.model).toBe("openai/gpt-oss-120b");

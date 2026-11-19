@@ -145,7 +145,6 @@ export function CyberTextReveal({
     };
     // `to` is derived from `text`/`placeholder`; depending on it restarts
     // the decode when the payload changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTransmission, delay, to]);
 
   // ── Hover mode (existing) ───────────────────────────────────────────────

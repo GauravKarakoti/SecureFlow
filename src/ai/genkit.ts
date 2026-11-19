@@ -22,7 +22,7 @@ export interface SecurityAIConfig {
 /**
  * Genkit reference for a Groq model id.
  *
- * `GROQ_MODEL` holds the bare Groq id (`openai/gpt-oss-20b` in `.env.example`), which is
+ * `AI_MODEL` holds the bare Groq id (`openai/gpt-oss-20b` in `.env.example`), which is
  * what the `groq-sdk` callers pass straight to the API. Genkit only knows the model under the
  * plugin's `groq/` namespace, and rejects the bare id with `NOT_FOUND: Model ... not found`.
  */
@@ -32,7 +32,7 @@ export function toGenkitGroqModel(modelId: string): string {
 }
 
 /**
- * The Groq model used when `GROQ_MODEL` is unset or blank.
+ * The Groq model used when `AI_MODEL` is unset or blank.
  *
  * Groq's current recommended default — see the deprecation note on
  * `defaultModel` below. The Genkit instance used to fall back to
@@ -40,18 +40,18 @@ export function toGenkitGroqModel(modelId: string): string {
  * the heist transmission (which runs on `DEFAULT_SECURITY_CONFIG.modelName`)
  * used a different model from the one documented for it.
  */
-export const DEFAULT_GROQ_MODEL_ID = "openai/gpt-oss-20b";
+export const DEFAULT_AI_MODEL_ID = "openai/gpt-oss-20b";
 
-/** `GROQ_MODEL` as a Genkit model reference, or undefined when it is unset or blank. */
+/** `AI_MODEL` as a Genkit model reference, or undefined when it is unset or blank. */
 function configuredGroqModel(): string | undefined {
-  const modelId = process.env.GROQ_MODEL?.trim();
+  const modelId = process.env.AI_MODEL?.trim();
   return modelId ? toGenkitGroqModel(modelId) : undefined;
 }
 
 export const DEFAULT_SECURITY_CONFIG: SecurityAIConfig = {
   temperature: 0.2,
   maxOutputTokens: 1024,
-  modelName: configuredGroqModel() ?? toGenkitGroqModel(DEFAULT_GROQ_MODEL_ID),
+  modelName: configuredGroqModel() ?? toGenkitGroqModel(DEFAULT_AI_MODEL_ID),
 };
 
 export const ai = genkit({
@@ -106,11 +106,11 @@ export function getDefaultModelRef(): typeof gptOssx20b | string {
   }
 
   if (
-    config.model === DEFAULT_GROQ_MODEL_ID &&
+    config.model === DEFAULT_AI_MODEL_ID &&
     !process.env.AI_MODEL &&
     !process.env.AI_MODEL_NAME &&
     !process.env.REMEDIATION_MODEL &&
-    !process.env.GROQ_MODEL
+    !process.env.AI_MODEL
   ) {
     return securityExplanationModel;
   }
@@ -121,9 +121,9 @@ export function getDefaultModelRef(): typeof gptOssx20b | string {
 /** Whether the app is currently configured to use a local inference server. */
 export { isLocalModelEnabled };
 
-// ── Default model (app-wide, configurable via GROQ_MODEL) ──────────────────
+// ── Default model (app-wide, configurable via AI_MODEL) ──────────────────
 //
-// `GROQ_MODEL` (default: `openai/gpt-oss-20b`) is the application-wide
+// `AI_MODEL` (default: `openai/gpt-oss-20b`) is the application-wide
 // default used by flows that don't need a specific model (e.g. the heist-
 // message flow, which benefits from a slightly larger model for prose
 // quality and is not latency-critical).
@@ -131,18 +131,18 @@ export { isLocalModelEnabled };
 // Groq deprecated `llama-3.1-8b-instant` on 2026-06-17 in favour of
 // `openai/gpt-oss-20b` (see https://console.groq.com/docs/deprecations).
 // `gpt-oss-20b` is Groq's current recommended default for general-purpose
-// low-latency inference. Override via `GROQ_MODEL` if your account still
+// low-latency inference. Override via `AI_MODEL` if your account still
 // has access to a deprecated model.
 
 /**
  * Model reference flows should use unless they need to override it explicitly.
  *
  * Built the same way as `DEFAULT_SECURITY_CONFIG.modelName`. It used to be
- * `"groq/" + (process.env.GROQ_MODEL ?? default)`, which gave `"groq/"` for a
+ * `"groq/" + (process.env.AI_MODEL ?? default)`, which gave `"groq/"` for a
  * blank variable (`??` keeps `""`) and `"groq/groq/…"` for an id that already
  * had the namespace — the form `toGenkitGroqModel` exists to accept.
  */
-export const defaultModel = configuredGroqModel() ?? toGenkitGroqModel(DEFAULT_GROQ_MODEL_ID);
+export const defaultModel = configuredGroqModel() ?? toGenkitGroqModel(DEFAULT_AI_MODEL_ID);
 
 export const securityExplanationModel = gptOssx20b;
 
@@ -180,7 +180,7 @@ export function getSecurityExplanationModelChain(): Array<typeof gptOssx20b | st
   }
 
   const primary = toGenkitGroqModel(config.model);
-  const defaultModelName = toGenkitGroqModel(DEFAULT_GROQ_MODEL_ID);
+  const defaultModelName = toGenkitGroqModel(DEFAULT_AI_MODEL_ID);
 
   if (primary !== defaultModelName) {
     return [primary, securityExplanationModel, ...securityExplanationFallbackModels];

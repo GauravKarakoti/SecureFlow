@@ -14,7 +14,7 @@ import {
 } from "./resilience";
 
 // Groq and AI default model references (kept decoupled from SDK runtime)
-export const DEFAULT_PRIMARY_GROQ_MODEL = "groq/openai/gpt-oss-20b";
+export const DEFAULT_PRIMARY_AI_MODEL = "groq/openai/gpt-oss-20b";
 export const DEFAULT_FALLBACK_MODELS = [
   "groq/openai/gpt-oss-120b",
   "groq/qwen/qwen3.6-27b",
@@ -119,13 +119,13 @@ export function getKnownModels(): string[] {
   const models = new Set<string>();
 
   // Add default Groq primary and fallback models
-  const configuredPrimary = process.env.GROQ_MODEL?.trim();
+  const configuredPrimary = process.env.AI_MODEL?.trim();
   if (configuredPrimary) {
     models.add(
       configuredPrimary.startsWith("groq/") ? configuredPrimary : `groq/${configuredPrimary}`,
     );
   }
-  models.add(DEFAULT_PRIMARY_GROQ_MODEL);
+  models.add(DEFAULT_PRIMARY_AI_MODEL);
 
   for (const m of DEFAULT_FALLBACK_MODELS) {
     models.add(normalizeModelName(m));
@@ -330,13 +330,13 @@ export function getModelDisplayName(modelName: string): string {
  * Collects full AI Health & Circuit Breaker Report across all models.
  */
 export async function getAiHealthReport(): Promise<AiHealthReport> {
-  const configuredPrimary = process.env.GROQ_MODEL?.trim();
+  const configuredPrimary = process.env.AI_MODEL?.trim();
   const primaryModelName = normalizeModelName(
     configuredPrimary
       ? configuredPrimary.startsWith("groq/")
         ? configuredPrimary
         : `groq/${configuredPrimary}`
-      : DEFAULT_PRIMARY_GROQ_MODEL,
+      : DEFAULT_PRIMARY_AI_MODEL,
   );
   const knownModelNames = getKnownModels();
 

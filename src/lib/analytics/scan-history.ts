@@ -11,6 +11,7 @@
  */
 
 import prisma from "@/lib/prisma";
+import { isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,8 @@ export interface AnalyticsPayload {
     overallPassRate: number;
     avgRiskScore: number;
     trendDirection: "up" | "down" | "flat";
+    /** Count of open findings that have exceeded their target resolution age. */
+    overdueFindings: number;
   };
 }
 
@@ -609,6 +612,8 @@ export async function fetchAnalyticsSummary(userId: string, days: number = DEFAU
   const findingCounts = recentMetrics.map((m) => m.findings);
   const trendDirection = computeTrendDirection(findingCounts);
 
+  const overdueFindings = await fetchOverdueCount(userId);
+
   return {
     totalScans,
     totalFindings,
@@ -616,7 +621,71 @@ export async function fetchAnalyticsSummary(userId: string, days: number = DEFAU
     overallPassRate: computePassRate(passCount, totalScans),
     avgRiskScore: roundTo(riskAgg._avg.riskScore ?? 0),
     trendDirection,
+    overdueFindings,
   };
+}
+
+/**
+ * Count open findings that have exceeded their target resolution age.
+ *
+ * Dismissed findings are excluded. This fetches only the minimal columns
+ * needed (severity, createdAt) for all non-dismissed findings and applies
+ * the same age logic as the Findings table's "Overdue" badge.
+ */
+export async function fetchOverdueCount(userId: string): Promise<number> {
+  // Pull all triage records for this user to identify dismissed fingerprints.
+  // We cannot join FindingTriage from Finding directly in Prisma without raw
+  // SQL, so we fetch the dismissed fingerprints separately and exclude them.
+  const dismissedTriages = await prisma.findingTriage.findMany({
+    where: {
+      repository: { userId },
+      status: "DISMISSED",
+    },
+    select: { fingerprint: true, repositoryId: true },
+  });
+
+  const dismissedKeys = new Set(
+    dismissedTriages.map(
+      (t: { fingerprint: string; repositoryId: string }) => `${t.repositoryId}:${t.fingerprint}`,
+    ),
+  );
+
+  // Fetch all findings for this user (minimal columns).
+  const findings = await prisma.finding.findMany({
+    where: {
+      scanResult: {
+        pullRequest: {
+          repository: { userId },
+        },
+      },
+    },
+    select: {
+      severity: true,
+      createdAt: true,
+      fingerprint: true,
+      scanResult: {
+        select: {
+          pullRequest: {
+            select: {
+              repositoryId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  let count = 0;
+  for (const f of findings) {
+    const repositoryId = f.scanResult.pullRequest.repositoryId;
+    const key = `${repositoryId}:${f.fingerprint}`;
+    const triageStatus = dismissedKeys.has(key) ? "DISMISSED" : "OPEN";
+    if (isFindingOverdue(f.severity, f.createdAt, triageStatus, AGE_TARGETS)) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 /**
@@ -629,15 +698,23 @@ export async function getAnalyticsPayload(
   userId: string,
   days: number = DEFAULT_DAYS,
 ): Promise<AnalyticsPayload> {
-  const [dailyMetrics, severityTrend, repoSummaries, topFindingTypes, scanVelocity, summary] =
-    await Promise.all([
-      fetchDailyScanMetrics(userId, days),
-      fetchSeverityTrend(userId, days),
-      fetchRepoSummaries(userId),
-      fetchTopFindingTypes(userId, days),
-      fetchScanVelocity(userId, days),
-      fetchAnalyticsSummary(userId, days),
-    ]);
+  const [
+    dailyMetrics,
+    severityTrend,
+    repoSummaries,
+    topFindingTypes,
+    scanVelocity,
+    summary,
+    overdueFindings,
+  ] = await Promise.all([
+    fetchDailyScanMetrics(userId, days),
+    fetchSeverityTrend(userId, days),
+    fetchRepoSummaries(userId),
+    fetchTopFindingTypes(userId, days),
+    fetchScanVelocity(userId, days),
+    fetchAnalyticsSummary(userId, days),
+    fetchOverdueCount(userId),
+  ]);
 
   return {
     dailyMetrics,
@@ -645,6 +722,6 @@ export async function getAnalyticsPayload(
     repoSummaries,
     topFindingTypes,
     scanVelocity,
-    summary,
+    summary: { ...summary, overdueFindings },
   };
 }

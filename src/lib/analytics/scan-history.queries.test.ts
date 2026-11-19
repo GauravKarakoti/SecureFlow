@@ -5,6 +5,7 @@ const prismaMock = vi.hoisted(() => ({
   finding: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() },
   repository: { findMany: vi.fn() },
   pullRequest: { count: vi.fn() },
+  findingTriage: { findMany: vi.fn() },
 }));
 
 vi.mock("@/lib/prisma", () => ({ default: prismaMock }));
@@ -38,6 +39,7 @@ beforeEach(() => {
   for (const model of Object.values(prismaMock)) {
     for (const fn of Object.values(model)) fn.mockReset();
   }
+  prismaMock.findingTriage.findMany.mockReset();
 });
 
 afterEach(() => {
@@ -297,6 +299,7 @@ describe("fetchAnalyticsSummary and getAnalyticsPayload", () => {
     prismaMock.finding.findMany.mockResolvedValue([]);
     prismaMock.finding.groupBy.mockResolvedValue([]);
     prismaMock.repository.findMany.mockResolvedValue([]);
+    prismaMock.findingTriage.findMany.mockResolvedValue([]);
   }
 
   it("combines the totals into a summary", async () => {
@@ -309,6 +312,7 @@ describe("fetchAnalyticsSummary and getAnalyticsPayload", () => {
       overallPassRate: 75,
       avgRiskScore: 33.3,
       trendDirection: "flat",
+      overdueFindings: 0,
     });
   });
 

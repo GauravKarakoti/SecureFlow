@@ -1,4 +1,4 @@
-import crypto from 'k6/crypto';
+import crypto from "k6/crypto";
 
 /**
  * Compute the GitHub webhook HMAC-SHA256 signature for a given payload and secret.
@@ -12,11 +12,11 @@ import crypto from 'k6/crypto';
  */
 export function computeHmacSignature(payload, secret) {
   if (!secret) {
-    throw new Error('Webhook secret is required to compute HMAC signature.');
+    throw new Error("Webhook secret is required to compute HMAC signature.");
   }
 
-  const payloadString = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const hex = crypto.hmac('sha256', secret, payloadString, 'hex');
+  const payloadString = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const hex = crypto.hmac("sha256", secret, payloadString, "hex");
   return `sha256=${hex}`;
 }
 

@@ -166,7 +166,9 @@ describe("createGitHubAppClient", () => {
       },
     );
     expect(app).toBeDefined();
-    expect(app.octokit.request.endpoint.DEFAULTS.baseUrl).toBe("https://enterprise.internal/api/v3");
+    expect(app.octokit.request.endpoint.DEFAULTS.baseUrl).toBe(
+      "https://enterprise.internal/api/v3",
+    );
   });
 
   it("rejects non-HTTPS URL when created in production mode", () => {
@@ -183,4 +185,3 @@ describe("createGitHubAppClient", () => {
     ).toThrow(/GITHUB_API_URL must use HTTPS in production/);
   });
 });
-

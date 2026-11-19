@@ -6,6 +6,8 @@ import {
   admitWebhook,
   isPayloadTooLarge,
   isTrackedEvent,
+  isSecureFlowCheckRun,
+  isSecureFlowCheckSuite,
   normalizeDeliveryId,
   parseGithubSignature,
   parseMaxWebhookBytes,
@@ -352,5 +354,54 @@ describe("admitWebhook", () => {
     if (result.ok) {
       expect(result.matchedSecret).toBe("current");
     }
+  });
+});
+
+describe("isSecureFlowCheckRun (#1863)", () => {
+  it("identifies a SecureFlow check run by name", () => {
+    expect(isSecureFlowCheckRun({ name: "SecureFlow Scan" })).toBe(true);
+  });
+
+  it("rejects check runs from other tools (e.g. Codecov, Travis, Actions)", () => {
+    expect(isSecureFlowCheckRun({ name: "codecov/patch" })).toBe(false);
+    expect(isSecureFlowCheckRun({ name: "build (ubuntu-latest)" })).toBe(false);
+    expect(isSecureFlowCheckRun({ name: "continuous-integration/travis-ci" })).toBe(false);
+    expect(isSecureFlowCheckRun(null)).toBe(false);
+    expect(isSecureFlowCheckRun(undefined)).toBe(false);
+    expect(isSecureFlowCheckRun("not an object")).toBe(false);
+  });
+
+  it("validates app ID when configured and check run carries app object", () => {
+    const configuredAppId = "12345";
+    expect(
+      isSecureFlowCheckRun({ name: "SecureFlow Scan", app: { id: 12345 } }, configuredAppId),
+    ).toBe(true);
+
+    expect(
+      isSecureFlowCheckRun({ name: "SecureFlow Scan", app: { id: 99999 } }, configuredAppId),
+    ).toBe(false);
+
+    expect(
+      isSecureFlowCheckRun(
+        { name: "SecureFlow Scan", check_suite: { app: { id: 12345 } } },
+        configuredAppId,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isSecureFlowCheckSuite (#1863)", () => {
+  it("identifies a SecureFlow check suite by matching configured app ID", () => {
+    expect(isSecureFlowCheckSuite({ app: { id: 12345 } }, "12345")).toBe(true);
+    expect(isSecureFlowCheckSuite({ app: { id: 99999 } }, "12345")).toBe(false);
+  });
+
+  it("identifies a SecureFlow check suite by app name or slug when app ID is not configured", () => {
+    expect(isSecureFlowCheckSuite({ app: { name: "SecureFlow App" } })).toBe(true);
+    expect(isSecureFlowCheckSuite({ app: { slug: "secureflow" } })).toBe(true);
+    expect(isSecureFlowCheckSuite({ app: { name: "Codecov" } })).toBe(false);
+    expect(isSecureFlowCheckSuite({ app: { slug: "github-actions" } })).toBe(false);
+    expect(isSecureFlowCheckSuite(null)).toBe(false);
+    expect(isSecureFlowCheckSuite({})).toBe(false);
   });
 });

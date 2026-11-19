@@ -20,9 +20,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertOctagon,
-  AlertCircle,
   Clock,
   Filter,
+  AlertCircle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -91,6 +91,8 @@ interface AnalyticsSummary {
   overallPassRate: number;
   avgRiskScore: number;
   trendDirection: "up" | "down" | "flat";
+  /** Count of open findings that have exceeded their target resolution age. */
+  overdueFindings: number;
 }
 
 interface AnalyticsClientProps {
@@ -347,6 +349,29 @@ export default function AnalyticsClient({
           color="blue"
         />
       </div>
+
+      {/* Overdue Findings Banner */}
+      {summary.overdueFindings > 0 && (
+        <div className="flex items-center gap-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
+          <AlertCircle className="w-6 h-6 text-red-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-300">
+              {summary.overdueFindings.toLocaleString()} overdue{" "}
+              {summary.overdueFindings === 1 ? "finding" : "findings"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              These open findings have exceeded their target resolution age. Dismissed findings are
+              excluded.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/findings?status=OPEN"
+            className="text-xs font-mono text-red-300 hover:text-red-100 underline underline-offset-2 shrink-0"
+          >
+            View findings →
+          </Link>
+        </div>
+      )}
 
       {/* Themed Heist Risk & Vault Integrity Metrics (#1711) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

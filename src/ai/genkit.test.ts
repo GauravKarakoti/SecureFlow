@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 // builds the Genkit instance at import time. Both packages are mocked so the
-// test only exercises how GROQ_MODEL is turned into model references.
+// test only exercises how AI_MODEL is turned into model references.
 vi.mock("genkit", () => ({ genkit: vi.fn(() => ({})) }));
 vi.mock("genkitx-groq", () => ({
   groq: vi.fn(() => ({})),
@@ -48,9 +48,9 @@ describe("toGenkitGroqModel", () => {
 describe("model defaults", () => {
   async function loadWith(groqModel: string | undefined) {
     vi.resetModules();
-    vi.stubEnv("GROQ_MODEL", groqModel as string);
+    vi.stubEnv("AI_MODEL", groqModel as string);
     vi.stubEnv("LOCAL_AI_URL", "");
-    if (groqModel === undefined) delete process.env.GROQ_MODEL;
+    if (groqModel === undefined) delete process.env.AI_MODEL;
     try {
       return await import("./genkit");
     } finally {
@@ -59,7 +59,7 @@ describe("model defaults", () => {
   }
 
   it.each([undefined, "", "   "])(
-    "uses Groq's current default, not the deprecated llama-3.1-8b-instant, when GROQ_MODEL is %j",
+    "uses Groq's current default, not the deprecated llama-3.1-8b-instant, when AI_MODEL is %j",
     async (value) => {
       const { DEFAULT_SECURITY_CONFIG, defaultModel } = await loadWith(value);
 
@@ -72,7 +72,7 @@ describe("model defaults", () => {
     ["llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"],
     ["groq/llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"],
     [" openai/gpt-oss-120b ", "groq/openai/gpt-oss-120b"],
-  ])("resolves GROQ_MODEL=%j to %s for both references", async (value, expected) => {
+  ])("resolves AI_MODEL=%j to %s for both references", async (value, expected) => {
     const { DEFAULT_SECURITY_CONFIG, defaultModel } = await loadWith(value);
 
     expect(DEFAULT_SECURITY_CONFIG.modelName).toBe(expected);

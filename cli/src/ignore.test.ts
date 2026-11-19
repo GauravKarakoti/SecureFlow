@@ -79,7 +79,12 @@ no-reason/**
 `;
       const config = parseSecureFlowIgnore(content, { now: fixedNow });
 
-      expect(config.ignoredPaths).toEqual(["active/**", "colon/**", "malformed/**", "no-reason/**"]);
+      expect(config.ignoredPaths).toEqual([
+        "active/**",
+        "colon/**",
+        "malformed/**",
+        "no-reason/**",
+      ]);
       expect(config.expiredRules).toEqual([
         {
           pattern: "expired/**",
@@ -87,8 +92,10 @@ no-reason/**
           reason: "Expired rule",
         },
       ]);
-      expect(config.warnings?.some((w) => w.includes('Invalid expiration date "2026-02-31"'))).toBe(true);
-      expect(config.warnings?.some((w) => w.includes('has no reason specified'))).toBe(true);
+      expect(config.warnings?.some((w) => w.includes('Invalid expiration date "2026-02-31"'))).toBe(
+        true,
+      );
+      expect(config.warnings?.some((w) => w.includes("has no reason specified"))).toBe(true);
     });
   });
 
