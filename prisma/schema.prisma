@@ -336,9 +336,11 @@ model FindingTriage {
   dismissalReason DismissalReason?
   dismissedAt     DateTime?
   dismissedById   String?
-  note            String?
-  resolvedById    String?
-  expiresAt       DateTime?
+  note              String?
+  resolvedById      String?
+  resolvedAt        DateTime?
+  resolvedCommitSha String?
+  expiresAt         DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 

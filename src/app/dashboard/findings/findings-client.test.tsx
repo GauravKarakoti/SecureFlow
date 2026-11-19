@@ -178,4 +178,27 @@ describe("FindingsClient Component (#633)", () => {
       currentParams = new URLSearchParams();
     }
   });
+
+  it("renders 'resolved by commit abc1234' badge when finding is resolved (#1869)", () => {
+    const resolvedFinding: any = {
+      id: "f-resolved",
+      type: "SECRET",
+      severity: "HIGH",
+      fileLocation: "src/auth/token.ts",
+      codeSnippet: "API_KEY = 'secret'",
+      explanation: "Hardcoded secret.",
+      remediation: "Move to env.",
+      promptInjectionSuspected: false,
+      fingerprint: "fp-res-1",
+      createdAt: new Date("2026-11-18T10:00:00Z"),
+      repositoryId: "repo-1",
+      repositoryFullName: "acme/api",
+      pullRequestNumber: 42,
+      triageStatus: "RESOLVED",
+      resolvedCommitSha: "abc1234567890",
+    };
+
+    render(<FindingsClient {...defaultProps} findings={[resolvedFinding]} total={1} />);
+    expect(screen.getByText("resolved by commit abc1234")).toBeInTheDocument();
+  });
 });

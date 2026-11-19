@@ -1211,7 +1211,7 @@ describe("GitHub webhook route", () => {
          }),
         expect.any(Object),
       );
-    }
+    });
   });
     
   describe("check_run and check_suite event routing (#1863)", () => {

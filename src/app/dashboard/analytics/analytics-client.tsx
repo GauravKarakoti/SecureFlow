@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Clock,
   Filter,
-  AlertCircle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -94,6 +93,10 @@ interface AnalyticsSummary {
   trendDirection: "up" | "down" | "flat";
   /** Count of open findings that have exceeded their target resolution age. */
   overdueFindings: number;
+  /** Average resolution time formatted (e.g. "4.2h" or "1.5d") (#1869). */
+  avgResolutionTime?: string | null;
+  /** Count of resolved findings. */
+  resolvedFindings?: number;
 }
 
 interface AnalyticsClientProps {
@@ -323,7 +326,7 @@ export default function AnalyticsClient({
       </div>
 
       {/* Summary Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         <SummaryCard
           title="Total Scans"
           value={summary.totalScans}
@@ -349,6 +352,12 @@ export default function AnalyticsClient({
           icon={<Target className="w-5 h-5 text-blue-400" />}
           color="blue"
         />
+        <SummaryCard
+          title="Avg Resolution"
+          value={summary.avgResolutionTime ?? "N/A"}
+          icon={<Clock className="w-5 h-5 text-emerald-400" />}
+          color="green"
+        />
       </div>
 
       {/* Overdue Findings Banner */}
@@ -365,12 +374,12 @@ export default function AnalyticsClient({
               excluded.
             </p>
           </div>
-          <a
+          <Link
             href="/dashboard/findings?status=OPEN"
             className="text-xs font-mono text-red-300 hover:text-red-100 underline underline-offset-2 shrink-0"
           >
             View findings →
-          </a>
+          </Link>
         </div>
       )}
 
@@ -881,7 +890,7 @@ function SummaryCard({
   color,
 }: {
   title: string;
-  value: number;
+  value: number | string;
   suffix?: string;
   icon: React.ReactNode;
   color: "primary" | "orange" | "green" | "blue";
@@ -917,7 +926,11 @@ function SummaryCard({
           </div>
         </div>
         <h3 className="text-5xl font-bold font-headline tracking-tight">
-          <CountUp end={value} duration={1.2} />
+          {typeof value === "number" ? (
+            <CountUp end={value} duration={1.2} />
+          ) : (
+            <span>{value}</span>
+          )}
           {suffix && <span className="text-3xl text-muted-foreground">{suffix}</span>}
         </h3>
       </CardContent>

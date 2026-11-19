@@ -145,6 +145,17 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                 {finding.promptInjectionSuspected && (
                   <Badge className="bg-yellow-500 text-black">⚠️ Verify manually</Badge>
                 )}
+                {triage?.status === "RESOLVED" && (
+                  <Badge
+                    variant="outline"
+                    className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-xs gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    {triage.resolvedCommitSha
+                      ? `Resolved by commit ${triage.resolvedCommitSha.slice(0, 7)}`
+                      : "Resolved"}
+                  </Badge>
+                )}
               </div>
               <p className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
                 <span>{repoName}</span>

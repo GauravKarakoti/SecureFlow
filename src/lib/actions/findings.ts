@@ -61,6 +61,8 @@ export interface FindingRow {
   triageStatus: FindingStatus;
   triageNote: string | null;
   triageReason: string | null;
+  resolvedAt?: Date | null;
+  resolvedCommitSha?: string | null;
   /** Age of the finding in whole days (from createdAt). */
   ageDays: number | null;
   /** True when the finding has exceeded the configurable target age for its severity. */
@@ -256,6 +258,8 @@ export async function getUserFindings(
       triageStatus,
       triageNote: triage?.note ?? null,
       triageReason: triage?.dismissalReason ?? null,
+      resolvedAt: triage?.resolvedAt ?? null,
+      resolvedCommitSha: triage?.resolvedCommitSha ?? null,
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
     };
