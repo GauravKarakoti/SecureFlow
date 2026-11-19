@@ -65,7 +65,7 @@ GROQ_MODEL="openai/gpt-oss-20b"
 3. Set **Repository Permissions**: Contents `Read`, Pull Requests `Read & Write`, Checks `Read & Write`, Code scanning alerts `Read & Write`.
    - Code scanning alerts (the `security_events` permission) is what lets SecureFlow publish findings to the repository's **Security → Code scanning** tab. Without it the scan still runs and still posts its check run; only the upload is skipped.
    - GitHub accepts these uploads for public repositories, and for private repositories only with GitHub Advanced Security enabled. A private repository without it answers `403`, which SecureFlow logs and moves past.
-4. Subscribe to events: `Pull request`, `Installation`, `Installation repositories`.
+4. Subscribe to events: `Pull request`, `Merge group`, `Installation`, `Installation repositories`.
 5. Click **Create GitHub App**, then:
    - Copy **App ID** → `GITHUB_APP_ID`
    - Scroll to **Private Keys → Generate a private key** → download `.pem` → paste its full contents (including headers) into `GITHUB_PRIVATE_KEY`, replacing newlines with `\n`:
@@ -80,6 +80,22 @@ GITHUB_WEBHOOK_SECRET="your_random_secret"
 GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 GITHUB_APP_URL="https://github.com/apps/your-app-name"
 ```
+
+### GitHub Merge Queue Support
+
+Repositories utilizing GitHub's **Merge Queue** feature run required checks on temporary merge groups (`gh-readonly-queue/...`).
+
+To enable SecureFlow checks on merge queues:
+1. **GitHub App Permissions & Events**:
+   - Permissions: `Checks: Read & Write`, `Contents: Read`, `Pull Requests: Read & Write`
+   - Event Subscriptions: Ensure **`Merge group`** (`merge_group`) is checked in GitHub App Settings -> Subscribe to events.
+2. **Required Status Check**:
+   - In repository **Settings -> Branches -> Branch protection rules** (or Rulesets), add **`SecureFlow Scan`** under **Require status checks to pass before merging** and include it in your Merge Queue required checks.
+3. **Execution Behavior**:
+   - When a PR enters the merge queue, GitHub dispatches `merge_group` with action `checks_requested`.
+   - SecureFlow compares the merged diff against the PR's diff. If the diff content is unchanged, it reuses the previous PR scan result and gate decision immediately without making redundant LLM calls.
+   - If changes from the base branch produce a new combined diff, SecureFlow performs a fast scan of the combined diff against the base branch policy gate.
+   - A completed check run named `SecureFlow Scan` is reported on the merge group head SHA so the queue never hangs.
 
 ### GitHub Enterprise Server (GHES)
 

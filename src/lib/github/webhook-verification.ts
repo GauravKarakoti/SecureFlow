@@ -16,6 +16,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 /** Events the worker knows how to process. Anything else is acknowledged and dropped. */
 export const TRACKED_EVENTS = [
   "pull_request",
+  "merge_group",
   "installation",
   "installation_repositories",
   "branch_protection_rule",

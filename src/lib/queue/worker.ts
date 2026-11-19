@@ -54,6 +54,11 @@ import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { activeSuppressionWhere } from "../triage/expiry";
+import {
+  extractPrNumberFromMergeGroup,
+  fetchMergeGroupFiles,
+  isMergeGroupDiffUnchanged,
+} from "@/lib/github/merge-group";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -76,7 +81,7 @@ const repoSchema = z
   })
   .passthrough();
 
-const payloadSchema = z
+export const payloadSchema = z
   .object({
     action: z.string().optional(),
     pull_request: z
@@ -97,6 +102,22 @@ const payloadSchema = z
           .object({
             login: z.string(),
             avatar_url: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+    merge_group: z
+      .object({
+        head_sha: z.string(),
+        head_ref: z.string().optional(),
+        base_sha: z.string().optional(),
+        base_ref: z.string().optional(),
+        head_commit: z
+          .object({
+            id: z.string().optional(),
+            message: z.string().optional(),
           })
           .passthrough()
           .optional(),
@@ -383,6 +404,7 @@ export const worker = new Worker<WebhookJobData>(
     if (
       ![
         "pull_request",
+        "merge_group",
         "installation",
         "installation_repositories",
         "branch_protection_rule",
@@ -701,7 +723,7 @@ export const worker = new Worker<WebhookJobData>(
             privateKey,
             ...(customOctokit ? { Octokit: customOctokit } : {}),
           });
-          const octokit = await appClient.getInstallationOctokit(installation.id);
+          const octokit = await appClient.getInstallationOctokit(Number(installation.id));
 
           // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
           // call left every file past the 30th unscanned while still reporting a
@@ -1213,6 +1235,287 @@ export const worker = new Worker<WebhookJobData>(
           await releaseLock(lockKey, lockToken);
         }
       }
+    } else if (event === "merge_group") {
+      if (action !== "checks_requested") {
+        log.info(`Action not tracked for merge_group: ${sanitize(action)}`);
+        return;
+      }
+
+      const mergeGroup = payload.merge_group;
+      if (!mergeGroup?.head_sha) {
+        log.warn("[Worker] Incomplete merge_group payload: missing head_sha");
+        return;
+      }
+
+      const headSha = mergeGroup.head_sha;
+      const baseSha = mergeGroup.base_sha;
+      const baseRef = mergeGroup.base_ref?.replace(/^refs\/heads\//, "") || "main";
+
+      const repoFullName = repository?.full_name || "unknown";
+      const repoOwner =
+        repository?.owner?.login ||
+        (repository?.full_name ? repository.full_name.split("/")[0] : "");
+      const repoName =
+        repository?.name ||
+        (repository?.full_name ? repository.full_name.split("/")[1] : "");
+
+      const lockKey = `merge-group-scan:${repoFullName}:${headSha}`;
+      const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
+      if (!lockToken) {
+        log.warn(
+          `[Worker] merge_group ${headSha} on ${repoFullName} is currently locked by a concurrent scan. Delaying job...`,
+        );
+        await job.moveToDelayed(Date.now() + PR_SCAN_LOCK_RETRY_DELAY_MS, job.token);
+        throw new DelayedError();
+      }
+
+      const lockHeartbeat = startLockHeartbeat(
+        lockKey,
+        lockToken,
+        PR_SCAN_LOCK_TTL_MS,
+        PR_SCAN_LOCK_RENEW_MS,
+      );
+
+      try {
+        let dbRepo = repository?.id
+          ? await prisma.repository.findUnique({
+              where: { githubId: BigInt(repository.id) },
+            })
+          : null;
+
+        if (!dbRepo && repository?.id) {
+          const senderId = payload.sender?.id?.toString();
+          const account = await prisma.account.findFirst({
+            where: { provider: "github", providerAccountId: senderId },
+          });
+
+          if (account) {
+            dbRepo = await prisma.repository.create({
+              data: {
+                githubId: BigInt(repository.id),
+                fullName: repository.full_name,
+                owner: repoOwner,
+                userId: account.userId,
+                isActive: true,
+              },
+            });
+            log.info(
+              `[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`,
+            );
+          }
+        }
+
+        if (dbRepo) {
+          dbRepoId = dbRepo.id;
+        }
+
+        const userId = dbRepo?.userId;
+
+        const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+        const appClient = new App({
+          appId,
+          privateKey,
+          ...(customOctokit ? { Octokit: customOctokit } : {}),
+        });
+        const octokit = await appClient.getInstallationOctokit(Number(installation.id));
+
+        const prNumber = extractPrNumberFromMergeGroup(mergeGroup);
+
+        // Base-branch gate configuration
+        const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+          owner: repoOwner,
+          repo: repoName,
+          prNumber: prNumber ?? 0,
+          baseRef,
+        });
+
+        // 1. Fetch merge group combined diff files
+        let mergeGroupFiles: { filename: string; patch: string }[] = [];
+        if (baseSha && headSha) {
+          try {
+            mergeGroupFiles = await fetchMergeGroupFiles(octokit as any, {
+              owner: repoOwner,
+              repo: repoName,
+              baseSha,
+              headSha,
+            });
+          } catch (err) {
+            log.warn(
+              `[Worker] Failed to compareCommits for merge_group ${baseSha}...${headSha}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        // 2. Check if merged diff content matches PR scan
+        let isDiffUnchanged = false;
+        let reusedScan: {
+          decision: string;
+          findingsCount: number;
+          findings: any[];
+        } | null = null;
+
+        if (prNumber) {
+          try {
+            const prFilesResult = await fetchPullRequestFiles(octokit as any, {
+              owner: repoOwner,
+              repo: repoName,
+              pullNumber: prNumber,
+            });
+            const prFiles = prFilesResult.files
+              .filter((f: any) => f.patch && f.status !== "removed")
+              .map((f: any) => ({ filename: f.filename, patch: f.patch }));
+
+            if (isMergeGroupDiffUnchanged(mergeGroupFiles, prFiles)) {
+              isDiffUnchanged = true;
+              if (dbRepo) {
+                const dbPr = await prisma.pullRequest.findFirst({
+                  where: { repositoryId: dbRepo.id, prNumber },
+                  include: {
+                    scans: {
+                      orderBy: { createdAt: "desc" },
+                      take: 1,
+                      include: { findings: true },
+                    },
+                  },
+                });
+
+                if (dbPr?.scans[0]) {
+                  dbPrId = dbPr.id;
+                  const lastScan = dbPr.scans[0];
+                  const mappedDecision =
+                    lastScan.policyDecision === "PASS"
+                      ? "PASS"
+                      : lastScan.policyDecision === "BLOCK"
+                        ? "BLOCKED"
+                        : "REVIEW REQUIRED";
+
+                  reusedScan = {
+                    decision: mappedDecision,
+                    findingsCount: lastScan.findings.length,
+                    findings: lastScan.findings,
+                  };
+                }
+              }
+            }
+          } catch (err) {
+            log.warn(
+              `[Worker] Failed checking PR #${prNumber} files for diff comparison: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        let decision: string;
+        let findingsCount: number;
+        let findingsToReport: any[] = [];
+
+        if (isDiffUnchanged && reusedScan) {
+          log.info(
+            `[Worker] Merge group diff unchanged for PR #${prNumber}; reusing PR scan decision: ${reusedScan.decision}`,
+          );
+          decision = reusedScan.decision;
+          findingsCount = reusedScan.findingsCount;
+          findingsToReport = reusedScan.findings;
+        } else {
+          log.info(
+            `[Worker] Scanning combined diff for merge group ${headSha} (${mergeGroupFiles.length} changed files)`,
+          );
+
+          let activePolicies: any[] = [];
+          if (userId) {
+            activePolicies = await getActivePoliciesForUser(userId);
+          }
+
+          const scanJobData: ScanJobData = {
+            scanJobId: `merge-group-${deliveryId || Date.now()}`,
+            repositoryId: dbRepo?.id ?? "",
+            installationId: installation.id,
+            repositoryFullName: repository.full_name,
+            prNumber: prNumber ?? 0,
+            headSha,
+            fileChanges: mergeGroupFiles,
+            activePolicies,
+            baseRef,
+            customIgnores: [],
+            customPlaceholders: [],
+            userId,
+            correlationId,
+            deliveryId: deliveryId ?? null,
+          };
+
+          const scanResult = await processScanJob(scanJobData, undefined, {
+            report: false,
+            persist: false,
+            enrich: false,
+          });
+
+          const suppressedFingerprints = new Set<string>();
+          if (dbRepo) {
+            const dismissed = await prisma.findingTriage.findMany({
+              where: {
+                repositoryId: dbRepo.id,
+                ...activeSuppressionWhere(new Date()),
+              },
+              select: { fingerprint: true },
+            });
+            dismissed.forEach((t: { fingerprint: string }) =>
+              suppressedFingerprints.add(t.fingerprint),
+            );
+          }
+
+          const activeFindings = scanResult.findings.filter(
+            (f: any) => !suppressedFingerprints.has(f.fingerprint),
+          );
+
+          decision = iq.evaluateFindings(activeFindings, gateConfig);
+          findingsCount = activeFindings.length;
+          findingsToReport = activeFindings;
+        }
+
+        const gateSummary = formatGateSummaryLine(gateConfig);
+        const notice = [
+          isDiffUnchanged && prNumber
+            ? `Reused scan result from PR #${prNumber} (merge diff unchanged).`
+            : "Evaluated combined merge group diff.",
+          gateSummary,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        await postScanCheckRun(octokit as any, {
+          owner: repoOwner,
+          repo: repoName,
+          headSha,
+          decision,
+          findingsCount,
+          fileCount: mergeGroupFiles.length,
+          notice,
+          findings: findingsToReport,
+        });
+
+        if (userId) {
+          await prisma.auditLog.create({
+            data: sanitizeAuditLogInput({
+              userId,
+              action: isDiffUnchanged
+                ? "Merge Group Evaluation (reused from PR)"
+                : "Merge Group Evaluation",
+              resource: `${repository.full_name}#${headSha.slice(0, 7)}`,
+              decision,
+              metadata: {
+                correlationId,
+                deliveryId,
+                head_sha: headSha,
+                base_sha: baseSha,
+                prNumber,
+                reusedFromPr: isDiffUnchanged,
+              },
+            }),
+          });
+        }
+      } finally {
+        lockHeartbeat.stop();
+        await releaseLock(lockKey, lockToken);
+      }
     }
 
     // 4. LOCK: Mark the webhook as processed now that everything succeeded
@@ -1248,18 +1551,39 @@ export async function postScanFailureCheck(
     : logger;
 
   try {
-    if (!data || data.event !== "pull_request") return;
+    if (!data || (data.event !== "pull_request" && data.event !== "merge_group")) return;
 
     const payload = data.payload as any;
 
-    // Only deliveries that actually trigger a scan; "closed" etc. never posted a check.
-    const actionKind = classifyPullRequestAction(payload?.action);
-    if (actionKind === "ignore" || actionKind === "metadata") return;
+    let installationId: number | string | undefined = payload?.installation?.id;
+    let ownerLogin: string | undefined;
+    let repoName: string | undefined;
+    let headSha: string | undefined;
 
-    const installationId = payload?.installation?.id;
-    if (!installationId) return;
+    if (data.event === "pull_request") {
+      const actionKind = classifyPullRequestAction(payload?.action);
+      if (actionKind === "ignore" || actionKind === "metadata") return;
+      if (!installationId) return;
 
-    const { ownerLogin, repoName, headSha } = assertPullRequestContext(payload);
+      const ctx = assertPullRequestContext(payload);
+      ownerLogin = ctx.ownerLogin;
+      repoName = ctx.repoName;
+      headSha = ctx.headSha;
+    } else if (data.event === "merge_group") {
+      if (payload?.action !== "checks_requested") return;
+      if (!installationId) return;
+      headSha = payload?.merge_group?.head_sha;
+      if (!headSha) return;
+      const repo = payload?.repository;
+      ownerLogin =
+        repo?.owner?.login ||
+        (typeof repo?.full_name === "string" ? repo.full_name.split("/")[0] : undefined);
+      repoName =
+        repo?.name ||
+        (typeof repo?.full_name === "string" ? repo.full_name.split("/")[1] : undefined);
+    }
+
+    if (!installationId || !ownerLogin || !repoName || !headSha) return;
 
     const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
     const appClient = new App({
@@ -1267,7 +1591,7 @@ export async function postScanFailureCheck(
       privateKey,
       ...(customOctokit ? { Octokit: customOctokit } : {}),
     });
-    const octokit = await appClient.getInstallationOctokit(installationId);
+    const octokit = await appClient.getInstallationOctokit(Number(installationId));
 
     await postScanErrorCheckRun(octokit as any, {
       owner: ownerLogin,

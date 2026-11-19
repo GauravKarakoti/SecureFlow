@@ -231,6 +231,14 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     );
   }
 
+  if (event === "merge_group" && parsed.payload.action !== "checks_requested") {
+    log.info(`Action not tracked for merge_group: ${parsed.payload.action}`);
+    return NextResponse.json(
+      { message: "Action not tracked", deliveryId, correlationId },
+      { status: 200 },
+    );
+  }
+
   // 8. Delegate to the queue.
   //
   // The job ID is derived from the delivery ID so BullMQ collapses a replayed
