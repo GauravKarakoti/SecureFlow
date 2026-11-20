@@ -4,23 +4,19 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { getClientIp } from "@/lib/client-ip";
 
-/**
- * Valid permission scopes for Personal API Tokens (#1867).
- */
-export const API_TOKEN_SCOPES = [
-  "findings:read",
-  "findings:write",
-  "scans:read",
-  "scans:write",
-  "policies:read",
-  "policies:write",
-  "audit:read",
-] as const;
+import {
+  API_TOKEN_SCOPES,
+  type ApiTokenScope,
+  TOKEN_PREFIX,
+  TOKEN_PREFIX_DISPLAY_LENGTH,
+} from "./api-token-types";
 
-export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number];
-
-export const TOKEN_PREFIX = "sft_";
-export const TOKEN_PREFIX_DISPLAY_LENGTH = 12;
+export {
+  API_TOKEN_SCOPES,
+  type ApiTokenScope,
+  TOKEN_PREFIX,
+  TOKEN_PREFIX_DISPLAY_LENGTH,
+};
 
 /**
  * Validate whether a string is a recognized ApiTokenScope.

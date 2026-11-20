@@ -16,7 +16,7 @@ import {
   type OutboundWebhookView,
   type OutboundWebhookDeliveryView,
 } from "@/lib/actions/settings";
-import { OUTBOUND_EVENT_TYPES, type OutboundEventType } from "@/lib/webhooks/outbound-dispatcher";
+import { OUTBOUND_EVENT_TYPES, type OutboundEventType } from "@/lib/webhooks/outbound-types";
 import {
   Webhook,
   Plus,
