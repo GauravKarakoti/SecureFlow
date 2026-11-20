@@ -332,6 +332,15 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pod termination grace period in seconds to allow in-flight scans to finish before SIGKILL (#1894)."
+        },
+        "lifecycle": {
+          "type": "object",
+          "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
       "description": "Next.js web application deployment.",
@@ -784,6 +793,15 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pod termination grace period in seconds to allow in-flight scans to finish before SIGKILL (#1894)."
+        },
+        "lifecycle": {
+          "type": "object",
+          "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
       "description": "Background scanning worker deployment.",

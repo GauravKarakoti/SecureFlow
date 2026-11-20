@@ -249,6 +249,17 @@ worker:
     minAvailable: 1
     # maxUnavailable: 1
 
+  # Graceful shutdown & lifecycle settings (#1894)
+  # terminationGracePeriodSeconds gives in-flight scans time to complete before Kubernetes sends SIGKILL.
+  # The worker defaults to a 25s internal grace period (WORKER_SHUTDOWN_TIMEOUT_MS), so 35s provides a safe buffer.
+  terminationGracePeriodSeconds: 35
+
+  # Container lifecycle hooks: preStop sleep allows endpoints to drain from kube-proxy before SIGTERM
+  lifecycle:
+    preStop:
+      exec:
+        command: ["/bin/sh", "-c", "sleep 2"]
+
   livenessProbe:
     httpGet:
       path: /health

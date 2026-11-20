@@ -271,6 +271,21 @@ partial="$("$helm_bin" template check "$chart_dir" \
   --set worker.resources.limits.cpu=3)"
 grep -Fq 'ephemeral-storage:' <<< "$partial"
 
+# Worker graceful shutdown and lifecycle hooks (#1894)
+worker_manifest="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only)"
+grep -Fq 'terminationGracePeriodSeconds: 35' <<< "$worker_manifest"
+grep -Fq 'preStop:' <<< "$worker_manifest"
+grep -Fq 'sleep 2' <<< "$worker_manifest"
+
+# Custom terminationGracePeriodSeconds override
+worker_override="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set worker.terminationGracePeriodSeconds=60)"
+grep -Fq 'terminationGracePeriodSeconds: 60' <<< "$worker_override"
+
 # values.schema.json must reject missing or malformed resource blocks.
 expect_schema_rejection() {
   if "$helm_bin" template check "$chart_dir" \

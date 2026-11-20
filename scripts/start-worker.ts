@@ -2,7 +2,7 @@ import { worker } from "../src/lib/queue/worker";
 import { outboundWorker } from "../src/lib/queue/outboundWorker";
 import { sbomWorker } from "../src/lib/queue/sbomWorker";
 import { scanWorkerPool } from "../src/lib/queue/workerPool";
-import { setupWorkerSignalHandlers } from "../src/lib/queue/shutdown";
+import { setupWorkerSignalHandlers, resolveShutdownTimeoutMs } from "../src/lib/queue/shutdown";
 import {
   describeWorkerStartup,
   planWorkerStartup,
@@ -25,6 +25,7 @@ export interface StartWorkerOptions {
   plan?: WorkerStartupPlan;
   autoListen?: boolean;
   setupSignals?: boolean;
+  shutdownTimeoutMs?: number;
 }
 
 export interface StartWorkerResult {
@@ -100,7 +101,7 @@ export function startWorkerServer(options: StartWorkerOptions = {}): StartWorker
     setupWorkerSignalHandlers({
       workers: [worker, outboundWorker, sbomWorker],
       drain: drain as Array<() => Promise<void>>,
-      timeoutMs: 10000,
+      timeoutMs: options.shutdownTimeoutMs ?? resolveShutdownTimeoutMs(),
       onShutdownComplete: () => {
         if (server) {
           server.close();
