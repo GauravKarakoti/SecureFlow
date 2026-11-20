@@ -17,12 +17,7 @@ export interface OpenFindingCounts {
   info: number;
 }
 
-export type HealthScoreTier =
-  | "EXCELLENT"
-  | "GOOD"
-  | "NEEDS_ATTENTION"
-  | "AT_RISK"
-  | "UNRANKED";
+export type HealthScoreTier = "EXCELLENT" | "GOOD" | "NEEDS_ATTENTION" | "AT_RISK" | "UNRANKED";
 
 export interface HealthScoreInput {
   openFindings: OpenFindingCounts;

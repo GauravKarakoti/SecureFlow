@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Repository Health Overview | SecureFlow",
-  description: "Comparative security health benchmarks, open finding distributions, and 8-week trends.",
+  description:
+    "Comparative security health benchmarks, open finding distributions, and 8-week trends.",
 };
 
 export default async function RepositoriesPage() {

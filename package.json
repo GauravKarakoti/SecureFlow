@@ -11,7 +11,7 @@
     "dev": "concurrently \"next dev --turbopack -p 9002\" \"tsx scripts/prewarm.ts\"",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
-    "build": "next build",
+    "build": "npm run analyze",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

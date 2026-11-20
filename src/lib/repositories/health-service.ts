@@ -18,15 +18,8 @@ import {
   calculateHealthScore,
   type OpenFindingCounts,
 } from "./health-score";
-import {
-  readCachedRepoHealth,
-  writeCachedRepoHealth,
-} from "./health-cache";
-import type {
-  RepositoryHealthItem,
-  RepositoriesOverviewData,
-  WeeklyTrendPoint,
-} from "./types";
+import { readCachedRepoHealth, writeCachedRepoHealth } from "./health-cache";
+import type { RepositoryHealthItem, RepositoriesOverviewData, WeeklyTrendPoint } from "./types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -405,10 +398,7 @@ export async function fetchRepositoryHealthData(
     (sum, r) => sum + r.openFindings.critical,
     0,
   );
-  const totalOpenHigh = repositorySummaries.reduce(
-    (sum, r) => sum + r.openFindings.high,
-    0,
-  );
+  const totalOpenHigh = repositorySummaries.reduce((sum, r) => sum + r.openFindings.high, 0);
   const totalBlockedPrs30Days = repositorySummaries.reduce(
     (sum, r) => sum + r.blockedPrsLast30Days,
     0,
