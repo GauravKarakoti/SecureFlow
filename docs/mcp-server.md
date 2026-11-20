@@ -54,6 +54,15 @@ heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 | `minTokenLength` | `16`       | Integer from 8 to 256                                                                                                    |
 | `format`         | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
 | `intentToken`    | omitted    | Optional string; existing intent verification applies                                                                    |
+| `threatIntelSource` | omitted | Optional string (`live`, `cache`, `stale-fallback`); indicates threat intel resolution state (#1795)                     |
+
+#### Threat Intel Stale-While-Revalidate Fallback (#1795)
+
+When scanning files or diffs in air-gapped, offline, or network-constrained environments, or when remote threat feed queries return HTTP 429 or 5xx:
+
+- `cli/src/threat-intel-cache.ts` provides Stale-While-Revalidate (SWR) cache support with automatic fallback to stale/expired cached indicators.
+- In-memory and Redis caches verify SHA-256 integrity checksums before loading indicators into the scan pipeline.
+- The scan output schema includes `threatIntelSource: "live" | "cache" | "stale-fallback"`, guaranteeing that tool invocations remain non-blocking even during remote feed outages.
 
 #### Path Sandboxing & Git Incremental Scanning (#1752)
 

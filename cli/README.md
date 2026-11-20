@@ -307,8 +307,8 @@ Add this configuration to your `claude_desktop_config.json` or Cursor MCP settin
 
 | Tool                        | Parameters                              | Description                                                                                 |
 | :-------------------------- | :-------------------------------------- | :------------------------------------------------------------------------------------------ |
-| `query_threat_intelligence` | `query: string`, `intentToken?: string` | Search CVE and threat intelligence databases for vulnerabilities and remediation guidance.  |
-| `lookup_cve`                | `cveId: string`, `intentToken?: string` | Look up detailed advisories, severity scores, and fix patterns for a CVE or CWE identifier. |
+| `query_threat_intelligence` | `query: string`, `intentToken?: string` | Search CVE and threat intelligence databases for vulnerabilities and remediation guidance. Returns `threatIntelSource` ("live" \| "cache" \| "stale-fallback"). |
+| `lookup_cve`                | `cveId: string`, `intentToken?: string` | Look up detailed advisories, severity scores, and fix patterns for a CVE or CWE identifier with offline/stale SWR fallback. |
 
 _All MCP tool calls are gated behind ArmorIQ cryptographic intent verification to enforce zero-trust boundary compliance and mitigate Prompt Injection (CWE-94)._
 

@@ -70,12 +70,15 @@ export function verifyPayloadChecksum(data: unknown, expectedSha256: string): bo
   return actualHash.toLowerCase() === expectedSha256.trim().toLowerCase();
 }
 
-function getMemoryEnvelope(key: string): string | null {
+function getMemoryEnvelope(key: string, options?: GetThreatIntelCacheOptions): string | null {
   const entry = memoryCache.get(key);
 
   if (!entry) return null;
 
   if (entry.staleUntil <= Date.now()) {
+    if (options?.allowExpiredFallback) {
+      return entry.rawEnvelope;
+    }
     memoryCache.delete(key);
     return null;
   }
@@ -83,10 +86,17 @@ function getMemoryEnvelope(key: string): string | null {
   return entry.rawEnvelope;
 }
 
-function setMemoryEnvelope(key: string, rawEnvelope: string, staleUntil: number): void {
-  for (const [existingKey, entry] of memoryCache) {
-    if (entry.staleUntil <= Date.now()) {
-      memoryCache.delete(existingKey);
+function setMemoryEnvelope(
+  key: string,
+  rawEnvelope: string,
+  staleUntil: number,
+  options?: GetThreatIntelCacheOptions,
+): void {
+  if (!options?.allowExpiredFallback) {
+    for (const [existingKey, entry] of memoryCache) {
+      if (entry.staleUntil <= Date.now()) {
+        memoryCache.delete(existingKey);
+      }
     }
   }
 
@@ -115,17 +125,23 @@ export interface SwrCacheResult<T> {
   cachedAt: number;
 }
 
+export interface GetThreatIntelCacheOptions {
+  allowExpiredFallback?: boolean;
+}
+
 /**
  * Reads cached entry with Stale-While-Revalidate (SWR) strategy and SHA-256 checksum verification.
  * Automatically rejects tampered or corrupted cached payloads.
+ * Supports serving expired/stale entries when live feed requests time out or fail.
  */
 export async function getThreatIntelCacheWithSwr<T>(
   key: string,
+  options?: GetThreatIntelCacheOptions,
 ): Promise<SwrCacheResult<T> | null> {
   if (!isValidKey(key)) return null;
 
   const redisKey = `${CACHE_PREFIX}${key}`;
-  let raw: string | null = getMemoryEnvelope(redisKey);
+  let raw: string | null = getMemoryEnvelope(redisKey, options);
 
   if (raw === null) {
     try {
@@ -177,6 +193,17 @@ export async function getThreatIntelCacheWithSwr<T>(
     const now = Date.now();
     const isExpired = envelope.staleUntil <= now;
     if (isExpired) {
+      if (options?.allowExpiredFallback) {
+        console.warn(
+          `⚠️  [SecureFlow Threat Intel] Serving expired fallback cache entry for "${key}" due to upstream feed outage.`,
+        );
+        return {
+          value: envelope.data,
+          isStale: true,
+          sha256: envelope.sha256,
+          cachedAt: envelope.cachedAt,
+        };
+      }
       memoryCache.delete(redisKey);
       return null;
     }
