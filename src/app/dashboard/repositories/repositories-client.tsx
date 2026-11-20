@@ -32,12 +32,7 @@ interface RepositoriesClientProps {
 }
 
 type SortField =
-  | "score-desc"
-  | "score-asc"
-  | "name-asc"
-  | "name-desc"
-  | "findings-desc"
-  | "blocked-desc";
+  "score-desc" | "score-asc" | "name-asc" | "name-desc" | "findings-desc" | "blocked-desc";
 
 type TierFilter = "ALL" | "EXCELLENT" | "GOOD" | "NEEDS_ATTENTION" | "AT_RISK" | "UNRANKED";
 
@@ -79,13 +74,15 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
       switch (sortField) {
         case "score-desc": {
           // Put null scores at the end
-          if (a.healthScore === null && b.healthScore === null) return a.fullName.localeCompare(b.fullName);
+          if (a.healthScore === null && b.healthScore === null)
+            return a.fullName.localeCompare(b.fullName);
           if (a.healthScore === null) return 1;
           if (b.healthScore === null) return -1;
           return b.healthScore - a.healthScore;
         }
         case "score-asc": {
-          if (a.healthScore === null && b.healthScore === null) return a.fullName.localeCompare(b.fullName);
+          if (a.healthScore === null && b.healthScore === null)
+            return a.fullName.localeCompare(b.fullName);
           if (a.healthScore === null) return 1;
           if (b.healthScore === null) return -1;
           return a.healthScore - b.healthScore;
@@ -191,7 +188,11 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
         >
           <Info className="w-3.5 h-3.5 text-primary" />
           {showFormulaDocs ? "Hide Formula" : "Scoring Formula"}
-          {showFormulaDocs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          {showFormulaDocs ? (
+            <ChevronUp className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5" />
+          )}
         </Button>
       </div>
 
@@ -323,12 +324,24 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
               onChange={(e) => handleTierChange(e.target.value as TierFilter)}
               className="bg-transparent text-foreground focus:outline-none cursor-pointer"
             >
-              <option value="ALL" className="bg-zinc-900">All Tiers</option>
-              <option value="EXCELLENT" className="bg-zinc-900">Excellent (90–100)</option>
-              <option value="GOOD" className="bg-zinc-900">Good (75–89)</option>
-              <option value="NEEDS_ATTENTION" className="bg-zinc-900">Needs Attention (50–74)</option>
-              <option value="AT_RISK" className="bg-zinc-900">At Risk (&lt; 50)</option>
-              <option value="UNRANKED" className="bg-zinc-900">Unranked (No Scans)</option>
+              <option value="ALL" className="bg-zinc-900">
+                All Tiers
+              </option>
+              <option value="EXCELLENT" className="bg-zinc-900">
+                Excellent (90–100)
+              </option>
+              <option value="GOOD" className="bg-zinc-900">
+                Good (75–89)
+              </option>
+              <option value="NEEDS_ATTENTION" className="bg-zinc-900">
+                Needs Attention (50–74)
+              </option>
+              <option value="AT_RISK" className="bg-zinc-900">
+                At Risk (&lt; 50)
+              </option>
+              <option value="UNRANKED" className="bg-zinc-900">
+                Unranked (No Scans)
+              </option>
             </select>
           </div>
 
@@ -341,12 +354,24 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
               onChange={(e) => handleSortChange(e.target.value as SortField)}
               className="bg-transparent text-foreground focus:outline-none cursor-pointer"
             >
-              <option value="score-desc" className="bg-zinc-900">Health Score: High to Low</option>
-              <option value="score-asc" className="bg-zinc-900">Health Score: Low to High</option>
-              <option value="name-asc" className="bg-zinc-900">Name: A to Z</option>
-              <option value="name-desc" className="bg-zinc-900">Name: Z to A</option>
-              <option value="findings-desc" className="bg-zinc-900">Open Findings: Most to Least</option>
-              <option value="blocked-desc" className="bg-zinc-900">Blocked PRs: Most to Least</option>
+              <option value="score-desc" className="bg-zinc-900">
+                Health Score: High to Low
+              </option>
+              <option value="score-asc" className="bg-zinc-900">
+                Health Score: Low to High
+              </option>
+              <option value="name-asc" className="bg-zinc-900">
+                Name: A to Z
+              </option>
+              <option value="name-desc" className="bg-zinc-900">
+                Name: Z to A
+              </option>
+              <option value="findings-desc" className="bg-zinc-900">
+                Open Findings: Most to Least
+              </option>
+              <option value="blocked-desc" className="bg-zinc-900">
+                Blocked PRs: Most to Least
+              </option>
             </select>
           </div>
         </div>
@@ -360,7 +385,8 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
             No Connected Repositories
           </h3>
           <p className="text-xs font-mono text-muted-foreground mt-1 max-w-sm mx-auto">
-            Install the SecureFlow GitHub App or synchronize your repositories to view security health rankings.
+            Install the SecureFlow GitHub App or synchronize your repositories to view security
+            health rankings.
           </p>
           <div className="mt-5">
             <Link href="/dashboard/settings">
@@ -405,10 +431,7 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
               </thead>
               <tbody className="divide-y divide-white/5 font-mono text-xs">
                 {paginatedRepos.map((repo) => (
-                  <tr
-                    key={repo.id}
-                    className="hover:bg-white/[0.02] transition-colors group"
-                  >
+                  <tr key={repo.id} className="hover:bg-white/[0.02] transition-colors group">
                     {/* Repository Name & Link */}
                     <td className="py-3.5 px-4 font-medium">
                       <Link
@@ -427,9 +450,7 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
                     </td>
 
                     {/* Health Score */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {getTierBadge(repo)}
-                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">{getTierBadge(repo)}</td>
 
                     {/* 8-Week Sparkline Trend */}
                     <td className="py-3.5 px-4 whitespace-nowrap">

@@ -83,7 +83,9 @@ export function TrendSparkline({
 
   // Construct SVG path string
   const pathD = coords.reduce((acc, pt, idx) => {
-    return idx === 0 ? `M ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}` : `${acc} L ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
+    return idx === 0
+      ? `M ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`
+      : `${acc} L ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
   }, "");
 
   // Area under curve path

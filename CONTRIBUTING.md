@@ -325,25 +325,25 @@ npm run worker
 
 We prioritize deterministic, fast, and comprehensive testing. Always ensure relevant suites pass before opening a PR:
 
-| Command                  | Scope                | Description                                                        |
-| :----------------------- | :------------------- | :----------------------------------------------------------------- |
-| `npm test`               | Unit & Integration   | Runs all root and workspace unit tests via Vitest                  |
-| `npm run cli:test`       | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests     |
-| `npm run typecheck`      | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`              |
-| `npm run cli:typecheck`  | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                     |
-| `npm run lint`           | ESLint               | Lints TypeScript and React source code                             |
-| `npm run format:check`   | Prettier             | Checks code formatting adheres to repository standards             |
-| `npm run format`         | Prettier             | Automatically formats all files with Prettier                      |
-| `npm run test:a11y`          | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit         |
-| `npm run test:e2e`           | End-to-End           | Runs Playwright browser end-to-end tests                           |
-| `npm run test:visual`        | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages     |
-| `npm run test:visual:update` | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`        |
-| `npm run db:check-drift`     | Prisma               | Verifies that Prisma schema and migrations are in sync             |
-| `npm run lint:openapi`       | OpenAPI              | Validates `openapi.yaml` with Spectral linter                      |
-| `npm run verify:openapi`     | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml` |
-| `npm run analyze`              | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server |
-| `npm run check:bundle-budget`  | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json`|
-| `npm run lhci:audit`           | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`          |
+| Command                       | Scope                | Description                                                         |
+| :---------------------------- | :------------------- | :------------------------------------------------------------------ |
+| `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                   |
+| `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests      |
+| `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`               |
+| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                      |
+| `npm run lint`                | ESLint               | Lints TypeScript and React source code                              |
+| `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards              |
+| `npm run format`              | Prettier             | Automatically formats all files with Prettier                       |
+| `npm run test:a11y`           | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit          |
+| `npm run test:e2e`            | End-to-End           | Runs Playwright browser end-to-end tests                            |
+| `npm run test:visual`         | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages      |
+| `npm run test:visual:update`  | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`         |
+| `npm run db:check-drift`      | Prisma               | Verifies that Prisma schema and migrations are in sync              |
+| `npm run lint:openapi`        | OpenAPI              | Validates `openapi.yaml` with Spectral linter                       |
+| `npm run verify:openapi`      | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml`  |
+| `npm run analyze`             | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server  |
+| `npm run check:bundle-budget` | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json` |
+| `npm run lhci:audit`          | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`           |
 
 ### Running Specific Tests
 
@@ -363,7 +363,9 @@ npx vitest run src/lib/armor/prompt-regression.test.ts
 To prevent silent performance regressions where new dependencies make the dashboard heavier and slower, SecureFlow enforces automated bundle size budgets and Lighthouse score gates.
 
 #### 1. Bundle Size Budgets (`bundle-budget.json`)
+
 Per-route JavaScript budgets are configured in `bundle-budget.json`. During CI (`npm run check:bundle-budget`), per-route JavaScript sizes are extracted from Next.js build manifests and checked against:
+
 - **Absolute Limit (`budgetKb`)**: Maximum allowed JavaScript size for that route.
 - **Growth Threshold (`maxRouteGrowthPercent` & `maxRouteGrowthKb`)**: Maximum allowed increase relative to the recorded baseline.
 
@@ -376,6 +378,7 @@ npm run analyze
 ```
 
 #### 2. Lighthouse CI Quality Gate (`lighthouse-budget.json`)
+
 Critical user journeys (the authentication sign-in page `/api/auth/signin` and Mission Control `/dashboard`) are continuously audited for Performance, Accessibility, and Best Practices. Results are automatically published to the GitHub Actions Job Summary (`$GITHUB_STEP_SUMMARY`).
 
 ```bash
@@ -384,6 +387,7 @@ npm run lhci:audit
 ```
 
 #### 3. How to Adjust Budgets with Justification
+
 Budgets exist to maintain blazing-fast page loads. If an intentional, impactful feature requires adjusting a route's budget in `bundle-budget.json` or `lighthouse-budget.json`, you **must** include a written justification in your pull request description:
 
 1. **New Dependency / Component**: Name the newly introduced dependency or component and its bundle impact.
@@ -396,7 +400,9 @@ Budgets exist to maintain blazing-fast page loads. If an intentional, impactful 
 SecureFlow uses Playwright visual comparison tests (`toHaveScreenshot`) to catch accidental layout breaks, overlapping tables, missing badges, or broken dark/light themes before merging.
 
 #### Guaranteed Determinism
+
 To avoid test flakiness and pixel jitter, visual tests execute with:
+
 - **Standardized Viewport**: Fixed 1280×900 desktop viewport.
 - **Fixed System Clock**: Frozen to a deterministic UTC timestamp (`2026-01-15T12:00:00.000Z`).
 - **Disabled Animations**: Global CSS overrides disabling CSS transitions, animations, and blinking carets.
@@ -405,21 +411,27 @@ To avoid test flakiness and pixel jitter, visual tests execute with:
 - **Strict Diff Threshold**: Snapshot assertions enforce `maxDiffPixelRatio: 0.02`.
 
 #### Running Tests Locally
+
 ```bash
 # Run visual regression suite against local server
 npm run test:visual
 ```
 
 #### Reviewing Diffs & Updating Baselines
+
 When intentional UI changes or design updates alter dashboard layouts, baseline snapshots must be reviewed and regenerated:
+
 ```bash
 # Update baseline images in e2e/__screenshots__/
 npm run test:visual:update
 ```
+
 Always inspect the updated images in `git diff` before committing to ensure only intended visual changes are included.
 
 #### Opt-In CI Workflow & Diff Artifacts
+
 Visual regression tests run in CI as an opt-in workflow (`.github/workflows/visual-regression.yml`):
+
 - **Triggers**: Manually via `workflow_dispatch`, or automatically on pull requests labeled `visual-regression` or titled with `[visual]`.
 - **Failure Artifacts**: When differences exceed `maxDiffPixelRatio: 0.02`, the workflow automatically uploads diff images and Playwright reports as workflow artifacts (`visual-regression-diffs`) for quick triage.
 

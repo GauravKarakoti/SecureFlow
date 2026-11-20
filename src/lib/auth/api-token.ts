@@ -11,12 +11,7 @@ import {
   TOKEN_PREFIX_DISPLAY_LENGTH,
 } from "./api-token-types";
 
-export {
-  API_TOKEN_SCOPES,
-  type ApiTokenScope,
-  TOKEN_PREFIX,
-  TOKEN_PREFIX_DISPLAY_LENGTH,
-};
+export { API_TOKEN_SCOPES, type ApiTokenScope, TOKEN_PREFIX, TOKEN_PREFIX_DISPLAY_LENGTH };
 
 /**
  * Validate whether a string is a recognized ApiTokenScope.

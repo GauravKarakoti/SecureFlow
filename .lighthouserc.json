@@ -1,10 +1,7 @@
 {
   "ci": {
     "collect": {
-      "url": [
-        "http://localhost:9002/api/auth/signin",
-        "http://localhost:9002/dashboard"
-      ],
+      "url": ["http://localhost:9002/api/auth/signin", "http://localhost:9002/dashboard"],
       "numberOfRuns": 1,
       "settings": {
         "preset": "desktop"

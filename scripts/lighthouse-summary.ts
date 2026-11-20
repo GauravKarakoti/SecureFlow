@@ -42,7 +42,7 @@ export interface LighthouseEvaluationSummary {
  * Load Lighthouse budgets configuration.
  */
 export function loadLighthouseBudget(
-  configPath: string = path.resolve(process.cwd(), "lighthouse-budget.json")
+  configPath: string = path.resolve(process.cwd(), "lighthouse-budget.json"),
 ): LighthouseBudgetConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(`Lighthouse budget file not found at: ${configPath}`);
@@ -56,7 +56,7 @@ export function loadLighthouseBudget(
  * or generates fallback audit results from server response metrics.
  */
 export function collectLighthouseScores(
-  manifestDir: string = path.resolve(process.cwd(), ".lighthouseci")
+  manifestDir: string = path.resolve(process.cwd(), ".lighthouseci"),
 ): Record<string, LighthouseCategoryScores> {
   const manifestPath = path.join(manifestDir, "manifest.json");
   const scoresByPath: Record<string, LighthouseCategoryScores> = {};
@@ -72,7 +72,7 @@ export function collectLighthouseScores(
             scoresByPath[pathname] = {
               performance: entry.summary.performance ?? 0.85,
               accessibility: entry.summary.accessibility ?? 0.95,
-              bestPractices: entry.summary["best-practices"] ?? 0.90,
+              bestPractices: entry.summary["best-practices"] ?? 0.9,
               seo: entry.summary.seo,
             };
           }
@@ -91,7 +91,7 @@ export function collectLighthouseScores(
  */
 export function evaluateLighthouseScores(
   collectedScores: Record<string, LighthouseCategoryScores>,
-  budgetConfig: LighthouseBudgetConfig
+  budgetConfig: LighthouseBudgetConfig,
 ): LighthouseEvaluationSummary {
   const results: LighthousePageResult[] = [];
 
@@ -108,17 +108,17 @@ export function evaluateLighthouseScores(
 
     if (scores.performance < min.performance) {
       failures.push(
-        `Performance score ${(scores.performance * 100).toFixed(0)} < budget ${(min.performance * 100).toFixed(0)}`
+        `Performance score ${(scores.performance * 100).toFixed(0)} < budget ${(min.performance * 100).toFixed(0)}`,
       );
     }
     if (scores.accessibility < min.accessibility) {
       failures.push(
-        `Accessibility score ${(scores.accessibility * 100).toFixed(0)} < budget ${(min.accessibility * 100).toFixed(0)}`
+        `Accessibility score ${(scores.accessibility * 100).toFixed(0)} < budget ${(min.accessibility * 100).toFixed(0)}`,
       );
     }
     if (scores.bestPractices < min.bestPractices) {
       failures.push(
-        `Best Practices score ${(scores.bestPractices * 100).toFixed(0)} < budget ${(min.bestPractices * 100).toFixed(0)}`
+        `Best Practices score ${(scores.bestPractices * 100).toFixed(0)} < budget ${(min.bestPractices * 100).toFixed(0)}`,
       );
     }
 
@@ -154,24 +154,20 @@ function formatScoreBadge(score: number): string {
 /**
  * Format summary into a GitHub Markdown table.
  */
-export function formatLighthouseMarkdownSummary(
-  summary: LighthouseEvaluationSummary
-): string {
+export function formatLighthouseMarkdownSummary(summary: LighthouseEvaluationSummary): string {
   const lines: string[] = [];
   lines.push("## 📊 Lighthouse CI Performance & Accessibility Results");
   lines.push("");
   lines.push(
     summary.passed
       ? "✅ **All audited surfaces met or exceeded performance and accessibility budgets.**"
-      : `⚠️ **${summary.failedPages} of ${summary.totalPages} pages violated performance budgets.**`
+      : `⚠️ **${summary.failedPages} of ${summary.totalPages} pages violated performance budgets.**`,
   );
   lines.push("");
   lines.push(
-    "| Page / Surface | Performance (Min) | Accessibility (Min) | Best Practices (Min) | Status |"
+    "| Page / Surface | Performance (Min) | Accessibility (Min) | Best Practices (Min) | Status |",
   );
-  lines.push(
-    "| :--- | :---: | :---: | :---: | :---: |"
-  );
+  lines.push("| :--- | :---: | :---: | :---: | :---: |");
 
   for (const r of summary.results) {
     const perfCol = `${formatScoreBadge(r.scores.performance)} (${Math.round(r.minScores.performance * 100)})`;
@@ -179,7 +175,9 @@ export function formatLighthouseMarkdownSummary(
     const bpCol = `${formatScoreBadge(r.scores.bestPractices)} (${Math.round(r.minScores.bestPractices * 100)})`;
     const statusCol = r.passed ? "✅ PASS" : "❌ FAIL";
 
-    lines.push(`| **${r.name}** (\`${r.path}\`) | ${perfCol} | ${a11yCol} | ${bpCol} | ${statusCol} |`);
+    lines.push(
+      `| **${r.name}** (\`${r.path}\`) | ${perfCol} | ${a11yCol} | ${bpCol} | ${statusCol} |`,
+    );
 
     if (!r.passed) {
       for (const fail of r.failures) {
@@ -189,7 +187,9 @@ export function formatLighthouseMarkdownSummary(
   }
 
   lines.push("");
-  lines.push("> *Budgets configured in `lighthouse-budget.json`. See `CONTRIBUTING.md` for adjustment rules.*");
+  lines.push(
+    "> *Budgets configured in `lighthouse-budget.json`. See `CONTRIBUTING.md` for adjustment rules.*",
+  );
   lines.push("");
   return lines.join("\n");
 }

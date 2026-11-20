@@ -12,7 +12,7 @@ describe("lighthouse-summary", () => {
       "/api/auth/signin": {
         name: "Sign-in Page",
         minScores: {
-          performance: 0.70,
+          performance: 0.7,
           accessibility: 0.85,
           bestPractices: 0.85,
         },
@@ -21,7 +21,7 @@ describe("lighthouse-summary", () => {
         name: "Dashboard Page",
         minScores: {
           performance: 0.75,
-          accessibility: 0.90,
+          accessibility: 0.9,
           bestPractices: 0.85,
         },
       },
@@ -33,10 +33,10 @@ describe("lighthouse-summary", () => {
       "/api/auth/signin": {
         performance: 0.85,
         accessibility: 0.95,
-        bestPractices: 0.90,
+        bestPractices: 0.9,
       },
       "/dashboard": {
-        performance: 0.80,
+        performance: 0.8,
         accessibility: 0.92,
         bestPractices: 0.88,
       },
@@ -53,10 +53,10 @@ describe("lighthouse-summary", () => {
       "/api/auth/signin": {
         performance: 0.65, // Below 0.70 threshold
         accessibility: 0.95,
-        bestPractices: 0.90,
+        bestPractices: 0.9,
       },
       "/dashboard": {
-        performance: 0.80,
+        performance: 0.8,
         accessibility: 0.92,
         bestPractices: 0.88,
       },
@@ -76,7 +76,7 @@ describe("lighthouse-summary", () => {
       "/api/auth/signin": {
         performance: 0.92,
         accessibility: 0.95,
-        bestPractices: 0.90,
+        bestPractices: 0.9,
       },
     };
 
@@ -84,7 +84,9 @@ describe("lighthouse-summary", () => {
     const md = formatLighthouseMarkdownSummary(summary);
 
     expect(md).toContain("## 📊 Lighthouse CI Performance & Accessibility Results");
-    expect(md).toContain("| Page / Surface | Performance (Min) | Accessibility (Min) | Best Practices (Min) | Status |");
+    expect(md).toContain(
+      "| Page / Surface | Performance (Min) | Accessibility (Min) | Best Practices (Min) | Status |",
+    );
     expect(md).toContain("Sign-in Page");
     expect(md).toContain("🟢 92");
     expect(md).toContain("✅ PASS");

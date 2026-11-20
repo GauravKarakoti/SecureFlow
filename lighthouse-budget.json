@@ -7,7 +7,7 @@
     "/api/auth/signin": {
       "name": "Sign-in & Authentication Page",
       "minScores": {
-        "performance": 0.70,
+        "performance": 0.7,
         "accessibility": 0.85,
         "bestPractices": 0.85
       },
@@ -19,7 +19,7 @@
     "/dashboard": {
       "name": "Mission Control Dashboard",
       "minScores": {
-        "performance": 0.70,
+        "performance": 0.7,
         "accessibility": 0.85,
         "bestPractices": 0.85
       },

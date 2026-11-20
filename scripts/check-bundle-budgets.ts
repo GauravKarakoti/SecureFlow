@@ -45,7 +45,7 @@ export interface BudgetEvaluationResult {
  * Load bundle budget configuration from disk.
  */
 export function loadBudgetConfig(
-  configPath: string = path.resolve(process.cwd(), "bundle-budget.json")
+  configPath: string = path.resolve(process.cwd(), "bundle-budget.json"),
 ): BundleBudgetConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(`Budget configuration file not found at: ${configPath}`);
@@ -58,7 +58,7 @@ export function loadBudgetConfig(
  * Parse per-route JavaScript bundle sizes from Next.js build manifests.
  */
 export function parseRouteSizesFromManifest(
-  nextDir: string = path.resolve(process.cwd(), ".next")
+  nextDir: string = path.resolve(process.cwd(), ".next"),
 ): Record<string, number> {
   const routeSizes: Record<string, number> = {};
   const appBuildManifestPath = path.join(nextDir, "app-build-manifest.json");
@@ -106,10 +106,7 @@ export function parseRouteSizesFromManifest(
 
       for (const [pageRoute, chunks] of Object.entries(pages)) {
         if (!routeSizes[pageRoute]) {
-          const chunkList = [
-            ...rootChunks,
-            ...(Array.isArray(chunks) ? (chunks as string[]) : []),
-          ];
+          const chunkList = [...rootChunks, ...(Array.isArray(chunks) ? (chunks as string[]) : [])];
           let totalBytes = 0;
           const countedFiles = new Set<string>();
 
@@ -139,7 +136,7 @@ export function parseRouteSizesFromManifest(
  */
 export function evaluateRouteBudgets(
   routeSizes: Record<string, number>,
-  config: BundleBudgetConfig
+  config: BundleBudgetConfig,
 ): BudgetEvaluationResult {
   const evaluations: RouteEvaluation[] = [];
   const { maxRouteGrowthPercent, maxRouteGrowthKb } = config.settings;
@@ -205,14 +202,22 @@ export function evaluateRouteBudgets(
  */
 export function formatBudgetReportTable(result: BudgetEvaluationResult): string {
   const lines: string[] = [];
-  lines.push("╔══════════════════════════╦═════════════╦══════════════╦═════════════╦═════════════════════╗");
-  lines.push("║ Route                    ║ Actual (kB) ║ Baseline(kB) ║ Budget (kB) ║ Status              ║");
-  lines.push("╠══════════════════════════╬═════════════╬══════════════╬═════════════╬═════════════════════╣");
+  lines.push(
+    "╔══════════════════════════╦═════════════╦══════════════╦═════════════╦═════════════════════╗",
+  );
+  lines.push(
+    "║ Route                    ║ Actual (kB) ║ Baseline(kB) ║ Budget (kB) ║ Status              ║",
+  );
+  lines.push(
+    "╠══════════════════════════╬═════════════╬══════════════╬═════════════╬═════════════════════╣",
+  );
 
   for (const evalItem of result.evaluations) {
     const routeCol = evalItem.route.padEnd(24);
     const actualCol = `${evalItem.actualKb.toFixed(1)} kB`.padEnd(11);
-    const baselineCol = (evalItem.baselineKb ? `${evalItem.baselineKb.toFixed(1)} kB` : "N/A").padEnd(12);
+    const baselineCol = (
+      evalItem.baselineKb ? `${evalItem.baselineKb.toFixed(1)} kB` : "N/A"
+    ).padEnd(12);
     const budgetCol = `${evalItem.budgetKb.toFixed(1)} kB`.padEnd(11);
     const statusLabel = evalItem.passed ? "✅ PASS" : "❌ FAIL";
     const statusCol = statusLabel.padEnd(19);
@@ -224,7 +229,9 @@ export function formatBudgetReportTable(result: BudgetEvaluationResult): string 
     }
   }
 
-  lines.push("╚══════════════════════════╩═════════════╩══════════════╩═════════════╩═════════════════════╝");
+  lines.push(
+    "╚══════════════════════════╩═════════════╩══════════════╩═════════════╩═════════════════════╝",
+  );
   return lines.join("\n");
 }
 
@@ -240,7 +247,7 @@ export function runBundleBudgetCheck(configPath?: string, nextDir?: string): boo
 
     if (!result.passed) {
       console.error(
-        `❌ BUNDLE BUDGET FAILED: ${result.failedRoutes} of ${result.totalRoutes} routes exceeded JavaScript size budgets.\n`
+        `❌ BUNDLE BUDGET FAILED: ${result.failedRoutes} of ${result.totalRoutes} routes exceeded JavaScript size budgets.\n`,
       );
       for (const failure of result.evaluations.filter((e) => !e.passed)) {
         console.error(`  - ${failure.route}: ${failure.message}`);
@@ -250,7 +257,7 @@ export function runBundleBudgetCheck(configPath?: string, nextDir?: string): boo
     }
 
     console.log(
-      `✅ BUNDLE BUDGET PASSED: All ${result.passedRoutes} routes are within acceptable JavaScript size limits.`
+      `✅ BUNDLE BUDGET PASSED: All ${result.passedRoutes} routes are within acceptable JavaScript size limits.`,
     );
     return true;
   } catch (error) {

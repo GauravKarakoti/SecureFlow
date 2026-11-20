@@ -54,7 +54,7 @@ export async function calculateDigestMetricsForUser(
   // 1. Fetch user repositories
   const repositories = await prisma.repository.findMany({
     where: { userId },
-    select: { id: true, fullName: true, name: true },
+    select: { id: true, fullName: true },
   });
 
   if (repositories.length === 0) {

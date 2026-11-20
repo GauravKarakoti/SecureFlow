@@ -22,7 +22,8 @@ export default function RepositoriesError({
         Failed to load repository overview
       </h2>
       <p className="text-sm font-mono text-muted-foreground max-w-md mb-6">
-        An error occurred while calculating repository security health metrics. Please retry or contact support.
+        An error occurred while calculating repository security health metrics. Please retry or
+        contact support.
       </p>
       <Button
         onClick={() => reset()}
