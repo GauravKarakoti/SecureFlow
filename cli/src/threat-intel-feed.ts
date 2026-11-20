@@ -328,9 +328,13 @@ function isOsvLiveAdvisory(value: unknown): value is OsvLiveAdvisory {
 
 /**
  * Fetch an individual CVE from OSV.dev, using SWR cache before making a network call.
- * In air-gapped mode or network errors, serves cached stale entries with warning.
+ * In air-gapped mode, rate limits (HTTP 429), server errors (5xx), or network timeouts,
+ * serves cached stale/expired entries gracefully as a fallback.
  */
-export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory | null> {
+export async function lookupOsvAdvisory(
+  cveId: string,
+  options: { allowStale?: boolean; timeoutMs?: number } = {},
+): Promise<OsvLiveAdvisory | null> {
   const normalized = cveId.trim().toUpperCase();
 
   if (!/^CVE-\d{4}-\d{4,19}$/.test(normalized)) return null;
@@ -339,25 +343,31 @@ export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory 
 
   const cachedResult = await getThreatIntelCacheWithSwr<unknown>(cacheKey);
   if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
-    if (!cachedResult.isStale) {
+    if (!cachedResult.isStale && options.allowStale !== false) {
       return cachedResult.value;
     }
   }
 
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+
   try {
     const response = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(normalized)}`, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (response.status === 404) return null;
 
     if (!response.ok) {
-      if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
+      // On 429 / 5xx or server failures, attempt stale or expired cache fallback
+      const fallbackResult =
+        cachedResult ??
+        (await getThreatIntelCacheWithSwr<unknown>(cacheKey, { allowExpiredFallback: true }));
+      if (fallbackResult && isOsvLiveAdvisory(fallbackResult.value)) {
         console.warn(
-          `⚠️  [SecureFlow Threat Intel] OSV endpoint returned HTTP ${response.status}. Using stale cached advisory for ${normalized}.`,
+          `⚠️  [SecureFlow Threat Intel] OSV endpoint returned HTTP ${response.status}. Using stale/expired cached advisory for ${normalized}.`,
         );
-        return cachedResult.value;
+        return fallbackResult.value;
       }
       throw new Error(`OSV lookup failed: HTTP ${response.status} ${response.statusText}`);
     }
@@ -372,12 +382,15 @@ export async function lookupOsvAdvisory(cveId: string): Promise<OsvLiveAdvisory 
 
     return payload;
   } catch (error) {
-    // Air-gapped fallback
-    if (cachedResult && isOsvLiveAdvisory(cachedResult.value)) {
+    // Air-gapped, rate-limited, or network error fallback
+    const fallbackResult =
+      cachedResult ??
+      (await getThreatIntelCacheWithSwr<unknown>(cacheKey, { allowExpiredFallback: true }));
+    if (fallbackResult && isOsvLiveAdvisory(fallbackResult.value)) {
       console.warn(
-        `⚠️  [SecureFlow Threat Intel] Network unreachable for OSV query. Falling back to cached advisory for ${normalized}.`,
+        `⚠️  [SecureFlow Threat Intel] Network unreachable or timed out for OSV query. Falling back to cached advisory for ${normalized}.`,
       );
-      return cachedResult.value;
+      return fallbackResult.value;
     }
     throw error;
   }

@@ -124,6 +124,38 @@ describe("live threat intelligence integration", () => {
       liveLookupUnavailable: true,
     });
   });
+
+  it("updates resolution source to stale-fallback when live service lookup is unavailable (#1795)", async () => {
+    const { getThreatIntelSource, setThreatIntelSource } = await import("./threat-intel.js");
+    setThreatIntelSource("live");
+
+    mocks.lookupOsvAdvisory.mockRejectedValueOnce(new Error("Network timeout after 15000ms"));
+    mocks.lookupCisaKevEntry.mockRejectedValueOnce(new Error("Service Unavailable"));
+
+    await lookupThreatIntelligenceById("CVE-2023-3409");
+    expect(getThreatIntelSource()).toBe("stale-fallback");
+  });
+
+  it("resolves threat-intel source as live when live catalog search returns matches (#1795)", async () => {
+    const { getThreatIntelSource, setThreatIntelSource } = await import("./threat-intel.js");
+    setThreatIntelSource("stale-fallback");
+
+    mocks.searchCisaKevCatalog.mockResolvedValueOnce([
+      {
+        cveID: "CVE-2024-9999",
+        vendorProject: "Test Vendor",
+        product: "Test Product",
+        vulnerabilityName: "Test Vuln",
+        dateAdded: "2024-01-01",
+        shortDescription: "Test Description",
+        requiredAction: "Apply fix",
+        dueDate: "2024-02-01",
+      },
+    ]);
+
+    await searchThreatIntelligence("CVE-2024-9999");
+    expect(getThreatIntelSource()).toBe("live");
+  });
 });
 
 describe("threat-intel-cache SWR & Checksum Verification (#1750)", () => {
@@ -204,5 +236,35 @@ describe("threat-intel-cache SWR & Checksum Verification (#1750)", () => {
     // With SWR check, corrupted checksum is discarded and returns null
     const result = await getThreatIntelCacheWithSwr<typeof data>(key);
     expect(result).toBeNull();
+  });
+
+  it("serves expired fallback entries when allowExpiredFallback is true during feed outages (#1795)", async () => {
+    const { setThreatIntelCache, getThreatIntelCacheWithSwr, clearMemoryThreatIntelCache } =
+      await import("./threat-intel-cache.js");
+
+    clearMemoryThreatIntelCache();
+
+    const key = "expired-fallback-key";
+    const data = { id: "CVE-2024-3333", summary: "Critical Outage Fallback Advisory" };
+
+    // Set with short TTL
+    await setThreatIntelCache(key, data, 1, 2);
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(5000); // Now well expired beyond stale TTL
+
+    // With allowExpiredFallback: true, gracefully returns stale-fallback data
+    const fallbackResult = await getThreatIntelCacheWithSwr<typeof data>(key, {
+      allowExpiredFallback: true,
+    });
+    expect(fallbackResult).not.toBeNull();
+    expect(fallbackResult?.value).toEqual(data);
+    expect(fallbackResult?.isStale).toBe(true);
+
+    // Regular fetch returns null and deletes the entry
+    const regularResult = await getThreatIntelCacheWithSwr<typeof data>(key);
+    expect(regularResult).toBeNull();
+
+    vi.useRealTimers();
   });
 });
