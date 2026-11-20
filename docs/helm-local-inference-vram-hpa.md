@@ -64,6 +64,7 @@ worker:
 ### Metrics Adapter Integration
 
 The `queueTrigger` metric can be provided by:
+
 1. **Prometheus Adapter (`k8s-prometheus-adapter`)**: Maps BullMQ queue depth metrics exported to Prometheus into custom/external Kubernetes metric resources.
 2. **KEDA (Kubernetes Event-driven Autoscaling)**: External metrics server translating Redis `LLEN` / BullMQ queue depths into HPA external metrics.
 
@@ -71,16 +72,16 @@ The `queueTrigger` metric can be provided by:
 
 ## 3. Configuration Reference
 
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `worker.localInference.enabled` | boolean | `false` | Enable local model inference support in workers |
-| `worker.localInference.url` | string | `http://ollama.ai.svc.cluster.local:11434/v1` | Local model endpoint URL |
-| `worker.localInference.model` | string | `llama3` | Primary local inference model identifier |
-| `worker.localInference.fallbackModels` | string | `llama3.2:3b,llama3.2:1b` | Models to fall back to during VRAM exhaustion |
-| `worker.localInference.vramConcurrencyThreshold` | integer | `1` | Max concurrent GPU generations per worker |
-| `worker.localInference.maxQueueWaitMs` | integer | `30000` | Max wait time before timing out local inference |
-| `worker.localInference.resources` | object | `{limits: {nvidia.com/gpu: 1}, requests: {nvidia.com/gpu: 1}}` | GPU hardware resource allocation |
-| `worker.autoscaling.queueTrigger.enabled` | boolean | `false` | Enable external queue-depth metric trigger in HPA |
-| `worker.autoscaling.queueTrigger.metricName` | string | `secureflow_bullmq_scan_queue_waiting` | Metric name queried from external metrics API |
-| `worker.autoscaling.queueTrigger.targetAverageValue` | integer | `10` | Value or AverageValue target threshold |
-| `worker.autoscaling.queueTrigger.metricType` | string (`Value` \| `AverageValue`) | `Value` | Target metric specification type |
+| Parameter                                            | Type                               | Default                                                        | Description                                       |
+| :--------------------------------------------------- | :--------------------------------- | :------------------------------------------------------------- | :------------------------------------------------ |
+| `worker.localInference.enabled`                      | boolean                            | `false`                                                        | Enable local model inference support in workers   |
+| `worker.localInference.url`                          | string                             | `http://ollama.ai.svc.cluster.local:11434/v1`                  | Local model endpoint URL                          |
+| `worker.localInference.model`                        | string                             | `llama3`                                                       | Primary local inference model identifier          |
+| `worker.localInference.fallbackModels`               | string                             | `llama3.2:3b,llama3.2:1b`                                      | Models to fall back to during VRAM exhaustion     |
+| `worker.localInference.vramConcurrencyThreshold`     | integer                            | `1`                                                            | Max concurrent GPU generations per worker         |
+| `worker.localInference.maxQueueWaitMs`               | integer                            | `30000`                                                        | Max wait time before timing out local inference   |
+| `worker.localInference.resources`                    | object                             | `{limits: {nvidia.com/gpu: 1}, requests: {nvidia.com/gpu: 1}}` | GPU hardware resource allocation                  |
+| `worker.autoscaling.queueTrigger.enabled`            | boolean                            | `false`                                                        | Enable external queue-depth metric trigger in HPA |
+| `worker.autoscaling.queueTrigger.metricName`         | string                             | `secureflow_bullmq_scan_queue_waiting`                         | Metric name queried from external metrics API     |
+| `worker.autoscaling.queueTrigger.targetAverageValue` | integer                            | `10`                                                           | Value or AverageValue target threshold            |
+| `worker.autoscaling.queueTrigger.metricType`         | string (`Value` \| `AverageValue`) | `Value`                                                        | Target metric specification type                  |

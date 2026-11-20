@@ -1,6 +1,11 @@
 import prisma from "@/lib/prisma";
 import { AUDIT_LOG_GENESIS_HASH, computeAuditEntryHash } from "./audit-chain";
-import { decodeCursor, encodeCursor, parseLimit, DEFAULT_PAGE_LIMIT } from "@/lib/pagination/cursor";
+import {
+  decodeCursor,
+  encodeCursor,
+  parseLimit,
+  DEFAULT_PAGE_LIMIT,
+} from "@/lib/pagination/cursor";
 
 export interface VerificationResult {
   valid: boolean;
