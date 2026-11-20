@@ -44,17 +44,17 @@ network requests. The existing secret-logging detector always runs. An additiona
 heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 `hasHighEntropy` function and benign-value whitelist.
 
-| Argument         | Default    | Validation                                                                                                               |
-| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `content`        | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
-| `path`           | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
-| `workspaceRoot`  | omitted    | Optional string; canonicalized workspace root directory boundary for path sandboxing (#1752)                             |
-| `incremental`    | `false`    | Boolean; when true, scopes scanning strictly to uncommitted/staged Git diff changes via git index (#1752)                |
-| `minEntropy`     | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
-| `minTokenLength` | `16`       | Integer from 8 to 256                                                                                                    |
-| `format`         | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
-| `intentToken`    | omitted    | Optional string; existing intent verification applies                                                                    |
-| `threatIntelSource` | omitted | Optional string (`live`, `cache`, `stale-fallback`); indicates threat intel resolution state (#1795)                     |
+| Argument            | Default    | Validation                                                                                                               |
+| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `content`           | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
+| `path`              | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
+| `workspaceRoot`     | omitted    | Optional string; canonicalized workspace root directory boundary for path sandboxing (#1752)                             |
+| `incremental`       | `false`    | Boolean; when true, scopes scanning strictly to uncommitted/staged Git diff changes via git index (#1752)                |
+| `minEntropy`        | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
+| `minTokenLength`    | `16`       | Integer from 8 to 256                                                                                                    |
+| `format`            | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
+| `intentToken`       | omitted    | Optional string; existing intent verification applies                                                                    |
+| `threatIntelSource` | omitted    | Optional string (`live`, `cache`, `stale-fallback`); indicates threat intel resolution state (#1795)                     |
 
 #### Threat Intel Stale-While-Revalidate Fallback (#1795)
 
