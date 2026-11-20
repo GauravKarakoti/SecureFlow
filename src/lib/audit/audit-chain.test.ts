@@ -24,16 +24,44 @@ describe("Tamper-Evident Audit Log Hash Chain", () => {
           }
           return rows[0] || null;
         }),
-        findMany: vi.fn(async ({ where, orderBy }: any) => {
+        findUnique: vi.fn(async ({ where }: any) => {
+          return storedLogs.find((r) => r.id === where.id) || null;
+        }),
+        findMany: vi.fn(async ({ where, orderBy, take }: any) => {
           let rows = [...storedLogs];
           if (where?.entryHash?.not === null) {
             rows = rows.filter((r) => r.entryHash != null);
+          }
+          if (where?.OR) {
+            rows = rows.filter((r) => {
+              for (const condition of where.OR) {
+                if (condition.timestamp?.gt) {
+                  if (new Date(r.timestamp) > new Date(condition.timestamp.gt)) return true;
+                }
+                if (condition.AND) {
+                  const tsEq = condition.AND.find((c: any) => c.timestamp)?.timestamp;
+                  const idGt = condition.AND.find((c: any) => c.id?.gt)?.id?.gt;
+                  if (
+                    tsEq &&
+                    idGt &&
+                    new Date(r.timestamp).getTime() === new Date(tsEq).getTime() &&
+                    r.id > idGt
+                  ) {
+                    return true;
+                  }
+                }
+              }
+              return false;
+            });
           }
           if (orderBy) {
             rows.sort((a, b) => {
               const diff = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
               return diff !== 0 ? diff : a.id.localeCompare(b.id);
             });
+          }
+          if (take !== undefined) {
+            rows = rows.slice(0, take);
           }
           return rows;
         }),
@@ -238,5 +266,57 @@ describe("Tamper-Evident Audit Log Hash Chain", () => {
     const verification = await verifyAuditChain(mockDb);
     expect(verification.valid).toBe(true);
     expect(verification.totalVerified).toBe(5);
+  });
+
+  it("supports batch pagination with limit, returning nextCursor and hasMore (#1796)", async () => {
+    const baseTime = 1700000000000;
+    for (let i = 1; i <= 6; i++) {
+      await writeChainedAuditLog(mockDb, {
+        action: `EVENT_${i}`,
+        resource: `res_${i}`,
+        timestamp: new Date(baseTime + i * 1000),
+      });
+    }
+
+    expect(storedLogs).toHaveLength(6);
+
+    // Verify first batch of 3
+    const batch1 = await verifyAuditChain(mockDb, { limit: 3 });
+    expect(batch1.valid).toBe(true);
+    expect(batch1.totalVerified).toBe(3);
+    expect(batch1.hasMore).toBe(true);
+    expect(batch1.nextCursor).toBeDefined();
+
+    // Verify next batch using cursor
+    const batch2 = await verifyAuditChain(mockDb, {
+      cursor: batch1.nextCursor,
+      limit: 3,
+    });
+    expect(batch2.valid).toBe(true);
+    expect(batch2.totalVerified).toBe(3);
+    expect(batch2.hasMore).toBe(false);
+    expect(batch2.nextCursor).toBeNull();
+  });
+
+  it("pinpoints firstInvalidEntryId, expectedHash, and actualHash on broken chain (#1796)", async () => {
+    const baseTime = 1700000000000;
+    for (let i = 1; i <= 4; i++) {
+      await writeChainedAuditLog(mockDb, {
+        action: `EVENT_${i}`,
+        resource: `res_${i}`,
+        timestamp: new Date(baseTime + i * 1000),
+      });
+    }
+
+    // Tamper row 3's entryHash
+    storedLogs[2].entryHash = "tampered_corrupted_hash";
+
+    const result = await verifyAuditChain(mockDb, { limit: 10 });
+    expect(result.valid).toBe(false);
+    expect(result.firstInvalidEntryId).toBe(storedLogs[2].id);
+    expect(result.brokenEntryId).toBe(storedLogs[2].id);
+    expect(result.expectedHash).toBeDefined();
+    expect(result.actualHash).toBe("tampered_corrupted_hash");
+    expect(result.reason).toContain("Tampered entry detected");
   });
 });
