@@ -115,11 +115,15 @@ Now, every `git commit` automatically triggers a security check on staged files.
 ```text
 Usage:
   secureflow [options]
+  secureflow init [options]
+  secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  init                   Initialize repository configuration (.secureflow.json & .secureflowignore) and pre-commit hooks
+  validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
@@ -129,6 +133,14 @@ Commands:
 
 | Flag                   | Shorthand | Default             | Description                                                                                        |
 | :--------------------- | :-------- | :------------------ | :------------------------------------------------------------------------------------------------- |
+| `--init`               |           |                     | Initialize SecureFlow (setup pre-commit hook and repository configuration files)                   |
+| `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors |
+| `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt         |
+| `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)     |
+| `--ignore <paths>`     |           |                     | Comma-separated paths/globs to ignore for `init`                                                   |
+| `--languages <langs>`  |           |                     | Comma-separated repository languages for `init` (e.g. `typescript,terraform,python`)                |
+| `--husky`              |           |                     | Initialize pre-commit hook using Husky (`.husky/pre-commit`)                                       |
+| `--blank`              |           |                     | Initialize pre-commit hook using `package.json` prepare script                                     |
 | `--fail-on <level>`    |           | `medium`            | Exit with error code `1` if findings meet or exceed severity (`low`, `medium`, `high`, `critical`) |
 | `--format <format>`    |           | `text`              | Output report format: `text`, `json`, `sarif`, `csv`, `html`, `markdown`                           |
 | `--output <path>`      | `-o`      | `stdout`            | Write report to the specified file path                                                            |

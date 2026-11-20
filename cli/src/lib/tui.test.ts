@@ -782,6 +782,28 @@ describe("cli/src/lib/tui (#1712)", () => {
       expect(res.success).toBe(true);
       expect(res.hookPath).toBe(path.join(tempDir, ".husky", "pre-commit"));
       expect(fs.existsSync(res.hookPath)).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, ".secureflow.json"))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, ".secureflowignore"))).toBe(true);
+    });
+
+    it("parses CLI flags for init config options and writes configs accordingly", async () => {
+      const res = await initSecureFlow({
+        mode: "husky",
+        targetDir: tempDir,
+        argv: [
+          "node",
+          "cli",
+          "--init",
+          "--severity=CRITICAL",
+          "--languages=python,terraform",
+          "--force",
+        ],
+      });
+
+      expect(res.success).toBe(true);
+      const jsonContent = fs.readFileSync(path.join(tempDir, ".secureflow.json"), "utf-8");
+      expect(jsonContent).toContain('"blockOn": "CRITICAL"');
+      expect(jsonContent).toContain("terraform/**");
     });
 
     it("formats greeting with package.json prepare script details in blank mode", () => {

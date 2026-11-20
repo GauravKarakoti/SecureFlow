@@ -170,3 +170,36 @@ When a file matches multiple scopes, they are evaluated in definition order:
 - **Base branch enforcement**: `.secureflow.json` is loaded exclusively from the base branch, preventing unauthorized changes in PR head branches.
 - **Graceful degradation**: Invalid globs, non-string policy names, or unknown policy names are logged as warnings and ignored without failing or interrupting the scan.
 - **PR comment reporting**: Applied policy scopes and the count of files scanned under each scope are shown in the PR comment summary under `📁 Policy Scopes Applied`.
+
+## CLI Initialization and Validation (`secureflow init` & `secureflow validate`)
+
+To simplify repository setup and avoid manual syntax mistakes, use the SecureFlow CLI:
+
+### 1. Generating Configuration (`secureflow init`)
+
+Run `secureflow init` (or `secureflow --init`) to interactively configure your repository:
+
+```bash
+# Interactive setup: guides you through hook mode, severity thresholds, ignores, and languages
+npx secureflow init
+
+# Non-interactive / scripted setup with flags
+npx secureflow init --mode husky --severity HIGH --languages typescript,terraform --force
+```
+
+This creates both `.secureflow.json` and `.secureflowignore` with helpful comments and sensible defaults. Existing files will never be overwritten without explicit confirmation or the `--force` flag.
+
+### 2. Validating Configuration (`secureflow validate`)
+
+Run `secureflow validate` in CI or locally to verify your configuration files against the schema:
+
+```bash
+# Validates both .secureflow.json and .secureflowignore in the current repository
+npx secureflow validate
+
+# Validate a specific file
+npx secureflow validate .secureflow.json
+```
+
+`secureflow validate` reports unknown keys, invalid severity levels, and malformed globs with exact file and line numbers, exiting non-zero when errors are detected.
+
