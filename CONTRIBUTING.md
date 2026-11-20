@@ -334,11 +334,13 @@ We prioritize deterministic, fast, and comprehensive testing. Always ensure rele
 | `npm run lint`           | ESLint               | Lints TypeScript and React source code                             |
 | `npm run format:check`   | Prettier             | Checks code formatting adheres to repository standards             |
 | `npm run format`         | Prettier             | Automatically formats all files with Prettier                      |
-| `npm run test:a11y`      | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit         |
-| `npm run test:e2e`       | End-to-End           | Runs Playwright browser end-to-end tests                           |
-| `npm run db:check-drift` | Prisma               | Verifies that Prisma schema and migrations are in sync             |
-| `npm run lint:openapi`   | OpenAPI              | Validates `openapi.yaml` with Spectral linter                      |
-| `npm run verify:openapi` | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml` |
+| `npm run test:a11y`          | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit         |
+| `npm run test:e2e`           | End-to-End           | Runs Playwright browser end-to-end tests                           |
+| `npm run test:visual`        | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages     |
+| `npm run test:visual:update` | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`        |
+| `npm run db:check-drift`     | Prisma               | Verifies that Prisma schema and migrations are in sync             |
+| `npm run lint:openapi`       | OpenAPI              | Validates `openapi.yaml` with Spectral linter                      |
+| `npm run verify:openapi`     | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml` |
 
 ### Running Specific Tests
 
@@ -352,6 +354,38 @@ npx vitest src/components/theme-toggle.test.tsx
 # Run scanner prompt golden regression tests (mocked, zero LLM cost)
 npx vitest run src/lib/armor/prompt-regression.test.ts
 ```
+
+### Visual Regression Testing & Snapshot Baselines
+
+SecureFlow uses Playwright visual comparison tests (`toHaveScreenshot`) to catch accidental layout breaks, overlapping tables, missing badges, or broken dark/light themes before merging.
+
+#### Guaranteed Determinism
+To avoid test flakiness and pixel jitter, visual tests execute with:
+- **Standardized Viewport**: Fixed 1280×900 desktop viewport.
+- **Fixed System Clock**: Frozen to a deterministic UTC timestamp (`2026-01-15T12:00:00.000Z`).
+- **Disabled Animations**: Global CSS overrides disabling CSS transitions, animations, and blinking carets.
+- **Font Settlement**: Pre-waited `document.fonts.ready` before capturing screenshots.
+- **Masked Dynamic Regions**: Timestamps (`<time>`, `.time-ago`), user avatars, and animated spinners/pulse indicators are masked.
+- **Strict Diff Threshold**: Snapshot assertions enforce `maxDiffPixelRatio: 0.02`.
+
+#### Running Tests Locally
+```bash
+# Run visual regression suite against local server
+npm run test:visual
+```
+
+#### Reviewing Diffs & Updating Baselines
+When intentional UI changes or design updates alter dashboard layouts, baseline snapshots must be reviewed and regenerated:
+```bash
+# Update baseline images in e2e/__screenshots__/
+npm run test:visual:update
+```
+Always inspect the updated images in `git diff` before committing to ensure only intended visual changes are included.
+
+#### Opt-In CI Workflow & Diff Artifacts
+Visual regression tests run in CI as an opt-in workflow (`.github/workflows/visual-regression.yml`):
+- **Triggers**: Manually via `workflow_dispatch`, or automatically on pull requests labeled `visual-regression` or titled with `[visual]`.
+- **Failure Artifacts**: When differences exceed `maxDiffPixelRatio: 0.02`, the workflow automatically uploads diff images and Playwright reports as workflow artifacts (`visual-regression-diffs`) for quick triage.
 
 ---
 

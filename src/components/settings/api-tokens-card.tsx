@@ -30,7 +30,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { createApiToken, revokeApiToken, type ApiTokenItem } from "@/lib/actions/settings";
-import { API_TOKEN_SCOPES, type ApiTokenScope } from "@/lib/auth/api-token";
+import { API_TOKEN_SCOPES, type ApiTokenScope } from "@/lib/auth/api-token-types";
 
 const SCOPE_DESCRIPTIONS: Record<ApiTokenScope, string> = {
   "findings:read": "Read security findings, triage status, and code locations",
