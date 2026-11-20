@@ -337,8 +337,11 @@ We prioritize deterministic, fast, and comprehensive testing. Always ensure rele
 | `npm run test:a11y`      | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit         |
 | `npm run test:e2e`       | End-to-End           | Runs Playwright browser end-to-end tests                           |
 | `npm run db:check-drift` | Prisma               | Verifies that Prisma schema and migrations are in sync             |
-| `npm run lint:openapi`   | OpenAPI              | Validates `openapi.yaml` with Spectral linter                      |
-| `npm run verify:openapi` | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml` |
+| `npm run lint:openapi`         | OpenAPI              | Validates `openapi.yaml` with Spectral linter                      |
+| `npm run verify:openapi`       | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml` |
+| `npm run analyze`              | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server |
+| `npm run check:bundle-budget`  | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json`|
+| `npm run lhci:audit`           | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`          |
 
 ### Running Specific Tests
 
@@ -352,6 +355,39 @@ npx vitest src/components/theme-toggle.test.tsx
 # Run scanner prompt golden regression tests (mocked, zero LLM cost)
 npx vitest run src/lib/armor/prompt-regression.test.ts
 ```
+
+### ⚡ JavaScript Bundle Size & Lighthouse Performance Budgets
+
+To prevent silent performance regressions where new dependencies make the dashboard heavier and slower, SecureFlow enforces automated bundle size budgets and Lighthouse score gates.
+
+#### 1. Bundle Size Budgets (`bundle-budget.json`)
+Per-route JavaScript budgets are configured in `bundle-budget.json`. During CI (`npm run check:bundle-budget`), per-route JavaScript sizes are extracted from Next.js build manifests and checked against:
+- **Absolute Limit (`budgetKb`)**: Maximum allowed JavaScript size for that route.
+- **Growth Threshold (`maxRouteGrowthPercent` & `maxRouteGrowthKb`)**: Maximum allowed increase relative to the recorded baseline.
+
+```bash
+# Run bundle budget verification locally
+npm run check:bundle-budget
+
+# Generate interactive bundle analysis reports (.next/analyze/client.html)
+npm run analyze
+```
+
+#### 2. Lighthouse CI Quality Gate (`lighthouse-budget.json`)
+Critical user journeys (the authentication sign-in page `/api/auth/signin` and Mission Control `/dashboard`) are continuously audited for Performance, Accessibility, and Best Practices. Results are automatically published to the GitHub Actions Job Summary (`$GITHUB_STEP_SUMMARY`).
+
+```bash
+# Run Lighthouse audits locally
+npm run lhci:audit
+```
+
+#### 3. How to Adjust Budgets with Justification
+Budgets exist to maintain blazing-fast page loads. If an intentional, impactful feature requires adjusting a route's budget in `bundle-budget.json` or `lighthouse-budget.json`, you **must** include a written justification in your pull request description:
+
+1. **New Dependency / Component**: Name the newly introduced dependency or component and its bundle impact.
+2. **Code Splitting & Lazy Loading**: Explain why dynamic imports (`next/dynamic`) or lighter alternative libraries could not reduce the footprint.
+3. **Before & After Impact**: Provide the output table from `npm run check:bundle-budget` showing route sizes before and after the change.
+4. **Maintainer Sign-Off**: Pull requests with budget increases require explicit maintainer review.
 
 ---
 

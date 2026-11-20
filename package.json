@@ -52,7 +52,10 @@
     "secureflow": "npx secureflow",
     "lint:openapi": "spectral lint openapi.yaml --fail-severity=error",
     "verify:openapi": "tsx scripts/verify-openapi.ts",
-    "verify:armoriq": "tsx scripts/armoriq-verify.ts"
+    "verify:armoriq": "tsx scripts/armoriq-verify.ts",
+    "analyze": "cross-env ANALYZE=true next build",
+    "check:bundle-budget": "tsx scripts/check-bundle-budgets.ts",
+    "lhci:audit": "tsx scripts/lighthouse-summary.ts"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.8.24",
@@ -123,6 +126,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@changesets/cli": "^3.0.2",
+    "@next/bundle-analyzer": "^16.4.6",
     "@playwright/test": "^1.65.1",
     "@stoplight/spectral-cli": "^6.17.1",
     "@tailwindcss/postcss": "^4.3.5",
