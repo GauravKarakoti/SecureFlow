@@ -276,3 +276,54 @@ export async function postScanErrorCheckRun(
     },
   });
 }
+
+/**
+ * Marks a check run as neutral or cancelled when an in-flight scan is interrupted
+ * by worker shutdown, reschedule, or termination (#1894).
+ * Ensures pull requests are never left with a check run stuck in "in progress".
+ */
+export async function postScanCancelledCheckRun(
+  octokit: ChecksClient,
+  p: {
+    owner: string;
+    repo: string;
+    headSha: string;
+    reason?: string;
+    checkRunId?: number;
+    conclusion?: "neutral" | "cancelled";
+  },
+) {
+  const conclusion = p.conclusion ?? "neutral";
+  const reason =
+    p.reason ??
+    "The scan worker was terminated (e.g. during deployment, autoscaling, or node drain) before the scan could complete. The scan has been re-queued.";
+
+  const output = {
+    title: "Scan Interrupted",
+    summary: `SecureFlow could not complete the scan because the worker container was stopped.\n\n${reason}`,
+  };
+
+  if (p.checkRunId && typeof octokit.rest.checks.update === "function") {
+    return octokit.rest.checks.update({
+      owner: p.owner,
+      repo: p.repo,
+      check_run_id: p.checkRunId,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion,
+      output,
+    });
+  }
+
+  return octokit.rest.checks.create({
+    owner: p.owner,
+    repo: p.repo,
+    name: SCAN_CHECK_NAME,
+    head_sha: p.headSha,
+    status: "completed",
+    conclusion,
+    output,
+  });
+}
+

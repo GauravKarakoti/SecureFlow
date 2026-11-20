@@ -26,6 +26,7 @@ spec:
       labels:
         {{- include "secureflow.workerSelectorLabels" . | nindent 8 }}
     spec:
+      terminationGracePeriodSeconds: {{ default 35 .Values.worker.terminationGracePeriodSeconds }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -51,6 +52,10 @@ spec:
             - name: health
               containerPort: {{ .Values.worker.service.port }}
               protocol: TCP
+          {{- if .Values.worker.lifecycle }}
+          lifecycle:
+            {{- toYaml .Values.worker.lifecycle | nindent 12 }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "secureflow.configMapName" . }}

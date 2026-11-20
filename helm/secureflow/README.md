@@ -291,6 +291,8 @@ is scraped once. The Service type and port come from `app.service.*`.
 | `worker.localInference.resources.requests` | Hardware accelerator / GPU resource requests for worker inference pods | `nvidia.com/gpu: 1` |
 | `worker.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for workers          | `true`           |
 | `worker.podDisruptionBudget.minAvailable` | Minimum available worker replicas during voluntary disruptions | `1` |
+| `worker.terminationGracePeriodSeconds` | Pod termination grace period in seconds (default 35s, worker shutdown 25s) | `35` |
+| `worker.lifecycle`           | Container lifecycle hooks (e.g. preStop sleep to allow endpoint draining) | `preStop: exec: command: ["/bin/sh", "-c", "sleep 2"]` |
 | `worker.affinity`            | Node affinity and pod anti-affinity rules for workers | *(preconfigured for worker/compute nodes)* |
 | `resourceQuota.enabled`      | Enable Kubernetes namespace ResourceQuota budget | `true`           |
 | `resourceQuota.hard`         | Hard compute and object limits for the namespace | *(4 CPU / 8Gi req, 8 CPU / 16Gi limit)* |

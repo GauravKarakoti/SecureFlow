@@ -1,9 +1,10 @@
 import { Worker, Job, DelayedError } from "bullmq";
 import { withSpan, extractTraceContext, type Context } from "@/lib/tracing";
-import { postScanCheckRun, postScanErrorCheckRun } from "../scanner/check-run";
+import { postScanCheckRun, postScanErrorCheckRun, postScanCancelledCheckRun } from "../scanner/check-run";
+import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
 import { z } from "zod";
 import { redis } from "./redis";
-import { webhookDLQ, WebhookJobData } from "./webhookQueue";
+import { webhookQueue, webhookDLQ, WebhookJobData } from "./webhookQueue";
 import { dlqRetryStateFor } from "./dlq-auto-retry";
 import { acquireLock, releaseLock, startLockHeartbeat } from "./lock";
 import { scanner } from "@/lib/armor/scanner";
@@ -491,6 +492,54 @@ export async function runPullRequestScan({
     PR_SCAN_LOCK_RENEW_MS,
   );
 
+  const scanTrackingId = `pr-scan:${repository.full_name}:${pullRequest.number}:${deliveryId || job.id || Date.now()}`;
+  const inFlightScan: ActiveScan = {
+    id: scanTrackingId,
+    job,
+    repositoryFullName: repository.full_name,
+    owner: repository.owner?.login || (repository.full_name ? repository.full_name.split("/")[0] : ""),
+    repo: repository.name || (repository.full_name ? repository.full_name.split("/")[1] : ""),
+    prNumber: pullRequest.number,
+    headSha: pullRequest.head?.sha,
+    installationId: installation?.id,
+    checkRunId,
+    lockKey,
+    lockToken,
+    lockHeartbeat,
+    cancelCheckRun: async (reason) => {
+      try {
+        const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+        const appClient = new App({
+          appId,
+          privateKey,
+          ...(customOctokit ? { Octokit: customOctokit } : {}),
+        });
+        const octokitInst = await appClient.getInstallationOctokit(Number(installation.id));
+        await postScanCancelledCheckRun(octokitInst as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          checkRunId: inFlightScan.checkRunId,
+          reason,
+          conclusion: "neutral",
+        });
+      } catch (err: any) {
+        log.error("[Worker] Failed to post cancelled check run during shutdown:", {
+          error: err?.message || String(err),
+        });
+      }
+    },
+    requeueJob: async () => {
+      if (job && job.data) {
+        await webhookQueue.add("process-webhook", job.data, {
+          jobId: job.id,
+          priority: 1,
+        });
+      }
+    },
+  };
+  registerInFlightScan(inFlightScan);
+
   try {
     if (shouldScanPullRequestManifests(event, action)) {
       // Never throws (it logs and returns), so a manifest problem cannot
@@ -819,7 +868,7 @@ export async function runPullRequestScan({
         span.setAttribute("secureflow.decision", String(decision));
         span.setAttribute("secureflow.findings_count", activeFindings.length);
 
-        return await postScanCheckRun(octokit as any, {
+        const checkRunResult = await postScanCheckRun(octokit as any, {
           owner: repository.owner.login,
           repo: repository.name,
           headSha: pullRequest.head?.sha,
@@ -830,6 +879,12 @@ export async function runPullRequestScan({
           findings: enrichedFindings,
           checkRunId,
         });
+        const returnedRunId =
+          (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
+        if (returnedRunId && typeof returnedRunId === "number") {
+          inFlightScan.checkRunId = returnedRunId;
+        }
+        return checkRunResult;
       },
       { parentContext },
     );
@@ -1207,6 +1262,7 @@ export async function runPullRequestScan({
       }
     }
   } finally {
+    unregisterInFlightScan(scanTrackingId);
     // Stop renewing before releasing, so a late renewal cannot run after
     // the lock has been handed on.
     lockHeartbeat.stop();
