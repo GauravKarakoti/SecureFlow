@@ -219,6 +219,29 @@ worker:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 80
     targetMemoryUtilizationPercentage: 80
+    # Custom queue-depth based autoscaling trigger (#1797)
+    # Scales workers based on BullMQ scan queue depth from Prometheus / KEDA external metrics adapter.
+    queueTrigger:
+      enabled: false
+      metricName: secureflow_bullmq_scan_queue_waiting
+      targetAverageValue: 10
+      metricType: Value # Value or AverageValue
+
+  # Local AI Inference & VRAM Resource Limits (#1797)
+  # Enables dedicated local inference capabilities (e.g., Ollama or vLLM sidecar/cluster service)
+  # with VRAM concurrency thresholds and GPU resource reservations.
+  localInference:
+    enabled: false
+    url: "http://ollama.ai.svc.cluster.local:11434/v1"
+    model: "llama3"
+    fallbackModels: "llama3.2:3b,llama3.2:1b"
+    vramConcurrencyThreshold: 1
+    maxQueueWaitMs: 30000
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
 
   # Pod Disruption Budget for zero-downtime cluster maintenance & worker availability
   podDisruptionBudget:

@@ -109,6 +109,29 @@ worker:
     requests:
       cpu: 500m
       memory: 1024Mi
+  # BullMQ queue-based autoscaling (#1797)
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 12
+    queueTrigger:
+      enabled: true
+      metricName: secureflow_bullmq_scan_queue_waiting
+      targetAverageValue: 15
+      metricType: Value
+  # Optional local AI inference and GPU resource allocation (#1797)
+  localInference:
+    enabled: true
+    url: "http://ollama.ai.svc.cluster.local:11434/v1"
+    model: "llama3"
+    fallbackModels: "llama3.2:3b,llama3.2:1b"
+    vramConcurrencyThreshold: 2
+    maxQueueWaitMs: 30000
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
 
 # External managed infrastructure
 postgresql:
