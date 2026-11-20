@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import withBundleAnalyzer from "@next/bundle-analyzer";
 import {
   buildNextSecurityHeaderRules,
   securityHeaderOptionsFromEnv,
@@ -70,4 +71,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const withAnalyzer = withBundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+  openAnalyzer: false,
+});
+
+export default withAnalyzer(nextConfig);
