@@ -586,3 +586,15 @@ Use this checklist to verify your deployment configuration when diagnosing syste
 [ ] BREVO_API_KEY is configured for delivering weekly security digests via Brevo
 [ ] SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM configured if fallback SMTP delivery is desired
 ```
+
+---
+
+## 7. Version Verification & Upgrades
+
+To check which version and build commit SHA are currently running, query `GET /api/version` or inspect the dashboard footer:
+
+```bash
+curl -s http://localhost:9002/api/version
+```
+
+When upgrading SecureFlow or executing an emergency rollback, follow the step-by-step checklist in the **[Safe Upgrade Guide](./upgrade.md)**.

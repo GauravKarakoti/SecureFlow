@@ -24,6 +24,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
+import { getVersionInfo } from "@/lib/version";
 
 // Themed Navigation Items
 const NAV_ITEMS = [
@@ -106,6 +107,17 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
           </>
         )}
       </nav>
+
+      <div className="mt-auto px-4 py-3 border-t border-white/5 text-[11px] text-muted-foreground flex items-center justify-between font-mono">
+        <span className="text-zinc-400">v{getVersionInfo().version}</span>
+        <Link
+          href="/api/version"
+          target="_blank"
+          className="text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          API
+        </Link>
+      </div>
     </>
   );
 }

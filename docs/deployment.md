@@ -199,3 +199,9 @@ helm upgrade --install secureflow ./helm/secureflow -f production-values.yaml
    # Connection to whitelisted provider endpoint should succeed:
    kubectl exec -it deployment/<release-name>-worker -- curl --connect-timeout 5 https://api.groq.com/openai/v1/models
    ```
+
+---
+
+## 5. Maintenance & Upgrades
+
+For step-by-step instructions on applying database migrations, pulling updated container images, verifying `/api/health` and `/api/version`, and rolling back safely in production, see the **[Safe Upgrade Guide](./upgrade.md)**.

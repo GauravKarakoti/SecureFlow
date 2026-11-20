@@ -386,6 +386,10 @@ SecureFlow's Docker image uses a secure multi-stage build running as an unprivil
 - **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
 - **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
 
+### Upgrading SecureFlow
+
+When upgrading between releases, follow our step-by-step checklist covering database backups, migration execution, health validation, and rollback procedures in the **[Safe Upgrade Guide](./docs/upgrade.md)**.
+
 ---
 
 ## 🔑 Environment Variables Reference
@@ -564,6 +568,7 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
 - **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
+- **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.

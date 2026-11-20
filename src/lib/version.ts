@@ -1,0 +1,38 @@
+import packageJson from "../../package.json";
+
+export interface VersionInfo {
+  version: string;
+  commit: string;
+  buildDate: string;
+}
+
+/**
+ * Returns sanitized version information about the running SecureFlow instance.
+ * Guaranteed to exclude internal paths, dependency lists, and sensitive configuration.
+ */
+export function getVersionInfo(): VersionInfo {
+  const version =
+    process.env.APP_VERSION ||
+    process.env.NEXT_PUBLIC_APP_VERSION ||
+    packageJson.version ||
+    "0.1.0";
+
+  const commit =
+    process.env.GIT_COMMIT_SHA ||
+    process.env.NEXT_PUBLIC_GIT_COMMIT_SHA ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.COMMIT_REF ||
+    process.env.RENDER_GIT_COMMIT ||
+    "development";
+
+  const buildDate =
+    process.env.BUILD_DATE ||
+    process.env.NEXT_PUBLIC_BUILD_DATE ||
+    "unknown";
+
+  return {
+    version: String(version).trim(),
+    commit: String(commit).trim(),
+    buildDate: String(buildDate).trim(),
+  };
+}

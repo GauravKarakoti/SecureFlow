@@ -44,7 +44,11 @@ and other sensitive data before posting.
 
 ## Environment
 
-- SecureFlow version/commit: <!-- e.g., v1.2.3 or commit hash -->
+<!--
+Tip: Find your exact SecureFlow version and build commit in the dashboard footer,
+or by querying the GET /api/version endpoint (e.g. curl http://localhost:9002/api/version).
+-->
+- SecureFlow version/commit: <!-- e.g., v0.1.0 (commit abc1234) — check dashboard footer or GET /api/version -->
 - Deployment method: <!-- local / docker / cloud / other -->
 - Node version:
 - OS:
