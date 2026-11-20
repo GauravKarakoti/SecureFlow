@@ -56,6 +56,21 @@ spec:
                 name: {{ include "secureflow.configMapName" . }}
             - secretRef:
                 name: {{ include "secureflow.secretName" . }}
+          {{- if and .Values.worker.localInference .Values.worker.localInference.enabled }}
+          env:
+            - name: LOCAL_AI_URL
+              value: {{ .Values.worker.localInference.url | quote }}
+            - name: LOCAL_AI_MODEL
+              value: {{ .Values.worker.localInference.model | quote }}
+            - name: LOCAL_AI_FALLBACK_MODELS
+              value: {{ .Values.worker.localInference.fallbackModels | quote }}
+            - name: VRAM_CONCURRENCY_THRESHOLD
+              value: {{ .Values.worker.localInference.vramConcurrencyThreshold | quote }}
+            - name: LOCAL_AI_MAX_CONCURRENCY
+              value: {{ .Values.worker.localInference.vramConcurrencyThreshold | quote }}
+            - name: LOCAL_AI_MAX_QUEUE_WAIT_MS
+              value: {{ .Values.worker.localInference.maxQueueWaitMs | quote }}
+          {{- end }}
           {{- with .Values.worker.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -66,16 +81,33 @@ spec:
           {{- end }}
           resources:
             {{- if and .Values.worker.resources .Values.worker.resources.limits .Values.worker.resources.requests }}
-            {{- toYaml .Values.worker.resources | nindent 12 }}
+              {{- $res := deepCopy .Values.worker.resources }}
+              {{- if and .Values.worker.localInference .Values.worker.localInference.enabled .Values.worker.localInference.resources }}
+                {{- if .Values.worker.localInference.resources.limits }}
+                  {{- $resLimits := merge (default dict $res.limits) .Values.worker.localInference.resources.limits }}
+                  {{- $_ := set $res "limits" $resLimits }}
+                {{- end }}
+                {{- if .Values.worker.localInference.resources.requests }}
+                  {{- $resRequests := merge (default dict $res.requests) .Values.worker.localInference.resources.requests }}
+                  {{- $_ := set $res "requests" $resRequests }}
+                {{- end }}
+              {{- end }}
+            {{- toYaml $res | nindent 12 }}
             {{- else }}
             limits:
               cpu: {{ default "2000m" (dig "limits" "cpu" "2000m" .Values.worker.resources) | quote }}
               memory: {{ default "2Gi" (dig "limits" "memory" "2Gi" .Values.worker.resources) | quote }}
               ephemeral-storage: {{ default "10Gi" (dig "limits" "ephemeral-storage" "10Gi" .Values.worker.resources) | quote }}
+              {{- if and .Values.worker.localInference .Values.worker.localInference.enabled .Values.worker.localInference.resources .Values.worker.localInference.resources.limits }}
+              {{- toYaml .Values.worker.localInference.resources.limits | nindent 14 }}
+              {{- end }}
             requests:
               cpu: {{ default "500m" (dig "requests" "cpu" "500m" .Values.worker.resources) | quote }}
               memory: {{ default "1Gi" (dig "requests" "memory" "1Gi" .Values.worker.resources) | quote }}
               ephemeral-storage: {{ default "2Gi" (dig "requests" "ephemeral-storage" "2Gi" .Values.worker.resources) | quote }}
+              {{- if and .Values.worker.localInference .Values.worker.localInference.enabled .Values.worker.localInference.resources .Values.worker.localInference.resources.requests }}
+              {{- toYaml .Values.worker.localInference.resources.requests | nindent 14 }}
+              {{- end }}
             {{- end }}
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
