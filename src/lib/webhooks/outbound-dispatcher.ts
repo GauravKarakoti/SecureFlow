@@ -8,40 +8,21 @@ import {
   OUTBOUND_EVENT_ID_HEADER,
   OUTBOUND_TIMESTAMP_HEADER,
 } from "./outbound-signature";
+import {
+  type OutboundEventType,
+  OUTBOUND_EVENT_TYPES,
+  isValidOutboundEvent,
+  type OutboundEventEnvelope,
+  type MinimalFindingSummary,
+} from "./outbound-types";
 
-export type OutboundEventType =
-  "scan.completed" | "scan.blocked" | "finding.created" | "finding.dismissed";
-
-export const OUTBOUND_EVENT_TYPES: readonly OutboundEventType[] = [
-  "scan.completed",
-  "scan.blocked",
-  "finding.created",
-  "finding.dismissed",
-] as const;
-
-export function isValidOutboundEvent(event: string): event is OutboundEventType {
-  return (OUTBOUND_EVENT_TYPES as readonly string[]).includes(event);
-}
-
-/**
- * Standard envelope wrapping all outbound webhook events (#1866).
- */
-export interface OutboundEventEnvelope<T = Record<string, unknown>> {
-  id: string; // evt_<uuid>
-  event: OutboundEventType;
-  timestamp: string; // ISO-8601 UTC string
-  data: T;
-}
-
-export interface MinimalFindingSummary {
-  id?: string;
-  type?: string;
-  severity?: string;
-  fileLocation?: string | null;
-  lineStart?: number | null;
-  lineEnd?: number | null;
-  fingerprint?: string | null;
-}
+export {
+  type OutboundEventType,
+  OUTBOUND_EVENT_TYPES,
+  isValidOutboundEvent,
+  type OutboundEventEnvelope,
+  type MinimalFindingSummary,
+};
 
 /**
  * Scrub a finding to ensure ZERO code snippets, secret values, diffs,

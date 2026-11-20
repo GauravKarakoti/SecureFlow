@@ -25,6 +25,8 @@
     "threat-feed:sync:render": "tsx --env-file=.env scripts/sync-threat-feed.ts",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test e2e/dashboard-accessibility.spec.ts",
+    "test:visual": "playwright test e2e/visual-regression.spec.ts --project=visual",
+    "test:visual:update": "playwright test e2e/visual-regression.spec.ts --project=visual --update-snapshots",
     "cli:build": "npm run build --workspace=cli",
     "cli:test": "npm run test --workspace=cli",
     "cli:test:e2e": "npm run test:e2e --workspace=cli",

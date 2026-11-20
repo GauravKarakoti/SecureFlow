@@ -33,7 +33,7 @@ describe("Saved Views Server Actions (#1786)", () => {
   });
 
   describe("sanitizeViewFilters", () => {
-    it("preserves whitelisted filter properties", () => {
+    it("preserves whitelisted filter properties", async () => {
       const input = {
         severity: ["CRITICAL", "HIGH"],
         type: ["SECRET"],
@@ -45,11 +45,11 @@ describe("Saved Views Server Actions (#1786)", () => {
         sort: "severity",
       };
 
-      const result = sanitizeViewFilters(input);
+      const result = await sanitizeViewFilters(input);
       expect(result).toEqual(input);
     });
 
-    it("strips sensitive fields like tokens and code snippets", () => {
+    it("strips sensitive fields like tokens and code snippets", async () => {
       const input = {
         severity: ["HIGH"],
         token: "ghp_secretToken123456789",
@@ -58,7 +58,7 @@ describe("Saved Views Server Actions (#1786)", () => {
         authorization: "Bearer secret",
       };
 
-      const result = sanitizeViewFilters(input);
+      const result = await sanitizeViewFilters(input);
       expect(result).toEqual({ severity: ["HIGH"] });
       expect((result as any).token).toBeUndefined();
       expect((result as any).apiKey).toBeUndefined();
@@ -66,13 +66,13 @@ describe("Saved Views Server Actions (#1786)", () => {
       expect((result as any).authorization).toBeUndefined();
     });
 
-    it("ignores malformed dates", () => {
+    it("ignores malformed dates", async () => {
       const input = {
         from: "not-a-date",
         to: "2026-11-01",
       };
 
-      const result = sanitizeViewFilters(input);
+      const result = await sanitizeViewFilters(input);
       expect(result.from).toBeUndefined();
       expect(result.to).toBe("2026-11-01");
     });
