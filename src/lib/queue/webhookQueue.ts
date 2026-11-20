@@ -10,6 +10,8 @@ export interface WebhookJobData {
    * Defaults to deliveryId or a generated UUID if omitted.
    */
   correlationId?: string;
+  /** OpenTelemetry W3C trace context carrier for distributed trace propagation (#1897). */
+  traceContext?: Record<string, string>;
   /**
    * How many times the DLQ auto-retry worker has requeued this delivery.
    *

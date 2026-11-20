@@ -1,4 +1,5 @@
 import { Worker, Job, DelayedError } from "bullmq";
+import { withSpan, extractTraceContext, type Context } from "@/lib/tracing";
 import { postScanCheckRun, postScanErrorCheckRun } from "../scanner/check-run";
 import { z } from "zod";
 import { redis } from "./redis";
@@ -451,6 +452,7 @@ export interface RunPullRequestScanParams {
   log: any;
   isRerun?: boolean;
   checkRunId?: number;
+  parentContext?: Context;
 }
 
 export async function runPullRequestScan({
@@ -466,6 +468,7 @@ export async function runPullRequestScan({
   log,
   isRerun = false,
   checkRunId,
+  parentContext,
 }: RunPullRequestScanParams): Promise<{ dbRepoId?: string; dbPrId?: string }> {
   let dbRepoId: string | undefined;
   let dbPrId: string | undefined;
@@ -587,13 +590,28 @@ export async function runPullRequestScan({
     // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
     // call left every file past the 30th unscanned while still reporting a
     // policy decision as though the whole PR had been reviewed.
-    const pullRequestFilesResult = await fetchPullRequestFiles(octokit as any, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      pullNumber: pullRequest.number,
-      changedFiles:
-        typeof pullRequest.changed_files === "number" ? pullRequest.changed_files : null,
-    });
+    const pullRequestFilesResult = await withSpan(
+      "diff.fetch",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        if (pullRequest.base?.ref) span.setAttribute("secureflow.base_ref", pullRequest.base.ref);
+
+        const res = await fetchPullRequestFiles(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          pullNumber: pullRequest.number,
+          changedFiles:
+            typeof pullRequest.changed_files === "number" ? pullRequest.changed_files : null,
+        });
+
+        span.setAttribute("secureflow.changed_files_count", res.files.length);
+        return res;
+      },
+      { parentContext },
+    );
 
     const coverageNotice = formatCoverageNotice(pullRequestFilesResult);
     if (coverageNotice) {
@@ -654,11 +672,27 @@ export async function runPullRequestScan({
     // ScanResult, so letting the engine do the same would duplicate all four
     // (#747). It also requests the AI explanations itself, below, so the
     // engine must not request them first.
-    const scanResult = await processScanJob(scanJobData, undefined, {
-      report: false,
-      persist: false,
-      enrich: false,
-    });
+    const scanResult = await withSpan(
+      "scan.execute",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        span.setAttribute("secureflow.files_scanned", fileChanges.length);
+
+        const res = await processScanJob(scanJobData, undefined, {
+          report: false,
+          persist: false,
+          enrich: false,
+        });
+
+        span.setAttribute("secureflow.findings_count", res.findings.length);
+        span.setAttribute("secureflow.cache_hit", Boolean(res.reusedFromCache));
+        return res;
+      },
+      { parentContext },
+    );
     const findings = scanResult.findings;
 
     // Attach a stable content fingerprint to every finding so triage decisions
@@ -695,13 +729,22 @@ export async function runPullRequestScan({
       activeFindings,
       AI_EXPLANATION_CONCURRENCY,
       async (finding: any) => {
-        const aiResponse = await developerReceivesAISecurityExplanations({
-          findingType: finding.type,
-          severity: finding.severity,
-          description: finding.description,
-          fileLocation: finding.fileLocation,
-          codeSnippet: finding.codeSnippet || "",
-        });
+        const aiResponse = await withSpan(
+          "llm.request",
+          async (span) => {
+            span.setAttribute("secureflow.correlation_id", correlationId);
+            span.setAttribute("llm.finding_type", finding.type);
+            span.setAttribute("llm.severity", finding.severity);
+            return await developerReceivesAISecurityExplanations({
+              findingType: finding.type,
+              severity: finding.severity,
+              description: finding.description,
+              fileLocation: finding.fileLocation,
+              codeSnippet: finding.codeSnippet || "",
+            });
+          },
+          { parentContext },
+        );
         return {
           ...finding,
           // Redacted before anything else touches them. These two fields are
@@ -765,17 +808,31 @@ export async function runPullRequestScan({
     const gateSummary = formatGateSummaryLine(gateConfig);
     const combinedNotice = [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
 
-    await postScanCheckRun(octokit as any, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      headSha: pullRequest.head?.sha,
-      decision,
-      findingsCount: activeFindings.length,
-      fileCount: fileChanges.length,
-      notice: combinedNotice,
-      findings: enrichedFindings,
-      checkRunId,
-    });
+    await withSpan(
+      "check_run.update",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        if (checkRunId) span.setAttribute("secureflow.check_run_id", checkRunId);
+        span.setAttribute("secureflow.decision", String(decision));
+        span.setAttribute("secureflow.findings_count", activeFindings.length);
+
+        return await postScanCheckRun(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          decision,
+          findingsCount: activeFindings.length,
+          fileCount: fileChanges.length,
+          notice: combinedNotice,
+          findings: enrichedFindings,
+          checkRunId,
+        });
+      },
+      { parentContext },
+    );
 
     // Publish the same findings to GitHub's Code Scanning UI, so they show
     // up in the PR's "Security" tab without a trip to the dashboard.
@@ -993,32 +1050,46 @@ export async function runPullRequestScan({
       // counting toward the stored score (and the risk-trend average).
       const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
-      await prisma.scanResult.create({
-        data: {
-          pullRequestId: dbPr.id,
-          headSha: pullRequest.head?.sha,
-          gateConfig,
-          riskScore,
-          policyDecision: normalizePolicyDecisionEnum(decision),
-          findings: {
-            create: findingsToPersist.map((f: any) => ({
-              type: normalizeFindingTypeEnum(f.type),
-              // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
-              // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
-              // not a `FindingSeverity` member, so the insert fails outright (#686).
-              severity: toStoredSeverity(f.severity),
-              fileLocation: f.fileLocation,
-              lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
-              lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
-              codeSnippet: f.codeSnippet || null,
-              explanation: f.explanation || null,
-              remediation: f.remediation || null,
-              promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
-              fingerprint: f.fingerprint || "",
-            })),
-          },
+      await withSpan(
+        "db.write",
+        async (span) => {
+          span.setAttribute("secureflow.correlation_id", correlationId);
+          span.setAttribute("secureflow.repository_id", repository.full_name);
+          span.setAttribute("secureflow.pr_number", pullRequest.number);
+          if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+          span.setAttribute("secureflow.findings_persisted", findingsToPersist.length);
+          span.setAttribute("secureflow.risk_score", riskScore);
+          span.setAttribute("secureflow.policy_decision", normalizePolicyDecisionEnum(decision));
+
+          return await prisma.scanResult.create({
+            data: {
+              pullRequestId: dbPr.id,
+              headSha: pullRequest.head?.sha,
+              gateConfig,
+              riskScore,
+              policyDecision: normalizePolicyDecisionEnum(decision),
+              findings: {
+                create: findingsToPersist.map((f: any) => ({
+                  type: normalizeFindingTypeEnum(f.type),
+                  // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                  // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                  // not a `FindingSeverity` member, so the insert fails outright (#686).
+                  severity: toStoredSeverity(f.severity),
+                  fileLocation: f.fileLocation,
+                  lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
+                  lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
+                  codeSnippet: f.codeSnippet || null,
+                  explanation: f.explanation || null,
+                  remediation: f.remediation || null,
+                  promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                  fingerprint: f.fingerprint || "",
+                })),
+              },
+            },
+          });
         },
-      });
+        { parentContext },
+      );
 
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
       const isPartialScan =
@@ -1151,6 +1222,23 @@ export const worker = new Worker<WebhookJobData>(
     const { payload: rawPayload, event, deliveryId } = job.data;
     const correlationId = job.data.correlationId || deliveryId || crypto.randomUUID();
     const log = logger.child({ correlationId, deliveryId: deliveryId ?? undefined, jobId: job.id });
+
+    // Extract OpenTelemetry trace context from the queue job payload
+    const parentContext = extractTraceContext(job.data.traceContext);
+
+    // Record queue wait span if the job was queued
+    if (job.timestamp) {
+      await withSpan(
+        "queue.wait",
+        async (span) => {
+          span.setAttribute("secureflow.correlation_id", correlationId);
+          span.setAttribute("secureflow.queue", "github-webhooks");
+          if (job.id) span.setAttribute("secureflow.job_id", String(job.id));
+          span.setAttribute("secureflow.wait_ms", Math.max(0, Date.now() - job.timestamp));
+        },
+        { parentContext, startTime: job.timestamp },
+      );
+    }
 
     // Event Filtering
     if (
@@ -1386,6 +1474,7 @@ export const worker = new Worker<WebhookJobData>(
           correlationId,
           log,
           isRerun: false,
+          parentContext,
         });
         if (resultIds.dbRepoId) dbRepoId = resultIds.dbRepoId;
         if (resultIds.dbPrId) dbPrId = resultIds.dbPrId;
@@ -1476,6 +1565,7 @@ export const worker = new Worker<WebhookJobData>(
           log,
           isRerun: true,
           checkRunId,
+          parentContext,
         });
 
         if (resultIds.dbRepoId) dbRepoId = resultIds.dbRepoId;
