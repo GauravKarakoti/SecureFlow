@@ -144,7 +144,7 @@ const INJECTION_PATTERNS: RegExp[] = [
   /\b(?:hypothetical universe|movie script|superuser clearance)\b.{0,140}\b(?:approve|bypass|disable)\b/i,
 ];
 
-function detectPromptInjection(text: string): boolean {
+export function detectPromptInjection(text: string): boolean {
   if (!text) return false;
   return INJECTION_PATTERNS.some((pattern) => pattern.test(text));
 }
