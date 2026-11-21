@@ -47,6 +47,7 @@ function git(args: string[], cwd?: string): string {
     encoding: "utf-8",
     maxBuffer: MAX_GIT_BUFFER,
     cwd,
+    stdio: ["pipe", "pipe", "pipe"],
   });
 }
 

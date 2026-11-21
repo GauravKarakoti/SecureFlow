@@ -61,3 +61,6 @@ Thumbs.db
 
 # Local scratch notes
 NOTES.md
+
+# SecureFlow local cache and metadata
+.secureflow/

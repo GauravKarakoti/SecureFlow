@@ -40,16 +40,17 @@ import {
   parseOutputPath,
   parseVoiceArg,
   parseSinceArg,
+  parseNoCacheArg,
+  parseCacheClearArg,
+  parseCacheDirArg,
 } from "./lib/output-args.js";
+import { getCacheEntry, setCacheEntry, clearCache } from "./cache.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
   TerminalSpinner,
   formatTuiScanSummary,
-  initHuskyPreCommitHook,
-  initBlankPrepareScript,
   initSecureFlow,
   formatInitGreeting,
-  colors,
 } from "./lib/tui.js";
 
 const VERBOSE = process.argv.includes("--verbose");
@@ -141,6 +142,7 @@ Commands:
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
+  cache-clear            Clear the local scan cache directory (.secureflow/cache)
 
 Options:
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
@@ -152,6 +154,8 @@ Options:
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
   --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
+  --no-cache             Disable scan caching and force fresh analysis on all files
+  --cache-dir <path>     Specify custom local cache directory
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -175,6 +179,8 @@ Examples:
   $ secureflow validate .secureflow.json           # Validate specific configuration file
   $ secureflow                                     # Run standard security scan on staged files
   $ secureflow --since origin/main                 # Scan only files changed versus origin/main
+  $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
+  $ secureflow cache-clear                         # Clear the local scan results cache
   $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
   $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
   $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
@@ -263,6 +269,27 @@ async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise
 }
 
 async function main(): Promise<number> {
+  if (parseCacheClearArg(process.argv)) {
+    let customCacheDir: string | undefined;
+    try {
+      customCacheDir = parseCacheDirArg(process.argv);
+    } catch (err: any) {
+      console.error(`❌ [SecureFlow] ${err.message}`);
+      return 1;
+    }
+    const repoRoot = getRepoRoot();
+    const result = clearCache(customCacheDir, repoRoot);
+    if (result.cleared) {
+      console.log(
+        `🧹 [SecureFlow] Cache cleared successfully (${result.count} entr${result.count === 1 ? "y" : "ies"} removed).`,
+      );
+      return 0;
+    } else {
+      console.error(`❌ [SecureFlow] Failed to clear cache directory at ${result.cacheDir}`);
+      return 1;
+    }
+  }
+
   const isValidateCommand =
     process.argv[2] === "validate" ||
     process.argv.includes("--validate") ||
@@ -478,11 +505,15 @@ async function main(): Promise<number> {
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
   let sinceRef: string | undefined;
+  let noCache = false;
+  let customCacheDir: string | undefined;
   try {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
     sinceRef = parseSinceArg(process.argv);
+    noCache = parseNoCacheArg(process.argv);
+    customCacheDir = parseCacheDirArg(process.argv);
   } catch (error) {
     if (!(error instanceof CliUsageError)) throw error;
     console.error(`❌ [SecureFlow] ${error.message}`);
@@ -507,6 +538,10 @@ async function main(): Promise<number> {
   const fileResults: FileScanResult[] = [];
   const unreadable: string[] = [];
   const stagedForAi: StagedFileForAiScan[] = [];
+  const cachedAiFindings: AiFinding[] = [];
+  const newlyAnalyzed: Array<{ filePath: string; content: string; result: FileScanResult }> = [];
+  let analyzedCount = 0;
+  let cachedCount = 0;
 
   const ignoreData = loadSecureFlowIgnore(customIgnorePath);
   const customIgnores = ignoreData?.compiledPatterns ?? [];
@@ -545,16 +580,42 @@ async function main(): Promise<number> {
         continue;
       }
 
-      const result = scanFile(filePath, content, customIgnores);
-      fileResults.push(result);
-      if (format === "text") {
-        reportSkipped(result);
-        reportViolations(result);
-      }
-      violationCount += result.violations.length;
+      // Check cache unless --no-cache was specified
+      const cached = !noCache
+        ? getCacheEntry({ filePath, content, cacheDir: customCacheDir })
+        : null;
 
-      if (!result.skipped) {
-        stagedForAi.push({ path: filePath, content });
+      if (cached) {
+        cachedCount++;
+        const result: FileScanResult = {
+          ...cached.result,
+          path: filePath,
+        };
+        fileResults.push(result);
+        if (cached.aiFindings && cached.aiFindings.length > 0) {
+          cachedAiFindings.push(
+            ...cached.aiFindings.map((f) => ({ ...f, fileLocation: filePath })),
+          );
+        }
+        if (format === "text") {
+          reportSkipped(result);
+          reportViolations(result);
+        }
+        violationCount += result.violations.length;
+      } else {
+        analyzedCount++;
+        const result = scanFile(filePath, content, customIgnores);
+        fileResults.push(result);
+        newlyAnalyzed.push({ filePath, content, result });
+        if (format === "text") {
+          reportSkipped(result);
+          reportViolations(result);
+        }
+        violationCount += result.violations.length;
+
+        if (!result.skipped) {
+          stagedForAi.push({ path: filePath, content });
+        }
       }
     }
   }
@@ -577,15 +638,34 @@ async function main(): Promise<number> {
       `AI inspection completed (${aiFindings.length} finding${aiFindings.length === 1 ? "" : "s"})`,
     );
   }
+
+  // Persist newly analyzed results to cache
+  if (!noCache && newlyAnalyzed.length > 0) {
+    for (const item of newlyAnalyzed) {
+      const fileAiFindings = aiFindings.filter((f) => f.fileLocation === item.filePath);
+      setCacheEntry({
+        filePath: item.filePath,
+        content: item.content,
+        result: item.result,
+        aiFindings: fileAiFindings,
+        cacheDir: customCacheDir,
+      });
+    }
+  }
+
+  const allAiFindings = [...cachedAiFindings, ...aiFindings];
   const filteredAiFindings = severityFilter
-    ? aiFindings.filter((f) => severityFilter.has(f.severity))
-    : aiFindings;
+    ? allAiFindings.filter((f) => severityFilter.has(f.severity))
+    : allAiFindings;
   if (format === "text") {
     for (const finding of filteredAiFindings) {
       reportAiFinding(finding);
     }
     if (fileResults.length > 0 || filteredAiFindings.length > 0) {
       console.log(formatTuiScanSummary(filteredResults, filteredAiFindings));
+    }
+    if (filesToScan.length > 0) {
+      console.log(`ℹ️  [SecureFlow] Analyzed ${analyzedCount} file(s) (${cachedCount} cached).`);
     }
   }
   if (
@@ -638,11 +718,11 @@ ${textOutput}`);
   const failOnThreshold = parseFailOnArg();
   // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
   // filter, not a security gate bypass. --fail-on must see every finding.
-  const shouldFail = shouldFailScan(violationCount, aiFindings, failOnThreshold);
-  const blockingAi = blockingAiFindings(aiFindings, failOnThreshold);
+  const shouldFail = shouldFailScan(violationCount, allAiFindings, failOnThreshold);
+  const blockingAi = blockingAiFindings(allAiFindings, failOnThreshold);
 
   if (voiceEnabled) {
-    const summaryText = generateVoiceSummaryText(violationCount, aiFindings, !shouldFail);
+    const summaryText = generateVoiceSummaryText(violationCount, allAiFindings, !shouldFail);
     await playVoiceDebrief(summaryText, {
       files: stagedForAi,
       verbose: VERBOSE,
@@ -669,7 +749,7 @@ ${textOutput}`);
   }
 
   if (format === "text") {
-    const advisoryCount = violationCount + aiFindings.length;
+    const advisoryCount = violationCount + allAiFindings.length;
     if (advisoryCount > 0) {
       console.log(
         `⚠️  SecureFlow advisory warning: ${advisoryCount} finding${

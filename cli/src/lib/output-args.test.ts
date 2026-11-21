@@ -9,6 +9,9 @@ import {
   parseSinceArg,
   parseVoiceArg,
   parseColorArg,
+  parseNoCacheArg,
+  parseCacheClearArg,
+  parseCacheDirArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -176,5 +179,52 @@ describe("parseColorArg", () => {
     expect(parseColorArg(argv("--no-color", "--color"))).toBe(true);
     expect(parseColorArg(argv("--no-color", "--color=never"))).toBe(false);
     expect(parseColorArg(argv("--no-color", "--color=always"))).toBe(true);
+  });
+});
+
+describe("parseNoCacheArg", () => {
+  it("defaults to false when absent", () => {
+    expect(parseNoCacheArg(argv())).toBe(false);
+    expect(parseNoCacheArg(argv("--format", "json"))).toBe(false);
+  });
+
+  it("is true for bare --no-cache", () => {
+    expect(parseNoCacheArg(argv("--no-cache"))).toBe(true);
+  });
+
+  it("supports boolean-ish values", () => {
+    expect(parseNoCacheArg(argv("--no-cache=true"))).toBe(true);
+    expect(parseNoCacheArg(argv("--no-cache=1"))).toBe(true);
+    expect(parseNoCacheArg(argv("--no-cache=false"))).toBe(false);
+    expect(parseNoCacheArg(argv("--no-cache=0"))).toBe(false);
+  });
+});
+
+describe("parseCacheClearArg", () => {
+  it("defaults to false when absent", () => {
+    expect(parseCacheClearArg(argv())).toBe(false);
+    expect(parseCacheClearArg(argv("--format", "json"))).toBe(false);
+  });
+
+  it("is true for cache-clear, cache clear, and --cache-clear", () => {
+    expect(parseCacheClearArg(argv("cache-clear"))).toBe(true);
+    expect(parseCacheClearArg(argv("cache", "clear"))).toBe(true);
+    expect(parseCacheClearArg(argv("--cache-clear"))).toBe(true);
+  });
+});
+
+describe("parseCacheDirArg", () => {
+  it("defaults to undefined when absent", () => {
+    expect(parseCacheDirArg(argv())).toBeUndefined();
+  });
+
+  it("reads --cache-dir <path> and --cache-dir=<path>", () => {
+    expect(parseCacheDirArg(argv("--cache-dir", "/custom/cache"))).toBe("/custom/cache");
+    expect(parseCacheDirArg(argv("--cache-dir=/custom/cache"))).toBe("/custom/cache");
+  });
+
+  it("rejects empty or missing directory path", () => {
+    expect(() => parseCacheDirArg(argv("--cache-dir"))).toThrow(CliUsageError);
+    expect(() => parseCacheDirArg(argv("--cache-dir="))).toThrow(CliUsageError);
   });
 });

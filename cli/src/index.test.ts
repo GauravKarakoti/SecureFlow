@@ -38,6 +38,13 @@ const m = vi.hoisted(() => ({
   getChangedFilesSince: vi.fn(),
   getRepoRoot: vi.fn(),
   parseSinceArg: vi.fn(),
+  parseNoCacheArg: vi.fn(),
+  parseCacheClearArg: vi.fn(),
+  parseCacheDirArg: vi.fn(),
+  getCacheEntry: vi.fn(),
+  setCacheEntry: vi.fn(),
+  clearCache: vi.fn(),
+  resolveCacheDir: vi.fn(),
 }));
 
 vi.mock("./git.js", () => ({
@@ -76,9 +83,18 @@ vi.mock("./lib/output-args.js", () => ({
   parseVoiceArg: m.parseVoiceArg,
   parseSinceArg: m.parseSinceArg,
   parseColorArg: m.parseColorArg,
+  parseNoCacheArg: m.parseNoCacheArg,
+  parseCacheClearArg: m.parseCacheClearArg,
+  parseCacheDirArg: m.parseCacheDirArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
+vi.mock("./cache.js", () => ({
+  getCacheEntry: m.getCacheEntry,
+  setCacheEntry: m.setCacheEntry,
+  clearCache: m.clearCache,
+  resolveCacheDir: m.resolveCacheDir,
+}));
 
 vi.mock("./lib/tui.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/tui.js")>();
@@ -138,6 +154,13 @@ beforeEach(() => {
   m.parseIgnoreFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
   m.parseSinceArg.mockReturnValue(undefined);
+  m.parseNoCacheArg.mockReturnValue(false);
+  m.parseCacheClearArg.mockReturnValue(false);
+  m.parseCacheDirArg.mockReturnValue(undefined);
+  m.getCacheEntry.mockReturnValue(null);
+  m.setCacheEntry.mockReturnValue(undefined);
+  m.clearCache.mockReturnValue({ cleared: true, count: 0, cacheDir: "/dummy/cache" });
+  m.resolveCacheDir.mockReturnValue("/dummy/cache");
   m.getChangedFilesSince.mockReturnValue([]);
   m.getRepoRoot.mockReturnValue(process.cwd());
   m.parseColorArg.mockReturnValue(undefined);
@@ -576,5 +599,75 @@ describe("--since flag (#1760)", () => {
     const code = await runCli("--since", "invalid-ref");
     expect(code).toBe(1);
     expect(output(errorSpy)).toContain('Git reference "invalid-ref" does not exist.');
+  });
+});
+
+describe("caching and cache-clear flags", () => {
+  it("clears cache and exits 0 when cache-clear is invoked", async () => {
+    m.parseCacheClearArg.mockReturnValue(true);
+    m.clearCache.mockReturnValue({ cleared: true, count: 5, cacheDir: "/dummy/cache" });
+
+    const code = await runCli("cache-clear");
+    expect(code).toBe(0);
+    expect(m.clearCache).toHaveBeenCalledTimes(1);
+    expect(output(logSpy)).toContain("Cache cleared successfully (5 entries removed).");
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+  });
+
+  it("exits 1 when cache-clear fails", async () => {
+    m.parseCacheClearArg.mockReturnValue(true);
+    m.clearCache.mockReturnValue({ cleared: false, count: 0, cacheDir: "/dummy/cache" });
+
+    const code = await runCli("cache-clear");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("Failed to clear cache directory");
+  });
+
+  it("reuses cached scan result and skips scanFile on cache hit", async () => {
+    m.getStagedFiles.mockReturnValue(["cached.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.getCacheEntry.mockReturnValue({
+      version: 1,
+      rulesetVersion: "1.0.0",
+      contentHash: "hash123",
+      filePath: "cached.ts",
+      result: scanResult("cached.ts", []),
+      cachedAt: Date.now(),
+    });
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.getCacheEntry).toHaveBeenCalledTimes(1);
+    expect(m.scanFile).not.toHaveBeenCalled();
+    expect(m.setCacheEntry).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("Analyzed 0 file(s) (1 cached).");
+  });
+
+  it("scans file and writes to cache on cache miss", async () => {
+    m.getStagedFiles.mockReturnValue(["new.ts"]);
+    m.readStagedContent.mockReturnValue("const y = 2;");
+    m.getCacheEntry.mockReturnValue(null);
+    m.scanFile.mockReturnValue(scanResult("new.ts", []));
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.getCacheEntry).toHaveBeenCalledTimes(1);
+    expect(m.scanFile).toHaveBeenCalledTimes(1);
+    expect(m.setCacheEntry).toHaveBeenCalledTimes(1);
+    expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
+  });
+
+  it("bypasses cache when --no-cache is passed", async () => {
+    m.parseNoCacheArg.mockReturnValue(true);
+    m.getStagedFiles.mockReturnValue(["file.ts"]);
+    m.readStagedContent.mockReturnValue("const z = 3;");
+    m.scanFile.mockReturnValue(scanResult("file.ts", []));
+
+    const code = await runCli("--no-cache");
+    expect(code).toBe(0);
+    expect(m.getCacheEntry).not.toHaveBeenCalled();
+    expect(m.scanFile).toHaveBeenCalledTimes(1);
+    expect(m.setCacheEntry).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
   });
 });
