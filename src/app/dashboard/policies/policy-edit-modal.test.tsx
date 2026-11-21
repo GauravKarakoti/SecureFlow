@@ -9,7 +9,6 @@ import { PolicyEditModal } from "./policy-edit-modal";
 
 const mockToast = vi.hoisted(() => vi.fn());
 const mockEditPolicy = vi.hoisted(() => vi.fn());
-const mockPreviewPolicyImpactAction = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: mockToast }),
@@ -17,7 +16,6 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("./actions", () => ({
   editPolicy: mockEditPolicy,
-  previewPolicyImpactAction: mockPreviewPolicyImpactAction,
 }));
 
 beforeAll(() => {
@@ -40,6 +38,7 @@ describe("PolicyEditModal - Preview Impact (#1892)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    global.fetch = vi.fn();
   });
 
   it("renders the Preview Impact button", () => {
@@ -54,23 +53,26 @@ describe("PolicyEditModal - Preview Impact (#1892)", () => {
   });
 
   it("shows a clear message when too little history exists", async () => {
-    mockPreviewPolicyImpactAction.mockResolvedValueOnce({
+    vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
-      hasHistory: false,
-      message:
-        "Too little history exists for a meaningful preview. Run repository scans to generate historical scan data.",
-      replayedScans: 0,
-      totalTokens: 0,
-      severityComparison: {
-        CRITICAL: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        HIGH: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        MEDIUM: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        LOW: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        INFO: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        TOTAL: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-      },
-      findings: { new: [], removed: [], unchanged: [] },
-    });
+      json: async () => ({
+        ok: true,
+        hasHistory: false,
+        message:
+          "Too little history exists for a meaningful preview. Run repository scans to generate historical scan data.",
+        replayedScans: 0,
+        totalTokens: 0,
+        severityComparison: {
+          CRITICAL: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          HIGH: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          MEDIUM: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          LOW: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          INFO: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          TOTAL: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+        },
+        findings: { new: [], removed: [], unchanged: [] },
+      }),
+    } as Response);
 
     render(<PolicyEditModal {...defaultProps} />);
     const previewBtn = screen.getByTestId("preview-impact-button");
@@ -80,49 +82,65 @@ describe("PolicyEditModal - Preview Impact (#1892)", () => {
       expect(screen.getByTestId("preview-empty-history")).toBeInTheDocument();
     });
 
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/policies/preview-impact",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateId: "tpl-1",
+          draftDescription: "Block hardcoded secrets and tokens in PR code changes",
+          draftSeverity: "HIGH",
+        }),
+      }),
+    );
+
     expect(
       screen.getAllByText(/Too little history exists for a meaningful preview/i).length,
     ).toBeGreaterThan(0);
   });
 
   it("renders comparison table and findings breakdown when history exists", async () => {
-    mockPreviewPolicyImpactAction.mockResolvedValueOnce({
+    vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
-      hasHistory: true,
-      replayedScans: 8,
-      totalTokens: 4200,
-      severityComparison: {
-        CRITICAL: { unchanged: 0, newCount: 1, removedCount: 0, netChange: 1 },
-        HIGH: { unchanged: 3, newCount: 0, removedCount: 1, netChange: -1 },
-        MEDIUM: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        LOW: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        INFO: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
-        TOTAL: { unchanged: 3, newCount: 1, removedCount: 1, netChange: 0 },
-      },
-      findings: {
-        new: [
-          {
-            type: "Secret",
-            severity: "CRITICAL",
-            description: "Hardcoded production private key in config.ts",
-            fileLocation: "config.ts",
-            lineStart: 12,
-            status: "NEW",
-          },
-        ],
-        removed: [
-          {
-            type: "Secret",
-            severity: "HIGH",
-            description: "Old secret format no longer flagged",
-            fileLocation: "api.ts",
-            lineStart: 5,
-            status: "REMOVED",
-          },
-        ],
-        unchanged: [],
-      },
-    });
+      json: async () => ({
+        ok: true,
+        hasHistory: true,
+        replayedScans: 8,
+        totalTokens: 4200,
+        severityComparison: {
+          CRITICAL: { unchanged: 0, newCount: 1, removedCount: 0, netChange: 1 },
+          HIGH: { unchanged: 3, newCount: 0, removedCount: 1, netChange: -1 },
+          MEDIUM: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          LOW: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          INFO: { unchanged: 0, newCount: 0, removedCount: 0, netChange: 0 },
+          TOTAL: { unchanged: 3, newCount: 1, removedCount: 1, netChange: 0 },
+        },
+        findings: {
+          new: [
+            {
+              type: "Secret",
+              severity: "CRITICAL",
+              description: "Hardcoded production private key in config.ts",
+              fileLocation: "config.ts",
+              lineStart: 12,
+              status: "NEW",
+            },
+          ],
+          removed: [
+            {
+              type: "Secret",
+              severity: "HIGH",
+              description: "Old secret format no longer flagged",
+              fileLocation: "api.ts",
+              lineStart: 5,
+              status: "REMOVED",
+            },
+          ],
+          unchanged: [],
+        },
+      }),
+    } as Response);
 
     render(<PolicyEditModal {...defaultProps} />);
     const previewBtn = screen.getByTestId("preview-impact-button");

@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { editPolicy, previewPolicyImpactAction } from "./actions";
+import { editPolicy } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { POLICY_SEVERITIES } from "@/lib/policies/versioning";
 import type { PolicyPreviewImpactResult } from "@/lib/policies/preview-impact";
@@ -66,13 +66,19 @@ export function PolicyEditModal({
     setPreviewResult(null);
 
     try {
-      const res = await previewPolicyImpactAction({
-        templateId: policyId,
-        draftDescription: description.trim(),
-        draftSeverity: severity,
+      const response = await fetch("/api/policies/preview-impact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateId: policyId,
+          draftDescription: description.trim(),
+          draftSeverity: severity,
+        }),
       });
 
-      if (!res.ok) {
+      const res = await response.json();
+
+      if (!response.ok || !res.ok) {
         throw new Error(res.error || "Failed to preview policy impact");
       }
 
