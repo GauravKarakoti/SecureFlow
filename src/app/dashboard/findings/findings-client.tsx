@@ -126,6 +126,11 @@ export default function FindingsClient({
     return `/api/findings/export${query ? `?${query}` : ""}`;
   }, [searchParams]);
 
+  const jsonExportHref = useMemo(() => {
+    const separator = exportHref.includes("?") ? "&" : "?";
+    return `${exportHref}${separator}format=json`;
+  }, [exportHref]);
+
   const heistRisk = useMemo(
     () =>
       calculateHeistRiskScore({
@@ -323,6 +328,10 @@ export default function FindingsClient({
                   Export CSV
                 </Button>
                 <Button variant="outline" size="sm" disabled className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Export JSON
+                </Button>
+                <Button variant="outline" size="sm" disabled className="gap-2">
                   <FileText className="h-4 w-4" />
                   Shareable Report
                 </Button>
@@ -335,6 +344,12 @@ export default function FindingsClient({
                   <a href={exportHref} download>
                     <Download className="h-4 w-4" />
                     Export CSV
+                  </a>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  <a href={jsonExportHref} download>
+                    <Download className="h-4 w-4" />
+                    Export JSON
                   </a>
                 </Button>
                 <Button

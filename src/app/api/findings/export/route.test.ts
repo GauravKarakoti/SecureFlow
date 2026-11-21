@@ -29,12 +29,27 @@ import {
   GET,
   buildExportPageWhere,
   findingsExportFilename,
+  findingsJsonExportFilename,
   findingsReportFilename,
+  getExportOrderBy,
   searchParamsToRecord,
   toFindingsExportRow,
 } from "./route";
 import { collectCsvStream } from "@/lib/utils/csv-stream";
 import { CSV_BOM } from "@/lib/utils/csv";
+
+async function collectJsonStream(stream: ReadableStream<Uint8Array>): Promise<any[]> {
+  const decoder = new TextDecoder("utf-8");
+  const reader = stream.getReader();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode();
+  return JSON.parse(text);
+}
 
 const withoutBom = (csv: string) => (csv.startsWith(CSV_BOM) ? csv.slice(CSV_BOM.length) : csv);
 
@@ -103,9 +118,14 @@ describe("toFindingsExportRow", () => {
 
     expect(toFindingsExportRow(finding(1), byKey)).toMatchObject({
       id: "f-0001",
+      title: "SECRET Detected",
+      severity: "HIGH",
+      status: "RESOLVED",
+      file: "src/file-1.ts",
+      line: 1,
+      remediation: "",
       repository: "acme/api",
       pullRequest: 7,
-      status: "RESOLVED",
       lineStart: 1,
       lineEnd: "",
     });
@@ -120,9 +140,17 @@ describe("toFindingsExportRow", () => {
 });
 
 describe("findingsExportFilename", () => {
-  it("stamps the date", () => {
+  it("stamps the date for csv exports", () => {
     expect(findingsExportFilename(new Date("2026-09-22T10:00:00Z"))).toBe(
       "secureflow-findings-2026-09-22.csv",
+    );
+  });
+});
+
+describe("findingsJsonExportFilename", () => {
+  it("stamps the date for json exports", () => {
+    expect(findingsJsonExportFilename(new Date("2026-09-22T10:00:00Z"))).toBe(
+      "secureflow-findings-2026-09-22.json",
     );
   });
 });
@@ -233,5 +261,91 @@ describe("GET /api/findings/export", () => {
     expect(html).toContain("#0A5C3E");
     expect(html).toContain("src/file-1.ts");
     expect(html).toContain("The Professor's Strategic Directive");
+  });
+
+  it("exports findings as JSON with format=json", async () => {
+    serve([finding(1), finding(2)]);
+
+    const res = await GET(request("?format=json"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
+    expect(res.headers.get("Content-Disposition")).toMatch(
+      /attachment; filename="secureflow-findings-\d{4}-\d{2}-\d{2}\.json"/,
+    );
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+
+    const json = await collectJsonStream(res.body!);
+    expect(Array.isArray(json)).toBe(true);
+    expect(json).toHaveLength(2);
+
+    expect(json[0]).toMatchObject({
+      id: "f-0001",
+      title: "SECRET Detected",
+      severity: "HIGH",
+      file: "src/file-1.ts",
+      line: 1,
+      status: "OPEN",
+    });
+  });
+
+  it("streams JSON across batches for large exports without freezing", async () => {
+    const rows = Array.from({ length: FINDINGS_EXPORT_BATCH_SIZE + 50 }, (_, i) => finding(i));
+    serve(rows);
+
+    const res = await GET(request("?format=json"));
+    expect(res.status).toBe(200);
+
+    const json = await collectJsonStream(res.body!);
+    expect(json).toHaveLength(rows.length);
+    expect(json[rows.length - 1].id).toBe(`f-${String(rows.length - 1).padStart(4, "0")}`);
+  });
+
+  it("respects sort=oldest in query", async () => {
+    serve([finding(1)]);
+
+    await collectCsvStream((await GET(request("?sort=oldest"))).body!);
+
+    const { orderBy } = findingFindMany.mock.calls[0][0];
+    expect(orderBy).toEqual([{ createdAt: "asc" }, { id: "asc" }]);
+  });
+
+  it("respects sort=file in query", async () => {
+    serve([finding(1)]);
+
+    await collectCsvStream((await GET(request("?sort=file"))).body!);
+
+    const { orderBy } = findingFindMany.mock.calls[0][0];
+    expect(orderBy).toEqual([{ fileLocation: "asc" }, { createdAt: "desc" }, { id: "asc" }]);
+  });
+
+  it("respects sort=severity by querying severity buckets in order", async () => {
+    findingFindMany
+      .mockResolvedValueOnce([finding(1, { severity: "CRITICAL" })])
+      .mockResolvedValueOnce([finding(2, { severity: "HIGH" })])
+      .mockResolvedValue([]);
+
+    const res = await GET(request("?sort=severity&format=json"));
+    const json = await collectJsonStream(res.body!);
+
+    expect(findingFindMany).toHaveBeenCalled();
+    const calls = findingFindMany.mock.calls;
+    expect(calls[0][0].where.severity).toBe("CRITICAL");
+    expect(calls[1][0].where.severity).toBe("HIGH");
+    expect(json[0].severity).toBe("CRITICAL");
+    expect(json[1].severity).toBe("HIGH");
+  });
+
+  it("escapes commas, quotes, and newlines correctly in CSV export", async () => {
+    const findingWithSpecialChars = finding(1, {
+      fileLocation: 'src/special, "quoted" path/file.ts',
+      remediation: 'Follow instructions: rotate "API_KEY", and notify admin.',
+    });
+    serve([findingWithSpecialChars]);
+
+    const res = await GET(request());
+    const csv = await collectCsvStream(res.body!);
+
+    expect(csv).toContain('"src/special, ""quoted"" path/file.ts"');
+    expect(csv).toContain('"Follow instructions: rotate ""API_KEY"", and notify admin."');
   });
 });

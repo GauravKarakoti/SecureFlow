@@ -193,7 +193,7 @@ describe("REMOTE_IMAGE_HOSTS vs next.config.ts", () => {
     // import Next types — so this assertion is what actually keeps them honest.
     const patterns = nextConfig.images?.remotePatterns ?? [];
     const configured = patterns.map(
-      (pattern) =>
+      (pattern: any) =>
         `${(pattern as { protocol?: string }).protocol ?? "https"}://${(pattern as { hostname?: string }).hostname}`,
     );
 

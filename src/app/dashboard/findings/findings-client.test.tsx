@@ -158,6 +158,27 @@ describe("FindingsClient Component (#633)", () => {
     expect(screen.queryByRole("link", { name: /Export CSV/ })).toBeNull();
   });
 
+  it("links Export JSON to the server export with format=json and current filters and sorting, minus paging", () => {
+    currentParams = new URLSearchParams("severity=CRITICAL&sort=oldest&page=3&pageSize=100");
+    try {
+      render(<FindingsClient {...defaultProps} total={340} />);
+      const link = screen.getByRole("link", { name: /Export JSON/ });
+      expect(link).toHaveAttribute(
+        "href",
+        "/api/findings/export?severity=CRITICAL&sort=oldest&format=json",
+      );
+      expect(link).toHaveAttribute("download");
+    } finally {
+      currentParams = new URLSearchParams();
+    }
+  });
+
+  it("disables Export JSON when nothing matches", () => {
+    render(<FindingsClient {...defaultProps} findings={[]} total={0} />);
+    expect(screen.getByRole("button", { name: /Export JSON/ })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /Export JSON/ })).toBeNull();
+  });
+
   it("renders themed Heist Risk Score and Vault Integrity Status metrics (#1711)", () => {
     render(<FindingsClient {...defaultProps} />);
     expect(screen.getByText("Heist Risk Score")).toBeInTheDocument();
