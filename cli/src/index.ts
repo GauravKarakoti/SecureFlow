@@ -131,21 +131,19 @@ SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
   secureflow [options]
-  secureflow init [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
-  init                   Initialize repository configuration (.secureflow.json and .secureflowignore) and pre-commit hooks
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
 
 Options:
-  --init                 Initialize SecureFlow (choose between Blank and Husky, writes configs)
+  --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
   --validate [file]      Validate configuration files against schema
   --force, -f            Overwrite existing configuration files without confirmation
   --severity <level>     Minimum blocking severity threshold for init or fail-on
@@ -171,7 +169,8 @@ Options:
   -h, --help             Show this help message
 
 Examples:
-  $ secureflow init                                # Initialize hooks and configuration files
+  $ secureflow --init                              # Initialize configuration (.secureflow.json, .secureflowignore) and git hooks
+  $ secureflow --init --severity HIGH --force      # Non-interactive initialization with severity threshold
   $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
   $ secureflow validate .secureflow.json           # Validate specific configuration file
   $ secureflow                                     # Run standard security scan on staged files

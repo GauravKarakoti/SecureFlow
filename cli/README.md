@@ -115,14 +115,12 @@ Now, every `git commit` automatically triggers a security check on staged files.
 ```text
 Usage:
   secureflow [options]
-  secureflow init [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
-  init                   Initialize repository configuration (.secureflow.json & .secureflowignore) and pre-commit hooks
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
@@ -133,7 +131,7 @@ Commands:
 
 | Flag                   | Shorthand | Default             | Description                                                                                        |
 | :--------------------- | :-------- | :------------------ | :------------------------------------------------------------------------------------------------- |
-| `--init`               |           |                     | Initialize SecureFlow (setup pre-commit hook and repository configuration files)                   |
+| `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)          |
 | `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors |
 | `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt         |
 | `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)     |

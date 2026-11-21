@@ -5,7 +5,7 @@
 
 feat(cli): integrate repository configuration generator and schema validator into secureflow CLI (#1898)
 
-- Enhanced `secureflow --init` and added `secureflow init` / `secureflow-cli init` to generate `.secureflow.json` and `.secureflowignore` with helpful comments and sensible defaults.
+- Enhanced `secureflow --init` to generate `.secureflow.json` and `.secureflowignore` with helpful comments and sensible defaults alongside git hook initialization.
 - Added interactive and non-interactive setup with language auto-detection and flags (`--severity`, `--ignore`, `--languages`, `--force`).
 - Enforced overwrite safety: existing configuration files are never overwritten without explicit user confirmation or `--force`.
 - Added `secureflow validate` / `secureflow-cli validate` to validate `.secureflow.json` and `.secureflowignore` against shared schemas.

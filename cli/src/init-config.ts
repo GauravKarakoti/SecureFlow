@@ -316,16 +316,82 @@ export async function promptConfigQuestions(
 }
 
 /**
- * Initializes `.secureflow.json` and `.secureflowignore` in the target directory.
- * Safely guards against overwriting existing files without confirmation or --force.
+ * Safely writes a configuration file, avoiding TOCTOU race conditions by attempting
+ * atomic exclusive creation first when not overwriting, and checking for interactive confirmation.
  */
-export async function initConfigFiles(options: InitConfigOptions = {}): Promise<InitConfigResult> {
+async function writeConfigFile(
+  filePath: string,
+  content: string,
+  options: {
+    force?: boolean | undefined;
+    isInteractive: boolean;
+    rl?: readline.Interface | undefined;
+    stdin?: NodeJS.ReadableStream | undefined;
+    stdout?: NodeJS.WritableStream | undefined;
+  },
+): Promise<{ created: boolean; skipped: boolean; message: string }> {
+  const filename = path.basename(filePath);
+
+  if (options.force) {
+    const existed = fs.existsSync(filePath);
+    fs.writeFileSync(filePath, content, { encoding: "utf-8", flag: "w" });
+    return {
+      created: true,
+      skipped: false,
+      message: existed ? `Overwrote existing ${filename}` : `Created ${filename}`,
+    };
+  }
+
+  // Attempt atomic exclusive creation first to avoid file-system race condition (TOCTOU)
+  try {
+    fs.writeFileSync(filePath, content, { encoding: "utf-8", flag: "wx" });
+    return {
+      created: true,
+      skipped: false,
+      message: `Created ${filename}`,
+    };
+  } catch (err: any) {
+    if (err?.code !== "EEXIST") {
+      throw err;
+    }
+  }
+
+  // File exists; prompt if in interactive mode
+  let shouldOverwrite = false;
+  if (options.isInteractive) {
+    shouldOverwrite = await promptOverwrite(
+      filename,
+      options.rl,
+      options.stdin,
+      options.stdout,
+    );
+  }
+
+  if (shouldOverwrite) {
+    fs.writeFileSync(filePath, content, { encoding: "utf-8", flag: "w" });
+    return {
+      created: true,
+      skipped: false,
+      message: `Overwrote existing ${filename}`,
+    };
+  }
+
+  return {
+    created: false,
+    skipped: true,
+    message: `Skipped existing ${filename} (not overwritten)`,
+  };
+}
+
+export async function initConfigFiles(
+  options: InitConfigOptions = {},
+): Promise<InitConfigResult> {
   const targetDir = options.targetDir || process.cwd();
   const jsonPath = path.join(targetDir, ".secureflow.json");
   const ignorePath = path.join(targetDir, ".secureflowignore");
   const messages: string[] = [];
 
-  const detectedLangs = detectRepoLanguages(targetDir);
+  const detectedLanguages = detectRepoLanguages(targetDir);
   const defaultIgnorePaths = [
     "node_modules/**",
     "dist/**",
@@ -334,9 +400,9 @@ export async function initConfigFiles(options: InitConfigOptions = {}): Promise<
     "coverage/**",
   ];
 
-  let blockOn: GateLevel = options.blockOn ?? "HIGH";
-  let ignorePaths: string[] = options.ignorePaths ?? defaultIgnorePaths;
-  let languages: string[] = options.languages ?? detectedLangs;
+  let blockOn: GateLevel = options.blockOn || "HIGH";
+  let ignorePaths: string[] = options.ignorePaths || defaultIgnorePaths;
+  let languages: string[] = options.languages || detectedLanguages;
 
   const isInteractive =
     options.interactive ??
@@ -354,72 +420,31 @@ export async function initConfigFiles(options: InitConfigOptions = {}): Promise<
     languages = answers.languages;
   }
 
-  let jsonCreated = false;
-  let jsonSkipped = false;
-  let ignoreCreated = false;
-  let ignoreSkipped = false;
+  const jsonContent = generateSecureFlowJson({ blockOn, languages });
+  const jsonRes = await writeConfigFile(jsonPath, jsonContent, {
+    force: options.force,
+    isInteractive,
+    rl: options.rl,
+    stdin: options.stdin,
+    stdout: options.stdout,
+  });
+  messages.push(jsonRes.message);
 
-  // Handle .secureflow.json
-  if (fs.existsSync(jsonPath)) {
-    let shouldOverwrite = Boolean(options.force);
-    if (!shouldOverwrite && isInteractive) {
-      shouldOverwrite = await promptOverwrite(
-        ".secureflow.json",
-        options.rl,
-        options.stdin,
-        options.stdout,
-      );
-    }
-
-    if (shouldOverwrite) {
-      const content = generateSecureFlowJson({ blockOn, languages });
-      fs.writeFileSync(jsonPath, content, "utf-8");
-      jsonCreated = true;
-      messages.push(`Overwrote existing ${path.basename(jsonPath)}`);
-    } else {
-      jsonSkipped = true;
-      messages.push(`Skipped existing ${path.basename(jsonPath)} (not overwritten)`);
-    }
-  } else {
-    const content = generateSecureFlowJson({ blockOn, languages });
-    fs.writeFileSync(jsonPath, content, "utf-8");
-    jsonCreated = true;
-    messages.push(`Created ${path.basename(jsonPath)}`);
-  }
-
-  // Handle .secureflowignore
-  if (fs.existsSync(ignorePath)) {
-    let shouldOverwrite = Boolean(options.force);
-    if (!shouldOverwrite && isInteractive) {
-      shouldOverwrite = await promptOverwrite(
-        ".secureflowignore",
-        options.rl,
-        options.stdin,
-        options.stdout,
-      );
-    }
-
-    if (shouldOverwrite) {
-      const content = generateSecureFlowIgnore({ ignorePaths });
-      fs.writeFileSync(ignorePath, content, "utf-8");
-      ignoreCreated = true;
-      messages.push(`Overwrote existing ${path.basename(ignorePath)}`);
-    } else {
-      ignoreSkipped = true;
-      messages.push(`Skipped existing ${path.basename(ignorePath)} (not overwritten)`);
-    }
-  } else {
-    const content = generateSecureFlowIgnore({ ignorePaths });
-    fs.writeFileSync(ignorePath, content, "utf-8");
-    ignoreCreated = true;
-    messages.push(`Created ${path.basename(ignorePath)}`);
-  }
+  const ignoreContent = generateSecureFlowIgnore({ ignorePaths });
+  const ignoreRes = await writeConfigFile(ignorePath, ignoreContent, {
+    force: options.force,
+    isInteractive,
+    rl: options.rl,
+    stdin: options.stdin,
+    stdout: options.stdout,
+  });
+  messages.push(ignoreRes.message);
 
   return {
-    jsonCreated,
-    ignoreCreated,
-    jsonSkipped,
-    ignoreSkipped,
+    jsonCreated: jsonRes.created,
+    ignoreCreated: ignoreRes.created,
+    jsonSkipped: jsonRes.skipped,
+    ignoreSkipped: ignoreRes.skipped,
     jsonPath,
     ignorePath,
     messages,
@@ -440,19 +465,24 @@ export function validateConfigFiles(options: ValidateConfigOptions = {}): Config
       : path.join(targetDir, options.filePath);
     const basename = path.basename(fullPath);
 
-    if (!fs.existsSync(fullPath)) {
-      const err: ValidationError = {
-        file: basename,
-        line: 1,
-        message: `Configuration file '${options.filePath}' not found`,
-        code: "FILE_NOT_FOUND",
-      };
-      allErrors.push(err);
-      files[basename] = { file: basename, exists: false, valid: false, errors: [err] };
-      return { valid: false, files, allErrors };
+    let content: string;
+    try {
+      content = fs.readFileSync(fullPath, "utf-8");
+    } catch (err: any) {
+      if (err?.code === "ENOENT" || !fs.existsSync(fullPath)) {
+        const fileErr: ValidationError = {
+          file: basename,
+          line: 1,
+          message: `Configuration file '${options.filePath}' not found`,
+          code: "FILE_NOT_FOUND",
+        };
+        allErrors.push(fileErr);
+        files[basename] = { file: basename, exists: false, valid: false, errors: [fileErr] };
+        return { valid: false, files, allErrors };
+      }
+      throw err;
     }
 
-    const content = fs.readFileSync(fullPath, "utf-8");
     let fileErrors: ValidationError[] = [];
 
     if (basename.endsWith(".json")) {
@@ -479,9 +509,9 @@ export function validateConfigFiles(options: ValidateConfigOptions = {}): Config
   let jsonFound = false;
   let ignoreFound = false;
 
-  if (fs.existsSync(jsonPath)) {
-    jsonFound = true;
+  try {
     const content = fs.readFileSync(jsonPath, "utf-8");
+    jsonFound = true;
     const jsonErrors = validateSecureFlowJson(content, ".secureflow.json");
     allErrors.push(...jsonErrors);
     files[".secureflow.json"] = {
@@ -490,11 +520,13 @@ export function validateConfigFiles(options: ValidateConfigOptions = {}): Config
       valid: jsonErrors.length === 0,
       errors: jsonErrors,
     };
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
   }
 
-  if (fs.existsSync(ignorePath)) {
-    ignoreFound = true;
+  try {
     const content = fs.readFileSync(ignorePath, "utf-8");
+    ignoreFound = true;
     const ignoreErrors = validateSecureFlowIgnore(content, ".secureflowignore");
     allErrors.push(...ignoreErrors);
     files[".secureflowignore"] = {
@@ -503,6 +535,8 @@ export function validateConfigFiles(options: ValidateConfigOptions = {}): Config
       valid: ignoreErrors.length === 0,
       errors: ignoreErrors,
     };
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
   }
 
   if (!jsonFound && !ignoreFound) {
