@@ -254,3 +254,138 @@ During deployments, horizontal pod autoscaling scale-down, or Kubernetes node dr
 | `worker.lifecycle.preStop` | Object | `exec: command: ["/bin/sh", "-c", "sleep 2"]` | Container lifecycle preStop command. |
 | `WORKER_SHUTDOWN_TIMEOUT_MS` | Env Var | `25000` | Worker internal grace period (ms) to wait for in-flight scans before handling interrupted jobs. |
 
+---
+
+## 7. File-Based Secrets Configuration (Docker Compose, Swarm & Kubernetes) (#1893)
+
+In production environments (Kubernetes, Docker Swarm, and Docker Compose), passing sensitive credentials via plain environment variables can expose them in process listings, container inspection (`docker inspect`), and orchestrator logs. Furthermore, multi-line secrets like `GITHUB_PRIVATE_KEY` (PEM format) often suffer from corrupted newlines when serialized into single-line environment strings.
+
+To resolve this, SecureFlow natively supports the `<NAME>_FILE` pattern across all secret variables:
+
+- **Supported Variables**: Any secret (such as `DATABASE_URL`, `DATABASE_POOL_URL`, `GROQ_API_KEY`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_SECRET`, `AUTH_SECRET`, `ARMORIQ_API_KEY`, `REDIS_URL`, `BREVO_API_KEY`, `SMTP_PASS`) accepts a companion `<NAME>_FILE` variable pointing to the file path on disk.
+- **Startup Processing**: At startup, `entrypoint.sh` (for the migration and container entrypoint) and `src/lib/secret-config.ts` (for the application) read the file, trim a single trailing newline, and assign the content to the target variable.
+- **Strict Mutual Exclusivity**: If both `<NAME>` and `<NAME>_FILE` are set, startup immediately terminates with an error identifying both variables. Neither variable's value is ever leaked in error messages or logs.
+- **Readability & Permissions**: Missing, directory, or unreadable secret paths fail fast with a descriptive error.
+
+### Docker Compose Secrets Example
+
+```yaml
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: secureflow
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_DB: secureflow
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      DATABASE_POOL_URL_FILE: /run/secrets/database_pool_url
+    secrets:
+      - database_url
+      - database_pool_url
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "9002:9002"
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      DATABASE_POOL_URL_FILE: /run/secrets/database_pool_url
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+      GROQ_API_KEY_FILE: /run/secrets/groq_api_key
+      GITHUB_PRIVATE_KEY_FILE: /run/secrets/github_private_key
+      GITHUB_WEBHOOK_SECRET_FILE: /run/secrets/github_webhook_secret
+      GITHUB_CLIENT_SECRET_FILE: /run/secrets/github_client_secret
+    secrets:
+      - database_url
+      - database_pool_url
+      - auth_secret
+      - groq_api_key
+      - github_private_key
+      - github_webhook_secret
+      - github_client_secret
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  database_url:
+    file: ./secrets/database_url.txt
+  database_pool_url:
+    file: ./secrets/database_pool_url.txt
+  auth_secret:
+    file: ./secrets/auth_secret.txt
+  groq_api_key:
+    file: ./secrets/groq_api_key.txt
+  github_private_key:
+    file: ./secrets/github_private_key.pem
+  github_webhook_secret:
+    file: ./secrets/github_webhook_secret.txt
+  github_client_secret:
+    file: ./secrets/github_client_secret.txt
+```
+
+### Kubernetes Secret Volume Mount & Helm Example
+
+In Kubernetes, mount existing Secret objects as volumes and reference them using `<NAME>_FILE`:
+
+```yaml
+# Pod / Deployment container specification:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secureflow-app
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: app
+          image: secureflow:latest
+          env:
+            - name: DATABASE_URL_FILE
+              value: /etc/secrets/secureflow/DATABASE_URL
+            - name: DATABASE_POOL_URL_FILE
+              value: /etc/secrets/secureflow/DATABASE_POOL_URL
+            - name: AUTH_SECRET_FILE
+              value: /etc/secrets/secureflow/AUTH_SECRET
+            - name: GROQ_API_KEY_FILE
+              value: /etc/secrets/secureflow/GROQ_API_KEY
+            - name: GITHUB_PRIVATE_KEY_FILE
+              value: /etc/secrets/secureflow/GITHUB_PRIVATE_KEY
+            - name: GITHUB_WEBHOOK_SECRET_FILE
+              value: /etc/secrets/secureflow/GITHUB_WEBHOOK_SECRET
+            - name: GITHUB_CLIENT_SECRET_FILE
+              value: /etc/secrets/secureflow/GITHUB_CLIENT_SECRET
+          volumeMounts:
+            - name: mounted-secrets
+              mountPath: /etc/secrets/secureflow
+              readOnly: true
+      volumes:
+        - name: mounted-secrets
+          secret:
+            secretName: secureflow-production-secrets
+            defaultMode: 0400
+```
+
+
