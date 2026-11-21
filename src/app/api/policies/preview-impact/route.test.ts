@@ -2,17 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 // Hoisted mocks
-const {
-  mockAuth,
-  mockCheckRateLimitDetailed,
-  mockEvaluatePromptSafety,
-  mockPreviewPolicyImpact,
-} = vi.hoisted(() => ({
-  mockAuth: vi.fn(),
-  mockCheckRateLimitDetailed: vi.fn(),
-  mockEvaluatePromptSafety: vi.fn(),
-  mockPreviewPolicyImpact: vi.fn(),
-}));
+const { mockAuth, mockCheckRateLimitDetailed, mockEvaluatePromptSafety, mockPreviewPolicyImpact } =
+  vi.hoisted(() => ({
+    mockAuth: vi.fn(),
+    mockCheckRateLimitDetailed: vi.fn(),
+    mockEvaluatePromptSafety: vi.fn(),
+    mockPreviewPolicyImpact: vi.fn(),
+  }));
 
 vi.mock("@/auth", () => ({
   auth: mockAuth,

@@ -49,8 +49,7 @@ export function PolicyEditModal({
   const [severity, setSeverity] = useState(currentSeverity);
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [previewResult, setPreviewResult] =
-    useState<PolicyPreviewImpactResult | null>(null);
+  const [previewResult, setPreviewResult] = useState<PolicyPreviewImpactResult | null>(null);
 
   const handlePreview = async () => {
     if (!description.trim()) {
@@ -216,7 +215,9 @@ export function PolicyEditModal({
                 >
                   <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-medium">Too little history exists for a meaningful preview</p>
+                    <p className="font-medium">
+                      Too little history exists for a meaningful preview
+                    </p>
                     <p className="text-xs text-zinc-400 mt-1">
                       {previewResult.message ||
                         "No historical scan inputs were found for your repositories. Scans must be completed before an impact preview can be generated."}
@@ -235,7 +236,8 @@ export function PolicyEditModal({
                         </span>
                       </h4>
                       <p className="text-xs text-zinc-400 mt-0.5">
-                        ~{previewResult.totalTokens.toLocaleString()} tokens simulated • Zero database writes • No check runs posted
+                        ~{previewResult.totalTokens.toLocaleString()} tokens simulated • Zero
+                        database writes • No check runs posted
                       </p>
                     </div>
                   </div>
@@ -245,15 +247,15 @@ export function PolicyEditModal({
                     <div className="rounded border border-red-500/20 bg-red-500/5 p-2.5">
                       <div className="text-xs text-zinc-400">New Findings</div>
                       <div className="text-lg font-bold text-red-400 flex items-center gap-1">
-                        <TrendingUp className="w-4 h-4" />
-                        +{previewResult.severityComparison.TOTAL.newCount}
+                        <TrendingUp className="w-4 h-4" />+
+                        {previewResult.severityComparison.TOTAL.newCount}
                       </div>
                     </div>
                     <div className="rounded border border-green-500/20 bg-green-500/5 p-2.5">
                       <div className="text-xs text-zinc-400">Removed</div>
                       <div className="text-lg font-bold text-green-400 flex items-center gap-1">
-                        <TrendingDown className="w-4 h-4" />
-                        -{previewResult.severityComparison.TOTAL.removedCount}
+                        <TrendingDown className="w-4 h-4" />-
+                        {previewResult.severityComparison.TOTAL.removedCount}
                       </div>
                     </div>
                     <div className="rounded border border-white/10 bg-white/5 p-2.5">
@@ -269,8 +271,8 @@ export function PolicyEditModal({
                           previewResult.severityComparison.TOTAL.netChange > 0
                             ? "text-red-400"
                             : previewResult.severityComparison.TOTAL.netChange < 0
-                            ? "text-green-400"
-                            : "text-zinc-300"
+                              ? "text-green-400"
+                              : "text-zinc-300"
                         }`}
                       >
                         {previewResult.severityComparison.TOTAL.netChange > 0
@@ -322,9 +324,7 @@ export function PolicyEditModal({
                                   {row.removedCount > 0 ? `-${row.removedCount}` : "0"}
                                 </td>
                                 <td className="py-1.5 px-3 text-center font-bold">
-                                  {row.netChange > 0
-                                    ? `+${row.netChange}`
-                                    : row.netChange}
+                                  {row.netChange > 0 ? `+${row.netChange}` : row.netChange}
                                 </td>
                               </tr>
                             );

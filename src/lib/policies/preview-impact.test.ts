@@ -40,7 +40,9 @@ describe("Policy Impact Preview (src/lib/policies/preview-impact.ts) (#1892)", (
     const tokens = estimateFilesTokens(sampleFiles);
     expect(tokens).toBeGreaterThan(0);
     // auth.ts patch length ~60 chars -> ~15 tokens, config.json ~30 chars -> ~8 tokens
-    expect(tokens).toBe(Math.ceil(sampleFiles[0].patch.length / 4) + Math.ceil(sampleFiles[1].patch.length / 4));
+    expect(tokens).toBe(
+      Math.ceil(sampleFiles[0].patch.length / 4) + Math.ceil(sampleFiles[1].patch.length / 4),
+    );
   });
 
   describe("empty history handling", () => {
@@ -185,9 +187,11 @@ describe("Policy Impact Preview (src/lib/policies/preview-impact.ts) (#1892)", (
           findMany: vi.fn().mockResolvedValue([{ id: "repo-1" }]),
         },
         storedScanInput: {
-          findMany: vi.fn().mockResolvedValue([
-            { id: "input-1", filesJson: JSON.stringify(sampleFiles), tokenEstimate: 50 },
-          ]),
+          findMany: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "input-1", filesJson: JSON.stringify(sampleFiles), tokenEstimate: 50 },
+            ]),
         },
       } as any;
 
@@ -250,14 +254,20 @@ describe("Policy Impact Preview (src/lib/policies/preview-impact.ts) (#1892)", (
 
       // Check categorized findings
       expect(result.findings.unchanged).toHaveLength(1);
-      expect(result.findings.unchanged[0].description).toBe("High severity secret finding in auth.ts");
+      expect(result.findings.unchanged[0].description).toBe(
+        "High severity secret finding in auth.ts",
+      );
 
       expect(result.findings.new).toHaveLength(1);
-      expect(result.findings.new[0].description).toBe("Brand new critical severity finding caught by draft rule");
+      expect(result.findings.new[0].description).toBe(
+        "Brand new critical severity finding caught by draft rule",
+      );
       expect(result.findings.new[0].severity).toBe("CRITICAL");
 
       expect(result.findings.removed).toHaveLength(1);
-      expect(result.findings.removed[0].description).toBe("Medium severity finding to be removed in draft");
+      expect(result.findings.removed[0].description).toBe(
+        "Medium severity finding to be removed in draft",
+      );
       expect(result.findings.removed[0].severity).toBe("MEDIUM");
 
       // Check severity comparison counts
@@ -302,9 +312,11 @@ describe("Policy Impact Preview (src/lib/policies/preview-impact.ts) (#1892)", (
           findMany: vi.fn().mockResolvedValue([{ id: "repo-1" }]),
         },
         storedScanInput: {
-          findMany: vi.fn().mockResolvedValue([
-            { id: "input-1", filesJson: JSON.stringify(sampleFiles), tokenEstimate: 50 },
-          ]),
+          findMany: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "input-1", filesJson: JSON.stringify(sampleFiles), tokenEstimate: 50 },
+            ]),
         },
         finding: {
           create: mockFindingCreate,

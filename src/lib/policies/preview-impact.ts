@@ -31,13 +31,7 @@ import { normalizeSeverity, type Severity } from "@/lib/severity";
 export const DEFAULT_PREVIEW_MAX_SCANS = 20;
 export const DEFAULT_PREVIEW_MAX_TOKENS = 50_000;
 
-export const PREVIEW_SEVERITIES = [
-  "CRITICAL",
-  "HIGH",
-  "MEDIUM",
-  "LOW",
-  "INFO",
-] as const;
+export const PREVIEW_SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as const;
 
 export type PreviewSeverity = (typeof PREVIEW_SEVERITIES)[number];
 
@@ -48,10 +42,7 @@ export interface SeverityCountComparison {
   netChange: number;
 }
 
-export type SeverityComparisonMap = Record<
-  PreviewSeverity | "TOTAL",
-  SeverityCountComparison
->;
+export type SeverityComparisonMap = Record<PreviewSeverity | "TOTAL", SeverityCountComparison>;
 
 export interface PreviewFindingItem {
   type: string;
@@ -94,10 +85,7 @@ export interface PreviewPolicyImpactOptions {
   maxScans?: number;
   maxTokens?: number;
   /** Dependency injection for tests */
-  scannerFn?: (
-    files: FileChange[],
-    policies: ScannerPolicy[],
-  ) => Promise<ScanFinding[]>;
+  scannerFn?: (files: FileChange[], policies: ScannerPolicy[]) => Promise<ScanFinding[]>;
   db?: typeof prisma;
   redisClient?: typeof redis;
 }
@@ -156,10 +144,7 @@ function makeFindingKey(f: {
 async function runScanWithCache(
   files: FileChange[],
   policy: { description: string },
-  scannerRunner: (
-    files: FileChange[],
-    policies: ScannerPolicy[],
-  ) => Promise<ScanFinding[]>,
+  scannerRunner: (files: FileChange[], policies: ScannerPolicy[]) => Promise<ScanFinding[]>,
   deps: { redisClient?: typeof redis; db?: typeof prisma },
 ): Promise<ScanFinding[]> {
   const hash = computeScanCacheHash({
@@ -194,15 +179,12 @@ export async function previewPolicyImpact(
 
   const maxScans = Math.max(
     1,
-    options.maxScans ??
-      Number(process.env.POLICY_PREVIEW_MAX_SCANS || DEFAULT_PREVIEW_MAX_SCANS),
+    options.maxScans ?? Number(process.env.POLICY_PREVIEW_MAX_SCANS || DEFAULT_PREVIEW_MAX_SCANS),
   );
   const maxTokens = Math.max(
     100,
     options.maxTokens ??
-      Number(
-        process.env.POLICY_PREVIEW_MAX_TOKENS || DEFAULT_PREVIEW_MAX_TOKENS,
-      ),
+      Number(process.env.POLICY_PREVIEW_MAX_TOKENS || DEFAULT_PREVIEW_MAX_TOKENS),
   );
 
   const emptyComparison = createEmptySeverityComparison();
@@ -261,7 +243,7 @@ export async function previewPolicyImpact(
   }
 
   // 3. Retrieve stored scan inputs for the user's repositories
-  let candidateScans: Array<{ files: FileChange[]; tokenEstimate: number }> = [];
+  const candidateScans: Array<{ files: FileChange[]; tokenEstimate: number }> = [];
 
   // Try dedicated storedScanInput table first
   if (db.storedScanInput && typeof db.storedScanInput.findMany === "function") {
@@ -291,7 +273,11 @@ export async function previewPolicyImpact(
   }
 
   // Fallback: If no storedScanInput records exist, synthesize from stored findings in recent scans
-  if (candidateScans.length === 0 && db.scanResult && typeof db.scanResult.findMany === "function") {
+  if (
+    candidateScans.length === 0 &&
+    db.scanResult &&
+    typeof db.scanResult.findMany === "function"
+  ) {
     try {
       const resultsWithFindings = await db.scanResult.findMany({
         where: {
