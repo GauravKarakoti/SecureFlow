@@ -620,6 +620,33 @@ export async function processScanJob(
         }),
       });
 
+      // Persist scan input for policy backtesting and impact preview (#1892)
+      if (
+        (prisma as any).storedScanInput &&
+        typeof (prisma as any).storedScanInput.create === "function" &&
+        fileChanges.length > 0
+      ) {
+        const tokenEstimate = fileChanges.reduce(
+          (sum, f) => sum + Math.max(1, Math.ceil((f.patch || "").length / 4)),
+          0,
+        );
+        await (prisma as any).storedScanInput
+          .create({
+            data: {
+              repositoryId,
+              pullRequestId: dbPr.id,
+              headSha,
+              filesJson: JSON.stringify(fileChanges),
+              tokenEstimate,
+            },
+          })
+          .catch((err: any) => {
+            log.warn(`[ScanEngine] Failed to persist stored scan input:`, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+      }
+
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
       const isPartialScan = allSkippedFiles.length > 0;
       await autoResolveFixedFindings({

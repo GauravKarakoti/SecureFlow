@@ -402,3 +402,58 @@ export async function getPolicyVersions(templateId: string) {
     editor: v.editor,
   }));
 }
+
+export interface PreviewPolicyImpactActionInput {
+  templateId: string;
+  draftDescription: string;
+  draftSeverity?: string;
+  maxScans?: number;
+  maxTokens?: number;
+}
+
+/**
+ * Server action to preview the impact of policy edits (#1892).
+ * Replays up to N recent scans from the user's repositories and returns
+ * new, removed, and unchanged findings with a severity breakdown.
+ */
+export async function previewPolicyImpactAction(input: unknown) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return {
+      ok: false,
+      error: "Your session has expired. Sign in again to preview policy changes.",
+    };
+  }
+  const userId = session.user.id;
+
+  if (!input || typeof input !== "object") {
+    return { ok: false, error: "Invalid input." };
+  }
+
+  const {
+    templateId,
+    draftDescription,
+    draftSeverity,
+    maxScans,
+    maxTokens,
+  } = input as PreviewPolicyImpactActionInput;
+
+  if (typeof templateId !== "string" || !templateId.trim()) {
+    return { ok: false, error: "Policy templateId is required." };
+  }
+
+  if (typeof draftDescription !== "string" || !draftDescription.trim()) {
+    return { ok: false, error: "Draft policy description is required." };
+  }
+
+  const { previewPolicyImpact } = await import("@/lib/policies/preview-impact");
+
+  return previewPolicyImpact({
+    userId,
+    templateId: templateId.trim(),
+    draftDescription: draftDescription.trim(),
+    draftSeverity,
+    maxScans,
+    maxTokens,
+  });
+}
