@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Clock,
   Filter,
-  AlertCircle,
 } from "lucide-react";
 import {
   AreaChart,

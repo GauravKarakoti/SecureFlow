@@ -152,3 +152,42 @@ export function parseColorArg(argv: readonly string[]): boolean | undefined {
   }
   return result;
 }
+
+/**
+ * `--no-cache`: disable scan caching and force fresh analysis.
+ */
+export function parseNoCacheArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--no-cache") return true;
+    if (arg.startsWith("--no-cache=")) {
+      const val = arg.slice("--no-cache=".length).toLowerCase();
+      return val !== "false" && val !== "0";
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse cache clear command: `cache-clear`, `cache clear`, or `--cache-clear`.
+ */
+export function parseCacheClearArg(argv: readonly string[]): boolean {
+  if (argv.includes("--cache-clear")) return true;
+  for (let i = 0; i < argv.length; i++) {
+    const current = argv[i];
+    if (current === "cache-clear") return true;
+    if (current === "cache" && argv[i + 1] === "clear") return true;
+  }
+  return false;
+}
+
+/**
+ * `--cache-dir <path>`: optional custom cache directory.
+ */
+export function parseCacheDirArg(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--cache-dir"]);
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim().length === 0) {
+    throw new CliUsageError("--cache-dir requires a directory path");
+  }
+  return raw.trim();
+}

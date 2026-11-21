@@ -40,6 +40,25 @@ export {
   type SecureFlowIgnoreConfig,
 };
 
+export {
+  computeContentHash,
+  DEFAULT_RULESET_VERSION,
+  getRulesetVersion,
+  setRulesetVersion,
+  resetRulesetVersion,
+  resolveCacheDir,
+  getCacheEntry,
+  setCacheEntry,
+  clearCache,
+  scanFileWithCache,
+  scanFilesWithCache,
+  type CacheEntry,
+  type ClearCacheResult,
+  type ScanFileWithCacheOptions,
+  type ScanFileWithCacheResult,
+  type BatchScanResult,
+} from "./cache.js";
+
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
 export const VALID_SEVERITIES: ReadonlySet<Severity> = new Set([
