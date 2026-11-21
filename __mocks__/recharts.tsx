@@ -9,8 +9,10 @@ export const AreaChart = ({ data, children }: any) => (
   </svg>
 );
 export const Area = () => <g data-testid="area-series" />;
-export const BarChart = ({ children }: any) => <div>{children}</div>;
-export const Bar = () => null;
+export const BarChart = ({ children }: any) => <div data-testid="bar-chart">{children}</div>;
+export const Bar = () => <div data-testid="bar-series" />;
+export const LineChart = ({ children }: any) => <div data-testid="line-chart">{children}</div>;
+export const Line = () => <div data-testid="line-series" />;
 export const XAxis = () => null;
 export const YAxis = () => null;
 export const CartesianGrid = () => null;

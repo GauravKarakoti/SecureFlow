@@ -154,8 +154,7 @@ describe("RepositoriesClient Component (#1870)", () => {
   it("filters repositories by tier dropdown", () => {
     render(<RepositoriesClient initialData={mockData} />);
 
-    const selects = screen.getAllByRole("combobox");
-    const tierSelect = selects[0]; // first select is tier filter
+    const tierSelect = screen.getByLabelText("Filter by health tier");
 
     // Select UNRANKED
     fireEvent.change(tierSelect, { target: { value: "UNRANKED" } });
@@ -163,6 +162,12 @@ describe("RepositoriesClient Component (#1870)", () => {
     expect(screen.getByText("acme/gamma-unscanned")).toBeDefined();
     expect(screen.queryByText("acme/alpha-service")).toBeNull();
     expect(screen.queryByText("acme/beta-worker")).toBeNull();
+  });
+
+  it("renders repository scan severity trend chart section when repositories exist", () => {
+    render(<RepositoriesClient initialData={mockData} />);
+    expect(screen.getByTestId("repository-scan-trend-chart")).toBeDefined();
+    expect(screen.getByText("Scan Severity Trend")).toBeDefined();
   });
 
   it("handles empty repositories state gracefully", () => {

@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TrendSparkline } from "@/components/repositories/trend-sparkline";
+import { RepositoryScanTrendChart } from "@/components/repositories/repository-scan-trend-chart";
 import { HEALTH_SCORE_FORMULA_DOCS } from "@/lib/repositories/health-score";
 import type { RepositoryHealthItem, RepositoriesOverviewData } from "@/lib/repositories/types";
 
@@ -302,6 +303,17 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
         </Card>
       </div>
 
+      {/* ─── Repository Scan Severity Trend Section ────────────────────── */}
+      {initialData.repositories.length > 0 && (
+        <RepositoryScanTrendChart
+          repositories={initialData.repositories.map((repo) => ({
+            id: repo.id,
+            fullName: repo.fullName,
+          }))}
+          defaultRange={30}
+        />
+      )}
+
       {/* ─── Search, Filter, & Sort Controls ─────────────────────────────── */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         <div className="relative flex-1 max-w-md">
@@ -320,6 +332,7 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
             <Filter className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-muted-foreground">Tier:</span>
             <select
+              aria-label="Filter by health tier"
               value={tierFilter}
               onChange={(e) => handleTierChange(e.target.value as TierFilter)}
               className="bg-transparent text-foreground focus:outline-none cursor-pointer"
