@@ -19,6 +19,8 @@ import {
   filterBySeverity,
   parseSeverityFilter,
   generateVoiceSummaryText,
+  DEFAULT_IGNORE_PATTERNS,
+  compileIgnorePatterns,
   type FileScanResult,
   type OutputFormat,
   type Severity,
@@ -542,9 +544,14 @@ async function main(): Promise<number> {
   const newlyAnalyzed: Array<{ filePath: string; content: string; result: FileScanResult }> = [];
   let analyzedCount = 0;
   let cachedCount = 0;
+  let skippedCount = 0;
 
-  const ignoreData = loadSecureFlowIgnore(customIgnorePath);
-  const customIgnores = ignoreData?.compiledPatterns ?? [];
+  const repoRoot = getRepoRoot();
+  const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
+  const customIgnores = compileIgnorePatterns([
+    ...DEFAULT_IGNORE_PATTERNS,
+    ...(ignoreData ? ignoreData.config.ignoredPaths : []),
+  ]);
 
   if (VERBOSE && ignoreData) {
     console.log(
@@ -592,6 +599,9 @@ async function main(): Promise<number> {
           path: filePath,
         };
         fileResults.push(result);
+        if (result.skipped) {
+          skippedCount++;
+        }
         if (cached.aiFindings && cached.aiFindings.length > 0) {
           cachedAiFindings.push(
             ...cached.aiFindings.map((f) => ({ ...f, fileLocation: filePath })),
@@ -606,6 +616,9 @@ async function main(): Promise<number> {
         analyzedCount++;
         const result = scanFile(filePath, content, customIgnores);
         fileResults.push(result);
+        if (result.skipped) {
+          skippedCount++;
+        }
         newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {
           reportSkipped(result);
@@ -666,6 +679,9 @@ async function main(): Promise<number> {
     }
     if (filesToScan.length > 0) {
       console.log(`ℹ️  [SecureFlow] Analyzed ${analyzedCount} file(s) (${cachedCount} cached).`);
+      if (VERBOSE) {
+        console.log(`ℹ️  [SecureFlow] Skipped ${skippedCount} file(s) (ignored or excluded).`);
+      }
     }
   }
   if (

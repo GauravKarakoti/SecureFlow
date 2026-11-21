@@ -65,6 +65,8 @@ vi.mock("./scanner.js", () => ({
   filterBySeverity: m.filterBySeverity,
   parseSeverityFilter: m.parseSeverityFilter,
   generateVoiceSummaryText: m.generateVoiceSummaryText,
+  DEFAULT_IGNORE_PATTERNS: [],
+  compileIgnorePatterns: vi.fn(() => []),
 }));
 vi.mock("./lib/api-client.js", () => ({
   NetworkUnavailableError: errors.NetworkUnavailableError,
@@ -655,6 +657,21 @@ describe("caching and cache-clear flags", () => {
     expect(m.scanFile).toHaveBeenCalledTimes(1);
     expect(m.setCacheEntry).toHaveBeenCalledTimes(1);
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
+  });
+
+  it("reports the number of skipped files in verbose mode", async () => {
+    m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.scanFile.mockImplementation((filePath: string) => {
+      if (filePath === "b.ts") {
+        return { path: filePath, violations: [], skipped: "matched .secureflowignore" };
+      }
+      return scanResult(filePath, []);
+    });
+
+    const code = await runCli("--verbose");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain("Skipped 1 file(s) (ignored or excluded).");
   });
 
   it("bypasses cache when --no-cache is passed", async () => {
