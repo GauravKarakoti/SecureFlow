@@ -319,8 +319,11 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         });
         if (result.ok) {
           toast({
-            variant: "success",
-            title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
+            variant: result.skippedCount && result.skippedCount > 0 ? "default" : "success",
+            title:
+              result.skippedCount && result.skippedCount > 0
+                ? "Bulk triage completed with warnings"
+                : "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
             description:
               result.warning ??
               `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
@@ -398,8 +401,10 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           onClick={() => setPendingStatus("DISMISSED")}
           disabled={isPending}
           className="border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
+          aria-label="Dismiss selected"
+          data-testid="dismiss-selected-button"
         >
-          Dismiss
+          Dismiss selected
         </Button>
         <Button
           size="sm"

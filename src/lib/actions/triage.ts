@@ -40,6 +40,8 @@ export interface SetFindingStatusResult {
   ok: boolean;
   error?: string;
   warning?: string;
+  updatedCount?: number;
+  skippedCount?: number;
 }
 
 export interface FindingTriageTarget {
@@ -85,7 +87,10 @@ export async function setFindingStatus(
 
   if (status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED") {
     if (status === "DISMISSED") {
-      if (!isDismissalReason(input.reason)) {
+      if (typeof input.reason === "string" && input.reason.trim().length < 5) {
+        return { ok: false, error: "Reason must be at least 5 characters" };
+      }
+      if (!input.reason || !isDismissalReason(input.reason)) {
         return { ok: false, error: "Invalid dismissal reason category" };
       }
       dismissalReason = input.reason;
@@ -234,6 +239,9 @@ export async function setFindingStatuses(
   let dismissedById: string | null = null;
 
   if (input.status === "DISMISSED") {
+    if (!input.reason || (typeof input.reason === "string" && input.reason.trim().length < 5)) {
+      return { ok: false, error: "Reason must be at least 5 characters" };
+    }
     if (!isDismissalReason(input.reason)) {
       return { ok: false, error: "Invalid dismissal reason category" };
     }
@@ -263,8 +271,19 @@ export async function setFindingStatuses(
     select: { id: true, fullName: true },
   });
 
-  if (repos.length !== repoIds.length) {
-    return { ok: false, error: "Repository not found" };
+  const accessibleRepoIds = new Set<string>(
+    repos.map((repo: { id: string; fullName: string }) => repo.id),
+  );
+  const accessibleItems = items.filter((item) => accessibleRepoIds.has(item.repositoryId));
+  const skippedCount = items.length - accessibleItems.length;
+
+  if (accessibleItems.length === 0) {
+    return {
+      ok: false,
+      error: "Repository not found",
+      skippedCount: items.length,
+      updatedCount: 0,
+    };
   }
 
   const repoName = new Map<string, string>(
@@ -272,7 +291,7 @@ export async function setFindingStatuses(
   );
 
   await prisma.$transaction(async (tx: TriageTransactionClient) => {
-    for (const item of items) {
+    for (const item of accessibleItems) {
       await tx.findingTriage.upsert({
         where: {
           repositoryId_fingerprint: {
@@ -332,7 +351,7 @@ export async function setFindingStatuses(
     const repoMap = new Map<string, string>(
       (repos as any[]).map((r: any) => [String(r.id), String(r.fullName)]),
     );
-    for (const item of items) {
+    for (const item of accessibleItems) {
       const repoFullName = repoMap.get(item.repositoryId) || "unknown";
       try {
         await dispatchOutboundWebhooksForUser(userId, "finding.dismissed", () =>
@@ -349,19 +368,34 @@ export async function setFindingStatuses(
       }
     }
   }
+
   let warning: string | undefined;
-  for (const repositoryId of repoIds) {
+  if (skippedCount > 0) {
+    warning = `Updated ${accessibleItems.length} finding(s). Skipped ${skippedCount} finding(s) in repositories you cannot access.`;
+  }
+
+  const accessibleRepoIdsList = [...accessibleRepoIds];
+  for (const repositoryId of accessibleRepoIdsList) {
     try {
-      const changed = items.filter((item) => item.repositoryId === repositoryId);
+      const changed = accessibleItems.filter((item) => item.repositoryId === repositoryId);
       const result = await reconcileTriageVerdicts(
         repositoryId,
         changed.map((item) => item.fingerprint),
       );
-      if (result.pending > 0)
+      if (result.pending > 0 && !warning) {
         warning = "Saved. Some PRs need a new scan before their verdict updates.";
+      }
     } catch {
-      warning = "Saved. Some PR verdicts will update after the next scan.";
+      if (!warning) {
+        warning = "Saved. Some PR verdicts will update after the next scan.";
+      }
     }
   }
-  return { ok: true, ...(warning ? { warning } : {}) };
+
+  return {
+    ok: true,
+    updatedCount: accessibleItems.length,
+    skippedCount,
+    ...(warning ? { warning } : {}),
+  };
 }
