@@ -225,7 +225,11 @@ helm upgrade --install secureflow ./helm/secureflow -f production-values.yaml
 
 ---
 
-## Worker Graceful Shutdown & Kubernetes Lifecycle (#1894)
+## 6. Maintenance & Upgrades
+
+For step-by-step instructions on applying database migrations, pulling updated container images, verifying `/api/health` and `/api/version`, and rolling back safely in production, see the **[Safe Upgrade Guide](./upgrade.md)**.
+
+## 7. Worker Graceful Shutdown & Kubernetes Lifecycle
 
 During deployments, horizontal pod autoscaling scale-down, or Kubernetes node drains, queue worker pods receive a termination sequence:
 
