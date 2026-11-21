@@ -402,4 +402,3 @@ export async function getPolicyVersions(templateId: string) {
     editor: v.editor,
   }));
 }
-

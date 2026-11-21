@@ -56,8 +56,7 @@ async function handler(req: NextRequest) {
   if (!userLimit.allowed) {
     return NextResponse.json(
       {
-        error:
-          "Rate limit exceeded. Please wait before requesting another policy impact preview.",
+        error: "Rate limit exceeded. Please wait before requesting another policy impact preview.",
       },
       {
         status: 429,
@@ -78,26 +77,14 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const {
-    templateId,
-    draftDescription,
-    draftSeverity,
-    maxScans,
-    maxTokens,
-  } = body;
+  const { templateId, draftDescription, draftSeverity, maxScans, maxTokens } = body;
 
   if (typeof templateId !== "string" || !templateId.trim()) {
-    return NextResponse.json(
-      { error: "Policy templateId is required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Policy templateId is required" }, { status: 400 });
   }
 
   if (typeof draftDescription !== "string" || !draftDescription.trim()) {
-    return NextResponse.json(
-      { error: "Draft policy description is required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Draft policy description is required" }, { status: 400 });
   }
 
   if (draftDescription.length > MAX_POLICY_DESC_LENGTH) {
