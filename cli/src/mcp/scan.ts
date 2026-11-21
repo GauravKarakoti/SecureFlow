@@ -13,6 +13,11 @@ import {
 } from "../scanner.js";
 import { getStagedFiles, readStagedContent, isGitRepository } from "../git.js";
 import { sandboxWorkspacePath, PathTraversalError } from "../workspace.js";
+import {
+  getThreatIntelSource,
+  resolveThreatIntelSource,
+  type ThreatIntelResolutionSource,
+} from "../threat-intel.js";
 
 const FORMATS = ["json", "text", "sarif", "csv", "html", "markdown", "md"] as const;
 
@@ -42,6 +47,11 @@ export const SCAN_CONTENT_SCHEMA = {
     minTokenLength: { type: "integer", minimum: 8, maximum: 256, default: 16 },
     format: { type: "string", enum: [...FORMATS], default: "json" },
     intentToken: { type: "string" },
+    threatIntelSource: {
+      type: "string",
+      enum: ["live", "cache", "stale-fallback"],
+      description: "Optional threat intelligence resolution source override or indicator.",
+    },
   },
   required: ["content"],
   additionalProperties: false,
@@ -56,6 +66,7 @@ export interface ScanContentOptions {
   minTokenLength?: number;
   format?: OutputFormat;
   intentToken?: string;
+  threatIntelSource?: ThreatIntelResolutionSource;
 }
 
 /**
@@ -99,6 +110,12 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
     throw new Error("Unsupported scan output format");
   }
 
+  const threatIntelSource: ThreatIntelResolutionSource =
+    typeof args.threatIntelSource === "string" &&
+    ["live", "cache", "stale-fallback"].includes(args.threatIntelSource)
+      ? (args.threatIntelSource as ThreatIntelResolutionSource)
+      : getThreatIntelSource();
+
   // ── Incremental Mode: Scans uncommitted Git diff changes via cli/src/git.ts ──
   if (isIncremental) {
     if (!isGitRepository()) {
@@ -128,6 +145,7 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
 
     return {
       source: "git_incremental",
+      threatIntelSource,
       format,
       incremental: true,
       filesScanned: results.length,
@@ -164,6 +182,7 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
 
   return {
     source: "caller_provided",
+    threatIntelSource,
     format,
     minEntropy,
     minTokenLength,

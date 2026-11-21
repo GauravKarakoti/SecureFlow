@@ -24,6 +24,7 @@ import {
 import { isDuplicateDelivery } from "@/lib/github/webhook-dedup";
 import { env } from "@/lib/env";
 import prisma from "@/lib/prisma";
+import { withSpan, injectTraceContext } from "@/lib/tracing";
 
 /**
  * GitHub webhook ingest (#562, #1534).
@@ -85,9 +86,15 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   const rawDeliveryId = req.headers.get("x-github-delivery");
   const deliveryId = normalizeDeliveryId(rawDeliveryId);
   const correlationId = deliveryId ?? crypto.randomUUID();
+  const eventHeader = req.headers.get("x-github-event") || "unknown";
   const log = logger.child({ correlationId, deliveryId: deliveryId ?? undefined });
 
-  // 2. Validate environment configuration
+  return withSpan("webhook.delivery", async (span) => {
+    span.setAttribute("secureflow.correlation_id", correlationId);
+    span.setAttribute("secureflow.event", eventHeader);
+    if (deliveryId) span.setAttribute("secureflow.delivery_id", deliveryId);
+
+    // 2. Validate environment configuration
   const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
   if (!secret) {
     log.error("Server misconfiguration: GitHub webhook secret is missing.");
@@ -296,6 +303,23 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   // active or completed one still collapses the replay. The request is already
   // signature-verified, so only GitHub can cause this.
   log.info(`Enqueuing webhook job for event: ${event}`);
+  if (parsed.payload) {
+    const repo = (parsed.payload as any)?.repository;
+    const pr = (parsed.payload as any)?.pull_request;
+    const action = (parsed.payload as any)?.action;
+    if (repo?.full_name || repo?.id) {
+      span.setAttribute("secureflow.repository_id", repo.full_name || String(repo.id));
+    }
+    if (pr?.number) {
+      span.setAttribute("secureflow.pr_number", pr.number);
+    }
+    if (action) {
+      span.setAttribute("secureflow.action", action);
+    }
+  }
+
+  const traceContext = injectTraceContext({}, span);
+
   try {
     await addWebhookJob(
       {
@@ -303,6 +327,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
         deliveryId,
         event,
         correlationId,
+        traceContext,
       },
       { jobId: webhookJobId(deliveryId), replaceFailed: true },
     );
@@ -333,6 +358,7 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ status: "queued", deliveryId, correlationId }, { status: 202 });
+  });
 });
 
 // Rate-limit the highest-traffic webhook like the GitLab/Bitbucket routes;

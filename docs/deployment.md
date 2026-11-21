@@ -109,6 +109,29 @@ worker:
     requests:
       cpu: 500m
       memory: 1024Mi
+  # BullMQ queue-based autoscaling (#1797)
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 12
+    queueTrigger:
+      enabled: true
+      metricName: secureflow_bullmq_scan_queue_waiting
+      targetAverageValue: 15
+      metricType: Value
+  # Optional local AI inference and GPU resource allocation (#1797)
+  localInference:
+    enabled: true
+    url: "http://ollama.ai.svc.cluster.local:11434/v1"
+    model: "llama3"
+    fallbackModels: "llama3.2:3b,llama3.2:1b"
+    vramConcurrencyThreshold: 2
+    maxQueueWaitMs: 30000
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
 
 # External managed infrastructure
 postgresql:
@@ -202,6 +225,36 @@ helm upgrade --install secureflow ./helm/secureflow -f production-values.yaml
 
 ---
 
-## 5. Maintenance & Upgrades
+## 6. Maintenance & Upgrades
 
 For step-by-step instructions on applying database migrations, pulling updated container images, verifying `/api/health` and `/api/version`, and rolling back safely in production, see the **[Safe Upgrade Guide](./upgrade.md)**.
+
+## 7. Worker Graceful Shutdown & Kubernetes Lifecycle
+
+During deployments, horizontal pod autoscaling scale-down, or Kubernetes node drains, queue worker pods receive a termination sequence:
+
+1. **PreStop Hook (`sleep 2`)**:
+   Allows Kubernetes `kube-proxy` and ingress controllers to remove the terminating worker pod's endpoints from traffic routing before application shutdown begins.
+
+2. **SIGTERM Signal & Graceful Worker Shutdown**:
+   Upon receiving `SIGTERM` or `SIGINT`, the SecureFlow worker immediately:
+   - Stops pulling new jobs from BullMQ queues.
+   - Waits for active in-flight scans to finish within a configurable grace period (`WORKER_SHUTDOWN_TIMEOUT_MS`, default: **25 seconds**).
+
+3. **Interrupted Scan Recovery**:
+   If an in-flight scan cannot complete before the shutdown grace period expires:
+   - Its GitHub Check Run is immediately updated to `status: completed` and `conclusion: neutral` (or `cancelled`) with a clear explanatory notice, preventing PRs from becoming permanently stuck in "in progress".
+   - The distributed per-PR Redis lock is released.
+   - The job is re-queued with queue-level deduplication so another active worker can complete the scan without creating duplicate runs.
+
+4. **Pod Termination Grace Period (`terminationGracePeriodSeconds: 35`)**:
+   Configured in `helm/secureflow/values.yaml` with a default of **35 seconds** (or higher in custom deployments), providing a 10-second buffer over the worker's 25-second internal grace period before Kubernetes issues `SIGKILL`.
+
+### Configuration Settings
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `worker.terminationGracePeriodSeconds` | Integer | `35` | Kubernetes pod termination grace period in seconds. |
+| `worker.lifecycle.preStop` | Object | `exec: command: ["/bin/sh", "-c", "sleep 2"]` | Container lifecycle preStop command. |
+| `WORKER_SHUTDOWN_TIMEOUT_MS` | Env Var | `25000` | Worker internal grace period (ms) to wait for in-flight scans before handling interrupted jobs. |
+

@@ -219,3 +219,91 @@ logger is the thing that crashes.
   and the counts.
 - Don't pre-format metadata into the message string. `logger.info('scan done',
 { repo })` is queryable; `logger.info(\`scan done for ${repo}\`)` is not.
+
+---
+
+## OpenTelemetry Distributed Tracing (#1897)
+
+SecureFlow supports end-to-end distributed tracing across Next.js API routes, BullMQ queues, scanner execution, AI analysis, database writes, and GitHub check-run updates using OpenTelemetry and W3C Trace Context propagation.
+
+### Activation & Zero-Overhead Guarantee
+
+Tracing is completely **opt-in**. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset:
+- The OpenTelemetry Node SDK is **not** initialized.
+- All tracer calls fall back to OpenTelemetry's no-op implementations with **zero runtime overhead**, no network calls, and no errors.
+
+To enable tracing, set:
+
+```env
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318/v1/traces"
+OTEL_SERVICE_NAME="secureflow"
+```
+
+Tracing initializes during the Next.js Node.js server boot via `instrumentation.ts`.
+
+### Span Architecture
+
+A single GitHub PR scan produces a structured distributed trace spanning the asynchronous boundary:
+
+```
+[webhook.delivery] (Root span - API Route /api/webhooks/github)
+  │
+  ├── [queue.wait] (BullMQ queue delay until worker starts execution)
+  │
+  ├── [diff.fetch] (GitHub API pull request file & diff retrieval)
+  │
+  ├── [scan.execute] (Static security scan engine execution)
+  │
+  ├── [llm.request] (AI provider security explanation generation)
+  │
+  ├── [check_run.update] (GitHub check-run status and conclusion update)
+  │
+  └── [db.write] (Prisma database scan result & findings persistence)
+```
+
+#### Context Propagation across Queues
+BullMQ job payloads (`WebhookJobData` and `ScanJobData`) carry a `traceContext` carrier dictionary. The webhook route injects the active W3C `traceparent` and `tracestate`, and worker jobs extract the parent context so child spans connect back to the originating delivery trace.
+
+### Privacy & Security Guarantees
+
+Spans strictly observe data minimization principles:
+- **Never record code, snippets, or diffs**: Raw patches, source files, and lines of code are prohibited from span attributes.
+- **Never record secrets or credentials**: API keys, tokens, authorization headers, and passwords are rejected by the sanitizer.
+- **Safe attributes only**: Spans record operational metadata such as `secureflow.correlation_id`, `secureflow.repository_id`, `secureflow.pr_number`, `secureflow.head_sha`, `secureflow.findings_count`, `secureflow.risk_score`, `secureflow.decision`, and duration.
+
+### Local Tracing Setup
+
+#### Option A: Jaeger (Quickest)
+
+Run the all-in-one Jaeger container with OTLP receiver enabled:
+
+```bash
+docker run -d --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+Set in your `.env.local` or worker environment:
+
+```env
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318/v1/traces"
+OTEL_SERVICE_NAME="secureflow"
+```
+
+Open the Jaeger UI at [http://localhost:16686](http://localhost:16686), select service `secureflow`, and inspect trace timelines across `webhook.delivery`, `queue.wait`, `diff.fetch`, `scan.execute`, `llm.request`, `db.write`, and `check_run.update`.
+
+#### Option B: Grafana Tempo
+
+Run Grafana Tempo via Docker:
+
+```bash
+docker run -d --name tempo \
+  -p 4318:4318 \
+  -p 3200:3200 \
+  grafana/tempo:latest
+```
+
+Point SecureFlow's `OTEL_EXPORTER_OTLP_ENDPOINT` to `http://localhost:4318/v1/traces`, and configure Grafana to query the Tempo data source at `http://tempo:3200`.

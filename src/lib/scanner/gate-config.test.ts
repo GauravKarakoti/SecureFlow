@@ -111,6 +111,23 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(config3.blockOn).toBe(DEFAULT_GATE_CONFIG.blockOn);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown blockOn value"));
     });
+
+    it("parses .secureflow.json containing comments without failing", () => {
+      const jsonWithComments = `
+        // SecureFlow Gate Configuration
+        {
+          "gate": {
+            // Block on HIGH
+            "blockOn": "HIGH",
+            /* Review on LOW */
+            "reviewOn": "LOW"
+          }
+        }
+      `;
+      const config = parseSecureFlowConfig(jsonWithComments);
+      expect(config.blockOn).toBe("HIGH");
+      expect(config.reviewOn).toBe("LOW");
+    });
   });
 
   describe("formatGateSummaryLine", () => {

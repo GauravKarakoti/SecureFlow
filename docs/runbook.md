@@ -598,3 +598,20 @@ curl -s http://localhost:9002/api/version
 ```
 
 When upgrading SecureFlow or executing an emergency rollback, follow the step-by-step checklist in the **[Safe Upgrade Guide](./upgrade.md)**.
+
+## 8. Database Backups, Restoration & Verification
+
+To create or restore PostgreSQL backups or verify backup integrity in an ephemeral database:
+
+```bash
+# Create compressed backup
+npm run db:backup
+
+# Restore backup (refuses to overwrite non-empty databases without --force)
+npm run db:restore -- --file=backups/latest.dump [--force]
+
+# Verify backup integrity in an ephemeral temporary database
+npm run db:verify-backup
+```
+
+For scheduled Linux `cron` entries, Kubernetes `CronJob` manifests, and retention pruning strategies, see the **[Database Backup, Restore & Verification Guide](./database-backup-restore.md)**.

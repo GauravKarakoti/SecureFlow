@@ -526,6 +526,9 @@ secureflow scan --verbose
 | `npm run db:migrate` | Run Prisma migrations                                                        |
 | `npm run db:push`    | Push schema to DB without migrations                                         |
 | `npm run db:seed`    | Seed default policy templates                                                |
+| `npm run db:backup`  | Create timestamped compressed PostgreSQL backup (`pg_dump`)                  |
+| `npm run db:restore` | Restore backup into PostgreSQL (`pg_restore`, requires `--force` for non-empty DB) |
+| `npm run db:verify-backup` | Restore into ephemeral database and verify table counts & migrations   |
 | `npm run genkit:dev` | Start Genkit AI development environment                                      |
 | `npm run retention`  | Unified data retention runner (dry-run default; pass `-- --apply` to delete) |
 
@@ -569,6 +572,7 @@ For more in-depth details about the architecture, developer API, and security pr
 
 - **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
 - **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
+- **[Database Backup, Restore & Verification Guide](./docs/database-backup-restore.md)**: Procedures for compressed PostgreSQL dumps (`pg_dump`), safe restores with non-empty database safety guards, ephemeral database verification, Linux `cron`, and Kubernetes `CronJob` scheduling.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.

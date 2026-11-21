@@ -180,4 +180,44 @@ describe("scanSuppliedContent workspace sandboxing and incremental diff scanning
     expect(typeof out.report).toBe("string");
     expect(out.violationCount).toBeGreaterThanOrEqual(0);
   });
+
+  describe("threatIntelSource resolution in MCP scan output (#1795)", () => {
+    it("includes threatIntelSource defaulting to active source", () => {
+      const out = scanSuppliedContent({ content: "const clean = 123;" });
+      expect(out).toHaveProperty("threatIntelSource");
+      expect(["live", "cache", "stale-fallback"]).toContain(out.threatIntelSource);
+    });
+
+    it("respects explicit threatIntelSource override in scan options", () => {
+      const liveOut = scanSuppliedContent({
+        content: "const a = 1;",
+        threatIntelSource: "live",
+      });
+      expect(liveOut.threatIntelSource).toBe("live");
+
+      const cacheOut = scanSuppliedContent({
+        content: "const a = 1;",
+        threatIntelSource: "cache",
+      });
+      expect(cacheOut.threatIntelSource).toBe("cache");
+
+      const fallbackOut = scanSuppliedContent({
+        content: "const a = 1;",
+        threatIntelSource: "stale-fallback",
+      });
+      expect(fallbackOut.threatIntelSource).toBe("stale-fallback");
+    });
+
+    it("resolves threatIntelSource accurately when set in threat-intel module", async () => {
+      const { setThreatIntelSource } = await import("../threat-intel.js");
+      setThreatIntelSource("stale-fallback");
+
+      const out = scanSuppliedContent({ content: "const a = 1;" });
+      expect(out.threatIntelSource).toBe("stale-fallback");
+
+      setThreatIntelSource("live");
+      const outLive = scanSuppliedContent({ content: "const a = 1;" });
+      expect(outLive.threatIntelSource).toBe("live");
+    });
+  });
 });

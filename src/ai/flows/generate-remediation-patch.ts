@@ -8,6 +8,7 @@ import {
   CircuitState,
 } from "@/ai/resilience";
 import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
+import { detectPromptInjection } from "./security-helpers";
 
 const PatchInputSchema = z.object({
   vulnerableCode: z.string(),
@@ -131,6 +132,18 @@ Provide ONLY the unified diff patch that fixes this issue securely. Do not inclu
     });
 
     if (output) {
+      if (
+        detectPromptInjection(output.explanation || "") ||
+        detectPromptInjection(output.patchDiff || "")
+      ) {
+        console.warn("[REMEDIATION] Prompt injection detected in AI patch output");
+        return {
+          patchDiff: "",
+          explanation:
+            "Generated patch was discarded due to detected prompt injection or security boundary violation.",
+          failureReason: "unavailable",
+        };
+      }
       return output;
     }
   } catch (error) {

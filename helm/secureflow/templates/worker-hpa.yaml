@@ -30,4 +30,18 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.worker.autoscaling.targetMemoryUtilizationPercentage }}
     {{- end }}
+    {{- if and .Values.worker.autoscaling.queueTrigger .Values.worker.autoscaling.queueTrigger.enabled }}
+    - type: External
+      external:
+        metric:
+          name: {{ .Values.worker.autoscaling.queueTrigger.metricName | quote }}
+        target:
+          {{- if eq .Values.worker.autoscaling.queueTrigger.metricType "AverageValue" }}
+          type: AverageValue
+          averageValue: {{ .Values.worker.autoscaling.queueTrigger.targetAverageValue }}
+          {{- else }}
+          type: Value
+          value: {{ .Values.worker.autoscaling.queueTrigger.targetAverageValue }}
+          {{- end }}
+    {{- end }}
 {{- end }}

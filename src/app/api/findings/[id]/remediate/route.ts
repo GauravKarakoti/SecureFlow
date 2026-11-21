@@ -10,6 +10,11 @@ import {
   secondsUntilReset,
 } from "@/lib/middleware/rate-limit";
 import { checkRateLimitDetailed } from "@/lib/redis";
+import {
+  validateAndSanitizeGroqAction,
+  PromptInjectionSanitizationError,
+} from "@/lib/security/groq-actions";
+import { logIncident } from "@/lib/incident/incident-logger";
 
 /**
  * POST /api/findings/[id]/remediate
@@ -135,10 +140,52 @@ const handler = withErrorHandler(async function POST(
     );
   }
 
+  // Validate and sanitize Groq's output with Zod before it hits the Prisma ORM (#1819)
+  let sanitizedPatchDiff = aiResult.patchDiff;
+  try {
+    const sanitizedAction = validateAndSanitizeGroqAction({
+      actionType: "REMEDIATION_PATCH",
+      severity: (finding.severity as any) || "HIGH",
+      targetResource: finding.fileLocation || "src/unknown",
+      rationale: aiResult.explanation || `Remediation patch generated for ${finding.type}`,
+      patchDiff: aiResult.patchDiff,
+    });
+    sanitizedPatchDiff = sanitizedAction.patchDiff || aiResult.patchDiff;
+  } catch (err: any) {
+    if (err instanceof PromptInjectionSanitizationError) {
+      await logIncident({
+        userId,
+        action: "PROMPT_INJECTION_BLOCKED",
+        resource: finding.fileLocation || "src/unknown",
+        decision: "BLOCK",
+        severity: "CRITICAL",
+        metadata: { findingId: id, error: err.message },
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Action rejected: Prompt injection detected in AI output",
+          code: "PROMPT_INJECTION_DETECTED",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const patch = await prisma.remediationPatch.upsert({
     where: { findingId: id },
-    update: { patchDiff: aiResult.patchDiff, status: "GENERATED" },
-    create: { findingId: id, patchDiff: aiResult.patchDiff, status: "GENERATED" },
+    update: { patchDiff: sanitizedPatchDiff, status: "GENERATED" },
+    create: { findingId: id, patchDiff: sanitizedPatchDiff, status: "GENERATED" },
+  });
+
+  // Log incident using optimized Prisma query keeping latency < 200ms (#1819)
+  await logIncident({
+    userId,
+    action: "REMEDIATION_PATCH_GENERATED",
+    resource: finding.fileLocation || "src/unknown",
+    decision: "ALLOW",
+    severity: (finding.severity as any) || "HIGH",
+    metadata: { findingId: id, type: finding.type },
   });
 
   return NextResponse.json({ success: true, patch, explanation: aiResult.explanation });

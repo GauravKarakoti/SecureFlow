@@ -7,7 +7,11 @@ import {
   EmptyResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
-import { lookupThreatIntelligenceById, searchThreatIntelligence } from "../threat-intel.js";
+import {
+  getThreatIntelSource,
+  lookupThreatIntelligenceById,
+  searchThreatIntelligence,
+} from "../threat-intel.js";
 import { generateSarifReport } from "../sarif.js";
 import type { FileScanResult, Severity, Violation } from "../scanner.js";
 import {
@@ -598,13 +602,15 @@ export function createThreatIntelMcpServer(): Server {
       const query = typeof args?.query === "string" ? args.query : "";
       const matches = await searchThreatIntelligence(query);
       const liveMatches = matches.filter((item) => item.source !== "BUNDLED");
+      const threatIntelSource = getThreatIntelSource();
 
       const result = {
         matches,
+        threatIntelSource,
         liveSummary:
           liveMatches.length > 0
-            ? `Found ${liveMatches.length} synchronized CISA KEV record(s).`
-            : null,
+            ? `Found ${liveMatches.length} synchronized CISA KEV record(s) (source: ${threatIntelSource}).`
+            : `Serving threat intelligence advisory records (source: ${threatIntelSource}).`,
       };
 
       return {

@@ -332,6 +332,15 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pod termination grace period in seconds to allow in-flight scans to finish before SIGKILL (#1894)."
+        },
+        "lifecycle": {
+          "type": "object",
+          "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
       "description": "Next.js web application deployment.",
@@ -497,6 +506,73 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 100
+            },
+            "queueTrigger": {
+              "type": "object",
+              "description": "BullMQ queue length external metrics autoscaling trigger (#1797).",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "metricName": {
+                  "type": "string"
+                },
+                "targetAverageValue": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "metricType": {
+                  "type": "string",
+                  "enum": [
+                    "Value",
+                    "AverageValue"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "localInference": {
+          "type": "object",
+          "description": "Local AI inference configuration with VRAM resource limits and concurrency management (#1797).",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "fallbackModels": {
+              "type": "string"
+            },
+            "vramConcurrencyThreshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxQueueWaitMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resources": {
+              "type": "object",
+              "description": "GPU and hardware accelerator resources for local model inference.",
+              "properties": {
+                "limits": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/definitions/resourceQuantity"
+                  }
+                },
+                "requests": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/definitions/resourceQuantity"
+                  }
+                }
+              }
             }
           }
         },
@@ -717,6 +793,15 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pod termination grace period in seconds to allow in-flight scans to finish before SIGKILL (#1894)."
+        },
+        "lifecycle": {
+          "type": "object",
+          "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
       "description": "Background scanning worker deployment.",

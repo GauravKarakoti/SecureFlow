@@ -460,6 +460,19 @@ describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
         expect(data[0].id).toBe("CVE-2023-3409");
       });
 
+      it("surfaces threatIntelSource in query_threat_intelligence structuredContent (#1795)", async () => {
+        const response = await client.callTool({
+          name: "query_threat_intelligence",
+          arguments: { query: "SQL Injection" },
+        });
+
+        expect(response.isError).toBeFalsy();
+        const structured = (response as any).structuredContent;
+        expect(structured).toBeDefined();
+        expect(structured.threatIntelSource).toBeDefined();
+        expect(["live", "cache", "stale-fallback"]).toContain(structured.threatIntelSource);
+      });
+
       it("returns an empty result when no advisory matches are found", async () => {
         const response = await client.callTool({
           name: "query_threat_intelligence",

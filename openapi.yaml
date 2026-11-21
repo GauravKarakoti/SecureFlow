@@ -1792,19 +1792,84 @@ paths:
   /api/admin/audit/verify:
     get:
       summary: Verify audit log cryptographic hash chain
-      description: Walks the tamper-evident hash chain and verifies integrity. Admin only.
+      description: Walks the tamper-evident hash chain and verifies integrity with optional cursor pagination and broken-link pinpointing. Admin only.
       operationId: verifyAuditChain
       tags:
         - Admin
       security:
         - sessionAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: Base64url opaque pagination cursor for batch verification
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of audit records to verify in one batch (default 50, max 500)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
       responses:
         "200":
           description: Audit log chain integrity verified and valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: VALID
+                  valid:
+                    type: boolean
+                    example: true
+                  totalVerified:
+                    type: integer
+                    example: 42
+                  nextCursor:
+                    type: string
+                    nullable: true
+                  hasMore:
+                    type: boolean
+                    example: false
         "401":
           description: Not authenticated or missing ADMIN role
         "409":
           description: Audit log chain integrity violation or corruption detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: COMPROMISED
+                  valid:
+                    type: boolean
+                    example: false
+                  totalVerified:
+                    type: integer
+                    example: 5
+                  brokenEntryId:
+                    type: string
+                    example: audit-broken-6
+                  firstInvalidEntryId:
+                    type: string
+                    example: audit-broken-6
+                  expectedHash:
+                    type: string
+                    example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                  actualHash:
+                    type: string
+                    example: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+                  reason:
+                    type: string
+                    example: "Broken chain link at entry audit-broken-6"
 
   /api/admin/ai-health:
     get:

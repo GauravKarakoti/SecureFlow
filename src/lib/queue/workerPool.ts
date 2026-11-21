@@ -22,6 +22,10 @@ import {
   scanJobCompletion,
 } from "@/lib/scanner/scan-persistence";
 import { DEFAULT_SCAN_WORKER_CONCURRENCY } from "./scan-worker-bootstrap";
+import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
+import { postScanCancelledCheckRun } from "../scanner/check-run";
+import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import { App } from "octokit";
 
 /** Maximum time a single scan job can run before being timed out. */
 const SCAN_JOB_TIMEOUT_MS = 600_000; // 10 minutes
@@ -212,6 +216,53 @@ class ScanWorkerPool {
     // Report initial progress
     await job.updateProgress({ phase: "starting", scannedFiles: 0 });
 
+    const poolScanId = `scan-pool:${job.id || scanJobId}`;
+    const repoParts = (job.data.repositoryFullName || "").split("/");
+    const owner = repoParts[0] || "";
+    const repo = repoParts[1] || "";
+
+    const inFlightScan: ActiveScan = {
+      id: poolScanId,
+      job,
+      repositoryFullName: job.data.repositoryFullName,
+      owner,
+      repo,
+      prNumber: job.data.prNumber,
+      headSha: job.data.headSha,
+      installationId: job.data.installationId,
+      cancelCheckRun: async (reason) => {
+        try {
+          if (!job.data.installationId || !owner || !repo || !job.data.headSha) return;
+          const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+          const appClient = new App({
+            appId,
+            privateKey,
+            ...(customOctokit ? { Octokit: customOctokit } : {}),
+          });
+          const octokit = await appClient.getInstallationOctokit(Number(job.data.installationId));
+          await postScanCancelledCheckRun(octokit as any, {
+            owner,
+            repo,
+            headSha: job.data.headSha,
+            reason,
+            conclusion: "neutral",
+          });
+        } catch (cancelErr: any) {
+          log.error("[WorkerPool] Failed to post cancelled check run during shutdown:", {
+            error: cancelErr?.message || String(cancelErr),
+          });
+        }
+      },
+      requeueJob: async () => {
+        const { scanQueue } = await import("./scanQueue");
+        await scanQueue.add("scan-repository", job.data, {
+          jobId: job.id,
+          priority: 1,
+        });
+      },
+    };
+    registerInFlightScan(inFlightScan);
+
     try {
       const result = await processScanJob(job.data, (progress) => {
         // Update job progress for BullMQ monitoring
@@ -247,6 +298,8 @@ class ScanWorkerPool {
       }
 
       throw err;
+    } finally {
+      unregisterInFlightScan(poolScanId);
     }
   }
 }

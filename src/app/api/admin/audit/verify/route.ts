@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { withRateLimit, TIERS } from "@/lib/middleware/rate-limit";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import { verifyAuditChain } from "@/lib/audit/verify-chain";
+import { parseLimit } from "@/lib/pagination/cursor";
 
 /**
  * Validates admin authentication.
@@ -18,18 +19,24 @@ async function requireAdmin() {
 
 /**
  * GET: Audit Log Hash Chain Verification Endpoint (Admin Only)
- * Walks the cryptographic chain and checks every entry's integrity.
+ * Walks the cryptographic chain and checks every entry's integrity with optional cursor pagination.
  */
-async function getHandler(_req: NextRequest) {
+async function getHandler(req: NextRequest) {
   await requireAdmin();
 
-  const result = await verifyAuditChain(prisma);
+  const { searchParams } = new URL(req.url);
+  const cursor = searchParams.get("cursor") || undefined;
+  const rawLimit = searchParams.get("limit");
+  const limit = rawLimit !== null ? parseLimit(rawLimit, 50, 500) : undefined;
+
+  const result = await verifyAuditChain(prisma, { cursor, limit });
 
   if (!result.valid) {
     return NextResponse.json(
       {
         status: "COMPROMISED",
         ...result,
+        firstInvalidEntryId: result.firstInvalidEntryId || result.brokenEntryId,
       },
       { status: 409 },
     );

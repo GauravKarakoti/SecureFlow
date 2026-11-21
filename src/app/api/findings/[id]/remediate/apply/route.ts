@@ -10,6 +10,8 @@ import { ArmorIQUnavailableError, withArmorIQBreaker } from "@/lib/armor/armoriq
 import { enqueueUnverifiedRemediationIntent } from "@/lib/queue/remediationDlq";
 import { AUTO_REMEDIATION_ARMORIQ_SCOPE } from "@/lib/armor/auto-remediation";
 import { applyScopedUnifiedDiff, isAllowedAutoRemediationPath } from "@/lib/armor/auto-remediation";
+import { verifyOperatorClearance, ClearanceLevel } from "@/lib/middleware/clearance";
+import { logIncident } from "@/lib/incident/incident-logger";
 
 async function readScopedSource(
   octokit: any,
@@ -44,6 +46,15 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Verify operator clearance using NextAuth session before committing action (#1819)
+  const clearanceCheck = verifyOperatorClearance(session, ClearanceLevel.USER);
+  if (!clearanceCheck.authorized) {
+    return NextResponse.json(
+      { error: "Forbidden", message: clearanceCheck.reason || "Insufficient operator clearance" },
+      { status: 403 },
+    );
   }
 
   let body: { approved?: unknown };
@@ -352,6 +363,16 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ id:
     await prisma.remediationPatch.update({
       where: { findingId: finding.id },
       data: { status: "PR_CREATED" },
+    });
+
+    // Log committed remediation action to PostgreSQL with sub-200ms latency (#1819)
+    await logIncident({
+      userId: session.user.id,
+      action: "REMEDIATION_PATCH_COMMITTED",
+      resource: finding.fileLocation,
+      decision: "ALLOW",
+      severity: "HIGH",
+      metadata: { findingId: finding.id, branch, commit: commitSha },
     });
 
     return NextResponse.json({

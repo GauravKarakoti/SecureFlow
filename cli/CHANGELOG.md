@@ -1,5 +1,32 @@
 # secureflow-cli
 
+## 3.9.0
+
+### Minor Changes
+
+- 42e5e04: Add cursor pagination and broken-link pinpointing to /api/admin/audit/verify (#1796).
+- f98cfbd: Add stale-while-revalidate fallback and threatIntelSource telemetry to threat intelligence cache during MCP scans (#1795).
+- 43a42ef: feat(dashboard): per-repository security health overview with trend (#1870)
+- 933cf49: feat(helm): [NSoC_2026] add local AI inference VRAM resource limits and queue HPA triggers to worker chart (#1797)
+- 3c46ebf: Add automated bundle size budgets, @next/bundle-analyzer, and Lighthouse CI quality gates (#1872).
+
+  - Added `@next/bundle-analyzer` integration opt-in via `ANALYZE=true` and `npm run analyze`.
+  - Configured per-route JavaScript bundle size budgets and growth thresholds in `bundle-budget.json`.
+  - Added `scripts/check-bundle-budgets.ts` to inspect Next.js build manifests and enforce budget thresholds in CI.
+  - Configured Lighthouse CI audits on authentication and dashboard pages in `lighthouse-budget.json` and `.lighthouserc.json`.
+  - Added `scripts/lighthouse-summary.ts` to output formatted audit results into GitHub Actions job summaries (`$GITHUB_STEP_SUMMARY`).
+  - Added budget adjustment policies and justification documentation in `CONTRIBUTING.md`.
+
+### Patch Changes
+
+- 0badba3: Add Playwright visual regression snapshot testing for key dashboard pages (#1871).
+
+  - Added `toHaveScreenshot` snapshot test suite (`e2e/visual-regression.spec.ts`) for key dashboard pages with masked dynamic content, frozen clock, and disabled animations.
+  - Stored baseline snapshots in `e2e/__screenshots__/`.
+  - Added dedicated `test:visual` and `test:visual:update` scripts.
+  - Added opt-in CI workflow (`.github/workflows/visual-regression.yml`) with automated diff artifact uploading on failure.
+  - Documented baseline review and update procedures in `CONTRIBUTING.md`.
+
 ## 3.8.0
 
 ### Minor Changes
