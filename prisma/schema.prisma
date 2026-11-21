@@ -71,6 +71,7 @@ model User {
   savedViews     SavedView[]
   apiTokens      ApiToken[]
   outboundWebhooks OutboundWebhook[]
+  suppressionRules SuppressionRule[]
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -289,6 +290,8 @@ model Finding {
   promptInjectionSuspected Boolean                 @default(false)
   fingerprint              String                  @default("")
   complianceTags           String[]                @default([])
+  suppressionStatus        String?
+  suppressionRuleId        String?
   createdAt                DateTime                @default(now())
   remediationPatch         RemediationPatch?
   armorIQLogs              ArmorIQEnforcementLog[]
@@ -310,6 +313,8 @@ model Finding {
   @@index([scanResultId, fingerprint])
   @@index([severity, type])
   @@index([promptInjectionSuspected])
+  @@index([suppressionStatus])
+  @@index([suppressionRuleId])
 }
 
 model RemediationPatch {
@@ -354,6 +359,41 @@ model FindingTriage {
   @@index([status])
   @@index([resolvedById])
   @@index([updatedAt(sort: Desc)])
+}
+
+model SuppressionRule {
+  id            String                 @id @default(cuid())
+  name          String
+  description   String?
+  scope         String                 @default("ALL") // "ALL" | "SELECTED"
+  repositoryIds String[]               @default([])
+  matchPolicy   String?
+  matchCategory String?
+  pathGlob      String?
+  reason        String                 @db.Text
+  expiresAt     DateTime?
+  createdById   String?
+  createdBy     User?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  events        SuppressionRuleEvent[]
+
+  @@index([createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@index([scope])
+}
+
+model SuppressionRuleEvent {
+  id                 String          @id @default(cuid())
+  ruleId             String
+  rule               SuppressionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  repositoryId       String?
+  findingFingerprint String?
+  fileLocation       String?
+  createdAt          DateTime        @default(now())
+
+  @@index([ruleId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
 }
 
 model AuditLog {

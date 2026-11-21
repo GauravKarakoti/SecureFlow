@@ -62,6 +62,10 @@ export interface EnrichedScanFinding extends ScanFinding {
   remediation?: string;
   /** Whether the explanation flow suspected prompt injection in the snippet. */
   promptInjectionSuspected?: boolean;
+  /** Suppression status (e.g. "SUPPRESSED_BY_RULE") if suppressed by an installation rule. */
+  suppressionStatus?: string;
+  /** ID of the matching SuppressionRule if suppressed by an installation rule. */
+  suppressionRuleId?: string;
 }
 
 /**
@@ -164,6 +168,8 @@ export interface FindingCreateInput {
   remediation: string | null;
   promptInjectionSuspected: boolean;
   fingerprint: string;
+  suppressionStatus: string | null;
+  suppressionRuleId: string | null;
 }
 
 /**
@@ -195,6 +201,8 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
+    suppressionStatus: finding.suppressionStatus || null,
+    suppressionRuleId: finding.suppressionRuleId || null,
   };
 }
 
