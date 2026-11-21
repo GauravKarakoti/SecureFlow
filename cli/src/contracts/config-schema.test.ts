@@ -70,7 +70,7 @@ describe("validateSecureFlowJson", () => {
     const content = `
     // SecureFlow Repository Gate
     {
-      "$schema": "https://secureflow.dev/schema.json",
+      "$schema": "https://secure-flow-six.vercel.app/schema.json",
       "gate": {
         // Minimum severity threshold
         "blockOn": "HIGH",

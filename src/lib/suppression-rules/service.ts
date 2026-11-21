@@ -73,13 +73,12 @@ export async function getSuppressionRulesWithStats(): Promise<SuppressionRuleWit
 /**
  * Fetches active suppression rules applicable for scans.
  */
-export async function getActiveSuppressionRules(now: Date = new Date()): Promise<SuppressionRule[]> {
+export async function getActiveSuppressionRules(
+  now: Date = new Date(),
+): Promise<SuppressionRule[]> {
   return await prisma.suppressionRule.findMany({
     where: {
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: now } },
-      ],
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
     },
   });
 }

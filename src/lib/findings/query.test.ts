@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SUPPRESSED_STATUSES } from "@/lib/triage/queries";
-import { SEVERITY_ORDER, STORED_SEVERITIES } from "@/lib/severity";
+import { STORED_SEVERITIES } from "@/lib/severity";
 import {
   typesMatchingSearch,
   DEFAULT_PAGE_SIZE,
@@ -28,7 +28,6 @@ import {
   resolvePage,
   toSearchParams,
   totalPagesFor,
-  VALID_FINDING_TYPES,
 } from "./query";
 
 const CONTEXT = {
@@ -237,6 +236,7 @@ describe("normalizeFindingsQuery", () => {
       sort: DEFAULT_SORT,
       from: null,
       to: null,
+      expiring: null,
     });
   });
 

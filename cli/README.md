@@ -129,31 +129,31 @@ Commands:
 
 ### Options & Flags
 
-| Flag                   | Shorthand | Default             | Description                                                                                        |
-| :--------------------- | :-------- | :------------------ | :------------------------------------------------------------------------------------------------- |
-| `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)          |
+| Flag                   | Shorthand | Default             | Description                                                                                          |
+| :--------------------- | :-------- | :------------------ | :--------------------------------------------------------------------------------------------------- |
+| `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)            |
 | `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors |
-| `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt         |
-| `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)     |
-| `--ignore <paths>`     |           |                     | Comma-separated paths/globs to ignore for `init`                                                   |
-| `--languages <langs>`  |           |                     | Comma-separated repository languages for `init` (e.g. `typescript,terraform,python`)                |
-| `--husky`              |           |                     | Initialize pre-commit hook using Husky (`.husky/pre-commit`)                                       |
-| `--blank`              |           |                     | Initialize pre-commit hook using `package.json` prepare script                                     |
-| `--fail-on <level>`    |           | `medium`            | Exit with error code `1` if findings meet or exceed severity (`low`, `medium`, `high`, `critical`) |
-| `--format <format>`    |           | `text`              | Output report format: `text`, `json`, `sarif`, `csv`, `html`, `markdown`                           |
-| `--output <path>`      | `-o`      | `stdout`            | Write report to the specified file path                                                            |
-| `--poll`               |           | `false`             | Poll SBOM scan status until background worker processing completes                                 |
-| `--file <path>`        |           |                     | Target file for smart contract analysis with `explain --web3`                                      |
-| `--finding-type <id>`  |           |                     | Vulnerability type (e.g. Reentrancy, Overflow) for `explain --web3`                                |
-| `--voice`              | `-v`      | `false`             | Play an audio debrief of findings in your terminal upon completion                                 |
-| `--local`              |           | `false`             | Skip cloud AI upload and run fully local pattern analysis                                          |
-| `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                              |
-| `--ignore-file <path>` |           | `.secureflowignore` | Custom path to ignore configuration file                                                           |
-| `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                               |
-| `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                 |
-| `--no-color`           |           |                     | Disable colored output (ANSI escape codes)                                                         |
-| `--verbose`            |           | `false`             | Enable verbose diagnostic logging                                                                  |
-| `--help`               | `-h`      |                     | Display CLI usage instructions and exit                                                            |
+| `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt            |
+| `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)         |
+| `--ignore <paths>`     |           |                     | Comma-separated paths/globs to ignore for `init`                                                     |
+| `--languages <langs>`  |           |                     | Comma-separated repository languages for `init` (e.g. `typescript,terraform,python`)                 |
+| `--husky`              |           |                     | Initialize pre-commit hook using Husky (`.husky/pre-commit`)                                         |
+| `--blank`              |           |                     | Initialize pre-commit hook using `package.json` prepare script                                       |
+| `--fail-on <level>`    |           | `medium`            | Exit with error code `1` if findings meet or exceed severity (`low`, `medium`, `high`, `critical`)   |
+| `--format <format>`    |           | `text`              | Output report format: `text`, `json`, `sarif`, `csv`, `html`, `markdown`                             |
+| `--output <path>`      | `-o`      | `stdout`            | Write report to the specified file path                                                              |
+| `--poll`               |           | `false`             | Poll SBOM scan status until background worker processing completes                                   |
+| `--file <path>`        |           |                     | Target file for smart contract analysis with `explain --web3`                                        |
+| `--finding-type <id>`  |           |                     | Vulnerability type (e.g. Reentrancy, Overflow) for `explain --web3`                                  |
+| `--voice`              | `-v`      | `false`             | Play an audio debrief of findings in your terminal upon completion                                   |
+| `--local`              |           | `false`             | Skip cloud AI upload and run fully local pattern analysis                                            |
+| `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                                |
+| `--ignore-file <path>` |           | `.secureflowignore` | Custom path to ignore configuration file                                                             |
+| `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                                 |
+| `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                   |
+| `--no-color`           |           |                     | Disable colored output (ANSI escape codes)                                                           |
+| `--verbose`            |           | `false`             | Enable verbose diagnostic logging                                                                    |
+| `--help`               | `-h`      |                     | Display CLI usage instructions and exit                                                              |
 
 ---
 

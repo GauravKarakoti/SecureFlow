@@ -294,7 +294,11 @@ export default function FindingsToolbar({
         </Select>
 
         <Select value={activeExpiring} onValueChange={(value) => setSingle("expiring", value)}>
-          <SelectTrigger className="w-[180px]" aria-label="Filter by expiry" data-testid="filter-expiry-select">
+          <SelectTrigger
+            className="w-[180px]"
+            aria-label="Filter by expiry"
+            data-testid="filter-expiry-select"
+          >
             <SelectValue placeholder="Expiry" />
           </SelectTrigger>
           <SelectContent>

@@ -53,9 +53,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       expect(
         getUserClearance({ user: { id: "u3", roles: ["USER", "OPERATOR", "SECURITY_LEAD"] } }),
       ).toBe(ClearanceLevel.SECURITY_LEAD);
-      expect(
-        getUserClearance({ user: { id: "u4", roles: ["USER", "ADMIN"] } }),
-      ).toBe(ClearanceLevel.ADMIN);
+      expect(getUserClearance({ user: { id: "u4", roles: ["USER", "ADMIN"] } })).toBe(
+        ClearanceLevel.ADMIN,
+      );
     });
 
     it("respects explicit clearance attribute", () => {
@@ -110,7 +110,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       expect(result.authorized).toBe(false);
       expect(result.clearance).toBe(ClearanceLevel.USER);
 
-      expect(() => requireOperatorClearance(session, ClearanceLevel.OPERATOR)).toThrow(ClearanceError);
+      expect(() => requireOperatorClearance(session, ClearanceLevel.OPERATOR)).toThrow(
+        ClearanceError,
+      );
       try {
         requireOperatorClearance(session, ClearanceLevel.OPERATOR);
       } catch (e: any) {
@@ -135,7 +137,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       vi.mocked(auth).mockResolvedValueOnce(null as any);
 
       const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
-      const wrapped = withOperatorClearance(handler, { requiredClearance: ClearanceLevel.OPERATOR });
+      const wrapped = withOperatorClearance(handler, {
+        requiredClearance: ClearanceLevel.OPERATOR,
+      });
 
       const req = new NextRequest("http://localhost/api/action", { method: "POST" });
       const res = await wrapped(req);
@@ -152,7 +156,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       } as any);
 
       const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
-      const wrapped = withOperatorClearance(handler, { requiredClearance: ClearanceLevel.OPERATOR });
+      const wrapped = withOperatorClearance(handler, {
+        requiredClearance: ClearanceLevel.OPERATOR,
+      });
 
       const req = new NextRequest("http://localhost/api/action", { method: "POST" });
       const res = await wrapped(req);
@@ -173,7 +179,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       const handler = vi.fn().mockImplementation(async (req, ctx) => {
         return NextResponse.json({ ok: true, clearance: ctx.clearance });
       });
-      const wrapped = withOperatorClearance(handler, { requiredClearance: ClearanceLevel.OPERATOR });
+      const wrapped = withOperatorClearance(handler, {
+        requiredClearance: ClearanceLevel.OPERATOR,
+      });
 
       const req = new NextRequest("http://localhost/api/action", { method: "POST" });
       const res = await wrapped(req);
@@ -191,7 +199,9 @@ describe("Operator Clearance Authorization Middleware", () => {
       } as any);
 
       const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
-      const wrapped = withOperatorClearance(handler, { requiredClearance: ClearanceLevel.OPERATOR });
+      const wrapped = withOperatorClearance(handler, {
+        requiredClearance: ClearanceLevel.OPERATOR,
+      });
 
       const req = new NextRequest("http://localhost/api/action", { method: "POST" });
       const res = await wrapped(req);

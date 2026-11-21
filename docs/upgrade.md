@@ -99,6 +99,7 @@ diff -u .env.example .env | grep "^+ "
 ```
 
 Key recent configuration additions to check:
+
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: OpenTelemetry distributed trace collector URL (optional).
 - `DATA_RETENTION_DAYS`: Auto-purge threshold for findings and scans (optional).
 - `TRUSTED_PROXY_HOP_COUNT`: Reverse proxy hop count for rate limit accuracy (recommended behind ingress/Cloudflare).
@@ -145,6 +146,7 @@ curl -f -s http://localhost:9002/api/health | jq .
 ```
 
 Expected output:
+
 ```json
 {
   "status": "healthy",
@@ -164,6 +166,7 @@ curl -s http://localhost:9002/api/version | jq .
 ```
 
 Expected output:
+
 ```json
 {
   "version": "3.8.0",
@@ -195,11 +198,13 @@ Update your `docker-compose.yml` or `helm` values back to the previously running
 If the new version executed breaking schema migrations, restore the database from your Step 2 backup:
 
 #### For SQL Plain-Text Dump:
+
 ```bash
 docker compose exec -T postgres psql -U postgres secureflow < "$BACKUP_FILE"
 ```
 
 #### For Custom Archive (`.dump`):
+
 ```bash
 pg_restore --clean --if-exists -d "$DATABASE_URL" "secureflow_backup_XXXXXX.dump"
 ```

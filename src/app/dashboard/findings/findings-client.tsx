@@ -90,6 +90,7 @@ export default function FindingsClient({
   const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
   const [cursor, setCursor] = useState<string | null | undefined>(nextCursor);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [nowMs] = useState(() => Date.now());
 
   if (findings !== prevFindings) {
     setPrevFindings(findings);
@@ -440,6 +441,10 @@ export default function FindingsClient({
               <Accordion type="single" collapsible className="space-y-4">
                 {displayedFindings.map((finding) => {
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
+                  const expiryDate = finding.triageExpiresAt
+                    ? new Date(finding.triageExpiresAt)
+                    : null;
+                  const isExpired = expiryDate ? expiryDate.getTime() <= nowMs : false;
 
                   return (
                     <AccordionItem
@@ -499,20 +504,20 @@ export default function FindingsClient({
                                   : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
                               </Badge>
                             )}
-                            {finding.triageExpiresAt && (
+                            {expiryDate && (
                               <Badge
                                 variant="outline"
                                 className={
-                                  new Date(finding.triageExpiresAt).getTime() <= Date.now()
+                                  isExpired
                                     ? "border-red-500/20 bg-red-500/10 text-red-400 font-mono text-[10px]"
                                     : "border-amber-500/20 bg-amber-500/10 text-amber-300 font-mono text-[10px]"
                                 }
-                                title={`Dismissal expiry: ${new Date(finding.triageExpiresAt).toLocaleDateString()}`}
+                                title={`Dismissal expiry: ${expiryDate.toLocaleDateString()}`}
                               >
                                 <Clock className="w-3 h-3 mr-1 inline" />
-                                {new Date(finding.triageExpiresAt).getTime() <= Date.now()
+                                {isExpired
                                   ? "expired"
-                                  : `expires on ${new Date(finding.triageExpiresAt).toLocaleDateString()}`}
+                                  : `expires on ${expiryDate.toLocaleDateString()}`}
                               </Badge>
                             )}
                             {finding.triageNote?.includes("previous dismissal expired on") && (

@@ -14,7 +14,11 @@ export const DEFAULT_WORKER_SHUTDOWN_TIMEOUT_MS = 25_000;
  * Priority: explicit parameter > WORKER_SHUTDOWN_TIMEOUT_MS env var > DEFAULT_WORKER_SHUTDOWN_TIMEOUT_MS.
  */
 export function resolveShutdownTimeoutMs(explicitTimeout?: number): number {
-  if (typeof explicitTimeout === "number" && !Number.isNaN(explicitTimeout) && explicitTimeout > 0) {
+  if (
+    typeof explicitTimeout === "number" &&
+    !Number.isNaN(explicitTimeout) &&
+    explicitTimeout > 0
+  ) {
     return explicitTimeout;
   }
   const envVal = process.env.WORKER_SHUTDOWN_TIMEOUT_MS;

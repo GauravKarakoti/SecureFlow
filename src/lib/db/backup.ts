@@ -8,6 +8,8 @@ import { resolveConnectionString } from "@/lib/db/pool-config";
 
 const execFileAsync = promisify(execFile);
 
+const formatSafeLog = (msg: string): string => scrubCredentials(msg);
+
 export interface PostgresConnectionConfig {
   host: string;
   port: number;
@@ -24,9 +26,9 @@ export interface Logger {
 }
 
 const defaultLogger: Logger = {
-  info: (msg: string) => console.log(scrubCredentials(msg)),
-  warn: (msg: string) => console.warn(scrubCredentials(msg)),
-  error: (msg: string) => console.error(scrubCredentials(msg)),
+  info: (msg: string) => console.log(formatSafeLog(msg)),
+  warn: (msg: string) => console.warn(formatSafeLog(msg)),
+  error: (msg: string) => console.error(formatSafeLog(msg)),
 };
 
 /**
@@ -62,7 +64,11 @@ export function sanitizeConnectionString(rawUrl: string): string {
  */
 export async function getDatabaseTableCount(
   connectionString: string,
-  clientFactory?: (conn: string) => { connect: () => Promise<void>; query: (q: string) => Promise<{ rows: any[] }>; end: () => Promise<void> },
+  clientFactory?: (conn: string) => {
+    connect: () => Promise<void>;
+    query: (q: string) => Promise<{ rows: any[] }>;
+    end: () => Promise<void>;
+  },
 ): Promise<{ count: number; tables: string[] }> {
   const client = clientFactory ? clientFactory(connectionString) : new Client({ connectionString });
   await client.connect();
@@ -84,7 +90,11 @@ export interface BackupOptions {
   connectionString?: string;
   outputDir?: string;
   outputFile?: string;
-  execCommand?: (cmd: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string }>;
+  execCommand?: (
+    cmd: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+  ) => Promise<{ stdout: string; stderr: string }>;
   logger?: Logger;
 }
 
@@ -105,7 +115,9 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
   const logger = options.logger || defaultLogger;
   const rawConn = options.connectionString || resolveConnectionString(process.env);
   if (!rawConn) {
-    throw new Error("No database connection string found in environment (DATABASE_URL is not set).");
+    throw new Error(
+      "No database connection string found in environment (DATABASE_URL is not set).",
+    );
   }
 
   const config = parsePostgresConnectionString(rawConn);
@@ -116,20 +128,29 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
 
   const timestampIso = new Date().toISOString();
   const fileDateTag = timestampIso.replace(/[:.]/g, "-");
-  const fileName = options.outputFile ? path.basename(options.outputFile) : `secureflow_backup_${fileDateTag}.dump`;
-  const targetFilePath = options.outputFile ? path.resolve(options.outputFile) : path.join(targetDir, fileName);
+  const fileName = options.outputFile
+    ? path.basename(options.outputFile)
+    : `secureflow_backup_${fileDateTag}.dump`;
+  const targetFilePath = options.outputFile
+    ? path.resolve(options.outputFile)
+    : path.join(targetDir, fileName);
 
   logger.info(`Starting database backup for ${sanitizeConnectionString(rawConn)}...`);
 
   const args = [
-    "-h", config.host,
-    "-p", String(config.port),
-    "-U", config.username,
-    "-d", config.database,
+    "-h",
+    config.host,
+    "-p",
+    String(config.port),
+    "-U",
+    config.username,
+    "-d",
+    config.database,
     "-Fc", // Custom compressed archive format
     "--no-owner",
     "--no-privileges",
-    "-f", targetFilePath,
+    "-f",
+    targetFilePath,
   ];
 
   const env: NodeJS.ProcessEnv = {
@@ -149,7 +170,7 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
           "pg_dump binary not found in PATH. Please install PostgreSQL client tools (e.g. `sudo apt install postgresql-client` or run via Docker).",
         );
       }
-      throw new Error(`pg_dump failed: ${scrubCredentials(err?.message || String(err))}`);
+      throw new Error(`pg_dump failed: ${formatSafeLog(err?.message || String(err))}`);
     }
   }
 
@@ -159,7 +180,9 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
     fileSizeBytes = fs.statSync(targetFilePath).size;
   }
 
-  logger.info(`Backup completed successfully in ${durationMs}ms: ${targetFilePath} (${(fileSizeBytes / 1024).toFixed(2)} KB)`);
+  logger.info(
+    `Backup completed successfully in ${durationMs}ms: ${targetFilePath} (${(fileSizeBytes / 1024).toFixed(2)} KB)`,
+  );
 
   return {
     filePath: targetFilePath,
@@ -176,7 +199,11 @@ export interface RestoreOptions {
   backupFile: string;
   force?: boolean;
   clean?: boolean;
-  execCommand?: (cmd: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string }>;
+  execCommand?: (
+    cmd: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+  ) => Promise<{ stdout: string; stderr: string }>;
   checkEmptyFn?: (connectionString: string) => Promise<{ count: number; tables: string[] }>;
   logger?: Logger;
 }
@@ -196,7 +223,9 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
   const logger = options.logger || defaultLogger;
   const rawConn = options.connectionString || resolveConnectionString(process.env);
   if (!rawConn) {
-    throw new Error("No database connection string found in environment (DATABASE_URL is not set).");
+    throw new Error(
+      "No database connection string found in environment (DATABASE_URL is not set).",
+    );
   }
 
   const targetFile = path.resolve(options.backupFile);
@@ -214,7 +243,7 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
       if (count > 0) {
         throw new Error(
           `Target database "${config.database}" is not empty (${count} existing tables found: ${tables.slice(0, 5).join(", ")}${tables.length > 5 ? "..." : ""}). ` +
-          `Refusing to restore without --force flag.`,
+            `Refusing to restore without --force flag.`,
         );
       }
     } catch (err: any) {
@@ -222,13 +251,14 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
         throw err;
       }
       // If table check fails because database doesn't exist yet, we continue
-      logger.warn(`Could not verify table count: ${scrubCredentials(err.message)}`);
+      logger.warn(`Could not verify table count: ${formatSafeLog(err.message)}`);
     }
   }
 
   logger.info(`Starting restore into ${sanitizeConnectionString(rawConn)} from ${targetFile}...`);
 
-  const isCustomFormat = targetFile.endsWith(".dump") || targetFile.endsWith(".dmp") || targetFile.endsWith(".tar");
+  const isCustomFormat =
+    targetFile.endsWith(".dump") || targetFile.endsWith(".dmp") || targetFile.endsWith(".tar");
   const isPlainSql = targetFile.endsWith(".sql");
 
   const env: NodeJS.ProcessEnv = {
@@ -240,11 +270,16 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
 
   if (isPlainSql) {
     const args = [
-      "-h", config.host,
-      "-p", String(config.port),
-      "-U", config.username,
-      "-d", config.database,
-      "-f", targetFile,
+      "-h",
+      config.host,
+      "-p",
+      String(config.port),
+      "-U",
+      config.username,
+      "-d",
+      config.database,
+      "-f",
+      targetFile,
     ];
 
     if (options.execCommand) {
@@ -256,16 +291,20 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
         if (err?.code === "ENOENT") {
           throw new Error("psql binary not found in PATH. Please install PostgreSQL client tools.");
         }
-        throw new Error(`psql restore failed: ${scrubCredentials(err?.message || String(err))}`);
+        throw new Error(`psql restore failed: ${formatSafeLog(err?.message || String(err))}`);
       }
     }
   } else {
     // Default pg_restore for custom format
     const args = [
-      "-h", config.host,
-      "-p", String(config.port),
-      "-U", config.username,
-      "-d", config.database,
+      "-h",
+      config.host,
+      "-p",
+      String(config.port),
+      "-U",
+      config.username,
+      "-d",
+      config.database,
       "--no-owner",
       "--no-privileges",
     ];
@@ -283,16 +322,22 @@ export async function restoreDatabaseBackup(options: RestoreOptions): Promise<Re
         await execFileAsync("pg_restore", args, { env });
       } catch (err: any) {
         if (err?.code === "ENOENT") {
-          throw new Error("pg_restore binary not found in PATH. Please install PostgreSQL client tools.");
+          throw new Error(
+            "pg_restore binary not found in PATH. Please install PostgreSQL client tools.",
+          );
         }
         // pg_restore returns exit code 1 on non-fatal warnings (e.g. duplicate drop warnings)
-        logger.warn(`pg_restore completed with warnings: ${scrubCredentials(err?.message || String(err))}`);
+        logger.warn(
+          `pg_restore completed with warnings: ${formatSafeLog(err?.message || String(err))}`,
+        );
       }
     }
   }
 
   const durationMs = Date.now() - startTime;
-  logger.info(`Restore completed successfully in ${durationMs}ms into database "${config.database}".`);
+  logger.info(
+    `Restore completed successfully in ${durationMs}ms into database "${config.database}".`,
+  );
 
   return {
     success: true,
@@ -307,7 +352,11 @@ export interface VerifyBackupOptions {
   backupFile?: string;
   tempDbName?: string;
   keepTempDb?: boolean;
-  execCommand?: (cmd: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string }>;
+  execCommand?: (
+    cmd: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+  ) => Promise<{ stdout: string; stderr: string }>;
   clientFactory?: (conn: string) => {
     connect: () => Promise<void>;
     query: (q: string, params?: any[]) => Promise<{ rows: any[] }>;
@@ -345,11 +394,15 @@ export function findLatestBackupFile(dir: string): string | null {
  * Restores a backup file into an ephemeral temporary database, verifies table counts
  * and Prisma migrations, and safely cleans up the temporary database.
  */
-export async function verifyDatabaseBackup(options: VerifyBackupOptions = {}): Promise<VerifyBackupResult> {
+export async function verifyDatabaseBackup(
+  options: VerifyBackupOptions = {},
+): Promise<VerifyBackupResult> {
   const logger = options.logger || defaultLogger;
   const rawConn = options.connectionString || resolveConnectionString(process.env);
   if (!rawConn) {
-    throw new Error("No database connection string found in environment (DATABASE_URL is not set).");
+    throw new Error(
+      "No database connection string found in environment (DATABASE_URL is not set).",
+    );
   }
 
   let backupFile = options.backupFile;
@@ -357,7 +410,9 @@ export async function verifyDatabaseBackup(options: VerifyBackupOptions = {}): P
     const backupDir = path.resolve(process.cwd(), "backups");
     const latest = findLatestBackupFile(backupDir);
     if (!latest) {
-      throw new Error(`No backup file provided and none found in ${backupDir}. Run 'npm run db:backup' first.`);
+      throw new Error(
+        `No backup file provided and none found in ${backupDir}. Run 'npm run db:backup' first.`,
+      );
     }
     backupFile = latest;
   }
@@ -369,10 +424,11 @@ export async function verifyDatabaseBackup(options: VerifyBackupOptions = {}): P
 
   const config = parsePostgresConnectionString(rawConn);
   const tempDbName =
-    options.tempDbName ||
-    `sf_verify_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    options.tempDbName || `sf_verify_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-  logger.info(`Starting backup verification for ${resolvedBackupFile} using ephemeral DB "${tempDbName}"...`);
+  logger.info(
+    `Starting backup verification for ${resolvedBackupFile} using ephemeral DB "${tempDbName}"...`,
+  );
 
   // Connect to maintenance database (postgres or template1)
   const maintenanceConnUrl = new URL(rawConn);
@@ -425,12 +481,21 @@ export async function verifyDatabaseBackup(options: VerifyBackupOptions = {}): P
       }
 
       // Check key application tables
-      const expectedCoreTables = ["user", "repository", "pullrequest", "scanresult", "finding", "policy"];
+      const expectedCoreTables = [
+        "user",
+        "repository",
+        "pullrequest",
+        "scanresult",
+        "finding",
+        "policy",
+      ];
       const lowerTables = new Set(tables.map((t) => t.toLowerCase()));
       const missingTables = expectedCoreTables.filter((t) => !lowerTables.has(t));
 
       if (missingTables.length > 0) {
-        logger.warn(`Notice: Some expected tables were not present in backup: ${missingTables.join(", ")}`);
+        logger.warn(
+          `Notice: Some expected tables were not present in backup: ${missingTables.join(", ")}`,
+        );
       }
 
       // 4. Verify Prisma migrations
@@ -473,11 +538,15 @@ export async function verifyDatabaseBackup(options: VerifyBackupOptions = {}): P
       try {
         logger.info(`Cleaning up ephemeral database "${tempDbName}"...`);
         // Terminate any open connections to tempDbName
-        await maintenanceClient.query(`
+        await maintenanceClient
+          .query(
+            `
           SELECT pg_terminate_backend(pid)
           FROM pg_stat_activity
           WHERE datname = '${tempDbName}' AND pid <> pg_backend_pid();
-        `).catch(() => {});
+        `,
+          )
+          .catch(() => {});
         await maintenanceClient.query(`DROP DATABASE IF EXISTS "${tempDbName}"`).catch(() => {});
       } catch (err: any) {
         logger.warn(`Could not drop temporary database "${tempDbName}": ${err.message}`);

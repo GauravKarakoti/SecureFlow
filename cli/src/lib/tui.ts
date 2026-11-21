@@ -633,16 +633,32 @@ export function parseInitConfigArgs(argv: string[] = process.argv): {
       }
     } else if (arg.startsWith("--ignore=") || arg.startsWith("--paths-to-ignore=")) {
       const val = arg.split("=")[1];
-      if (val) ignorePaths = val.split(",").map((p) => p.trim()).filter(Boolean);
+      if (val)
+        ignorePaths = val
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean);
     } else if ((arg === "--ignore" || arg === "--paths-to-ignore") && i + 1 < argv.length) {
       const val = argv[i + 1];
-      if (val) ignorePaths = val.split(",").map((p) => p.trim()).filter(Boolean);
+      if (val)
+        ignorePaths = val
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean);
     } else if (arg.startsWith("--languages=")) {
       const val = arg.split("=")[1];
-      if (val) languages = val.split(",").map((l) => l.trim()).filter(Boolean);
+      if (val)
+        languages = val
+          .split(",")
+          .map((l) => l.trim())
+          .filter(Boolean);
     } else if (arg === "--languages" && i + 1 < argv.length) {
       const val = argv[i + 1];
-      if (val) languages = val.split(",").map((l) => l.trim()).filter(Boolean);
+      if (val)
+        languages = val
+          .split(",")
+          .map((l) => l.trim())
+          .filter(Boolean);
     }
   }
 

@@ -1,6 +1,6 @@
 -- AlterTable
-ALTER TABLE "Finding" ADD COLUMN "suppressionStatus" TEXT,
-ADD COLUMN "suppressionRuleId" TEXT;
+ALTER TABLE "Finding" ADD COLUMN     "suppressionRuleId" TEXT,
+ADD COLUMN     "suppressionStatus" TEXT;
 
 -- CreateTable
 CREATE TABLE "SuppressionRule" (
@@ -34,12 +34,6 @@ CREATE TABLE "SuppressionRuleEvent" (
 );
 
 -- CreateIndex
-CREATE INDEX "Finding_suppressionStatus_idx" ON "Finding"("suppressionStatus");
-
--- CreateIndex
-CREATE INDEX "Finding_suppressionRuleId_idx" ON "Finding"("suppressionRuleId");
-
--- CreateIndex
 CREATE INDEX "SuppressionRule_createdAt_idx" ON "SuppressionRule"("createdAt" DESC);
 
 -- CreateIndex
@@ -53,6 +47,12 @@ CREATE INDEX "SuppressionRuleEvent_ruleId_createdAt_idx" ON "SuppressionRuleEven
 
 -- CreateIndex
 CREATE INDEX "SuppressionRuleEvent_createdAt_idx" ON "SuppressionRuleEvent"("createdAt" DESC);
+
+-- CreateIndex
+CREATE INDEX "Finding_suppressionStatus_idx" ON "Finding"("suppressionStatus");
+
+-- CreateIndex
+CREATE INDEX "Finding_suppressionRuleId_idx" ON "Finding"("suppressionRuleId");
 
 -- AddForeignKey
 ALTER TABLE "SuppressionRule" ADD CONSTRAINT "SuppressionRule_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

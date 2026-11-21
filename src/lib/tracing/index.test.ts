@@ -11,11 +11,7 @@ import {
   isSafeAttributeValue,
   FORBIDDEN_ATTRIBUTE_KEYS,
 } from "./index";
-import {
-  trace,
-  context,
-  ROOT_CONTEXT,
-} from "@opentelemetry/api";
+import { trace, context, ROOT_CONTEXT } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   BasicTracerProvider,
@@ -212,21 +208,18 @@ describe("OpenTelemetry Tracing Module", () => {
       const carrier: Record<string, string> = {};
 
       // 1. Root span: webhook.delivery
-      await withSpan(
-        "webhook.delivery",
-        async (rootSpan) => {
-          rootSpan.setAttribute("secureflow.correlation_id", correlationId);
-          rootSpan.setAttribute("secureflow.repository_id", "acme/api");
-          rootSpan.setAttribute("secureflow.pr_number", 101);
+      await withSpan("webhook.delivery", async (rootSpan) => {
+        rootSpan.setAttribute("secureflow.correlation_id", correlationId);
+        rootSpan.setAttribute("secureflow.repository_id", "acme/api");
+        rootSpan.setAttribute("secureflow.pr_number", 101);
 
-          // Attempt to attach sensitive attributes (should be ignored)
-          rootSpan.setAttribute("code", "function leak() {}");
-          rootSpan.setAttribute("secret", "token-xyz");
+        // Attempt to attach sensitive attributes (should be ignored)
+        rootSpan.setAttribute("code", "function leak() {}");
+        rootSpan.setAttribute("secret", "token-xyz");
 
-          // Inject trace context to carrier
-          injectTraceContext(carrier, rootSpan);
-        },
-      );
+        // Inject trace context to carrier
+        injectTraceContext(carrier, rootSpan);
+      });
 
       // Verify carrier has traceparent
       expect(carrier.traceparent).toBeDefined();

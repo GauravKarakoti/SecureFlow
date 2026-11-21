@@ -8,11 +8,11 @@ SecureFlow stores all security scan results, vulnerability findings, policy rule
 
 SecureFlow provides three built-in npm commands wrapping PostgreSQL's native utilities:
 
-| Command | Utility Wrapped | Description |
-| :--- | :--- | :--- |
-| `npm run db:backup` | `pg_dump` | Creates a timestamped, compressed PostgreSQL archive (`-Fc`). |
-| `npm run db:restore` | `pg_restore` / `psql` | Restores an archive into PostgreSQL. Refuses to overwrite non-empty databases without `--force`. |
-| `npm run db:verify-backup` | `pg_restore` + `pg` | Restores a dump into an ephemeral temporary database, verifies table counts and Prisma migrations, and drops the temporary DB. |
+| Command                    | Utility Wrapped       | Description                                                                                                                    |
+| :------------------------- | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------- |
+| `npm run db:backup`        | `pg_dump`             | Creates a timestamped, compressed PostgreSQL archive (`-Fc`).                                                                  |
+| `npm run db:restore`       | `pg_restore` / `psql` | Restores an archive into PostgreSQL. Refuses to overwrite non-empty databases without `--force`.                               |
+| `npm run db:verify-backup` | `pg_restore` + `pg`   | Restores a dump into an ephemeral temporary database, verifies table counts and Prisma migrations, and drops the temporary DB. |
 
 ---
 
@@ -37,6 +37,7 @@ npm run db:backup
 ```
 
 Backups are saved by default to the `backups/` directory with an ISO timestamp:
+
 ```text
 ======================================================
 ✅ SecureFlow Database Backup Created Successfully
@@ -95,7 +96,7 @@ npm run db:restore -- --file=backups/secureflow_backup_2026-11-20T23-45-00-000Z.
 
 ## 3. Verifying Backup Integrity (`npm run db:verify-backup`)
 
-> *"An untested backup is not a backup."*
+> _"An untested backup is not a backup."_
 
 `npm run db:verify-backup` provides automated recovery validation without impacting your production database:
 
@@ -116,6 +117,7 @@ npm run db:verify-backup -- --file=backups/secureflow_backup_2026-11-20T23-45-00
 ```
 
 Expected output:
+
 ```text
 ======================================================
 ✅ SecureFlow Backup Verification PASSED
@@ -204,11 +206,11 @@ spec:
 
 A resilient backup retention policy protects against both immediate operational outages and delayed discovery of data corruption:
 
-| Frequency | Retention Period | Rationale |
-| :--- | :--- | :--- |
-| **Daily Backups** | 7 to 14 days | Rapid recovery from accidental deletions, bad deployments, or system failures. |
-| **Weekly Snapshots** | 4 to 8 weeks | Rollback window for issues discovered days after a release. |
-| **Monthly Archives** | 12 months | Compliance, long-term security auditing, and forensic analysis. |
+| Frequency            | Retention Period | Rationale                                                                      |
+| :------------------- | :--------------- | :----------------------------------------------------------------------------- |
+| **Daily Backups**    | 7 to 14 days     | Rapid recovery from accidental deletions, bad deployments, or system failures. |
+| **Weekly Snapshots** | 4 to 8 weeks     | Rollback window for issues discovered days after a release.                    |
+| **Monthly Archives** | 12 months        | Compliance, long-term security auditing, and forensic analysis.                |
 
 ### Retention Pruning Script Example
 

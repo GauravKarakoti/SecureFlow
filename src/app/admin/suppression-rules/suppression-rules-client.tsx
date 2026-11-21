@@ -165,8 +165,13 @@ export default function SuppressionRulesClient({
     );
   };
 
-  const totalSuppressions30d = rules.reduce((acc, r) => acc + (r.thirtyDaySuppressionCount || 0), 0);
-  const activeRulesCount = rules.filter((r) => !r.expiresAt || new Date(r.expiresAt) > new Date()).length;
+  const totalSuppressions30d = rules.reduce(
+    (acc, r) => acc + (r.thirtyDaySuppressionCount || 0),
+    0,
+  );
+  const activeRulesCount = rules.filter(
+    (r) => !r.expiresAt || new Date(r.expiresAt) > new Date(),
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -197,7 +202,9 @@ export default function SuppressionRulesClient({
           </div>
         </div>
         <div className="p-5 rounded-xl border border-border bg-card">
-          <div className="text-sm font-medium text-muted-foreground">Suppressed in Last 30 Days</div>
+          <div className="text-sm font-medium text-muted-foreground">
+            Suppressed in Last 30 Days
+          </div>
           <div className="text-2xl font-bold mt-1 text-blue-600 dark:text-blue-400">
             {totalSuppressions30d}
           </div>
@@ -224,7 +231,8 @@ export default function SuppressionRulesClient({
           <ShieldAlert className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
           <h3 className="text-lg font-medium text-foreground">No suppression rules configured</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-            Create an organization-wide suppression rule to safely accept specific finding types, policy checks, or file patterns across your repositories.
+            Create an organization-wide suppression rule to safely accept specific finding types,
+            policy checks, or file patterns across your repositories.
           </p>
           <button
             onClick={openCreateModal}
@@ -240,7 +248,10 @@ export default function SuppressionRulesClient({
             const isExpired = rule.expiresAt && new Date(rule.expiresAt) <= new Date();
 
             return (
-              <div key={rule.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div
+                key={rule.id}
+                className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+              >
                 <div className="space-y-2 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-base text-foreground">{rule.name}</span>
@@ -255,7 +266,9 @@ export default function SuppressionRulesClient({
                     )}
 
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border">
-                      {rule.scope === "ALL" ? "All Repositories" : `${rule.repositoryIds.length} Selected Repo(s)`}
+                      {rule.scope === "ALL"
+                        ? "All Repositories"
+                        : `${rule.repositoryIds.length} Selected Repo(s)`}
                     </span>
 
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
@@ -271,19 +284,25 @@ export default function SuppressionRulesClient({
                     {rule.matchCategory && (
                       <div className="flex items-center gap-1">
                         <Tag className="w-3.5 h-3.5" />
-                        <span>Category: <strong>{rule.matchCategory}</strong></span>
+                        <span>
+                          Category: <strong>{rule.matchCategory}</strong>
+                        </span>
                       </div>
                     )}
                     {rule.matchPolicy && (
                       <div className="flex items-center gap-1">
                         <FileCode className="w-3.5 h-3.5" />
-                        <span>Policy: <strong>{rule.matchPolicy}</strong></span>
+                        <span>
+                          Policy: <strong>{rule.matchPolicy}</strong>
+                        </span>
                       </div>
                     )}
                     {rule.pathGlob && (
                       <div className="flex items-center gap-1">
                         <FolderGit2 className="w-3.5 h-3.5" />
-                        <span>Path: <code>{rule.pathGlob}</code></span>
+                        <span>
+                          Path: <code>{rule.pathGlob}</code>
+                        </span>
                       </div>
                     )}
                     {rule.expiresAt ? (
@@ -365,9 +384,7 @@ export default function SuppressionRulesClient({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Scope *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Scope *</label>
                 <div className="flex items-center gap-4 text-sm">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -449,8 +466,7 @@ export default function SuppressionRulesClient({
                     value={matchPolicy}
                     onChange={(e) => setMatchPolicy(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                  </input>
+                  ></input>
                 </div>
               </div>
 
@@ -492,7 +508,8 @@ export default function SuppressionRulesClient({
                   className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Leave empty for a permanent rule. Rules with an expiry stop applying after this date.
+                  Leave empty for a permanent rule. Rules with an expiry stop applying after this
+                  date.
                 </p>
               </div>
 

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { formatEnvErrors, validateEnv } from "./env";
 
@@ -243,10 +246,6 @@ describe("environment validation (src/lib/env.ts)", () => {
 
   describe("file-based secrets validation (<NAME>_FILE) (#1893)", () => {
     it("successfully validates and populates secrets supplied via <NAME>_FILE", () => {
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const os = require("node:os");
-
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-env-test-"));
       try {
         const groqFile = path.join(tempDir, "groq_key.txt");
@@ -257,12 +256,7 @@ describe("environment validation (src/lib/env.ts)", () => {
         fs.writeFileSync(keyFile, `${validPrivateKey}\n`, "utf8");
         fs.writeFileSync(authFile, "file_supplied_auth_secret_99999\r\n", "utf8");
 
-        const {
-          GROQ_API_KEY,
-          GITHUB_PRIVATE_KEY,
-          AUTH_SECRET,
-          ...baseEnv
-        } = validEnv;
+        const { GROQ_API_KEY, GITHUB_PRIVATE_KEY, AUTH_SECRET, ...baseEnv } = validEnv;
 
         const envWithFiles = {
           ...baseEnv,
@@ -281,10 +275,6 @@ describe("environment validation (src/lib/env.ts)", () => {
     });
 
     it("rejects startup when both direct variable and _FILE are specified", () => {
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const os = require("node:os");
-
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-env-test-"));
       try {
         const dbFile = path.join(tempDir, "db.txt");

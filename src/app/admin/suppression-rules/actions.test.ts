@@ -51,17 +51,13 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
         }),
       ).rejects.toThrow("Forbidden");
 
-      await expect(
-        updateSuppressionRuleAction("rule-1", { name: "Updated" }),
-      ).rejects.toThrow("Forbidden");
+      await expect(updateSuppressionRuleAction("rule-1", { name: "Updated" })).rejects.toThrow(
+        "Forbidden",
+      );
 
-      await expect(
-        deleteSuppressionRuleAction("rule-1"),
-      ).rejects.toThrow("Forbidden");
+      await expect(deleteSuppressionRuleAction("rule-1")).rejects.toThrow("Forbidden");
 
-      await expect(
-        getSuppressionRulesAction(),
-      ).rejects.toThrow("Forbidden");
+      await expect(getSuppressionRulesAction()).rejects.toThrow("Forbidden");
     });
 
     it("rejects non-admin users (role USER)", async () => {
@@ -78,13 +74,13 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
         }),
       ).rejects.toThrow("Forbidden: Admin role required");
 
-      await expect(
-        updateSuppressionRuleAction("rule-1", { name: "Updated" }),
-      ).rejects.toThrow("Forbidden: Admin role required");
+      await expect(updateSuppressionRuleAction("rule-1", { name: "Updated" })).rejects.toThrow(
+        "Forbidden: Admin role required",
+      );
 
-      await expect(
-        deleteSuppressionRuleAction("rule-1"),
-      ).rejects.toThrow("Forbidden: Admin role required");
+      await expect(deleteSuppressionRuleAction("rule-1")).rejects.toThrow(
+        "Forbidden: Admin role required",
+      );
     });
   });
 

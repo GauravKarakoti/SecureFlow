@@ -176,11 +176,7 @@ export class PatchGuard {
     if (this.globalTimestamps.length >= this.config.maxGlobalInWindow) {
       const oldest = this.globalTimestamps[0] ?? now;
       const retryAfter = Math.max(1, Math.ceil((oldest + this.config.windowMs - now) / 1000));
-      throw new PatchRateLimitExceededError(
-        "*GLOBAL*",
-        retryAfter,
-        this.globalTimestamps.length,
-      );
+      throw new PatchRateLimitExceededError("*GLOBAL*", retryAfter, this.globalTimestamps.length);
     }
 
     // Per-resource rate limit check
@@ -188,22 +184,14 @@ export class PatchGuard {
     if (perResource.length >= this.config.maxPerResourceInWindow) {
       const oldest = perResource[0] ?? now;
       const retryAfter = Math.max(1, Math.ceil((oldest + this.config.windowMs - now) / 1000));
-      throw new PatchRateLimitExceededError(
-        resource,
-        retryAfter,
-        perResource.length,
-      );
+      throw new PatchRateLimitExceededError(resource, retryAfter, perResource.length);
     }
   }
 
   /**
    * Detects loops and oscillations for automated actions on a resource.
    */
-  public checkLoopDetection(
-    resource: string,
-    actionType: string,
-    patchDiff?: string,
-  ): void {
+  public checkLoopDetection(resource: string, actionType: string, patchDiff?: string): void {
     const history = this.resourceHistory.get(resource) || [];
     if (history.length === 0) return;
 
@@ -227,9 +215,7 @@ export class PatchGuard {
       const third = history[history.length - 1];
       if (first && second && third) {
         const isAlternating =
-          first.hash !== second.hash &&
-          first.hash === third.hash &&
-          second.hash === hash;
+          first.hash !== second.hash && first.hash === third.hash && second.hash === hash;
 
         if (isAlternating) {
           throw new PatchLoopDetectedError(

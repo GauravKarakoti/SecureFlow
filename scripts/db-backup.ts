@@ -24,7 +24,11 @@ Environment Variables:
 `);
 }
 
-export function parseArgs(argv: string[]): { outputFile?: string; outputDir?: string; help: boolean } {
+export function parseArgs(argv: string[]): {
+  outputFile?: string;
+  outputDir?: string;
+  help: boolean;
+} {
   const result: { outputFile?: string; outputDir?: string; help: boolean } = { help: false };
 
   for (const arg of argv) {
@@ -70,8 +74,10 @@ export async function runCli(): Promise<void> {
   Format:   PostgreSQL Custom Compressed Archive (-Fc)
 ======================================================
 `);
-  } catch (err: any) {
-    console.error(`❌ Backup failed: ${scrubCredentials(err?.message || String(err))}`);
+  } catch (err: unknown) {
+    const rawDetail = err instanceof Error ? err.message : String(err);
+    const safeDetail = scrubCredentials(rawDetail);
+    console.error(`❌ Backup failed: ${safeDetail}`);
     process.exit(1);
   }
 }

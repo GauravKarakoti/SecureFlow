@@ -95,269 +95,270 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     if (deliveryId) span.setAttribute("secureflow.delivery_id", deliveryId);
 
     // 2. Validate environment configuration
-  const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
-  if (!secret) {
-    log.error("Server misconfiguration: GitHub webhook secret is missing.");
-    throw new AppError("Server misconfiguration: GitHub webhook secret is missing.", 500);
-  }
-
-  const maxBytes = parseMaxWebhookBytes(env.GITHUB_WEBHOOK_MAX_BYTES);
-
-  // 3. Size, from the header, before reading a single byte.
-  //
-  // `req.text()` buffers the whole body into memory. With a 50/minute rate limit
-  // and no cap, one source could make the process buffer ~1.25 GB per minute of
-  // unverified bytes — and since verification came after the read, without ever
-  // holding a valid signature.
-  if (isPayloadTooLarge(req.headers.get("content-length"), maxBytes)) {
-    log.warn("Webhook payload exceeds the configured size limit");
-    throw new AppError("Webhook payload exceeds the configured size limit", 413);
-  }
-  const webhookSecret = env.GITHUB_WEBHOOK_SECRET ?? process.env.GITHUB_WEBHOOK_SECRET;
-  if (!webhookSecret || !webhookSecret.trim()) {
-    log.error("GITHUB_WEBHOOK_SECRET is not set");
-    throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500);
-  }
-
-  // 4. Delivery ID, required.
-  //
-  // The worker guards its idempotency check on this value being truthy, so a
-  // delivery without the header used to skip the duplicate check entirely — and
-  // with `attempts: 3` on the queue, a job failing after the scan but before the
-  // completion record was fully re-processed on every retry.
-  if (!deliveryId) {
-    log.warn("Missing or invalid x-github-delivery header");
-    throw new AppError("Missing or invalid x-github-delivery header", 400);
-  }
-
-  const signatureHex = parseGithubSignature(
-    req.headers.get("x-hub-signature-256") ?? req.headers.get("X-Hub-Signature-256"),
-  );
-  if (!signatureHex) {
-    const msg = `[SECURITY_WARNING] GitHub webhook rejected: Missing or invalid x-hub-signature-256 header (delivery: ${deliveryId})`;
-    console.warn(msg);
-    log.warn(msg);
-    throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
-  }
-
-  // Read the raw text so the signature is verified over the exact bytes sent,
-  // before anything parses them.
-  // We stream the body if possible to enforce the size limit on unbounded
-  // chunked requests and prevent memory exhaustion (OOM).
-  let rawPayloadText = "";
-  if (req.body) {
-    let totalBytes = 0;
-    const reader = req.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.length;
-      if (totalBytes > maxBytes) {
-        reader.releaseLock();
-        log.warn("Webhook payload exceeds the configured size limit during stream");
-        throw new AppError("Webhook payload exceeds the configured size limit", 413);
-      }
-      rawPayloadText += decoder.decode(value, { stream: true });
+    const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
+    if (!secret) {
+      log.error("Server misconfiguration: GitHub webhook secret is missing.");
+      throw new AppError("Server misconfiguration: GitHub webhook secret is missing.", 500);
     }
-    rawPayloadText += decoder.decode();
-  } else {
-    rawPayloadText = await req.text();
-    // `Content-Length` is attacker-supplied, so the real length is re-checked. A
-    // chunked request legitimately omits the header, which is why the first check
-    // cannot be the only one.
-    if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
-      log.warn("Webhook payload exceeds the configured size limit after read");
+
+    const maxBytes = parseMaxWebhookBytes(env.GITHUB_WEBHOOK_MAX_BYTES);
+
+    // 3. Size, from the header, before reading a single byte.
+    //
+    // `req.text()` buffers the whole body into memory. With a 50/minute rate limit
+    // and no cap, one source could make the process buffer ~1.25 GB per minute of
+    // unverified bytes — and since verification came after the read, without ever
+    // holding a valid signature.
+    if (isPayloadTooLarge(req.headers.get("content-length"), maxBytes)) {
+      log.warn("Webhook payload exceeds the configured size limit");
       throw new AppError("Webhook payload exceeds the configured size limit", 413);
     }
-  }
+    const webhookSecret = env.GITHUB_WEBHOOK_SECRET ?? process.env.GITHUB_WEBHOOK_SECRET;
+    if (!webhookSecret || !webhookSecret.trim()) {
+      log.error("GITHUB_WEBHOOK_SECRET is not set");
+      throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500);
+    }
 
-  // 5. Signature, before the body is interpreted in any way.
-  // Supports zero-downtime secret rotation: checks active secret first, and if a previous
-  // secret is within its grace period (e.g. from Redis or comma-separated configuration), checks it too.
-  const { current: currentSecret, previous: previousSecret } = await resolveWebhookSecrets(secret);
+    // 4. Delivery ID, required.
+    //
+    // The worker guards its idempotency check on this value being truthy, so a
+    // delivery without the header used to skip the duplicate check entirely — and
+    // with `attempts: 3` on the queue, a job failing after the scan but before the
+    // completion record was fully re-processed on every retry.
+    if (!deliveryId) {
+      log.warn("Missing or invalid x-github-delivery header");
+      throw new AppError("Missing or invalid x-github-delivery header", 400);
+    }
 
-  const matchedSecret = verifyWebhookSignatureWithRotation(
-    rawPayloadText,
-    currentSecret,
-    previousSecret,
-    signatureHex,
-  );
-
-  if (!matchedSecret) {
-    const msg = `[SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery ${deliveryId}`;
-    console.warn(msg);
-    log.warn(msg);
-    throw new AppError("Invalid GitHub webhook signature", 401);
-  }
-
-  log.info(`GitHub webhook signature verified using ${matchedSecret} secret`, {
-    deliveryId,
-    matchedSecret,
-  });
-
-  // 5. Deduplication: GitHub retries webhook deliveries and users can redeliver
-  // them from app settings. Deduplicate using an atomic set-if-absent in Redis
-  // with a 24-hour TTL after signature verification so unauthenticated requests
-  // cannot poison keys. Repeat deliveries return 200 without enqueuing a scan (#1534).
-  const isDuplicate = await isDuplicateDelivery(deliveryId);
-  if (isDuplicate) {
-    console.warn(`[WEBHOOK_DEDUPE] Duplicate GitHub webhook delivery ignored: ${deliveryId}`);
-    return NextResponse.json(
-      { message: "Duplicate webhook delivery ignored", deliveryId },
-      { status: 200 },
+    const signatureHex = parseGithubSignature(
+      req.headers.get("x-hub-signature-256") ?? req.headers.get("X-Hub-Signature-256"),
     );
-  }
+    if (!signatureHex) {
+      const msg = `[SECURITY_WARNING] GitHub webhook rejected: Missing or invalid x-hub-signature-256 header (delivery: ${deliveryId})`;
+      console.warn(msg);
+      log.warn(msg);
+      throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
+    }
 
-  // 6. Parse.
-  //
-  // This was a bare `JSON.parse` inline. A verified-but-malformed body threw a
-  // SyntaxError with no `statusCode`, so the error handler fell through to 500 —
-  // which GitHub treats as retryable, re-delivering a payload that can never
-  // succeed.
-  const parsed = parseWebhookPayload(rawPayloadText);
-  if (!parsed.ok) {
-    log.warn(`Webhook payload parse failed: ${parsed.reason}`);
-    throw new AppError(parsed.reason, 400);
-  }
+    // Read the raw text so the signature is verified over the exact bytes sent,
+    // before anything parses them.
+    // We stream the body if possible to enforce the size limit on unbounded
+    // chunked requests and prevent memory exhaustion (OOM).
+    let rawPayloadText = "";
+    if (req.body) {
+      let totalBytes = 0;
+      const reader = req.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.length;
+        if (totalBytes > maxBytes) {
+          reader.releaseLock();
+          log.warn("Webhook payload exceeds the configured size limit during stream");
+          throw new AppError("Webhook payload exceeds the configured size limit", 413);
+        }
+        rawPayloadText += decoder.decode(value, { stream: true });
+      }
+      rawPayloadText += decoder.decode();
+    } else {
+      rawPayloadText = await req.text();
+      // `Content-Length` is attacker-supplied, so the real length is re-checked. A
+      // chunked request legitimately omits the header, which is why the first check
+      // cannot be the only one.
+      if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
+        log.warn("Webhook payload exceeds the configured size limit after read");
+        throw new AppError("Webhook payload exceeds the configured size limit", 413);
+      }
+    }
 
-  const event = req.headers.get("x-github-event");
+    // 5. Signature, before the body is interpreted in any way.
+    // Supports zero-downtime secret rotation: checks active secret first, and if a previous
+    // secret is within its grace period (e.g. from Redis or comma-separated configuration), checks it too.
+    const { current: currentSecret, previous: previousSecret } =
+      await resolveWebhookSecrets(secret);
 
-  // 7. Dispatch — now that the delivery is known to be genuine and new.
-  if (event === "ping") {
-    // Answered only after verification, so a successful ping is real evidence
-    // that the configured secret matches ours.
-    log.info("Received ping event; signature verified");
-    return NextResponse.json(
-      { status: "pong", deliveryId, correlationId, message: "Webhook signature verified" },
-      { status: 200 },
+    const matchedSecret = verifyWebhookSignatureWithRotation(
+      rawPayloadText,
+      currentSecret,
+      previousSecret,
+      signatureHex,
     );
-  }
 
-  if (!isTrackedEvent(event)) {
-    log.info(`Event not tracked: ${event}`);
-    return NextResponse.json(
-      { message: "Event not tracked", deliveryId, correlationId },
-      { status: 200 },
-    );
-  }
+    if (!matchedSecret) {
+      const msg = `[SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery ${deliveryId}`;
+      console.warn(msg);
+      log.warn(msg);
+      throw new AppError("Invalid GitHub webhook signature", 401);
+    }
 
-  if (event === "merge_group" && parsed.payload.action !== "checks_requested") {
-    log.info(`Action not tracked for merge_group: ${parsed.payload.action}`);
-    return NextResponse.json(
-      { message: "Action not tracked", deliveryId, correlationId },
-      { status: 200 },
-    );
-  }
+    log.info(`GitHub webhook signature verified using ${matchedSecret} secret`, {
+      deliveryId,
+      matchedSecret,
+    });
 
-  // Pre-filter check_run and check_suite re-requests: ignore foreign checks or untracked actions (#1863)
-  if (event === "check_run") {
-    if (parsed.payload.action !== "rerequested") {
-      log.info(`check_run action not tracked: ${parsed.payload.action}`);
+    // 5. Deduplication: GitHub retries webhook deliveries and users can redeliver
+    // them from app settings. Deduplicate using an atomic set-if-absent in Redis
+    // with a 24-hour TTL after signature verification so unauthenticated requests
+    // cannot poison keys. Repeat deliveries return 200 without enqueuing a scan (#1534).
+    const isDuplicate = await isDuplicateDelivery(deliveryId);
+    if (isDuplicate) {
+      console.warn(`[WEBHOOK_DEDUPE] Duplicate GitHub webhook delivery ignored: ${deliveryId}`);
+      return NextResponse.json(
+        { message: "Duplicate webhook delivery ignored", deliveryId },
+        { status: 200 },
+      );
+    }
+
+    // 6. Parse.
+    //
+    // This was a bare `JSON.parse` inline. A verified-but-malformed body threw a
+    // SyntaxError with no `statusCode`, so the error handler fell through to 500 —
+    // which GitHub treats as retryable, re-delivering a payload that can never
+    // succeed.
+    const parsed = parseWebhookPayload(rawPayloadText);
+    if (!parsed.ok) {
+      log.warn(`Webhook payload parse failed: ${parsed.reason}`);
+      throw new AppError(parsed.reason, 400);
+    }
+
+    const event = req.headers.get("x-github-event");
+
+    // 7. Dispatch — now that the delivery is known to be genuine and new.
+    if (event === "ping") {
+      // Answered only after verification, so a successful ping is real evidence
+      // that the configured secret matches ours.
+      log.info("Received ping event; signature verified");
+      return NextResponse.json(
+        { status: "pong", deliveryId, correlationId, message: "Webhook signature verified" },
+        { status: 200 },
+      );
+    }
+
+    if (!isTrackedEvent(event)) {
+      log.info(`Event not tracked: ${event}`);
+      return NextResponse.json(
+        { message: "Event not tracked", deliveryId, correlationId },
+        { status: 200 },
+      );
+    }
+
+    if (event === "merge_group" && parsed.payload.action !== "checks_requested") {
+      log.info(`Action not tracked for merge_group: ${parsed.payload.action}`);
       return NextResponse.json(
         { message: "Action not tracked", deliveryId, correlationId },
         { status: 200 },
       );
     }
-    const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
-    if (!isSecureFlowCheckRun(parsed.payload.check_run, configuredAppId)) {
-      log.info("Check run not created by SecureFlow ignored");
-      return NextResponse.json(
-        { message: "Check run not created by SecureFlow ignored", deliveryId, correlationId },
-        { status: 200 },
-      );
-    }
-  }
 
-  if (event === "check_suite") {
-    if (parsed.payload.action !== "rerequested") {
-      log.info(`check_suite action not tracked: ${parsed.payload.action}`);
-      return NextResponse.json(
-        { message: "Action not tracked", deliveryId, correlationId },
-        { status: 200 },
-      );
+    // Pre-filter check_run and check_suite re-requests: ignore foreign checks or untracked actions (#1863)
+    if (event === "check_run") {
+      if (parsed.payload.action !== "rerequested") {
+        log.info(`check_run action not tracked: ${parsed.payload.action}`);
+        return NextResponse.json(
+          { message: "Action not tracked", deliveryId, correlationId },
+          { status: 200 },
+        );
+      }
+      const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
+      if (!isSecureFlowCheckRun(parsed.payload.check_run, configuredAppId)) {
+        log.info("Check run not created by SecureFlow ignored");
+        return NextResponse.json(
+          { message: "Check run not created by SecureFlow ignored", deliveryId, correlationId },
+          { status: 200 },
+        );
+      }
     }
-    const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
-    if (!isSecureFlowCheckSuite(parsed.payload.check_suite, configuredAppId)) {
-      log.info("Check suite not created by SecureFlow ignored");
-      return NextResponse.json(
-        { message: "Check suite not created by SecureFlow ignored", deliveryId, correlationId },
-        { status: 200 },
-      );
-    }
-  }
 
-  // 8. Delegate to the queue.
-  //
-  // The job ID is derived from the delivery ID so BullMQ collapses a replayed
-  // delivery before a worker picks it up, rather than leaving the worker's
-  // database check as the only defence.
-  //
-  // All Zod validation, Prisma idempotency checks and DB relations live in the
-  // worker that processes this job.
-  //
-  // `replaceFailed`: a delivery whose job exhausted its attempts keeps its job ID
-  // in the queue, so without this a redelivery of that same delivery (GitHub's
-  // "Redeliver" button reuses the delivery ID) is deduped against the dead job,
-  // answered 202, and never runs. Only a *failed* job is replaced; a waiting,
-  // active or completed one still collapses the replay. The request is already
-  // signature-verified, so only GitHub can cause this.
-  log.info(`Enqueuing webhook job for event: ${event}`);
-  if (parsed.payload) {
-    const repo = (parsed.payload as any)?.repository;
-    const pr = (parsed.payload as any)?.pull_request;
-    const action = (parsed.payload as any)?.action;
-    if (repo?.full_name || repo?.id) {
-      span.setAttribute("secureflow.repository_id", repo.full_name || String(repo.id));
+    if (event === "check_suite") {
+      if (parsed.payload.action !== "rerequested") {
+        log.info(`check_suite action not tracked: ${parsed.payload.action}`);
+        return NextResponse.json(
+          { message: "Action not tracked", deliveryId, correlationId },
+          { status: 200 },
+        );
+      }
+      const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
+      if (!isSecureFlowCheckSuite(parsed.payload.check_suite, configuredAppId)) {
+        log.info("Check suite not created by SecureFlow ignored");
+        return NextResponse.json(
+          { message: "Check suite not created by SecureFlow ignored", deliveryId, correlationId },
+          { status: 200 },
+        );
+      }
     }
-    if (pr?.number) {
-      span.setAttribute("secureflow.pr_number", pr.number);
-    }
-    if (action) {
-      span.setAttribute("secureflow.action", action);
-    }
-  }
 
-  const traceContext = injectTraceContext({}, span);
+    // 8. Delegate to the queue.
+    //
+    // The job ID is derived from the delivery ID so BullMQ collapses a replayed
+    // delivery before a worker picks it up, rather than leaving the worker's
+    // database check as the only defence.
+    //
+    // All Zod validation, Prisma idempotency checks and DB relations live in the
+    // worker that processes this job.
+    //
+    // `replaceFailed`: a delivery whose job exhausted its attempts keeps its job ID
+    // in the queue, so without this a redelivery of that same delivery (GitHub's
+    // "Redeliver" button reuses the delivery ID) is deduped against the dead job,
+    // answered 202, and never runs. Only a *failed* job is replaced; a waiting,
+    // active or completed one still collapses the replay. The request is already
+    // signature-verified, so only GitHub can cause this.
+    log.info(`Enqueuing webhook job for event: ${event}`);
+    if (parsed.payload) {
+      const repo = (parsed.payload as any)?.repository;
+      const pr = (parsed.payload as any)?.pull_request;
+      const action = (parsed.payload as any)?.action;
+      if (repo?.full_name || repo?.id) {
+        span.setAttribute("secureflow.repository_id", repo.full_name || String(repo.id));
+      }
+      if (pr?.number) {
+        span.setAttribute("secureflow.pr_number", pr.number);
+      }
+      if (action) {
+        span.setAttribute("secureflow.action", action);
+      }
+    }
 
-  try {
-    await addWebhookJob(
-      {
-        payload: parsed.payload,
-        deliveryId,
-        event,
-        correlationId,
-        traceContext,
-      },
-      { jobId: webhookJobId(deliveryId), replaceFailed: true },
-    );
-    log.info(`Successfully enqueued webhook job for delivery ${deliveryId}`);
-  } catch (error: any) {
-    const errMsg = `[DLQ_FALLBACK] BullMQ enqueue failed for delivery ${deliveryId}. Routing to Dead Letter Queue...`;
-    console.error(errMsg, error);
-    log.error(errMsg, { error: error?.message });
+    const traceContext = injectTraceContext({}, span);
+
     try {
-      // Dead-Letter Queue (DLQ) Fallback: Store failed webhook deliveries in the database
-      // to ensure no repository scans or push events are skipped during Redis downtime.
-      await prisma.webhookDlq.create({
-        data: {
+      await addWebhookJob(
+        {
+          payload: parsed.payload,
           deliveryId,
-          event: event || "unknown",
-          payload: parsed.payload as any,
-          errorMessage: error?.message || "BullMQ enqueue failure",
+          event,
+          correlationId,
+          traceContext,
         },
-      });
-      const dlqMsg = `[DLQ_FALLBACK] Successfully routed delivery ${deliveryId} to Database DLQ.`;
-      console.log(dlqMsg);
-      log.info(dlqMsg);
-    } catch (dbError: any) {
-      const dbErrMsg = `[DLQ_FALLBACK] CRITICAL: Failed to save to Database DLQ for delivery ${deliveryId}`;
-      console.error(dbErrMsg, dbError);
-      log.error(dbErrMsg, { error: dbError?.message });
+        { jobId: webhookJobId(deliveryId), replaceFailed: true },
+      );
+      log.info(`Successfully enqueued webhook job for delivery ${deliveryId}`);
+    } catch (error: any) {
+      const errMsg = `[DLQ_FALLBACK] BullMQ enqueue failed for delivery ${deliveryId}. Routing to Dead Letter Queue...`;
+      console.error(errMsg, error);
+      log.error(errMsg, { error: error?.message });
+      try {
+        // Dead-Letter Queue (DLQ) Fallback: Store failed webhook deliveries in the database
+        // to ensure no repository scans or push events are skipped during Redis downtime.
+        await prisma.webhookDlq.create({
+          data: {
+            deliveryId,
+            event: event || "unknown",
+            payload: parsed.payload as any,
+            errorMessage: error?.message || "BullMQ enqueue failure",
+          },
+        });
+        const dlqMsg = `[DLQ_FALLBACK] Successfully routed delivery ${deliveryId} to Database DLQ.`;
+        console.log(dlqMsg);
+        log.info(dlqMsg);
+      } catch (dbError: any) {
+        const dbErrMsg = `[DLQ_FALLBACK] CRITICAL: Failed to save to Database DLQ for delivery ${deliveryId}`;
+        console.error(dbErrMsg, dbError);
+        log.error(dbErrMsg, { error: dbError?.message });
+      }
     }
-  }
 
-  return NextResponse.json({ status: "queued", deliveryId, correlationId }, { status: 202 });
+    return NextResponse.json({ status: "queued", deliveryId, correlationId }, { status: 202 });
   });
 });
 

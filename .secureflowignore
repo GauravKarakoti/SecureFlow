@@ -1,0 +1,16 @@
+# SecureFlow Scanner Ignore Rules (.secureflowignore)
+# Documentation: https://github.com/GauravKarakoti/SecureFlow/blob/main/docs/gate-configuration.md
+
+[paths]
+node_modules/**: vendored third-party dependencies
+dist/**: compiled build artifacts
+build/**: build output directory
+.git/**: internal git version control metadata
+coverage/**: test execution coverage reports
+.secureflow/**: custom repository ignore
+
+[placeholders]
+# Mock credentials and test tokens suppressed from alerts
+# Syntax: <token-or-pattern> [reason=...] [expires=YYYY-MM-DD]
+sk_test_mock_token_*: integration test fixture token
+AKIA_FAKE_AWS_KEY_*: documentation and testing placeholder

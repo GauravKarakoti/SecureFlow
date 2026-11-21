@@ -24,13 +24,13 @@ describe("secureflow-cli PatchGuard (Rate Limiter, Boundaries & Loop Prevention)
 
   describe("Boundary Constraints", () => {
     it("rejects path traversal attempts", () => {
-      expect(() =>
-        guard.validateResourcePath("../../../etc/shadow"),
-      ).toThrow(PatchBoundaryViolationError);
+      expect(() => guard.validateResourcePath("../../../etc/shadow")).toThrow(
+        PatchBoundaryViolationError,
+      );
 
-      expect(() =>
-        guard.validateResourcePath("src/../../secret.ts"),
-      ).toThrow(PatchBoundaryViolationError);
+      expect(() => guard.validateResourcePath("src/../../secret.ts")).toThrow(
+        PatchBoundaryViolationError,
+      );
     });
 
     it("rejects sensitive files and credential paths", () => {
@@ -38,12 +38,8 @@ describe("secureflow-cli PatchGuard (Rate Limiter, Boundaries & Loop Prevention)
       expect(() => guard.validateResourcePath("config/.env.local")).toThrow(
         PatchBoundaryViolationError,
       );
-      expect(() => guard.validateResourcePath(".git/config")).toThrow(
-        PatchBoundaryViolationError,
-      );
-      expect(() => guard.validateResourcePath(".ssh/id_rsa")).toThrow(
-        PatchBoundaryViolationError,
-      );
+      expect(() => guard.validateResourcePath(".git/config")).toThrow(PatchBoundaryViolationError);
+      expect(() => guard.validateResourcePath(".ssh/id_rsa")).toThrow(PatchBoundaryViolationError);
     });
 
     it("accepts valid project relative paths", () => {
@@ -96,9 +92,9 @@ describe("secureflow-cli PatchGuard (Rate Limiter, Boundaries & Loop Prevention)
       }
 
       // Global limit is 6, any new resource should now be rate limited
-      expect(() =>
-        guard.assertCanApply({ resource: "src/new-resource.ts", now }),
-      ).toThrow(PatchRateLimitExceededError);
+      expect(() => guard.assertCanApply({ resource: "src/new-resource.ts", now })).toThrow(
+        PatchRateLimitExceededError,
+      );
     });
 
     it("allows new actions after window expires (sliding window)", () => {
@@ -110,14 +106,12 @@ describe("secureflow-cli PatchGuard (Rate Limiter, Boundaries & Loop Prevention)
       }
 
       // Blocked at now + 10s
-      expect(() =>
-        guard.assertCanApply({ resource, now: now + 10_000 }),
-      ).toThrow(PatchRateLimitExceededError);
+      expect(() => guard.assertCanApply({ resource, now: now + 10_000 })).toThrow(
+        PatchRateLimitExceededError,
+      );
 
       // Allowed after window expires at now + 61s
-      expect(() =>
-        guard.assertCanApply({ resource, now: now + 61_000 }),
-      ).not.toThrow();
+      expect(() => guard.assertCanApply({ resource, now: now + 61_000 })).not.toThrow();
     });
   });
 
@@ -148,9 +142,9 @@ describe("secureflow-cli PatchGuard (Rate Limiter, Boundaries & Loop Prevention)
       guard.recordAction({ resource, patchDiff: diffA, now: now + 2000 });
 
       // Next action is B again -> oscillation loop detected!
-      expect(() =>
-        guard.assertCanApply({ resource, patchDiff: diffB, now: now + 3000 }),
-      ).toThrow(PatchLoopDetectedError);
+      expect(() => guard.assertCanApply({ resource, patchDiff: diffB, now: now + 3000 })).toThrow(
+        PatchLoopDetectedError,
+      );
     });
   });
 
