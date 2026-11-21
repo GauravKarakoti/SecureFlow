@@ -1,18 +1,14 @@
 import { z } from "zod";
+import {
+  DEFAULT_SECRET_VARS,
+  resolveFileSecrets,
+  resolveSecretValue,
+  trimTrailingNewline,
+} from "./secret-config";
 
-const SECRET_ENV_VARS = new Set([
-  "DATABASE_URL",
-  "DATABASE_POOL_URL",
-  "GROQ_API_KEY",
-  "GITHUB_WEBHOOK_SECRET",
-  "GITHUB_PRIVATE_KEY",
-  "GITHUB_CLIENT_SECRET",
-  "AUTH_SECRET",
-  "ARMORIQ_API_KEY",
-  "UPSTASH_REDIS_REST_TOKEN",
-  "ELEVENLABS_API_KEY",
-  "BREVO_API_KEY",
-  "SMTP_PASS",
+export const SECRET_ENV_VARS = new Set([
+  ...DEFAULT_SECRET_VARS,
+  ...DEFAULT_SECRET_VARS.map((v) => `${v}_FILE`),
 ]);
 
 /**
@@ -191,6 +187,22 @@ const envSchema = z
     SMTP_PASS: z.string().optional(),
     SMTP_FROM: z.string().optional(),
     SMTP_SECURE: z.string().optional(),
+
+    // File-based secret variants (#1893)
+    DATABASE_URL_FILE: z.string().optional(),
+    DATABASE_POOL_URL_FILE: z.string().optional(),
+    GROQ_API_KEY_FILE: z.string().optional(),
+    GITHUB_WEBHOOK_SECRET_FILE: z.string().optional(),
+    GITHUB_PRIVATE_KEY_FILE: z.string().optional(),
+    GITHUB_CLIENT_SECRET_FILE: z.string().optional(),
+    AUTH_SECRET_FILE: z.string().optional(),
+    ARMORIQ_API_KEY_FILE: z.string().optional(),
+    ARMORIQ_PROOF_SIGNING_KEY_FILE: z.string().optional(),
+    UPSTASH_REDIS_REST_TOKEN_FILE: z.string().optional(),
+    ELEVENLABS_API_KEY_FILE: z.string().optional(),
+    BREVO_API_KEY_FILE: z.string().optional(),
+    SMTP_PASS_FILE: z.string().optional(),
+    REDIS_URL_FILE: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
@@ -239,7 +251,7 @@ export function formatEnvErrors(
   return issues
     .map((issue) => {
       const varName = issue.path.join(".");
-      const isSecret = SECRET_ENV_VARS.has(varName);
+      const isSecret = SECRET_ENV_VARS.has(varName) || varName.endsWith("_FILE");
 
       if (isSecret) {
         return `  - ${varName}: ${issue.message} [value redacted]`;
@@ -251,6 +263,11 @@ export function formatEnvErrors(
 }
 
 export function validateEnv(source: Record<string, string | undefined> = process.env): Env {
+  // Resolve file-based secrets (<NAME>_FILE -> <NAME>) before validating schema (#1893)
+  resolveFileSecrets(source, {
+    mutateProcessEnv: source === process.env,
+  });
+
   const result = envSchema.safeParse(source);
 
   if (!result.success) {
@@ -263,6 +280,13 @@ export function validateEnv(source: Record<string, string | undefined> = process
 
   return result.data;
 }
+
+export {
+  DEFAULT_SECRET_VARS,
+  resolveFileSecrets,
+  resolveSecretValue,
+  trimTrailingNewline,
+};
 
 const isTest = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
 

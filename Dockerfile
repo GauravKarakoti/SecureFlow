@@ -99,8 +99,11 @@ WORKDIR /app
 ENV NODE_PATH=/opt/prisma-cli/node_modules
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
+COPY --chown=node:node entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 RUN chown -R node:node /opt/prisma-cli /app
 USER node
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["node", "/opt/prisma-cli/node_modules/prisma/build/index.js", "migrate", "deploy"]
 
 
