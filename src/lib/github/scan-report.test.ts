@@ -206,4 +206,17 @@ describe("renderScanReportSummary", () => {
     expect(body).toContain("`terraform/**`, `*.tf`: Enabled **Terraform Security** (3 files)");
     expect(body).toContain("`tests/**`: Disabled **Production Secrets** (1 file)");
   });
+
+  it("renders installation-wide rule suppression count in summary report (#1891)", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      ruleSuppressedCount: 4,
+    });
+
+    expect(body).toContain(
+      "🛡️ **4** finding(s) were suppressed by installation suppression rule(s).",
+    );
+  });
 });

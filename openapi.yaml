@@ -1943,6 +1943,37 @@ paths:
         "503":
           description: Down
 
+  /api/version:
+    get:
+      summary: Version information
+      description: |
+        Returns the running SecureFlow package version, build commit SHA, and build date.
+        Exposes zero secrets, internal paths, or dependency lists.
+      operationId: getVersion
+      tags:
+        - System
+      responses:
+        "200":
+          description: Version information
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                  - commit
+                  - buildDate
+                properties:
+                  version:
+                    type: string
+                    example: "3.8.0"
+                  commit:
+                    type: string
+                    example: "abc1234567890abcdef1234567890abcdef12"
+                  buildDate:
+                    type: string
+                    example: "2026-11-20T12:00:00.000Z"
+
   /api/openapi:
     get:
       summary: This OpenAPI specification

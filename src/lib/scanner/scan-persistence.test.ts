@@ -165,6 +165,23 @@ describe("findingCreateInput", () => {
   it("turns an empty snippet into null", () => {
     expect(findingCreateInput(finding({ codeSnippet: "" })).codeSnippet).toBeNull();
   });
+
+  it("defaults suppressionStatus and suppressionRuleId to null when omitted", () => {
+    const input = findingCreateInput(finding());
+    expect(input.suppressionStatus).toBeNull();
+    expect(input.suppressionRuleId).toBeNull();
+  });
+
+  it("persists suppressionStatus and suppressionRuleId when set", () => {
+    const input = findingCreateInput(
+      finding({
+        suppressionStatus: "SUPPRESSED_BY_RULE",
+        suppressionRuleId: "rule-123",
+      }),
+    );
+    expect(input.suppressionStatus).toBe("SUPPRESSED_BY_RULE");
+    expect(input.suppressionRuleId).toBe("rule-123");
+  });
 });
 
 describe("storedRiskScore", () => {

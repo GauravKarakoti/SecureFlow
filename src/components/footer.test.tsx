@@ -68,4 +68,10 @@ describe("Footer component", () => {
     render(<Footer />);
     expect(screen.getByText(/© 2031 SecureFlow Inc\. All rights reserved\./)).toBeInTheDocument();
   });
+
+  it("renders the application version in the footer", () => {
+    render(<Footer />);
+    expect(screen.getByTestId("footer-version")).toBeInTheDocument();
+    expect(screen.getByTestId("footer-version").textContent).toMatch(/^v\d+\.\d+\.\d+/);
+  });
 });

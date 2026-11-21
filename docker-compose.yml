@@ -25,6 +25,7 @@ services:
       db:
         condition: service_healthy
     environment:
+      # Secrets can alternatively be passed via file paths (e.g. DATABASE_URL_FILE: /run/secrets/database_url) (#1893)
       DATABASE_URL: postgresql://secureflow:secureflow@db:5432/secureflow
       DATABASE_POOL_URL: postgresql://secureflow:secureflow@db:5432/secureflow
     restart: "no"
