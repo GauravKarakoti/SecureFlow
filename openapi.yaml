@@ -2241,6 +2241,43 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/policies/preview-impact:
+    post:
+      summary: Preview policy impact
+      description: Replays recent repository scans against draft and current policies to preview impact on findings.
+      operationId: previewPolicyImpact
+      tags:
+        - Policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - templateId
+                - draftDescription
+              properties:
+                templateId:
+                  type: string
+                draftDescription:
+                  type: string
+                draftSeverity:
+                  type: string
+                maxScans:
+                  type: integer
+                maxTokens:
+                  type: integer
+      responses:
+        "200":
+          description: Impact preview comparison results
+        "400":
+          description: Invalid request or prompt injection detected
+        "401":
+          description: Unauthorized
+        "429":
+          description: Rate limit exceeded
+
   /api/badge/{owner}/{repo}:
     parameters:
       - name: owner

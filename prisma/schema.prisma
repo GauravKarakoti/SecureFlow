@@ -165,6 +165,7 @@ model Repository {
   triages       FindingTriage[]
   createdAt     DateTime        @default(now())
   scanJobs      ScanJob[]
+  storedScanInputs StoredScanInput[]
 
   @@index([userId])
   @@index([userId, isActive])
@@ -242,6 +243,7 @@ model PullRequest {
   webhookEvents WebhookEvent[]
   createdAt     DateTime       @default(now())
   scanJobs      ScanJob[]
+  storedScanInputs StoredScanInput[]
 
   @@unique([repositoryId, prNumber])
   @@index([repositoryId])
@@ -330,6 +332,27 @@ model RemediationPatch {
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@map("remediation_patches")
+}
+
+/**
+ * Stored Scan Input (#1892).
+ * Stores sample diffs and changed files from repository scans
+ * so policy edits can be backtested/previewed against historical inputs.
+ */
+model StoredScanInput {
+  id            String       @id @default(cuid())
+  repositoryId  String
+  repository    Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  pullRequestId String?
+  pullRequest   PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  headSha       String?
+  filesJson     String       @db.Text
+  tokenEstimate Int          @default(0)
+  createdAt     DateTime     @default(now())
+
+  @@index([repositoryId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("stored_scan_inputs")
 }
 
 model FindingTriage {
