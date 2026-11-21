@@ -65,17 +65,11 @@ describe("Suppression Rules Matcher (#1891)", () => {
   describe("matchesSuppressionRule (path matching and category)", () => {
     it("matches finding by path glob", () => {
       expect(
-        matchesSuppressionRule(
-          { ...sampleFinding, fileLocation: "fixtures/token.js" },
-          baseRule,
-        ),
+        matchesSuppressionRule({ ...sampleFinding, fileLocation: "fixtures/token.js" }, baseRule),
       ).toBe(true);
 
       expect(
-        matchesSuppressionRule(
-          { ...sampleFinding, fileLocation: "src/index.ts" },
-          baseRule,
-        ),
+        matchesSuppressionRule({ ...sampleFinding, fileLocation: "src/index.ts" }, baseRule),
       ).toBe(false);
     });
 
@@ -86,18 +80,10 @@ describe("Suppression Rules Matcher (#1891)", () => {
         matchCategory: "SECRET",
       };
 
-      expect(
-        matchesSuppressionRule(
-          { ...sampleFinding, type: "SECRET" },
-          categoryRule,
-        ),
-      ).toBe(true);
+      expect(matchesSuppressionRule({ ...sampleFinding, type: "SECRET" }, categoryRule)).toBe(true);
 
       expect(
-        matchesSuppressionRule(
-          { ...sampleFinding, type: "VULNERABILITY" },
-          categoryRule,
-        ),
+        matchesSuppressionRule({ ...sampleFinding, type: "VULNERABILITY" }, categoryRule),
       ).toBe(false);
     });
 

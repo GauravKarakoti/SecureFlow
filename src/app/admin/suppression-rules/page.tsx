@@ -28,20 +28,16 @@ export default async function AdminSuppressionRulesPage() {
           <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Suppression Rules
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Suppression Rules</h1>
           <p className="text-muted-foreground mt-2">
-            Configure organization-wide suppression rules across repositories for specific finding types,
-            policies, or file patterns. Matches are recorded and tracked with 30-day impact metrics.
+            Configure organization-wide suppression rules across repositories for specific finding
+            types, policies, or file patterns. Matches are recorded and tracked with 30-day impact
+            metrics.
           </p>
         </div>
       </header>
 
-      <SuppressionRulesClient
-        initialRules={rules}
-        repositories={repositories}
-      />
+      <SuppressionRulesClient initialRules={rules} repositories={repositories} />
     </div>
   );
 }

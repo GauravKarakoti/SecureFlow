@@ -57,7 +57,9 @@ describe("AdminSuppressionRulesPage Component (#1891)", () => {
     const page = await AdminSuppressionRulesPage();
     render(page);
 
-    expect(screen.getByRole("heading", { level: 1, name: "Suppression Rules" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Suppression Rules" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Ignore test fixtures")).toBeInTheDocument();
     expect(screen.getByText("15 suppressed (30d)")).toBeInTheDocument();
     expect(screen.getByText("15")).toBeInTheDocument(); // metric count

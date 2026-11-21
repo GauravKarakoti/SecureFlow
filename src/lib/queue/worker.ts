@@ -1,6 +1,10 @@
 import { Worker, Job, DelayedError } from "bullmq";
 import { withSpan, extractTraceContext, type Context } from "@/lib/tracing";
-import { postScanCheckRun, postScanErrorCheckRun, postScanCancelledCheckRun } from "../scanner/check-run";
+import {
+  postScanCheckRun,
+  postScanErrorCheckRun,
+  postScanCancelledCheckRun,
+} from "../scanner/check-run";
 import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
 import { z } from "zod";
 import { redis } from "./redis";
@@ -502,7 +506,8 @@ export async function runPullRequestScan({
     id: scanTrackingId,
     job,
     repositoryFullName: repository.full_name,
-    owner: repository.owner?.login || (repository.full_name ? repository.full_name.split("/")[0] : ""),
+    owner:
+      repository.owner?.login || (repository.full_name ? repository.full_name.split("/")[0] : ""),
     repo: repository.name || (repository.full_name ? repository.full_name.split("/")[1] : ""),
     prNumber: pullRequest.number,
     headSha: pullRequest.head?.sha,
@@ -781,7 +786,9 @@ export async function runPullRequestScan({
     // Findings that still count toward enforcement — everything the user hasn't
     // dismissed. The full `findings` list is still persisted below (with its
     // fingerprint) so the dashboard can show dismissed items and left-join triage.
-    const nonDismissedFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
+    const nonDismissedFindings = findings.filter(
+      (f: any) => !suppressedFingerprints.has(f.fingerprint),
+    );
 
     // Organization / Installation-wide suppression rules (#1891)
     let activeFindings = nonDismissedFindings;
@@ -927,8 +934,7 @@ export async function runPullRequestScan({
           findings: enrichedFindings,
           checkRunId,
         });
-        const returnedRunId =
-          (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
+        const returnedRunId = (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
         if (returnedRunId && typeof returnedRunId === "number") {
           inFlightScan.checkRunId = returnedRunId;
         }

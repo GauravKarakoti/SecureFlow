@@ -223,7 +223,9 @@ describe("FindingsClient Component (#633)", () => {
     };
 
     render(<FindingsClient {...defaultProps} findings={[expiringFinding]} total={1} />);
-    expect(screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`))).toBeInTheDocument();
+    expect(
+      screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`)),
+    ).toBeInTheDocument();
   });
 
   it("renders note badge when finding was auto-reopened from expired dismissal (#1890)", () => {

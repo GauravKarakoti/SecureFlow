@@ -60,7 +60,9 @@ export async function runCli(): Promise<void> {
     const backupDir = path.resolve(process.cwd(), "backups");
     const latest = findLatestBackupFile(backupDir);
     if (!latest) {
-      console.error(`❌ No backup file specified and none found in ${backupDir}. Provide --file=<path>.`);
+      console.error(
+        `❌ No backup file specified and none found in ${backupDir}. Provide --file=<path>.`,
+      );
       process.exit(1);
     }
     backupFile = latest;
@@ -82,8 +84,10 @@ export async function runCli(): Promise<void> {
   Duration: ${result.durationMs}ms
 ======================================================
 `);
-  } catch (err: any) {
-    console.error(`❌ Restore failed: ${scrubCredentials(err?.message || String(err))}`);
+  } catch (err: unknown) {
+    const rawDetail = err instanceof Error ? err.message : String(err);
+    const safeDetail = scrubCredentials(rawDetail);
+    console.error(`❌ Restore failed: ${safeDetail}`);
     process.exit(1);
   }
 }

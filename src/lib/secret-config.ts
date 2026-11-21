@@ -77,9 +77,7 @@ export function resolveSecretValue(
   const hasFile = isValueSet(filePath);
 
   if (hasDirect && hasFile) {
-    throw new Error(
-      `Cannot specify both ${name} and ${fileKey}. Choose one secret source.`,
-    );
+    throw new Error(`Cannot specify both ${name} and ${fileKey}. Choose one secret source.`);
   }
 
   if (hasFile) {
@@ -106,11 +104,8 @@ export function resolveFileSecrets<T extends Record<string, string | undefined>>
   source: T = process.env as unknown as T,
   options?: ResolveSecretOptions,
 ): T {
-  const customReader =
-    options?.readFile ?? ((p: string) => fs.readFileSync(p, "utf8"));
-  const configuredVars = new Set<string>(
-    options?.secretVars ?? DEFAULT_SECRET_VARS,
-  );
+  const customReader = options?.readFile ?? ((p: string) => fs.readFileSync(p, "utf8"));
+  const configuredVars = new Set<string>(options?.secretVars ?? DEFAULT_SECRET_VARS);
 
   // Discover any keys ending in _FILE in the source record
   for (const key of Object.keys(source)) {
@@ -121,7 +116,7 @@ export function resolveFileSecrets<T extends Record<string, string | undefined>>
   }
 
   const shouldMutateProcessEnv =
-    options?.mutateProcessEnv ?? (source === (process.env as unknown as T));
+    options?.mutateProcessEnv ?? source === (process.env as unknown as T);
 
   for (const varName of configuredVars) {
     const fileKey = `${varName}_FILE`;
@@ -129,9 +124,7 @@ export function resolveFileSecrets<T extends Record<string, string | undefined>>
     const hasDirect = isValueSet(source[varName]);
 
     if (hasDirect && hasFile) {
-      throw new Error(
-        `Cannot specify both ${varName} and ${fileKey}. Choose one secret source.`,
-      );
+      throw new Error(`Cannot specify both ${varName} and ${fileKey}. Choose one secret source.`);
     }
 
     if (hasFile) {

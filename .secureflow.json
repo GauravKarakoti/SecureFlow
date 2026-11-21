@@ -1,0 +1,21 @@
+{
+  "$schema": "https://secure-flow-six.vercel.app/schema.json",
+  "gate": {
+    "blockOn": "HIGH",
+    "reviewOn": "MEDIUM",
+    "paths": [
+      { "glob": "infra/**", "blockOn": "HIGH" },
+      { "glob": "tests/**", "blockOn": "NONE", "reviewOn": "NONE" }
+    ]
+  },
+  "policyScopes": [
+    {
+      "paths": ["src/**", "components/**"],
+      "enable": ["Cross-Site Scripting (XSS)", "Content Security Policy", "No Hardcoded Secrets"]
+    },
+    {
+      "paths": ["tests/**", "**/*.test.*", "**/*.spec.*", "fixtures/**"],
+      "disable": ["No Hardcoded Secrets"]
+    }
+  ]
+}

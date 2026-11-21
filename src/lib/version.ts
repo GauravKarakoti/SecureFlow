@@ -29,10 +29,7 @@ export function getVersionInfo(): VersionInfo {
     process.env.RENDER_GIT_COMMIT ||
     "development";
 
-  const buildDate =
-    process.env.BUILD_DATE ||
-    process.env.NEXT_PUBLIC_BUILD_DATE ||
-    "unknown";
+  const buildDate = process.env.BUILD_DATE || process.env.NEXT_PUBLIC_BUILD_DATE || "unknown";
 
   return {
     version: String(version).trim(),

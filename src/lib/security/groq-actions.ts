@@ -97,7 +97,16 @@ export const GroqLifeSavingActionSchema = z
       )
       .optional(),
     parameters: z
-      .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.record(z.string(), z.unknown())]))
+      .record(
+        z.string(),
+        z.union([
+          z.string(),
+          z.number(),
+          z.boolean(),
+          z.array(z.string()),
+          z.record(z.string(), z.unknown()),
+        ]),
+      )
       .optional()
       .default({}),
     metadata: z.record(z.string(), z.unknown()).optional().default({}),
@@ -112,10 +121,7 @@ export type GroqLifeSavingAction = z.infer<typeof GroqLifeSavingActionSchema>;
  * 2. Strips harmful control characters.
  * 3. Asserts that no string contains adversarial prompt injection payloads.
  */
-function deepSanitizeAndScan(
-  val: unknown,
-  path: string,
-): unknown {
+function deepSanitizeAndScan(val: unknown, path: string): unknown {
   if (val === null || val === undefined) {
     return val;
   }
@@ -164,7 +170,9 @@ export function validateAndSanitizeGroqAction(rawOutput: unknown): GroqLifeSavin
     try {
       parsedRaw = JSON.parse(rawOutput);
     } catch {
-      throw new GroqActionValidationError("Failed to parse Groq action output: invalid JSON string");
+      throw new GroqActionValidationError(
+        "Failed to parse Groq action output: invalid JSON string",
+      );
     }
   }
 
@@ -187,7 +195,10 @@ export function validateAndSanitizeGroqAction(rawOutput: unknown): GroqLifeSavin
 
   // Additional check: REMEDIATION_PATCH must have a non-empty patchDiff
   const action = parseResult.data;
-  if (action.actionType === "REMEDIATION_PATCH" && (!action.patchDiff || action.patchDiff.trim().length === 0)) {
+  if (
+    action.actionType === "REMEDIATION_PATCH" &&
+    (!action.patchDiff || action.patchDiff.trim().length === 0)
+  ) {
     throw new GroqActionValidationError(
       "REMEDIATION_PATCH action must contain a valid, non-empty patchDiff",
     );
@@ -199,9 +210,7 @@ export function validateAndSanitizeGroqAction(rawOutput: unknown): GroqLifeSavin
 /**
  * Validates and sanitizes a batch of Groq life-saving actions.
  */
-export function validateAndSanitizeGroqActionBatch(
-  rawOutputs: unknown[],
-): GroqLifeSavingAction[] {
+export function validateAndSanitizeGroqActionBatch(rawOutputs: unknown[]): GroqLifeSavingAction[] {
   if (!Array.isArray(rawOutputs)) {
     throw new GroqActionValidationError("Batch action input must be an array");
   }
@@ -211,10 +220,7 @@ export function validateAndSanitizeGroqActionBatch(
       return validateAndSanitizeGroqAction(item);
     } catch (err: any) {
       if (err instanceof PromptInjectionSanitizationError) {
-        throw new PromptInjectionSanitizationError(
-          `batch[${idx}].${err.field}`,
-          err.snippet,
-        );
+        throw new PromptInjectionSanitizationError(`batch[${idx}].${err.field}`, err.snippet);
       }
       throw err;
     }

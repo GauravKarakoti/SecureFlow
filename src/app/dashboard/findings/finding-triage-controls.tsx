@@ -33,6 +33,8 @@ import {
 } from "@/lib/actions/triage";
 import { computeExpiryDate } from "@/lib/triage/expiry";
 
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
   { value: "DISMISSED", label: "Dismissed" },
@@ -87,9 +89,9 @@ function statusLabel(status: TriageStatus): string {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
 }
 
-function isExpiryLapsed(expiryDate: Date | null): boolean {
+function isExpiryLapsed(expiryDate: Date | null, nowMs: number): boolean {
   if (!expiryDate) return false;
-  return expiryDate.getTime() <= Date.now();
+  return expiryDate.getTime() <= nowMs;
 }
 
 export default function FindingTriageControls(props: FindingTriageControlsProps) {
@@ -111,6 +113,7 @@ function SingleTriageControls({
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [nowMs] = useState(() => Date.now());
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
   const [reason, setReason] = useState<DismissalReason>(currentReason ?? "FALSE_POSITIVE");
   const [note, setNote] = useState(currentNote ?? "");
@@ -127,14 +130,12 @@ function SingleTriageControls({
 
   // Determine current expiry status for UI badge/text
   const currentExpiryDate = currentExpiresAt ? new Date(currentExpiresAt) : null;
-  const isLapsed = isExpiryLapsed(currentExpiryDate);
+  const isLapsed = isExpiryLapsed(currentExpiryDate, nowMs);
 
   const save = () => {
     startTransition(async () => {
       try {
-        const computedExpiry = isDismissal
-          ? computeExpiryDate(expirySelection, customDate)
-          : null;
+        const computedExpiry = isDismissal ? computeExpiryDate(expirySelection, customDate) : null;
         const result = await setFindingStatus({
           repositoryId,
           fingerprint,
@@ -264,8 +265,8 @@ function SingleTriageControls({
           </label>
           <Input
             type="date"
-            min={new Date().toISOString().slice(0, 10)}
-            max={new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+            min={new Date(nowMs).toISOString().slice(0, 10)}
+            max={new Date(nowMs + ONE_YEAR_MS).toISOString().slice(0, 10)}
             value={customDate}
             onChange={(e) => setCustomDate(e.target.value)}
             disabled={isPending}
@@ -309,6 +310,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [nowMs] = useState(() => Date.now());
   const [note, setNote] = useState("");
   const [reason, setReason] = useState<DismissalReason>("FALSE_POSITIVE");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
@@ -328,9 +330,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           applyStatus === "DISMISSED" ||
           applyStatus === "FALSE_POSITIVE" ||
           applyStatus === "IGNORED";
-        const computedExpiry = isDismissal
-          ? computeExpiryDate(expiryDays, customExpiryDate)
-          : null;
+        const computedExpiry = isDismissal ? computeExpiryDate(expiryDays, customExpiryDate) : null;
 
         const result = await setFindingStatuses({
           items: targets,
@@ -391,9 +391,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">
-          Dismissal Expiry
-        </label>
+        <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
         <Select value={expiryDays} onValueChange={setExpiryDays} disabled={isPending}>
           <SelectTrigger className="h-9 text-sm" data-testid="bulk-triage-expiry-select">
             <SelectValue placeholder="Select expiry period" />
@@ -415,8 +413,8 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           </label>
           <Input
             type="date"
-            min={new Date().toISOString().slice(0, 10)}
-            max={new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+            min={new Date(nowMs).toISOString().slice(0, 10)}
+            max={new Date(nowMs + ONE_YEAR_MS).toISOString().slice(0, 10)}
             value={customExpiryDate}
             onChange={(e) => setCustomExpiryDate(e.target.value)}
             disabled={isPending}

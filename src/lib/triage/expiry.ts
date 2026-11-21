@@ -221,9 +221,7 @@ export async function handleExpiredDismissals<T extends FindingLike>(
     return { reopenedFingerprints: [], reopenedCount: 0 };
   }
 
-  const expiredMap = new Map<string, any>(
-    expiredTriages.map((t: any) => [t.fingerprint, t]),
-  );
+  const expiredMap = new Map<string, any>(expiredTriages.map((t: any) => [t.fingerprint, t]));
 
   const reopenedFingerprints: string[] = [];
 
@@ -232,9 +230,9 @@ export async function handleExpiredDismissals<T extends FindingLike>(
 
     const triage = expiredMap.get(finding.fingerprint);
     const dateStr = triage.expiresAt
-      ? (triage.expiresAt instanceof Date
-          ? triage.expiresAt.toISOString().slice(0, 10)
-          : new Date(triage.expiresAt).toISOString().slice(0, 10))
+      ? triage.expiresAt instanceof Date
+        ? triage.expiresAt.toISOString().slice(0, 10)
+        : new Date(triage.expiresAt).toISOString().slice(0, 10)
       : "";
     const noteText = `previous dismissal expired on ${dateStr}`;
 
@@ -278,7 +276,8 @@ export async function handleExpiredDismissals<T extends FindingLike>(
             repositoryId,
             fingerprint: finding.fingerprint,
             reason: "Dismissal expired",
-            expiredAt: triage.expiresAt instanceof Date ? triage.expiresAt.toISOString() : triage.expiresAt,
+            expiredAt:
+              triage.expiresAt instanceof Date ? triage.expiresAt.toISOString() : triage.expiresAt,
             note: noteText,
             autoReopened: true,
           },

@@ -28,7 +28,8 @@ describe("Groq Life-Saving Action Validation & Sanitization Schema", () => {
     severity: "HIGH",
     targetResource: "src/services/auth-service.ts",
     rationale: "Fix SQL injection vulnerability by parameterizing query.",
-    patchDiff: "--- a/src/services/auth-service.ts\n+++ b/src/services/auth-service.ts\n@@ -1,3 +1,3 @@\n-const query = `SELECT * FROM users WHERE id = '${id}'`;\n+const query = 'SELECT * FROM users WHERE id = $1';\n",
+    patchDiff:
+      "--- a/src/services/auth-service.ts\n+++ b/src/services/auth-service.ts\n@@ -1,3 +1,3 @@\n-const query = `SELECT * FROM users WHERE id = '${id}'`;\n+const query = 'SELECT * FROM users WHERE id = $1';\n",
     parameters: {
       autoCommit: false,
     },

@@ -220,7 +220,10 @@ const handler = async function POST(req: NextRequest) {
       const clearanceCheck = verifyOperatorClearance(session, ClearanceLevel.USER);
       if (!clearanceCheck.authorized) {
         return NextResponse.json(
-          { error: "Forbidden", message: clearanceCheck.reason || "Insufficient operator clearance" },
+          {
+            error: "Forbidden",
+            message: clearanceCheck.reason || "Insufficient operator clearance",
+          },
           { status: 403 },
         );
       }

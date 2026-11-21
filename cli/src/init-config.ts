@@ -99,12 +99,10 @@ export function generateSecureFlowJson(options: {
     paths: string[];
     enable?: string[];
     disable?: string[];
-    comment?: string;
   }> = [];
 
   if (langs.includes("terraform")) {
     policyScopes.push({
-      comment: "Infrastructure and cloud security policies for Terraform definitions",
       paths: ["terraform/**", "*.tf"],
       enable: ["Infrastructure Security", "Hardcoded Secrets"],
     });
@@ -112,19 +110,13 @@ export function generateSecureFlowJson(options: {
 
   if (langs.includes("typescript") || langs.includes("javascript") || langs.includes("frontend")) {
     policyScopes.push({
-      comment: "Client-side and frontend application security checks",
       paths: ["src/**", "components/**"],
-      enable: [
-        "Cross-Site Scripting (XSS)",
-        "Content Security Policy",
-        "No Hardcoded Secrets",
-      ],
+      enable: ["Cross-Site Scripting (XSS)", "Content Security Policy", "No Hardcoded Secrets"],
     });
   }
 
   if (langs.includes("python")) {
     policyScopes.push({
-      comment: "Backend server policies for Python services",
       paths: ["**/*.py"],
       enable: ["Injection Prevention", "No Hardcoded Secrets"],
     });
@@ -132,7 +124,6 @@ export function generateSecureFlowJson(options: {
 
   // Common testing scope
   policyScopes.push({
-    comment: "Exclude production secret enforcement from mock credentials and tests",
     paths: ["tests/**", "**/*.test.*", "**/*.spec.*", "fixtures/**"],
     disable: ["No Hardcoded Secrets"],
   });
@@ -140,9 +131,6 @@ export function generateSecureFlowJson(options: {
   const formattedScopes = policyScopes
     .map((scope) => {
       const lines = ["    {"];
-      if (scope.comment) {
-        lines.push(`      // ${scope.comment}`);
-      }
       lines.push(`      "paths": ${JSON.stringify(scope.paths)},`);
       if (scope.enable) {
         lines.push(`      "enable": ${JSON.stringify(scope.enable)}`);
@@ -155,22 +143,16 @@ export function generateSecureFlowJson(options: {
     .join(",\n");
 
   return [
-    `// SecureFlow Repository Gate & Policy Configuration`,
-    `// Documentation: https://github.com/GauravKarakoti/SecureFlow/blob/main/docs/gate-configuration.md`,
     `{`,
-    `  "$schema": "https://secureflow.dev/schema.json",`,
+    `  "$schema": "https://secure-flow-six.vercel.app/schema.json",`,
     `  "gate": {`,
-    `    // Minimum severity threshold that blocks pull requests (CRITICAL, HIGH, MEDIUM, LOW, or NONE)`,
     `    "blockOn": "${blockOn}",`,
-    `    // Severity threshold that flags pull requests for mandatory reviewer approval`,
     `    "reviewOn": "MEDIUM",`,
-    `    // Path-scoped gate overrides evaluated before the global gate`,
     `    "paths": [`,
     `      { "glob": "infra/**", "blockOn": "HIGH" },`,
     `      { "glob": "tests/**", "blockOn": "NONE", "reviewOn": "NONE" }`,
     `    ]`,
     `  },`,
-    `  // Monorepo directory-scoped policy rules: each file only receives policies allowed for its scope`,
     `  "policyScopes": [`,
     formattedScopes,
     `  ]`,
@@ -359,12 +341,7 @@ async function writeConfigFile(
   // File exists; prompt if in interactive mode
   let shouldOverwrite = false;
   if (options.isInteractive) {
-    shouldOverwrite = await promptOverwrite(
-      filename,
-      options.rl,
-      options.stdin,
-      options.stdout,
-    );
+    shouldOverwrite = await promptOverwrite(filename, options.rl, options.stdin, options.stdout);
   }
 
   if (shouldOverwrite) {
@@ -383,22 +360,14 @@ async function writeConfigFile(
   };
 }
 
-export async function initConfigFiles(
-  options: InitConfigOptions = {},
-): Promise<InitConfigResult> {
+export async function initConfigFiles(options: InitConfigOptions = {}): Promise<InitConfigResult> {
   const targetDir = options.targetDir || process.cwd();
   const jsonPath = path.join(targetDir, ".secureflow.json");
   const ignorePath = path.join(targetDir, ".secureflowignore");
   const messages: string[] = [];
 
   const detectedLanguages = detectRepoLanguages(targetDir);
-  const defaultIgnorePaths = [
-    "node_modules/**",
-    "dist/**",
-    "build/**",
-    ".git/**",
-    "coverage/**",
-  ];
+  const defaultIgnorePaths = ["node_modules/**", "dist/**", "build/**", ".git/**", "coverage/**"];
 
   let blockOn: GateLevel = options.blockOn || "HIGH";
   let ignorePaths: string[] = options.ignorePaths || defaultIgnorePaths;
@@ -406,7 +375,8 @@ export async function initConfigFiles(
 
   const isInteractive =
     options.interactive ??
-    ((options.stdin as any)?.isTTY ?? (process.stdin.isTTY && !process.env.CI));
+    (options.stdin as any)?.isTTY ??
+    (process.stdin.isTTY && !process.env.CI);
 
   if (isInteractive && !options.blockOn && !options.ignorePaths && !options.languages) {
     const answers = await promptConfigQuestions(

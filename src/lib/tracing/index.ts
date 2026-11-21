@@ -185,7 +185,11 @@ export function extractTraceContext(carrier?: Record<string, unknown> | null): C
 
   const fromGlobal = propagation.extract(ROOT_CONTEXT, stringCarrier);
   const spanContext = trace.getSpanContext(fromGlobal);
-  if (spanContext && spanContext.traceId && spanContext.traceId !== "00000000000000000000000000000000") {
+  if (
+    spanContext &&
+    spanContext.traceId &&
+    spanContext.traceId !== "00000000000000000000000000000000"
+  ) {
     return fromGlobal;
   }
 

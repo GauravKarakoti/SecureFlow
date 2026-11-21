@@ -1096,7 +1096,10 @@ export function validateSecureFlowIgnore(
     // Strip trailing comment: pattern # reason
     const commentIdx = patternPart.search(/\s+#/);
     if (commentIdx !== -1) {
-      const comment = patternPart.slice(commentIdx).replace(/^\s+#\s*/, "").trim();
+      const comment = patternPart
+        .slice(commentIdx)
+        .replace(/^\s+#\s*/, "")
+        .trim();
       const commentExpiryMatch = comment.match(/expires[:=]\s*(\S+)/i);
       if (commentExpiryMatch && commentExpiryMatch[1]) {
         const expStr = commentExpiryMatch[1].trim();
@@ -1151,8 +1154,6 @@ export function isValidExpiryDate(dateStr: string): boolean {
 
   const date = new Date(Date.UTC(year, month - 1, day));
   return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
   );
 }

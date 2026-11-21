@@ -252,11 +252,11 @@ During deployments, horizontal pod autoscaling scale-down, or Kubernetes node dr
 
 ### Configuration Settings
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `worker.terminationGracePeriodSeconds` | Integer | `35` | Kubernetes pod termination grace period in seconds. |
-| `worker.lifecycle.preStop` | Object | `exec: command: ["/bin/sh", "-c", "sleep 2"]` | Container lifecycle preStop command. |
-| `WORKER_SHUTDOWN_TIMEOUT_MS` | Env Var | `25000` | Worker internal grace period (ms) to wait for in-flight scans before handling interrupted jobs. |
+| Setting                                | Type    | Default                                       | Description                                                                                     |
+| -------------------------------------- | ------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `worker.terminationGracePeriodSeconds` | Integer | `35`                                          | Kubernetes pod termination grace period in seconds.                                             |
+| `worker.lifecycle.preStop`             | Object  | `exec: command: ["/bin/sh", "-c", "sleep 2"]` | Container lifecycle preStop command.                                                            |
+| `WORKER_SHUTDOWN_TIMEOUT_MS`           | Env Var | `25000`                                       | Worker internal grace period (ms) to wait for in-flight scans before handling interrupted jobs. |
 
 ---
 
@@ -391,5 +391,3 @@ spec:
             secretName: secureflow-production-secrets
             defaultMode: 0400
 ```
-
-

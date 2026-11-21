@@ -11,7 +11,8 @@ import {
 } from "./backup";
 
 describe("Database Backup & Restore Module (#1895)", () => {
-  const dummyConnString = "postgresql://myuser:superSecretPassword123@db.example.com:5433/sf_prod?sslmode=require";
+  const dummyConnString =
+    "postgresql://myuser:superSecretPassword123@db.example.com:5433/sf_prod?sslmode=require";
 
   describe("parsePostgresConnectionString", () => {
     it("parses connection URL into host, port, user, password, and database", () => {
@@ -228,7 +229,11 @@ describe("Database Backup & Restore Module (#1895)", () => {
             return {
               rows: [
                 { migration_name: "20260101_init", finished_at: new Date(), rolled_back_at: null },
-                { migration_name: "20260201_update", finished_at: new Date(), rolled_back_at: null },
+                {
+                  migration_name: "20260201_update",
+                  finished_at: new Date(),
+                  rolled_back_at: null,
+                },
               ],
             };
           }
@@ -259,10 +264,14 @@ describe("Database Backup & Restore Module (#1895)", () => {
       expect(result.migrationsVerified).toBe(2);
 
       // Verify maintenance client created the temp DB
-      expect(maintenanceQueries.some((q) => q.includes('CREATE DATABASE "sf_verify_test123"'))).toBe(true);
+      expect(
+        maintenanceQueries.some((q) => q.includes('CREATE DATABASE "sf_verify_test123"')),
+      ).toBe(true);
 
       // Verify maintenance client dropped the temp DB
-      expect(maintenanceQueries.some((q) => q.includes('DROP DATABASE IF EXISTS "sf_verify_test123"'))).toBe(true);
+      expect(
+        maintenanceQueries.some((q) => q.includes('DROP DATABASE IF EXISTS "sf_verify_test123"')),
+      ).toBe(true);
     });
 
     it("fails verification if restored database has 0 tables", async () => {
@@ -319,7 +328,11 @@ describe("Database Backup & Restore Module (#1895)", () => {
           if (sql.includes("_prisma_migrations")) {
             return {
               rows: [
-                { migration_name: "20260101_broken", finished_at: null, rolled_back_at: new Date() },
+                {
+                  migration_name: "20260101_broken",
+                  finished_at: null,
+                  rolled_back_at: new Date(),
+                },
               ],
             };
           }

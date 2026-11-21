@@ -53,11 +53,7 @@ describe("Suppression Rules Full Scan Flow Integration (#1891)", () => {
       },
     ];
 
-    const evalResult = evaluateSuppressionRules(
-      findings,
-      [globalFixtureRule],
-      "any-repo-id",
-    );
+    const evalResult = evaluateSuppressionRules(findings, [globalFixtureRule], "any-repo-id");
 
     expect(evalResult.suppressedCount).toBe(1);
     expect(evalResult.activeFindings).toHaveLength(1);
@@ -76,7 +72,9 @@ describe("Suppression Rules Full Scan Flow Integration (#1891)", () => {
       ruleSuppressedCount: evalResult.suppressedCount,
     });
 
-    expect(comment).toContain("🛡️ **1** finding(s) were suppressed by installation suppression rule(s).");
+    expect(comment).toContain(
+      "🛡️ **1** finding(s) were suppressed by installation suppression rule(s).",
+    );
   });
 
   it("applies SELECTED rules only to specified repositories and not others", () => {

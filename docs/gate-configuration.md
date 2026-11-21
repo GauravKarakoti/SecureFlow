@@ -202,4 +202,3 @@ npx secureflow validate .secureflow.json
 ```
 
 `secureflow validate` reports unknown keys, invalid severity levels, and malformed globs with exact file and line numbers, exiting non-zero when errors are detected.
-

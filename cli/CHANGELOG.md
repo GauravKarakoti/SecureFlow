@@ -1,5 +1,32 @@
 # secureflow-cli
 
+## 3.10.0
+
+### Minor Changes
+
+- 4e87c9e: Add content hash and ruleset version caching to SecureFlow CLI. Results are stored in `<repoRoot>/.secureflow/cache` keyed by file SHA-256 and ruleset version, skipping unchanged files on repeat scans. Supports `--no-cache` to bypass caching, `secureflow cache-clear` to wipe stored entries, and safely ignores or cleans corrupted cache entries.
+- 03e2599: feat(cli): integrate repository configuration generator and schema validator into secureflow CLI (#1898)
+
+  - Enhanced `secureflow --init` to generate `.secureflow.json` and `.secureflowignore` with helpful comments and sensible defaults alongside git hook initialization.
+  - Added interactive and non-interactive setup with language auto-detection and flags (`--severity`, `--ignore`, `--languages`, `--force`).
+  - Enforced overwrite safety: existing configuration files are never overwritten without explicit user confirmation or `--force`.
+  - Added `secureflow validate` / `secureflow-cli validate` to validate `.secureflow.json` and `.secureflowignore` against shared schemas.
+  - Line-number error reporting: unknown keys, invalid severities, and invalid globs are reported with exact file, line, and column numbers, exiting non-zero on failure.
+  - Shared schema and comment-stripping parser between server (`gate-config.ts`) and CLI via `secureflow-cli/contracts`.
+
+- 66885ca: feat(triage): bulk dismiss several findings at once with one shared reason (#1889)
+- fe24fd5: feat(observability): add OpenTelemetry distributed tracing across webhook, queue, scan, AI, and GitHub API (#1897)
+- 90b8615: feat(config): support *_FILE variants for secrets in Docker and Kubernetes (#1893)
+- 0e48258: feat(triage): installation-wide suppression rules for a finding type or file pattern (#1891)
+- 81616d8: feat(triage): optional expiry date for dismissed findings with auto-reopen, audit logging, and dashboard filter (#1890)
+- 0145d26: feat(api): add GET /api/version endpoint, dashboard footer version, and safe upgrade guide (#1896)
+- c097ad9: feat(security): [NSoC_2026] add operator clearance, Groq action sanitization, CLI patch rate-limiting, and optimized incident logging (#1819)
+- f25ff25: ops(db): add db:backup, db:restore and db:verify-backup CLI tools with safe restore guards and scheduled automation guides (#1895)
+
+### Patch Changes
+
+- cbf6e5e: fix(worker): graceful shutdown on SIGTERM/SIGINT with in-flight scan recovery and Helm termination grace period (#1894)
+
 ## 3.9.0
 
 ### Minor Changes

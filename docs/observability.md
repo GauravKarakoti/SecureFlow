@@ -229,6 +229,7 @@ SecureFlow supports end-to-end distributed tracing across Next.js API routes, Bu
 ### Activation & Zero-Overhead Guarantee
 
 Tracing is completely **opt-in**. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset:
+
 - The OpenTelemetry Node SDK is **not** initialized.
 - All tracer calls fall back to OpenTelemetry's no-op implementations with **zero runtime overhead**, no network calls, and no errors.
 
@@ -262,11 +263,13 @@ A single GitHub PR scan produces a structured distributed trace spanning the asy
 ```
 
 #### Context Propagation across Queues
+
 BullMQ job payloads (`WebhookJobData` and `ScanJobData`) carry a `traceContext` carrier dictionary. The webhook route injects the active W3C `traceparent` and `tracestate`, and worker jobs extract the parent context so child spans connect back to the originating delivery trace.
 
 ### Privacy & Security Guarantees
 
 Spans strictly observe data minimization principles:
+
 - **Never record code, snippets, or diffs**: Raw patches, source files, and lines of code are prohibited from span attributes.
 - **Never record secrets or credentials**: API keys, tokens, authorization headers, and passwords are rejected by the sanitizer.
 - **Safe attributes only**: Spans record operational metadata such as `secureflow.correlation_id`, `secureflow.repository_id`, `secureflow.pr_number`, `secureflow.head_sha`, `secureflow.findings_count`, `secureflow.risk_score`, `secureflow.decision`, and duration.

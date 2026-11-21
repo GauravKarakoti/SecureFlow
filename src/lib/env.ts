@@ -281,12 +281,7 @@ export function validateEnv(source: Record<string, string | undefined> = process
   return result.data;
 }
 
-export {
-  DEFAULT_SECRET_VARS,
-  resolveFileSecrets,
-  resolveSecretValue,
-  trimTrailingNewline,
-};
+export { DEFAULT_SECRET_VARS, resolveFileSecrets, resolveSecretValue, trimTrailingNewline };
 
 const isTest = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
 

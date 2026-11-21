@@ -515,22 +515,22 @@ secureflow scan --verbose
 
 ## 📝 Available Scripts
 
-| Script               | Description                                                                  |
-| -------------------- | ---------------------------------------------------------------------------- |
-| `npm run dev`        | Start dev server on port 9002 with Turbopack                                 |
-| `npm run build`      | Build for production                                                         |
-| `npm run start`      | Start production server                                                      |
-| `npm run lint`       | Run ESLint                                                                   |
-| `npm run typecheck`  | Run TypeScript compiler checks                                               |
-| `npm run db:gen`     | Generate Prisma Client                                                       |
-| `npm run db:migrate` | Run Prisma migrations                                                        |
-| `npm run db:push`    | Push schema to DB without migrations                                         |
-| `npm run db:seed`    | Seed default policy templates                                                |
-| `npm run db:backup`  | Create timestamped compressed PostgreSQL backup (`pg_dump`)                  |
-| `npm run db:restore` | Restore backup into PostgreSQL (`pg_restore`, requires `--force` for non-empty DB) |
-| `npm run db:verify-backup` | Restore into ephemeral database and verify table counts & migrations   |
-| `npm run genkit:dev` | Start Genkit AI development environment                                      |
-| `npm run retention`  | Unified data retention runner (dry-run default; pass `-- --apply` to delete) |
+| Script                     | Description                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| `npm run dev`              | Start dev server on port 9002 with Turbopack                                       |
+| `npm run build`            | Build for production                                                               |
+| `npm run start`            | Start production server                                                            |
+| `npm run lint`             | Run ESLint                                                                         |
+| `npm run typecheck`        | Run TypeScript compiler checks                                                     |
+| `npm run db:gen`           | Generate Prisma Client                                                             |
+| `npm run db:migrate`       | Run Prisma migrations                                                              |
+| `npm run db:push`          | Push schema to DB without migrations                                               |
+| `npm run db:seed`          | Seed default policy templates                                                      |
+| `npm run db:backup`        | Create timestamped compressed PostgreSQL backup (`pg_dump`)                        |
+| `npm run db:restore`       | Restore backup into PostgreSQL (`pg_restore`, requires `--force` for non-empty DB) |
+| `npm run db:verify-backup` | Restore into ephemeral database and verify table counts & migrations               |
+| `npm run genkit:dev`       | Start Genkit AI development environment                                            |
+| `npm run retention`        | Unified data retention runner (dry-run default; pass `-- --apply` to delete)       |
 
 ---
 

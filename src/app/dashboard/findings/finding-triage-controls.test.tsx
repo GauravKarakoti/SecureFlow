@@ -154,7 +154,8 @@ describe("FindingTriageControls bulk actions (#677)", () => {
       expect.objectContaining({
         variant: "default",
         title: "Bulk triage completed with warnings",
-        description: "Updated 1 finding(s). Skipped 1 finding(s) in repositories you cannot access.",
+        description:
+          "Updated 1 finding(s). Skipped 1 finding(s) in repositories you cannot access.",
       }),
     );
   });
@@ -208,6 +209,8 @@ describe("Single finding triage controls with dismissal expiry (#1890)", () => {
       />,
     );
 
-    expect(screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`))).toBeInTheDocument();
+    expect(
+      screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`)),
+    ).toBeInTheDocument();
   });
 });

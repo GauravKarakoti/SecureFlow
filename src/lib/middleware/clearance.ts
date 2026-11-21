@@ -58,7 +58,10 @@ export function parseClearanceLevel(
  * Evaluates session.user.roles, session.user.clearance, and fallback properties.
  */
 export function getUserClearance(
-  session: { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } } | null | undefined,
+  session:
+    | { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } }
+    | null
+    | undefined,
 ): ClearanceLevel | null {
   if (!session?.user?.id) {
     return null;
@@ -88,7 +91,10 @@ export function getUserClearance(
  * Checks if a session possesses at least the required clearance level.
  */
 export function hasClearance(
-  session: { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } } | null | undefined,
+  session:
+    | { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } }
+    | null
+    | undefined,
   required: ClearanceLevel | ClearanceLevelName = ClearanceLevel.OPERATOR,
 ): boolean {
   const userClearance = getUserClearance(session);
@@ -104,7 +110,10 @@ export function hasClearance(
  * Verifies operator clearance and returns an authorization result object.
  */
 export function verifyOperatorClearance(
-  session: { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } } | null | undefined,
+  session:
+    | { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } }
+    | null
+    | undefined,
   required: ClearanceLevel | ClearanceLevelName = ClearanceLevel.OPERATOR,
 ): {
   authorized: boolean;
@@ -146,9 +155,14 @@ export function verifyOperatorClearance(
  * Asserts that a session satisfies the required clearance or throws a ClearanceError.
  */
 export function requireOperatorClearance(
-  session: { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } } | null | undefined,
+  session:
+    | { user?: { id?: string; roles?: string[]; clearance?: string | ClearanceLevel } }
+    | null
+    | undefined,
   required: ClearanceLevel | ClearanceLevelName = ClearanceLevel.OPERATOR,
-): asserts session is { user: { id: string; roles?: string[]; clearance?: string | ClearanceLevel } } {
+): asserts session is {
+  user: { id: string; roles?: string[]; clearance?: string | ClearanceLevel };
+} {
   const result = verifyOperatorClearance(session, required);
   if (!result.authorized) {
     const statusCode = result.clearance === null ? 401 : 403;

@@ -5,7 +5,8 @@ import { getVersionInfo } from "@/lib/version";
 
 export function DashboardFooter() {
   const { version, commit } = getVersionInfo();
-  const shortCommit = commit && commit !== "development" && commit !== "unknown" ? commit.slice(0, 7) : null;
+  const shortCommit =
+    commit && commit !== "development" && commit !== "unknown" ? commit.slice(0, 7) : null;
 
   return (
     <footer
