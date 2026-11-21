@@ -67,3 +67,5 @@ export const cliScanResponseSchema = z.object({
 });
 
 export type CliScanResponse = z.infer<typeof cliScanResponseSchema>;
+
+export * from "./config-schema.js";

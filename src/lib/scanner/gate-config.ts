@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 import { parseSeverity, type Severity } from "@/lib/severity";
+import { stripJsonComments } from "secureflow-cli/contracts";
 import type { IgnoreConfigClient } from "./ignore-config";
 import { resolveBaseRef } from "./ignore-config";
 import { parsePolicyScopes, type PolicyScopeRule } from "./policy-scopes";
@@ -209,7 +210,7 @@ function parsePathRules(rawPaths: unknown): GatePathRule[] {
 export function parseSecureFlowConfig(rawJson: string): GateConfig {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(rawJson);
+    parsed = JSON.parse(stripJsonComments(rawJson));
   } catch (err) {
     console.warn(`[GateConfig] Invalid JSON in ${SECUREFLOW_CONFIG_FILE}: ${describeError(err)}`);
     return { ...DEFAULT_GATE_CONFIG };
