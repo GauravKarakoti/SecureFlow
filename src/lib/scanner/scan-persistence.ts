@@ -62,6 +62,10 @@ export interface EnrichedScanFinding extends ScanFinding {
   remediation?: string;
   /** Whether the explanation flow suspected prompt injection in the snippet. */
   promptInjectionSuspected?: boolean;
+  /** Explanatory note or previous dismissal expiry note (#1890). */
+  note?: string;
+  /** Previous dismissal expiry note (#1890). */
+  expiryNote?: string;
 }
 
 /**

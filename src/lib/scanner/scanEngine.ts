@@ -58,7 +58,7 @@ import {
 } from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
-import { activeSuppressionWhere } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
@@ -429,13 +429,22 @@ export async function processScanJob(
     f.fingerprint = computeFingerprint(repositoryId, f.fileLocation, f.type, f.codeSnippet);
   });
 
+  const now = new Date();
+  if (repositoryId) {
+    await handleExpiredDismissals(repositoryId, allFindings, now, {
+      prismaClient: prisma,
+      repoFullName: repositoryFullName,
+      userId,
+    });
+  }
+
   // Check for suppressed (dismissed) findings
   const suppressedFingerprints = new Set<string>();
   if (repositoryId) {
     const dismissed = await prisma.findingTriage.findMany({
       where: {
         repositoryId,
-        ...activeSuppressionWhere(new Date()),
+        ...activeSuppressionWhere(now),
       },
       select: { fingerprint: true },
     });

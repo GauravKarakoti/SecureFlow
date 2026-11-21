@@ -62,7 +62,7 @@ import {
   buildFindingCreatedPayload,
 } from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
-import { activeSuppressionWhere } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
 import {
   extractPrNumberFromMergeGroup,
   fetchMergeGroupFiles,
@@ -756,10 +756,17 @@ export async function runPullRequestScan({
     // the scanner keeps re-detecting them on each push.
     const suppressedFingerprints = new Set<string>();
     if (dbRepo) {
+      const now = new Date();
+      await handleExpiredDismissals(dbRepo.id, findings, now, {
+        prismaClient: prisma,
+        repoFullName: dbRepo.fullName,
+        userId,
+      });
+
       const dismissed = await prisma.findingTriage.findMany({
         where: {
           repositoryId: dbRepo.id,
-          ...activeSuppressionWhere(new Date()),
+          ...activeSuppressionWhere(now),
         },
         select: { fingerprint: true },
       });
@@ -1850,10 +1857,17 @@ export const worker = new Worker<WebhookJobData>(
 
           const suppressedFingerprints = new Set<string>();
           if (dbRepo) {
+            const now = new Date();
+            await handleExpiredDismissals(dbRepo.id, scanResult.findings, now, {
+              prismaClient: prisma,
+              repoFullName: dbRepo.fullName,
+              userId,
+            });
+
             const dismissed = await prisma.findingTriage.findMany({
               where: {
                 repositoryId: dbRepo.id,
-                ...activeSuppressionWhere(new Date()),
+                ...activeSuppressionWhere(now),
               },
               select: { fingerprint: true },
             });

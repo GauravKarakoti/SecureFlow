@@ -5,7 +5,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import FindingTriageControls from "./finding-triage-controls";
-import { setFindingStatuses } from "@/lib/actions/triage";
+import { setFindingStatus, setFindingStatuses } from "@/lib/actions/triage";
 
 const { mockToast } = vi.hoisted(() => ({
   mockToast: vi.fn(),
@@ -101,5 +101,57 @@ describe("FindingTriageControls bulk actions (#677)", () => {
       note: "Known test keys",
       expiresAt: null,
     });
+  });
+});
+
+describe("Single finding triage controls with dismissal expiry (#1890)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders triage expiry select for dismissal statuses", () => {
+    render(
+      <FindingTriageControls
+        repositoryId="repo-1"
+        fingerprint="fp-1"
+        currentStatus="DISMISSED"
+        currentNote="Accepted risk for release"
+        currentReason="ACCEPTED_RISK"
+      />,
+    );
+
+    expect(screen.getByTestId("triage-expiry-select")).toBeInTheDocument();
+  });
+
+  it("shows expired badge when currentExpiresAt is in the past", () => {
+    const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    render(
+      <FindingTriageControls
+        repositoryId="repo-1"
+        fingerprint="fp-1"
+        currentStatus="DISMISSED"
+        currentNote="Accepted risk for release"
+        currentReason="ACCEPTED_RISK"
+        currentExpiresAt={pastDate}
+      />,
+    );
+
+    expect(screen.getByText("expired")).toBeInTheDocument();
+  });
+
+  it("shows active expiry badge when currentExpiresAt is in the future", () => {
+    const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    render(
+      <FindingTriageControls
+        repositoryId="repo-1"
+        fingerprint="fp-1"
+        currentStatus="DISMISSED"
+        currentNote="Accepted risk for release"
+        currentReason="ACCEPTED_RISK"
+        currentExpiresAt={futureDate}
+      />,
+    );
+
+    expect(screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`))).toBeInTheDocument();
   });
 });
