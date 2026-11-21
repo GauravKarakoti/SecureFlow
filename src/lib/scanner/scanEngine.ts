@@ -50,6 +50,11 @@ import {
   DEFAULT_GATE_CONFIG,
   type GateConfig,
 } from "./gate-config";
+import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
+import {
+  getActiveSuppressionRules,
+  recordSuppressionRuleEvents,
+} from "@/lib/suppression-rules/service";
 import {
   groupFilesByPolicyScope,
   collectAppliedScopes,
@@ -442,9 +447,42 @@ export async function processScanJob(
     dismissed.forEach((t: { fingerprint: string }) => suppressedFingerprints.add(t.fingerprint));
   }
 
-  const activeFindings = allFindings.filter(
+  const nonDismissedFindings = allFindings.filter(
     (f) => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint),
   );
+
+  // Apply installation-wide suppression rules after repository fingerprint dismissals (#1891)
+  let activeFindings = nonDismissedFindings;
+  let ruleSuppressedFindings: EnrichedScanFinding[] = [];
+
+  try {
+    const activeRules = await getActiveSuppressionRules(new Date());
+    if (activeRules.length > 0) {
+      const suppressionEval = evaluateSuppressionRules(
+        nonDismissedFindings,
+        activeRules,
+        repositoryId,
+        new Date(),
+      );
+      activeFindings = suppressionEval.activeFindings;
+      ruleSuppressedFindings = suppressionEval.suppressedFindings;
+
+      if (suppressionEval.ruleMatches.length > 0) {
+        await recordSuppressionRuleEvents(
+          suppressionEval.ruleMatches.map((m) => ({
+            ruleId: m.rule.id,
+            repositoryId,
+            findingFingerprint: m.finding.fingerprint,
+            fileLocation: m.finding.fileLocation,
+          })),
+        );
+      }
+    }
+  } catch (err) {
+    log.error("[ScanEngine] Failed evaluating suppression rules:", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Enrich active findings with AI explanations in batches to prevent rate-limit storms (thundering herd)
   const enrichedFindings: EnrichedScanFinding[] = [];
@@ -521,8 +559,13 @@ export async function processScanJob(
 
       // Post PR comment if there are findings, skipped files, or expired ignore rules
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
-      const suppressedCount = allFindings.length - activeFindings.length;
-      if (enrichedFindings.length > 0 || allSkippedFiles.length > 0 || expiredRules.length > 0) {
+      const previouslyDismissedCount = allFindings.length - nonDismissedFindings.length;
+      if (
+        enrichedFindings.length > 0 ||
+        allSkippedFiles.length > 0 ||
+        expiredRules.length > 0 ||
+        ruleSuppressedFindings.length > 0
+      ) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
           body += `Scanned commit: \`${headSha}\`\n\n`;
@@ -554,8 +597,12 @@ export async function processScanJob(
           body += `\n`;
         }
 
-        if (suppressedCount > 0) {
-          body += `🛡️ **${suppressedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+        if (previouslyDismissedCount > 0) {
+          body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+        }
+
+        if (ruleSuppressedFindings.length > 0) {
+          body += `🛡️ **${ruleSuppressedFindings.length}** finding(s) were suppressed by installation suppression rule(s).\n\n`;
         }
 
         const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
@@ -607,7 +654,11 @@ export async function processScanJob(
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
       );
-      const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
+      const findingsToPersist = [
+        ...enrichedFindings,
+        ...suppressedFindings,
+        ...ruleSuppressedFindings,
+      ];
 
       await prisma.scanResult.create({
         data: scanResultCreateData({

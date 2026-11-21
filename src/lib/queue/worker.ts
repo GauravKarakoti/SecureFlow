@@ -68,6 +68,11 @@ import {
   fetchMergeGroupFiles,
   isMergeGroupDiffUnchanged,
 } from "@/lib/github/merge-group";
+import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
+import {
+  getActiveSuppressionRules,
+  recordSuppressionRuleEvents,
+} from "@/lib/suppression-rules/service";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -769,7 +774,39 @@ export async function runPullRequestScan({
     // Findings that still count toward enforcement — everything the user hasn't
     // dismissed. The full `findings` list is still persisted below (with its
     // fingerprint) so the dashboard can show dismissed items and left-join triage.
-    const activeFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
+    const nonDismissedFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
+
+    // Organization / Installation-wide suppression rules (#1891)
+    let activeFindings = nonDismissedFindings;
+    let ruleSuppressedFindings: any[] = [];
+    try {
+      const activeRules = await getActiveSuppressionRules(new Date());
+      if (activeRules.length > 0) {
+        const suppressionEval = evaluateSuppressionRules(
+          nonDismissedFindings,
+          activeRules,
+          dbRepo?.id ?? String(repository.id),
+          new Date(),
+        );
+        activeFindings = suppressionEval.activeFindings;
+        ruleSuppressedFindings = suppressionEval.suppressedFindings;
+
+        if (suppressionEval.ruleMatches.length > 0) {
+          await recordSuppressionRuleEvents(
+            suppressionEval.ruleMatches.map((m) => ({
+              ruleId: m.rule.id,
+              repositoryId: dbRepo?.id ?? String(repository.id),
+              findingFingerprint: m.finding.fingerprint,
+              fileLocation: m.finding.fileLocation,
+            })),
+          );
+        }
+      }
+    } catch (err: any) {
+      log.error("[Worker] Failed evaluating suppression rules:", {
+        error: err?.message,
+      });
+    }
 
     // Enrich and post ONLY the active findings: a finding the user dismissed
     // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
@@ -819,7 +856,11 @@ export async function runPullRequestScan({
     const suppressedFindings = findings.filter((f: any) =>
       suppressedFingerprints.has(f.fingerprint),
     );
-    const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
+    const findingsToPersist = [
+      ...enrichedFindings,
+      ...suppressedFindings,
+      ...ruleSuppressedFindings,
+    ];
 
     // Load base-branch gate configuration
     const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
@@ -975,6 +1016,7 @@ export async function runPullRequestScan({
           suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
           rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
           previouslyDismissedCount: suppressedFindings.length,
+          ruleSuppressedCount: ruleSuppressedFindings.length,
           commitSha: pullRequest.head?.sha,
           expiredIgnoreRules: scanResult.expiredIgnoreRules,
         });
@@ -1035,6 +1077,11 @@ export async function runPullRequestScan({
           ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
           : "";
 
+      const cleanRuleNotice =
+        ruleSuppressedFindings.length > 0
+          ? `\n\n🛡️ **${ruleSuppressedFindings.length}** finding(s) were suppressed by installation suppression rule(s).`
+          : "";
+
       const cleanExpiredNotice =
         scanResult.expiredIgnoreRules && scanResult.expiredIgnoreRules.length > 0
           ? `\n\n### ⚠️ Expired Ignore Rules (${scanResult.expiredIgnoreRules.length})\n\n` +
@@ -1053,6 +1100,7 @@ export async function runPullRequestScan({
         (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
         `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
         cleanDismissedNotice +
+        cleanRuleNotice +
         cleanExpiredNotice +
         // A clean result on a partial scan must say so — this is exactly the
         // case where silent truncation was most misleading.

@@ -74,6 +74,8 @@ export interface ScanReportSummaryInput {
   rejectedSuppressions?: readonly RejectedSuppressionReport[];
   /** Previously triaged/dismissed findings on this repository suppressed during the scan. */
   previouslyDismissedCount?: number;
+  /** Findings suppressed by installation-wide suppression rules (#1891). */
+  ruleSuppressedCount?: number;
   /** Scanned commit SHA to show in the report. */
   commitSha?: string | null;
   /** Ignore rules (.secureflowignore) that have expired. */
@@ -116,6 +118,7 @@ export function renderScanReportSummary({
   suppressedFindings = [],
   rejectedSuppressions = [],
   previouslyDismissedCount = 0,
+  ruleSuppressedCount = 0,
   commitSha,
   expiredIgnoreRules = [],
   appliedPolicyScopes = [],
@@ -149,6 +152,10 @@ export function renderScanReportSummary({
 
   if (previouslyDismissedCount > 0) {
     body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+  }
+
+  if (ruleSuppressedCount > 0) {
+    body += `🛡️ **${ruleSuppressedCount}** finding(s) were suppressed by installation suppression rule(s).\n\n`;
   }
 
   if (coverageNotice) {
