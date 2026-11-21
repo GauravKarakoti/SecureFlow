@@ -166,7 +166,7 @@ curl -s http://localhost:9002/api/version | jq .
 Expected output:
 ```json
 {
-  "version": "0.1.0",
+  "version": "3.8.0",
   "commit": "fe24fd56",
   "buildDate": "2026-11-20T23:25:00Z"
 }
@@ -188,7 +188,7 @@ docker compose down
 
 ### 2. Revert to the Previous Container Tag
 
-Update your `docker-compose.yml` or `helm` values back to the previously running version tag (e.g. `image.tag: "v0.1.0"`).
+Update your `docker-compose.yml` or `helm` values back to the previously running version tag (e.g. `image.tag: "v3.8.0"`).
 
 ### 3. Restore the Database (If Migrations Were Incompatible)
 

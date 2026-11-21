@@ -1,4 +1,4 @@
-import packageJson from "../../package.json";
+import cliPackageJson from "../../cli/package.json";
 
 export interface VersionInfo {
   version: string;
@@ -8,14 +8,18 @@ export interface VersionInfo {
 
 /**
  * Returns sanitized version information about the running SecureFlow instance.
+ * Exposes the CLI / engine release version (which has incremental versioning),
+ * commit SHA, and build date.
  * Guaranteed to exclude internal paths, dependency lists, and sensitive configuration.
  */
 export function getVersionInfo(): VersionInfo {
   const version =
     process.env.APP_VERSION ||
     process.env.NEXT_PUBLIC_APP_VERSION ||
-    packageJson.version ||
-    "0.1.0";
+    process.env.CLI_VERSION ||
+    process.env.NEXT_PUBLIC_CLI_VERSION ||
+    cliPackageJson.version ||
+    "3.8.0";
 
   const commit =
     process.env.GIT_COMMIT_SHA ||

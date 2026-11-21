@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GET } from "./route";
-import packageJson from "../../../../package.json";
+import cliPackageJson from "../../../../cli/package.json";
 
 describe("GET /api/version", () => {
   const originalEnv = process.env;
@@ -33,8 +33,8 @@ describe("GET /api/version", () => {
     expect(typeof data.commit).toBe("string");
     expect(typeof data.buildDate).toBe("string");
 
-    // Defaults to package.json version
-    expect(data.version).toBe(packageJson.version);
+    // Defaults to CLI package version
+    expect(data.version).toBe(cliPackageJson.version);
     expect(data.commit).toBe("development");
     expect(data.buildDate).toBe("unknown");
   });
