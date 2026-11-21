@@ -198,4 +198,18 @@ describe("FindingsToolbar", () => {
       expect(screen.queryByRole("button", { name: /clear filters/i })).not.toBeInTheDocument();
     });
   });
+
+  describe("Expiry filter (#1890)", () => {
+    it("renders expiry filter select with 'All expiry' by default", () => {
+      renderToolbar();
+      expect(screen.getByLabelText("Filter by expiry")).toHaveTextContent("All expiry");
+    });
+
+    it("displays 'Expiring in 14 days' when expiring=14d is in search params", () => {
+      currentParams = new URLSearchParams("expiring=14d");
+      renderToolbar();
+      expect(screen.getByLabelText("Filter by expiry")).toHaveTextContent("Expiring in 14 days");
+      expect(screen.getByRole("button", { name: /clear filters/i })).toBeInTheDocument();
+    });
+  });
 });

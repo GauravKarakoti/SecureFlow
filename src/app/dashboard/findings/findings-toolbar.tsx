@@ -157,6 +157,11 @@ export default function FindingsToolbar({
       ? (rawStatus as FindingStatus)
       : ANY;
 
+  // Validate and restore expiring filter from URL
+  const rawExpiring = searchParams.get("expiring")?.trim().toLowerCase();
+  const activeExpiring =
+    rawExpiring === "14d" || rawExpiring === "14" || rawExpiring === "true" ? "14d" : ANY;
+
   // Validate and restore sort from URL, ignoring invalid values and falling back to default ("newest")
   const activeSort = parseSort(searchParams.get("sort"));
 
@@ -200,6 +205,7 @@ export default function FindingsToolbar({
     from: activeFrom || undefined,
     to: activeTo || undefined,
     sort: activeSort !== DEFAULT_SORT ? activeSort : undefined,
+    expiring: activeExpiring !== ANY ? activeExpiring : undefined,
   };
 
   const hasActiveSeverity = activeSeverity !== ANY;
@@ -209,6 +215,7 @@ export default function FindingsToolbar({
   const hasActiveSearch = Boolean(searchDraft.trim());
   const hasActiveFrom = Boolean(activeFrom);
   const hasActiveTo = Boolean(activeTo);
+  const hasActiveExpiring = activeExpiring !== ANY;
 
   const activeCount = [
     hasActiveSeverity,
@@ -218,11 +225,14 @@ export default function FindingsToolbar({
     hasActiveSearch,
     hasActiveFrom,
     hasActiveTo,
+    hasActiveExpiring,
   ].filter(Boolean).length;
 
   const hasFilterParams =
     activeCount > 0 ||
-    ["severity", "type", "status", "repo", "q", "from", "to"].some((key) => searchParams.has(key));
+    ["severity", "type", "status", "repo", "q", "from", "to", "expiring"].some((key) =>
+      searchParams.has(key),
+    );
 
   return (
     <div className="glass-card rounded-xl p-4" data-testid="findings-toolbar">
@@ -280,6 +290,16 @@ export default function FindingsToolbar({
                 {STATUS_LABELS[status] ?? status}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={activeExpiring} onValueChange={(value) => setSingle("expiring", value)}>
+          <SelectTrigger className="w-[180px]" aria-label="Filter by expiry" data-testid="filter-expiry-select">
+            <SelectValue placeholder="Expiry" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>All expiry</SelectItem>
+            <SelectItem value="14d">Expiring in 14 days</SelectItem>
           </SelectContent>
         </Select>
 

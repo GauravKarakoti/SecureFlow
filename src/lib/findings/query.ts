@@ -94,6 +94,7 @@ export interface FindingsQuery {
   sort?: string | null;
   from?: string | null;
   to?: string | null;
+  expiring?: string | null;
 }
 
 /** A query with every field resolved to a safe, in-range value. */
@@ -110,6 +111,7 @@ export interface NormalizedFindingsQuery {
   sort: FindingSort;
   from: string | null;
   to: string | null;
+  expiring: string | null;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -308,6 +310,13 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
     sort: parseSort(query.sort),
     from,
     to,
+    expiring:
+      typeof query.expiring === "string" &&
+      (query.expiring.trim().toLowerCase() === "14d" ||
+        query.expiring.trim().toLowerCase() === "14" ||
+        query.expiring.trim().toLowerCase() === "true")
+        ? "14d"
+        : null,
   };
 
   if (query.cursor !== undefined) {
@@ -430,6 +439,8 @@ export interface FindingsWhereContext {
    * Absent statuses are treated as empty.
    */
   fingerprintsByStatus?: Partial<Record<FindingStatus, readonly string[]>>;
+  /** Fingerprints whose triage expiry falls within the next 14 days. */
+  expiringFingerprints?: readonly string[];
 }
 
 /**
@@ -473,7 +484,8 @@ export function buildFindingsWhere(
   const { userId, dismissedFingerprints, fingerprintsByStatus = {} } = context;
 
   const asksForDismissed = query.status.some((status) => DISMISSED_STATUSES.includes(status));
-  const includeDismissed = options.includeDismissed ?? asksForDismissed;
+  const asksForExpiring = Boolean(query.expiring);
+  const includeDismissed = options.includeDismissed ?? (asksForDismissed || asksForExpiring);
 
   const where: Record<string, unknown> = {
     scanResult: {
@@ -583,6 +595,11 @@ export function buildFindingsWhere(
     });
   }
 
+  if (query.expiring === "14d") {
+    const targetFingerprints = context.expiringFingerprints ?? [];
+    andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
+  }
+
   if (andClauses.length > 0) {
     where.AND = andClauses;
   }
@@ -615,7 +632,8 @@ export function hasActiveFilters(query: NormalizedFindingsQuery): boolean {
     query.repositoryId !== null ||
     query.search !== null ||
     query.from !== null ||
-    query.to !== null
+    query.to !== null ||
+    query.expiring !== null
   );
 }
 
@@ -631,6 +649,7 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
   if (query.search) params.set("q", query.search);
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
+  if (query.expiring) params.set("expiring", query.expiring);
   for (const severity of query.severity) params.append("severity", severity);
   for (const type of query.type) params.append("type", type);
   for (const status of query.status) params.append("status", status);
@@ -662,6 +681,7 @@ export function fromSearchParams(
     sort: single(params.sort),
     from: single(params.from),
     to: single(params.to),
+    expiring: single(params.expiring),
   });
 }
 

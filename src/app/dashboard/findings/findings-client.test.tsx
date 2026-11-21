@@ -201,4 +201,51 @@ describe("FindingsClient Component (#633)", () => {
     render(<FindingsClient {...defaultProps} findings={[resolvedFinding]} total={1} />);
     expect(screen.getByText("resolved by commit abc1234")).toBeInTheDocument();
   });
+
+  it("renders expiry date badge on finding with triageExpiresAt (#1890)", () => {
+    const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiringFinding: any = {
+      id: "f-expiring",
+      type: "SECRET",
+      severity: "MEDIUM",
+      fileLocation: "src/auth/key.ts",
+      codeSnippet: "KEY = 'test'",
+      explanation: "Test secret.",
+      remediation: "Remove.",
+      promptInjectionSuspected: false,
+      fingerprint: "fp-exp-1",
+      createdAt: new Date(),
+      repositoryId: "repo-1",
+      repositoryFullName: "acme/api",
+      pullRequestNumber: 1,
+      triageStatus: "DISMISSED",
+      triageExpiresAt: futureDate,
+    };
+
+    render(<FindingsClient {...defaultProps} findings={[expiringFinding]} total={1} />);
+    expect(screen.getByText(new RegExp(`expires on ${futureDate.toLocaleDateString()}`))).toBeInTheDocument();
+  });
+
+  it("renders note badge when finding was auto-reopened from expired dismissal (#1890)", () => {
+    const reopenedFinding: any = {
+      id: "f-reopened",
+      type: "VULNERABILITY",
+      severity: "HIGH",
+      fileLocation: "src/api/handler.ts",
+      codeSnippet: "vuln()",
+      explanation: "SQL injection.",
+      remediation: "Use params.",
+      promptInjectionSuspected: false,
+      fingerprint: "fp-reopened-1",
+      createdAt: new Date(),
+      repositoryId: "repo-1",
+      repositoryFullName: "acme/api",
+      pullRequestNumber: 1,
+      triageStatus: "OPEN",
+      triageNote: "previous dismissal expired on 2026-11-20",
+    };
+
+    render(<FindingsClient {...defaultProps} findings={[reopenedFinding]} total={1} />);
+    expect(screen.getByText(/previous dismissal expired on 2026-11-20/)).toBeInTheDocument();
+  });
 });
