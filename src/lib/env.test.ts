@@ -184,7 +184,7 @@ describe("environment validation (src/lib/env.ts)", () => {
     };
     expect(validateEnv(validModelEnv).AI_MODEL).toBe("llama3.3");
   });
-  
+
   describe("GitHub Enterprise Server environment validation", () => {
     it("defaults GITHUB_API_URL to https://api.github.com when not supplied", () => {
       const parsed = validateEnv(validEnv);
@@ -238,6 +238,81 @@ describe("environment validation (src/lib/env.ts)", () => {
           GITHUB_API_URL: "not-a-valid-url",
         }),
       ).toThrowError(/GITHUB_API_URL must be a valid URL/);
+    });
+  });
+
+  describe("file-based secrets validation (<NAME>_FILE) (#1893)", () => {
+    it("successfully validates and populates secrets supplied via <NAME>_FILE", () => {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const os = require("node:os");
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-env-test-"));
+      try {
+        const groqFile = path.join(tempDir, "groq_key.txt");
+        const keyFile = path.join(tempDir, "key.pem");
+        const authFile = path.join(tempDir, "auth.txt");
+
+        fs.writeFileSync(groqFile, "gsk_file_supplied_groq_api_key_12345\n", "utf8");
+        fs.writeFileSync(keyFile, `${validPrivateKey}\n`, "utf8");
+        fs.writeFileSync(authFile, "file_supplied_auth_secret_99999\r\n", "utf8");
+
+        const {
+          GROQ_API_KEY,
+          GITHUB_PRIVATE_KEY,
+          AUTH_SECRET,
+          ...baseEnv
+        } = validEnv;
+
+        const envWithFiles = {
+          ...baseEnv,
+          GROQ_API_KEY_FILE: groqFile,
+          GITHUB_PRIVATE_KEY_FILE: keyFile,
+          AUTH_SECRET_FILE: authFile,
+        };
+
+        const result = validateEnv(envWithFiles);
+        expect(result.GROQ_API_KEY).toBe("gsk_file_supplied_groq_api_key_12345");
+        expect(result.GITHUB_PRIVATE_KEY).toBe(validPrivateKey);
+        expect(result.AUTH_SECRET).toBe("file_supplied_auth_secret_99999");
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects startup when both direct variable and _FILE are specified", () => {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const os = require("node:os");
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-env-test-"));
+      try {
+        const dbFile = path.join(tempDir, "db.txt");
+        fs.writeFileSync(dbFile, "postgres://localhost/file-db\n", "utf8");
+
+        const envWithBoth = {
+          ...validEnv,
+          DATABASE_URL_FILE: dbFile,
+        };
+
+        expect(() => validateEnv(envWithBoth)).toThrowError(
+          /Cannot specify both DATABASE_URL and DATABASE_URL_FILE/,
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects startup when a _FILE points to a non-existent file", () => {
+      const envWithMissing = {
+        ...validEnv,
+        GROQ_API_KEY: undefined,
+        GROQ_API_KEY_FILE: "/path/that/does/not/exist/at/all/secret.txt",
+      };
+
+      expect(() => validateEnv(envWithMissing)).toThrowError(
+        /Failed to read secret for GROQ_API_KEY from GROQ_API_KEY_FILE/,
+      );
     });
   });
 });

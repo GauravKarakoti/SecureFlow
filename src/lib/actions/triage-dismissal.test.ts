@@ -273,7 +273,7 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
   });
 
   describe("Bulk Dismissal", () => {
-    it("allows bulk dismissal with reason and note", async () => {
+    it("allows bulk dismissal with reason and note, applying the same status and reason to all findings", async () => {
       const items = [
         { repositoryId: REPO_ID, fingerprint: "fp-1" },
         { repositoryId: REPO_ID, fingerprint: "fp-2" },
@@ -287,13 +287,38 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
       });
 
       expect(res.ok).toBe(true);
+      expect(res.updatedCount).toBe(2);
+      expect(res.skippedCount).toBe(0);
       expect(mockTriageUpsert).toHaveBeenCalledTimes(2);
       expect(mockAuditCreate).toHaveBeenCalledTimes(2);
       expect(mockTriageUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId: REPO_ID,
+              fingerprint: "fp-1",
+            },
+          },
           update: expect.objectContaining({
             status: "DISMISSED",
             dismissalReason: "WONT_FIX",
+            note: "Legacy service scheduled for deprecation",
+            dismissedById: "user-owner",
+          }),
+        }),
+      );
+      expect(mockTriageUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId: REPO_ID,
+              fingerprint: "fp-2",
+            },
+          },
+          update: expect.objectContaining({
+            status: "DISMISSED",
+            dismissalReason: "WONT_FIX",
+            note: "Legacy service scheduled for deprecation",
             dismissedById: "user-owner",
           }),
         }),
@@ -311,7 +336,120 @@ describe("Finding Triage Dismissal & Reopening (#1528)", () => {
       });
 
       expect(res.ok).toBe(true);
+      expect(res.updatedCount).toBe(1);
       expect(mockTriageUpsert).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips findings in repositories the user cannot access and reports skippedCount with a clear message", async () => {
+      // User only has access to REPO_ID, not "unauthorized-repo"
+      mockRepoFindMany.mockResolvedValue([{ id: REPO_ID, fullName: "acme/backend" }]);
+
+      const items = [
+        { repositoryId: REPO_ID, fingerprint: "fp-accessible-1" },
+        { repositoryId: "unauthorized-repo", fingerprint: "fp-inaccessible-1" },
+        { repositoryId: REPO_ID, fingerprint: "fp-accessible-2" },
+        { repositoryId: "unauthorized-repo", fingerprint: "fp-inaccessible-2" },
+      ];
+
+      const res = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+        reason: "ACCEPTED_RISK",
+        note: "Accepted for this sprint",
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.updatedCount).toBe(2);
+      expect(res.skippedCount).toBe(2);
+      expect(res.warning).toContain("Skipped 2 finding(s)");
+      expect(mockTriageUpsert).toHaveBeenCalledTimes(2);
+      expect(mockAuditCreate).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails when the user has access to NONE of the repositories", async () => {
+      mockRepoFindMany.mockResolvedValue([]);
+
+      const items = [
+        { repositoryId: "unauthorized-repo", fingerprint: "fp-1" },
+        { repositoryId: "unauthorized-repo", fingerprint: "fp-2" },
+      ];
+
+      const res = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+        reason: "FALSE_POSITIVE",
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe("Repository not found");
+      expect(res.skippedCount).toBe(2);
+      expect(res.updatedCount).toBe(0);
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
+      expect(mockAuditCreate).not.toHaveBeenCalled();
+    });
+
+    it("rejects dismissal without a reason or with reason less than 5 characters", async () => {
+      const items = [{ repositoryId: REPO_ID, fingerprint: "fp-1" }];
+
+      // Missing reason
+      const noReasonRes = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+      });
+      expect(noReasonRes.ok).toBe(false);
+      expect(noReasonRes.error).toBe("Reason must be at least 5 characters");
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
+
+      // Reason less than 5 characters
+      const shortReasonRes = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+        reason: "bad",
+      });
+      expect(shortReasonRes.ok).toBe(false);
+      expect(shortReasonRes.error).toBe("Reason must be at least 5 characters");
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
+
+      // Empty string reason
+      const emptyReasonRes = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+        reason: "   ",
+      });
+      expect(emptyReasonRes.ok).toBe(false);
+      expect(emptyReasonRes.error).toBe("Reason must be at least 5 characters");
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid dismissal reason categories", async () => {
+      const items = [{ repositoryId: REPO_ID, fingerprint: "fp-1" }];
+
+      const res = await setFindingStatuses({
+        items,
+        status: "DISMISSED",
+        reason: "SOMETHING_ELSE",
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe("Invalid dismissal reason category");
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
+    });
+
+    it("rejects batch sizes exceeding the maximum limit with a clear message", async () => {
+      const tooMany = Array.from({ length: 101 }, (_, i) => ({
+        repositoryId: REPO_ID,
+        fingerprint: `fp-${i}`,
+      }));
+
+      const res = await setFindingStatuses({
+        items: tooMany,
+        status: "DISMISSED",
+        reason: "FALSE_POSITIVE",
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe("Too many findings");
+      expect(mockRepoFindMany).not.toHaveBeenCalled();
+      expect(mockTriageUpsert).not.toHaveBeenCalled();
     });
   });
 });

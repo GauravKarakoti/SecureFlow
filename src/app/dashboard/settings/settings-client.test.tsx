@@ -213,6 +213,7 @@ describe("SettingsClient component (#1333)", () => {
             fullName: "acme/repo-one",
             owner: "acme",
             publicBadgeEnabled: false,
+            codeScanningEnabled: false,
           },
         ]}
       />,
@@ -250,6 +251,7 @@ describe("SettingsClient component (#1333)", () => {
             fullName: "acme/repo-two",
             owner: "acme",
             publicBadgeEnabled: true,
+            codeScanningEnabled: false,
           },
         ]}
       />,

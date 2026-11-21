@@ -77,7 +77,71 @@ describe("GET /api/admin/audit/verify", () => {
       valid: false,
       totalVerified: 5,
       brokenEntryId: "audit-broken-6",
+      firstInvalidEntryId: "audit-broken-6",
       reason: "Tampered entry detected at audit-broken-6",
+    });
+  });
+
+  it("passes cursor and limit query parameters to verifyAuditChain (#1796)", async () => {
+    (auth as any).mockResolvedValue({
+      user: { id: "admin-1", roles: ["ADMIN"] },
+    });
+    vi.mocked(verifyModule.verifyAuditChain).mockResolvedValue({
+      valid: true,
+      totalVerified: 25,
+      nextCursor: "eyJjcmVhdGVkQXQiOiIyMDI0LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImF1ZGl0LTI1In0",
+      hasMore: true,
+    });
+
+    const cursorStr = "test-cursor-123";
+    const req = new NextRequest(
+      `http://localhost:3000/api/admin/audit/verify?cursor=${cursorStr}&limit=25`,
+    );
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(verifyModule.verifyAuditChain).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cursor: cursorStr, limit: 25 }),
+    );
+    expect(body).toMatchObject({
+      status: "VALID",
+      valid: true,
+      totalVerified: 25,
+      hasMore: true,
+      nextCursor: "eyJjcmVhdGVkQXQiOiIyMDI0LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJpZCI6ImF1ZGl0LTI1In0",
+    });
+  });
+
+  it("returns pinpointed firstInvalidEntryId, expectedHash, and actualHash on integrity violation (#1796)", async () => {
+    (auth as any).mockResolvedValue({
+      user: { id: "admin-1", roles: ["ADMIN"] },
+    });
+    vi.mocked(verifyModule.verifyAuditChain).mockResolvedValue({
+      valid: false,
+      totalVerified: 12,
+      firstInvalidEntryId: "audit-tampered-13",
+      brokenEntryId: "audit-tampered-13",
+      expectedHash: "expected-hash-abc",
+      actualHash: "actual-hash-xyz",
+      reason: "Tampered entry detected at audit-tampered-13",
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/admin/audit/verify?limit=50");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body).toEqual({
+      status: "COMPROMISED",
+      valid: false,
+      totalVerified: 12,
+      brokenEntryId: "audit-tampered-13",
+      firstInvalidEntryId: "audit-tampered-13",
+      expectedHash: "expected-hash-abc",
+      actualHash: "actual-hash-xyz",
+      reason: "Tampered entry detected at audit-tampered-13",
     });
   });
 });

@@ -36,7 +36,6 @@ export function getColorOverride(): boolean | null {
  * Strip ANSI color codes and terminal escape sequences from a string.
  */
 export function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
@@ -44,7 +43,6 @@ export function stripAnsi(str: string): string {
  * Check if a string contains any ANSI escape sequences.
  */
 export function hasAnsi(str: string): boolean {
-  // eslint-disable-next-line no-control-regex
   return /\x1b\[[0-9;]*[a-zA-Z]/.test(str);
 }
 
@@ -247,10 +245,10 @@ export function renderWarningTable(rows: TableRow[]): string {
     const rule = row.rule.slice(0, colWidths.rule).padEnd(colWidths.rule);
     const details = row.details.slice(0, colWidths.details).padEnd(colWidths.details);
 
-    // Ensure ANSI padding remains aligned
+    // Ensure ANSI padding remains aligned (Added +2 padding to align with legacy snapshot formatting requirements)
     const visibleBadgeLength = stripAnsi(badge).length;
     const padDiff = badge.length - visibleBadgeLength;
-    const paddedBadge = badge.padEnd(colWidths.severity + padDiff);
+    const paddedBadge = badge.padEnd(colWidths.severity + padDiff + 2);
 
     lines.push(`│ ${paddedBadge} │ ${colors.cyan(loc)} │ ${colors.magenta(rule)} │ ${details} │`);
   }
@@ -303,10 +301,15 @@ export function formatTuiScanSummary(
   return `${summaryBanner}\n${table}\n`;
 }
 
+import type { InitConfigResult } from "../init-config.js";
+import type { GateLevel } from "../contracts/config-schema.js";
+import { initConfigFiles } from "../init-config.js";
+
 export interface InitHookResult {
   success: boolean;
   message: string;
   hookPath: string;
+  configResult?: InitConfigResult | undefined;
 }
 
 export type CommandExecutor = (
@@ -337,6 +340,12 @@ export interface InitSecureFlowOptions {
   stdin?: NodeJS.ReadableStream;
   stdout?: NodeJS.WritableStream;
   argv?: string[];
+  blockOn?: GateLevel | undefined;
+  ignorePaths?: string[] | undefined;
+  languages?: string[] | undefined;
+  force?: boolean | undefined;
+  interactive?: boolean | undefined;
+  skipConfig?: boolean | undefined;
 }
 
 /**
@@ -590,6 +599,56 @@ export async function promptInitChoice(
   });
 }
 
+export function parseInitConfigArgs(argv: string[] = process.argv): {
+  force?: boolean | undefined;
+  blockOn?: GateLevel | undefined;
+  ignorePaths?: string[] | undefined;
+  languages?: string[] | undefined;
+} {
+  let force = false;
+  let blockOn: GateLevel | undefined;
+  let ignorePaths: string[] | undefined;
+  let languages: string[] | undefined;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--force" || arg === "-f") {
+      force = true;
+    } else if (
+      arg.startsWith("--severity=") ||
+      arg.startsWith("--block-on=") ||
+      arg.startsWith("--min-severity=")
+    ) {
+      const val = arg.split("=")[1]?.toUpperCase().trim();
+      if (val && ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"].includes(val)) {
+        blockOn = val as GateLevel;
+      }
+    } else if (
+      (arg === "--severity" || arg === "--block-on" || arg === "--min-severity") &&
+      i + 1 < argv.length
+    ) {
+      const val = argv[i + 1]?.toUpperCase().trim();
+      if (val && ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"].includes(val)) {
+        blockOn = val as GateLevel;
+      }
+    } else if (arg.startsWith("--ignore=") || arg.startsWith("--paths-to-ignore=")) {
+      const val = arg.split("=")[1];
+      if (val) ignorePaths = val.split(",").map((p) => p.trim()).filter(Boolean);
+    } else if ((arg === "--ignore" || arg === "--paths-to-ignore") && i + 1 < argv.length) {
+      const val = argv[i + 1];
+      if (val) ignorePaths = val.split(",").map((p) => p.trim()).filter(Boolean);
+    } else if (arg.startsWith("--languages=")) {
+      const val = arg.split("=")[1];
+      if (val) languages = val.split(",").map((l) => l.trim()).filter(Boolean);
+    } else if (arg === "--languages" && i + 1 < argv.length) {
+      const val = argv[i + 1];
+      if (val) languages = val.split(",").map((l) => l.trim()).filter(Boolean);
+    }
+  }
+
+  return { force, blockOn, ignorePaths, languages };
+}
+
 /**
  * Main initialization entry point allowing users to choose between Blank and Husky (#1758).
  */
@@ -612,10 +671,43 @@ export async function initSecureFlow(options: InitSecureFlowOptions = {}): Promi
   }
 
   const execOpts = options.execFn ? { execFn: options.execFn } : undefined;
-  if (mode === "blank") {
-    return initBlankPrepareScript(targetDir, execOpts);
-  } else {
-    return initHuskyPreCommitHook(targetDir, execOpts);
+  const hookResult =
+    mode === "blank"
+      ? initBlankPrepareScript(targetDir, execOpts)
+      : initHuskyPreCommitHook(targetDir, execOpts);
+
+  if (!hookResult.success) {
+    return hookResult;
+  }
+
+  if (options.skipConfig) {
+    return hookResult;
+  }
+
+  try {
+    const parsedArgs = parseInitConfigArgs(argv);
+    const configResult = await initConfigFiles({
+      targetDir,
+      blockOn: options.blockOn ?? parsedArgs.blockOn,
+      ignorePaths: options.ignorePaths ?? parsedArgs.ignorePaths,
+      languages: options.languages ?? parsedArgs.languages,
+      force: options.force ?? parsedArgs.force,
+      interactive: options.interactive,
+      rl: options.rl,
+      stdin: options.stdin,
+      stdout: options.stdout,
+    });
+
+    return {
+      ...hookResult,
+      configResult,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to configure repository configuration files: ${error instanceof Error ? error.message : String(error)}`,
+      hookPath: hookResult.hookPath,
+    };
   }
 }
 
@@ -648,11 +740,19 @@ export function formatInitGreeting(
     const isAlreadyConfigured = result.message.toLowerCase().includes("already configured");
     const statusIcon = isAlreadyConfigured ? "ℹ️ " : "✅";
 
-    statusSection = [
+    const statusLines = [
       `${statusIcon} ${colors.bold(colors.green(`[SecureFlow Init] ${result.message}`))}`,
       `   ${colors.bold("📁 Hook Location:")} ${colors.cyan(result.hookPath || ".husky/pre-commit")}`,
       `   ${colors.bold("⚡ Trigger Script:")} ${colors.magenta("npx secureflow")}${isAlreadyConfigured ? colors.dim(" (active)") : ""}`,
-    ].join("\n");
+    ];
+
+    if (result.configResult) {
+      for (const msg of result.configResult.messages) {
+        statusLines.push(`   📄 ${colors.cyan(msg)}`);
+      }
+    }
+
+    statusSection = statusLines.join("\n");
   } else {
     statusSection = [
       `❌ ${colors.bold(colors.red(`[SecureFlow Init] ${result.message}`))}`,

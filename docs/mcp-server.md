@@ -44,16 +44,25 @@ network requests. The existing secret-logging detector always runs. An additiona
 heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 `hasHighEntropy` function and benign-value whitelist.
 
-| Argument         | Default    | Validation                                                                                                               |
-| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `content`        | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
-| `path`           | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
-| `workspaceRoot`  | omitted    | Optional string; canonicalized workspace root directory boundary for path sandboxing (#1752)                             |
-| `incremental`    | `false`    | Boolean; when true, scopes scanning strictly to uncommitted/staged Git diff changes via git index (#1752)                |
-| `minEntropy`     | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
-| `minTokenLength` | `16`       | Integer from 8 to 256                                                                                                    |
-| `format`         | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
-| `intentToken`    | omitted    | Optional string; existing intent verification applies                                                                    |
+| Argument            | Default    | Validation                                                                                                               |
+| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `content`           | required   | String, at most 524,288 UTF-8 bytes                                                                                      |
+| `path`              | `input.ts` | Relative report label, at most 256 characters; ASCII letters, digits, `_`, `-`, `.`, `/`; no empty, `.` or `..` segments |
+| `workspaceRoot`     | omitted    | Optional string; canonicalized workspace root directory boundary for path sandboxing (#1752)                             |
+| `incremental`       | `false`    | Boolean; when true, scopes scanning strictly to uncommitted/staged Git diff changes via git index (#1752)                |
+| `minEntropy`        | `2.8`      | Finite number from 0 to 8 bits per character                                                                             |
+| `minTokenLength`    | `16`       | Integer from 8 to 256                                                                                                    |
+| `format`            | `json`     | `json`, `text`, `sarif`, `csv`, `html`, `markdown`, `md`                                                                 |
+| `intentToken`       | omitted    | Optional string; existing intent verification applies                                                                    |
+| `threatIntelSource` | omitted    | Optional string (`live`, `cache`, `stale-fallback`); indicates threat intel resolution state (#1795)                     |
+
+#### Threat Intel Stale-While-Revalidate Fallback (#1795)
+
+When scanning files or diffs in air-gapped, offline, or network-constrained environments, or when remote threat feed queries return HTTP 429 or 5xx:
+
+- `cli/src/threat-intel-cache.ts` provides Stale-While-Revalidate (SWR) cache support with automatic fallback to stale/expired cached indicators.
+- In-memory and Redis caches verify SHA-256 integrity checksums before loading indicators into the scan pipeline.
+- The scan output schema includes `threatIntelSource: "live" | "cache" | "stale-fallback"`, guaranteeing that tool invocations remain non-blocking even during remote feed outages.
 
 #### Path Sandboxing & Git Incremental Scanning (#1752)
 
@@ -501,6 +510,39 @@ If you are developing inside the SecureFlow repository or testing local modifica
      }
    }
    ```
+
+---
+
+## Client Resilience & Stdio Stream Lifecycle (#1769)
+
+The SecureFlow MCP server implements resilient stream lifecycle management designed for long-running background daemons and IDE assistants (Cursor, Claude Desktop, Windsurf, VS Code):
+
+### 1. Broken Pipe & EOF Handling
+
+- **Broken Pipe Protection (`EPIPE`, `ERR_STREAM_DESTROYED`, `ECONNRESET`)**:
+  When an IDE client abruptly crashes or terminates its connection pipe, write attempts to `stdout` are intercepted cleanly without throwing unhandled exceptions or crashing the background daemon.
+- **EOF & Stream Termination (`end`, `close`)**:
+  When standard input encounters EOF (such as when the parent process closes the pipe), the server performs a graceful shutdown sequence: flushing pending output, releasing active stream listeners, and shutting down the transport cleanly.
+- **Signal Traps**:
+  Native signal handlers intercept `SIGINT` and `SIGTERM` to perform graceful server cleanup before exiting.
+
+### 2. Heartbeat & Ping-Pong Verification
+
+- **Bidirectional Liveness**:
+  - **Client-to-Server**: Responds automatically to client JSON-RPC `ping` requests (`PingRequestSchema`) with an empty pong result (`{}`), recording inbound activity.
+  - **Server-to-Client**: When `heartbeatIntervalMs` is configured, the server periodically issues `ping` requests to verify client responsiveness. If an IDE client becomes unresponsive and fails to answer within the heartbeat timeout, the server triggers graceful transport cleanup.
+- **Stdio Stream Stall Detection**:
+  Monitors stream inactivity through an independent watchdog. If no data is transferred within the stall threshold (`stallTimeoutMs`), the server flags the stalled stream and terminates the orphaned transport.
+
+### 3. Configuration & CLI Flags
+
+Liveness monitoring can be customized via command-line flags or environment variables:
+
+| CLI Flag                    | Environment Variable                   | Default       | Description                                                           |
+| :-------------------------- | :------------------------------------- | :------------ | :-------------------------------------------------------------------- |
+| `--heartbeat-interval=<ms>` | `SECUREFLOW_MCP_HEARTBEAT_INTERVAL_MS` | `30000` (30s) | Interval between client liveness ping checks (`0` to disable)         |
+| `--heartbeat-timeout=<ms>`  | `SECUREFLOW_MCP_HEARTBEAT_TIMEOUT_MS`  | `10000` (10s) | Timeout waiting for a client pong response                            |
+| `--stall-timeout=<ms>`      | `SECUREFLOW_MCP_LIVENESS_TIMEOUT_MS`   | `60000` (60s) | Inactivity threshold before stream stall is detected (`0` to disable) |
 
 ---
 

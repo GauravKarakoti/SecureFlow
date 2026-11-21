@@ -98,6 +98,23 @@ describe("withRateLimit", () => {
     );
   });
 
+  it("keys rate limit by token when Authorization: Bearer sft_... is present (#1867)", async () => {
+    checkRateLimitDetailed.mockResolvedValue(decision());
+    const tokenHeaders = new Headers({
+      Authorization: "Bearer sft_0123456789abcdef0123456789abcdef",
+    });
+    const tokenReq = { headers: tokenHeaders } as unknown as NextRequest;
+
+    const res: any = await withRateLimit(okHandler, config)(tokenReq);
+    expect(res.status).toBe(200);
+    expect(checkRateLimitDetailed).toHaveBeenCalledWith(
+      expect.stringMatching(/^rate-limit:test:token:[0-9a-f]{16}$/),
+      50,
+      60,
+      expect.any(Object),
+    );
+  });
+
   it("returns 429 with Retry-After and measured headers when denied", async () => {
     checkRateLimitDetailed.mockResolvedValue(
       decision({ allowed: false, remaining: 0, resetAt: Date.now() + 30_000 }),

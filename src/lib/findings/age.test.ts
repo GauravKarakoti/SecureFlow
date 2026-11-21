@@ -152,7 +152,11 @@ describe("countOverdue", () => {
     // Not overdue CRITICAL (3d = target, not > target)
     { severity: "CRITICAL", createdAt: new Date("2026-11-14T12:00:00Z"), triageStatus: "OPEN" },
     // Dismissed → never overdue
-    { severity: "CRITICAL", createdAt: new Date("2026-10-01T12:00:00Z"), triageStatus: "DISMISSED" },
+    {
+      severity: "CRITICAL",
+      createdAt: new Date("2026-10-01T12:00:00Z"),
+      triageStatus: "DISMISSED",
+    },
     // No date → not overdue
     { severity: "CRITICAL", createdAt: null, triageStatus: "OPEN" },
     // Overdue HIGH (15d > 14)

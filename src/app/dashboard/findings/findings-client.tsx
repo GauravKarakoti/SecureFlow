@@ -483,10 +483,44 @@ export default function FindingsClient({
                             {finding.triageStatus && finding.triageStatus !== "OPEN" && (
                               <Badge
                                 variant="outline"
-                                className="border-white/15 bg-white/5 text-muted-foreground"
-                                title="Triage status"
+                                className={
+                                  finding.triageStatus === "RESOLVED"
+                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px]"
+                                    : "border-white/15 bg-white/5 text-muted-foreground"
+                                }
+                                title={
+                                  finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                    ? `Resolved by commit ${finding.resolvedCommitSha}`
+                                    : "Triage status"
+                                }
                               >
-                                {TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus}
+                                {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                  ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
+                                  : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
+                              </Badge>
+                            )}
+                            {finding.triageExpiresAt && (
+                              <Badge
+                                variant="outline"
+                                className={
+                                  new Date(finding.triageExpiresAt).getTime() <= Date.now()
+                                    ? "border-red-500/20 bg-red-500/10 text-red-400 font-mono text-[10px]"
+                                    : "border-amber-500/20 bg-amber-500/10 text-amber-300 font-mono text-[10px]"
+                                }
+                                title={`Dismissal expiry: ${new Date(finding.triageExpiresAt).toLocaleDateString()}`}
+                              >
+                                <Clock className="w-3 h-3 mr-1 inline" />
+                                {new Date(finding.triageExpiresAt).getTime() <= Date.now()
+                                  ? "expired"
+                                  : `expires on ${new Date(finding.triageExpiresAt).toLocaleDateString()}`}
+                              </Badge>
+                            )}
+                            {finding.triageNote?.includes("previous dismissal expired on") && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-500/30 bg-amber-500/10 text-amber-300 font-mono text-[10px]"
+                              >
+                                ⚠️ {finding.triageNote}
                               </Badge>
                             )}
                             {/* Age column */}
@@ -567,6 +601,7 @@ export default function FindingsClient({
                                 currentStatus={(finding.triageStatus ?? "OPEN") as TriageStatus}
                                 currentNote={finding.triageNote ?? null}
                                 currentReason={finding.triageReason as DismissalReason | null}
+                                currentExpiresAt={finding.triageExpiresAt}
                               />
                             )}
                           </div>

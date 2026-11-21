@@ -56,6 +56,17 @@ COPY .env.example .env
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Build-time version metadata injection (#1896)
+ARG GIT_COMMIT_SHA=""
+ARG BUILD_DATE=""
+ARG APP_VERSION=""
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV BUILD_DATE=${BUILD_DATE}
+ENV APP_VERSION=${APP_VERSION}
+ENV NEXT_PUBLIC_GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV NEXT_PUBLIC_BUILD_DATE=${BUILD_DATE}
+ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
+
 # Tell next.config.ts to enable `output: 'standalone'` for this Docker build.
 # Without this flag, `output` is omitted and no `.next/standalone` bundle is
 # produced — which is the desired behavior for local dev/build/start, but
@@ -88,8 +99,11 @@ WORKDIR /app
 ENV NODE_PATH=/opt/prisma-cli/node_modules
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
+COPY --chown=node:node entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 RUN chown -R node:node /opt/prisma-cli /app
 USER node
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["node", "/opt/prisma-cli/node_modules/prisma/build/index.js", "migrate", "deploy"]
 
 
@@ -104,6 +118,13 @@ ENV NODE_ENV=production
 ENV PORT=9002
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
+
+ARG GIT_COMMIT_SHA=""
+ARG BUILD_DATE=""
+ARG APP_VERSION=""
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV BUILD_DATE=${BUILD_DATE}
+ENV APP_VERSION=${APP_VERSION}
 
 # Dedicated non-root user. A compromised Next.js process should not have
 # root inside the container.

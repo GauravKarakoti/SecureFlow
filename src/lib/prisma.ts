@@ -217,7 +217,20 @@ function createMockPrismaClient() {
     if (model === "scanResult") {
       if (method === "count") return 25;
       if (method === "findMany") {
-        return [{ createdAt: new Date() }, { createdAt: new Date(Date.now() - 1000 * 3600 * 24) }];
+        return [
+          {
+            createdAt: new Date(),
+            findings: [],
+            riskScore: 10,
+            policyDecision: "PASS",
+          },
+          {
+            createdAt: new Date(Date.now() - 1000 * 3600 * 24),
+            findings: [],
+            riskScore: 15,
+            policyDecision: "PASS",
+          },
+        ];
       }
     }
 
@@ -362,6 +375,23 @@ function createMockPrismaClient() {
       }
     }
     if (model === "repository") {
+      if (method === "count") return 2;
+      if (method === "findMany") {
+        return [
+          {
+            id: "repo-1",
+            fullName: "mock-owner/mock-repo",
+            owner: "mock-owner",
+            userId: "mock-admin-id",
+            isActive: true,
+            publicBadgeEnabled: true,
+            codeScanningEnabled: false,
+            codeScanningWarning: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            pullRequests: [{ status: "OPEN" }],
+          },
+        ];
+      }
       if (method === "upsert") {
         return {
           id: "repo-1",
@@ -370,6 +400,79 @@ function createMockPrismaClient() {
           owner: args[0]?.create?.owner || "mock-owner",
           userId: args[0]?.create?.userId || "mock-admin-id",
         };
+      }
+    }
+
+    if (model === "policyTemplate") {
+      if (method === "findMany") {
+        return [
+          {
+            id: "policy-1",
+            name: "Strict Secret Detection",
+            description: "Blocks pull requests containing unmasked API keys or secrets.",
+            severity: "CRITICAL",
+            action: "BLOCK",
+            rules: [],
+            isDefault: true,
+            complianceTags: ["SOC2", "PCI-DSS"],
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            id: "policy-2",
+            name: "Vulnerability Scanning",
+            description: "Requires review for high and critical CVEs in dependencies.",
+            severity: "HIGH",
+            action: "REVIEW REQUIRED",
+            rules: [],
+            isDefault: false,
+            complianceTags: ["OWASP"],
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ];
+      }
+    }
+
+    if (model === "userPolicyToggle") {
+      if (method === "findMany") {
+        return [
+          {
+            id: "toggle-1",
+            userId: "mock-admin-id",
+            policyTemplateId: "policy-1",
+            isActive: true,
+          },
+        ];
+      }
+    }
+
+    if (model === "apiToken") {
+      if (method === "findMany") {
+        return [
+          {
+            id: "token-1",
+            name: "CI Automation Token",
+            tokenPrefix: "sf_live_abc1",
+            scopes: ["scans:read", "findings:read"],
+            expiresAt: new Date("2026-12-31T00:00:00.000Z"),
+            lastUsedAt: new Date("2026-01-15T00:00:00.000Z"),
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ];
+      }
+    }
+
+    if (model === "outboundWebhook") {
+      if (method === "findMany") {
+        return [
+          {
+            id: "wh-1",
+            url: "https://api.secureflow.test/events",
+            events: ["scan.completed", "scan.blocked"],
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            _count: { deliveries: 3 },
+          },
+        ];
       }
     }
 

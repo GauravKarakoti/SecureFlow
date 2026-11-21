@@ -139,7 +139,7 @@ export function validateCliAiConfig(
 
   const model =
     rawModel?.trim() ||
-    effectiveEnv.GROQ_MODEL?.trim() ||
+    effectiveEnv.AI_MODEL?.trim() ||
     (provider === "groq"
       ? "openai/gpt-oss-20b"
       : provider === "vllm"

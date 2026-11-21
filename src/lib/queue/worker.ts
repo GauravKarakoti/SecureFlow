@@ -1,8 +1,10 @@
 import { Worker, Job, DelayedError } from "bullmq";
-import { postScanCheckRun, postScanErrorCheckRun } from "../scanner/check-run";
+import { withSpan, extractTraceContext, type Context } from "@/lib/tracing";
+import { postScanCheckRun, postScanErrorCheckRun, postScanCancelledCheckRun } from "../scanner/check-run";
+import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
 import { z } from "zod";
 import { redis } from "./redis";
-import { webhookDLQ, WebhookJobData } from "./webhookQueue";
+import { webhookQueue, webhookDLQ, WebhookJobData } from "./webhookQueue";
 import { dlqRetryStateFor } from "./dlq-auto-retry";
 import { acquireLock, releaseLock, startLockHeartbeat } from "./lock";
 import { scanner } from "@/lib/armor/scanner";
@@ -15,6 +17,8 @@ import {
   formatGateSummaryLine,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
+import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
+import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -28,6 +32,7 @@ import {
   pullRequestRef,
   uploadSarifAnalysis,
   type CodeScanningClient,
+  type CodeScanningFinding,
 } from "@/lib/github/code-scanning";
 import {
   buildPullRequestFacts,
@@ -35,14 +40,8 @@ import {
   pullRequestUpdateData,
 } from "@/lib/github/pull-request-facts";
 import prisma from "@/lib/prisma";
-import {
-  getGitHubAppCredentials,
-  WebhookConfigurationError,
-} from "@/lib/github/app-auth";
-import {
-  isSecureFlowCheckRun,
-  isSecureFlowCheckSuite,
-} from "@/lib/github/webhook-verification";
+import { getGitHubAppCredentials } from "@/lib/github/app-auth";
+import { isSecureFlowCheckRun, isSecureFlowCheckSuite } from "@/lib/github/webhook-verification";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
@@ -56,8 +55,24 @@ import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
+import {
+  dispatchOutboundWebhooksForUser,
+  buildScanCompletedPayload,
+  buildScanBlockedPayload,
+  buildFindingCreatedPayload,
+} from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
-import { activeSuppressionWhere } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
+import {
+  extractPrNumberFromMergeGroup,
+  fetchMergeGroupFiles,
+  isMergeGroupDiffUnchanged,
+} from "@/lib/github/merge-group";
+import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
+import {
+  getActiveSuppressionRules,
+  recordSuppressionRuleEvents,
+} from "@/lib/suppression-rules/service";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -80,7 +95,7 @@ const repoSchema = z
   })
   .passthrough();
 
-const payloadSchema = z
+export const payloadSchema = z
   .object({
     action: z.string().optional(),
     pull_request: z
@@ -101,6 +116,22 @@ const payloadSchema = z
           .object({
             login: z.string(),
             avatar_url: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+    merge_group: z
+      .object({
+        head_sha: z.string(),
+        head_ref: z.string().optional(),
+        base_sha: z.string().optional(),
+        base_ref: z.string().optional(),
+        head_commit: z
+          .object({
+            id: z.string().optional(),
+            message: z.string().optional(),
           })
           .passthrough()
           .optional(),
@@ -292,14 +323,6 @@ export interface PullRequestContext {
 }
 
 /**
- * Assert that a `pull_request` delivery carries everything the handler needs.
- *
- * Every one of these fields is `.optional()` in the schema, so a partial payload
- * used to validate cleanly and then throw deep inside the handler — after the
- * pending PR comment had already been posted, leaving a permanent
- * "⏳ Evaluating..." comment that nothing ever updated.
- */
-/**
  * Whether a delivery should also get a dependency (SBOM) scan of the manifests
  * it changes.
  *
@@ -318,6 +341,14 @@ export function shouldScanPullRequestManifests(
   );
 }
 
+/**
+ * Assert that a `pull_request` delivery carries everything the handler needs.
+ *
+ * Every one of these fields is `.optional()` in the schema, so a partial payload
+ * used to validate cleanly and then throw deep inside the handler — after the
+ * pending PR comment had already been posted, leaving a permanent
+ * "⏳ Evaluating..." comment that nothing ever updated.
+ */
 export function assertPullRequestContext(payload: {
   pull_request?: any;
   repository?: any;
@@ -427,6 +458,7 @@ export interface RunPullRequestScanParams {
   log: any;
   isRerun?: boolean;
   checkRunId?: number;
+  parentContext?: Context;
 }
 
 export async function runPullRequestScan({
@@ -442,6 +474,7 @@ export async function runPullRequestScan({
   log,
   isRerun = false,
   checkRunId,
+  parentContext,
 }: RunPullRequestScanParams): Promise<{ dbRepoId?: string; dbPrId?: string }> {
   let dbRepoId: string | undefined;
   let dbPrId: string | undefined;
@@ -464,13 +497,67 @@ export async function runPullRequestScan({
     PR_SCAN_LOCK_RENEW_MS,
   );
 
+  const scanTrackingId = `pr-scan:${repository.full_name}:${pullRequest.number}:${deliveryId || job.id || Date.now()}`;
+  const inFlightScan: ActiveScan = {
+    id: scanTrackingId,
+    job,
+    repositoryFullName: repository.full_name,
+    owner: repository.owner?.login || (repository.full_name ? repository.full_name.split("/")[0] : ""),
+    repo: repository.name || (repository.full_name ? repository.full_name.split("/")[1] : ""),
+    prNumber: pullRequest.number,
+    headSha: pullRequest.head?.sha,
+    installationId: installation?.id,
+    checkRunId,
+    lockKey,
+    lockToken,
+    lockHeartbeat,
+    cancelCheckRun: async (reason) => {
+      try {
+        const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+        const appClient = new App({
+          appId,
+          privateKey,
+          ...(customOctokit ? { Octokit: customOctokit } : {}),
+        });
+        const octokitInst = await appClient.getInstallationOctokit(Number(installation.id));
+        await postScanCancelledCheckRun(octokitInst as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          checkRunId: inFlightScan.checkRunId,
+          reason,
+          conclusion: "neutral",
+        });
+      } catch (err: any) {
+        log.error("[Worker] Failed to post cancelled check run during shutdown:", {
+          error: err?.message || String(err),
+        });
+      }
+    },
+    requeueJob: async () => {
+      if (job && job.data) {
+        await webhookQueue.add("process-webhook", job.data, {
+          jobId: job.id,
+          priority: 1,
+        });
+      }
+    },
+  };
+  registerInFlightScan(inFlightScan);
+
   try {
     if (shouldScanPullRequestManifests(event, action)) {
       // Never throws (it logs and returns), so a manifest problem cannot
       // fail the code scan below. SBOM jobs are keyed by head SHA and file,
       // so a retry of this delivery does not enqueue them twice.
       await handlePullRequestSynchronize(
-        { ...payload, number: pullRequest.number, pull_request: pullRequest, repository, installation },
+        {
+          ...payload,
+          number: pullRequest.number,
+          pull_request: pullRequest,
+          repository,
+          installation,
+        },
         deliveryId ?? undefined,
         correlationId,
       );
@@ -557,13 +644,28 @@ export async function runPullRequestScan({
     // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
     // call left every file past the 30th unscanned while still reporting a
     // policy decision as though the whole PR had been reviewed.
-    const pullRequestFilesResult = await fetchPullRequestFiles(octokit as any, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      pullNumber: pullRequest.number,
-      changedFiles:
-        typeof pullRequest.changed_files === "number" ? pullRequest.changed_files : null,
-    });
+    const pullRequestFilesResult = await withSpan(
+      "diff.fetch",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        if (pullRequest.base?.ref) span.setAttribute("secureflow.base_ref", pullRequest.base.ref);
+
+        const res = await fetchPullRequestFiles(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          pullNumber: pullRequest.number,
+          changedFiles:
+            typeof pullRequest.changed_files === "number" ? pullRequest.changed_files : null,
+        });
+
+        span.setAttribute("secureflow.changed_files_count", res.files.length);
+        return res;
+      },
+      { parentContext },
+    );
 
     const coverageNotice = formatCoverageNotice(pullRequestFilesResult);
     if (coverageNotice) {
@@ -599,9 +701,7 @@ export async function runPullRequestScan({
       body: pendingBody,
     });
 
-    log.info(
-      `[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`,
-    );
+    log.info(`[DEBUG] Passing ${sanitize(activePolicies.length)} active policies to scanEngine.`);
     const scanJobData: ScanJobData = {
       scanJobId: `webhook-${deliveryId || Date.now()}`,
       repositoryId: dbRepo?.id ?? "",
@@ -626,23 +726,34 @@ export async function runPullRequestScan({
     // ScanResult, so letting the engine do the same would duplicate all four
     // (#747). It also requests the AI explanations itself, below, so the
     // engine must not request them first.
-    const scanResult = await processScanJob(scanJobData, undefined, {
-      report: false,
-      persist: false,
-      enrich: false,
-    });
+    const scanResult = await withSpan(
+      "scan.execute",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        span.setAttribute("secureflow.files_scanned", fileChanges.length);
+
+        const res = await processScanJob(scanJobData, undefined, {
+          report: false,
+          persist: false,
+          enrich: false,
+        });
+
+        span.setAttribute("secureflow.findings_count", res.findings.length);
+        span.setAttribute("secureflow.cache_hit", Boolean(res.reusedFromCache));
+        return res;
+      },
+      { parentContext },
+    );
     const findings = scanResult.findings;
 
     // Attach a stable content fingerprint to every finding so triage decisions
     // can be keyed off it and survive the latest-wins re-scan. When the repo
     // isn't in our DB there's nothing to triage against, so use an empty id.
     findings.forEach((f: any) => {
-      f.fingerprint = computeFingerprint(
-        dbRepo?.id ?? "",
-        f.fileLocation,
-        f.type,
-        f.codeSnippet,
-      );
+      f.fingerprint = computeFingerprint(dbRepo?.id ?? "", f.fileLocation, f.type, f.codeSnippet);
     });
 
     // Fingerprints the user has dismissed (false positive / ignored) for this
@@ -650,24 +761,59 @@ export async function runPullRequestScan({
     // the scanner keeps re-detecting them on each push.
     const suppressedFingerprints = new Set<string>();
     if (dbRepo) {
+      const now = new Date();
+      await handleExpiredDismissals(dbRepo.id, findings, now, {
+        prismaClient: prisma,
+        repoFullName: dbRepo.fullName,
+        userId,
+      });
+
       const dismissed = await prisma.findingTriage.findMany({
         where: {
           repositoryId: dbRepo.id,
-          ...activeSuppressionWhere(new Date()),
+          ...activeSuppressionWhere(now),
         },
         select: { fingerprint: true },
       });
-      dismissed.forEach((t: { fingerprint: string }) =>
-        suppressedFingerprints.add(t.fingerprint),
-      );
+      dismissed.forEach((t: { fingerprint: string }) => suppressedFingerprints.add(t.fingerprint));
     }
 
     // Findings that still count toward enforcement — everything the user hasn't
     // dismissed. The full `findings` list is still persisted below (with its
     // fingerprint) so the dashboard can show dismissed items and left-join triage.
-    const activeFindings = findings.filter(
-      (f: any) => !suppressedFingerprints.has(f.fingerprint),
-    );
+    const nonDismissedFindings = findings.filter((f: any) => !suppressedFingerprints.has(f.fingerprint));
+
+    // Organization / Installation-wide suppression rules (#1891)
+    let activeFindings = nonDismissedFindings;
+    let ruleSuppressedFindings: any[] = [];
+    try {
+      const activeRules = await getActiveSuppressionRules(new Date());
+      if (activeRules.length > 0) {
+        const suppressionEval = evaluateSuppressionRules(
+          nonDismissedFindings,
+          activeRules,
+          dbRepo?.id ?? String(repository.id),
+          new Date(),
+        );
+        activeFindings = suppressionEval.activeFindings;
+        ruleSuppressedFindings = suppressionEval.suppressedFindings;
+
+        if (suppressionEval.ruleMatches.length > 0) {
+          await recordSuppressionRuleEvents(
+            suppressionEval.ruleMatches.map((m) => ({
+              ruleId: m.rule.id,
+              repositoryId: dbRepo?.id ?? String(repository.id),
+              findingFingerprint: m.finding.fingerprint,
+              fileLocation: m.finding.fileLocation,
+            })),
+          );
+        }
+      }
+    } catch (err: any) {
+      log.error("[Worker] Failed evaluating suppression rules:", {
+        error: err?.message,
+      });
+    }
 
     // Enrich and post ONLY the active findings: a finding the user dismissed
     // (FALSE_POSITIVE / IGNORED) must not be re-sent to the AI (wasted Groq
@@ -676,13 +822,22 @@ export async function runPullRequestScan({
       activeFindings,
       AI_EXPLANATION_CONCURRENCY,
       async (finding: any) => {
-        const aiResponse = await developerReceivesAISecurityExplanations({
-          findingType: finding.type,
-          severity: finding.severity,
-          description: finding.description,
-          fileLocation: finding.fileLocation,
-          codeSnippet: finding.codeSnippet || "",
-        });
+        const aiResponse = await withSpan(
+          "llm.request",
+          async (span) => {
+            span.setAttribute("secureflow.correlation_id", correlationId);
+            span.setAttribute("llm.finding_type", finding.type);
+            span.setAttribute("llm.severity", finding.severity);
+            return await developerReceivesAISecurityExplanations({
+              findingType: finding.type,
+              severity: finding.severity,
+              description: finding.description,
+              fileLocation: finding.fileLocation,
+              codeSnippet: finding.codeSnippet || "",
+            });
+          },
+          { parentContext },
+        );
         return {
           ...finding,
           // Redacted before anything else touches them. These two fields are
@@ -708,7 +863,11 @@ export async function runPullRequestScan({
     const suppressedFindings = findings.filter((f: any) =>
       suppressedFingerprints.has(f.fingerprint),
     );
-    const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
+    const findingsToPersist = [
+      ...enrichedFindings,
+      ...suppressedFindings,
+      ...ruleSuppressedFindings,
+    ];
 
     // Load base-branch gate configuration
     const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
@@ -744,20 +903,39 @@ export async function runPullRequestScan({
     }
 
     const gateSummary = formatGateSummaryLine(gateConfig);
-    const combinedNotice =
-      [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
+    const combinedNotice = [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
 
-    await postScanCheckRun(octokit as any, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      headSha: pullRequest.head?.sha,
-      decision,
-      findingsCount: activeFindings.length,
-      fileCount: fileChanges.length,
-      notice: combinedNotice,
-      findings: enrichedFindings,
-      checkRunId,
-    });
+    await withSpan(
+      "check_run.update",
+      async (span) => {
+        span.setAttribute("secureflow.correlation_id", correlationId);
+        span.setAttribute("secureflow.repository_id", repository.full_name);
+        span.setAttribute("secureflow.pr_number", pullRequest.number);
+        if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+        if (checkRunId) span.setAttribute("secureflow.check_run_id", checkRunId);
+        span.setAttribute("secureflow.decision", String(decision));
+        span.setAttribute("secureflow.findings_count", activeFindings.length);
+
+        const checkRunResult = await postScanCheckRun(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          decision,
+          findingsCount: activeFindings.length,
+          fileCount: fileChanges.length,
+          notice: combinedNotice,
+          findings: enrichedFindings,
+          checkRunId,
+        });
+        const returnedRunId =
+          (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
+        if (returnedRunId && typeof returnedRunId === "number") {
+          inFlightScan.checkRunId = returnedRunId;
+        }
+        return checkRunResult;
+      },
+      { parentContext },
+    );
 
     // Publish the same findings to GitHub's Code Scanning UI, so they show
     // up in the PR's "Security" tab without a trip to the dashboard.
@@ -773,16 +951,13 @@ export async function runPullRequestScan({
     // built here, and a throw from it would fail a scan job whose check run
     // has already been posted — turning a delivered result into a retry.
     try {
-      const sarifOutcome = await uploadSarifAnalysis(
-        octokit as unknown as CodeScanningClient,
-        {
-          owner: repository.owner.login,
-          repo: repository.name,
-          commitSha: pullRequest.head?.sha,
-          ref: pullRequestRef(pullRequest.number),
-          document: buildSarifDocument(enrichedFindings),
-        },
-      );
+      const sarifOutcome = await uploadSarifAnalysis(octokit as unknown as CodeScanningClient, {
+        owner: repository.owner.login,
+        repo: repository.name,
+        commitSha: pullRequest.head?.sha,
+        ref: pullRequestRef(pullRequest.number),
+        document: buildSarifDocument(enrichedFindings),
+      });
 
       const target = `${sanitize(repository.full_name)}#${sanitize(String(pullRequest.number))}`;
 
@@ -848,6 +1023,7 @@ export async function runPullRequestScan({
           suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
           rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
           previouslyDismissedCount: suppressedFindings.length,
+          ruleSuppressedCount: ruleSuppressedFindings.length,
           commitSha: pullRequest.head?.sha,
           expiredIgnoreRules: scanResult.expiredIgnoreRules,
         });
@@ -908,6 +1084,11 @@ export async function runPullRequestScan({
           ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
           : "";
 
+      const cleanRuleNotice =
+        ruleSuppressedFindings.length > 0
+          ? `\n\n🛡️ **${ruleSuppressedFindings.length}** finding(s) were suppressed by installation suppression rule(s).`
+          : "";
+
       const cleanExpiredNotice =
         scanResult.expiredIgnoreRules && scanResult.expiredIgnoreRules.length > 0
           ? `\n\n### ⚠️ Expired Ignore Rules (${scanResult.expiredIgnoreRules.length})\n\n` +
@@ -926,6 +1107,7 @@ export async function runPullRequestScan({
         (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
         `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
         cleanDismissedNotice +
+        cleanRuleNotice +
         cleanExpiredNotice +
         // A clean result on a partial scan must say so — this is exactly the
         // case where silent truncation was most misleading.
@@ -978,31 +1160,64 @@ export async function runPullRequestScan({
       // counting toward the stored score (and the risk-trend average).
       const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
-      await prisma.scanResult.create({
-        data: {
-          pullRequestId: dbPr.id,
-          headSha: pullRequest.head?.sha,
-          gateConfig,
-          riskScore,
-          policyDecision: normalizePolicyDecisionEnum(decision),
-          findings: {
-            create: findingsToPersist.map((f: any) => ({
-              type: normalizeFindingTypeEnum(f.type),
-              // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
-              // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
-              // not a `FindingSeverity` member, so the insert fails outright (#686).
-              severity: toStoredSeverity(f.severity),
-              fileLocation: f.fileLocation,
-              lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
-              lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
-              codeSnippet: f.codeSnippet || null,
-              explanation: f.explanation || null,
-              remediation: f.remediation || null,
-              promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
-              fingerprint: f.fingerprint || "",
-            })),
-          },
+      await withSpan(
+        "db.write",
+        async (span) => {
+          span.setAttribute("secureflow.correlation_id", correlationId);
+          span.setAttribute("secureflow.repository_id", repository.full_name);
+          span.setAttribute("secureflow.pr_number", pullRequest.number);
+          if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+          span.setAttribute("secureflow.findings_persisted", findingsToPersist.length);
+          span.setAttribute("secureflow.risk_score", riskScore);
+          span.setAttribute("secureflow.policy_decision", normalizePolicyDecisionEnum(decision));
+
+          return await prisma.scanResult.create({
+            data: {
+              pullRequestId: dbPr.id,
+              headSha: pullRequest.head?.sha,
+              gateConfig,
+              riskScore,
+              policyDecision: normalizePolicyDecisionEnum(decision),
+              findings: {
+                create: findingsToPersist.map((f: any) => ({
+                  type: normalizeFindingTypeEnum(f.type),
+                  // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                  // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                  // not a `FindingSeverity` member, so the insert fails outright (#686).
+                  severity: toStoredSeverity(f.severity),
+                  fileLocation: f.fileLocation,
+                  lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
+                  lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
+                  codeSnippet: f.codeSnippet || null,
+                  explanation: f.explanation || null,
+                  remediation: f.remediation || null,
+                  promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                  fingerprint: f.fingerprint || "",
+                })),
+              },
+            },
+          });
         },
+        { parentContext },
+      );
+
+      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
+      const isPartialScan =
+        Boolean(coverageNotice) ||
+        Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
+      await autoResolveFixedFindings({
+        repositoryId: (dbRepo?.id || repository.id).toString(),
+        pullRequestId: dbPr.id,
+        headSha: pullRequest.head?.sha,
+        currentFindings: findings,
+        fileChanges,
+        isPartialScan,
+        userId,
+        repoFullName: repository.full_name,
+      }).catch((err: any) => {
+        log.warn(
+          `[WORKER] Failed to auto-resolve fixed findings: ${sanitize(err?.message || String(err))}`,
+        );
       });
 
       // Real-time Slack alert for CRITICAL/HIGH findings (#936). Best-effort
@@ -1039,6 +1254,47 @@ export async function runPullRequestScan({
             error: err instanceof Error ? err.message : String(err),
           });
         }
+
+        // Dispatch generic outbound webhooks (#1866)
+        try {
+          const commitSha = pullRequest.head?.sha ?? "";
+          await dispatchOutboundWebhooksForUser(userId, "scan.completed", () =>
+            buildScanCompletedPayload({
+              repository: repository.full_name,
+              prNumber: pullRequest.number,
+              commitSha,
+              decision,
+              findings: enrichedFindings,
+            }),
+          );
+
+          if (decision === "BLOCKED") {
+            await dispatchOutboundWebhooksForUser(userId, "scan.blocked", () =>
+              buildScanBlockedPayload({
+                repository: repository.full_name,
+                prNumber: pullRequest.number,
+                commitSha,
+                decision,
+                findings: enrichedFindings,
+              }),
+            );
+          }
+
+          for (const finding of enrichedFindings) {
+            await dispatchOutboundWebhooksForUser(userId, "finding.created", () =>
+              buildFindingCreatedPayload({
+                repository: repository.full_name,
+                prNumber: pullRequest.number,
+                commitSha,
+                finding,
+              }),
+            );
+          }
+        } catch (whErr) {
+          log.error("[Worker] Outbound webhook dispatch failed:", {
+            error: whErr instanceof Error ? whErr.message : String(whErr),
+          });
+        }
       }
 
       // Real-time voice alert for CRITICAL/HIGH findings (#1307). Best-effort,
@@ -1061,6 +1317,7 @@ export async function runPullRequestScan({
       }
     }
   } finally {
+    unregisterInFlightScan(scanTrackingId);
     // Stop renewing before releasing, so a late renewal cannot run after
     // the lock has been handed on.
     lockHeartbeat.stop();
@@ -1077,10 +1334,28 @@ export const worker = new Worker<WebhookJobData>(
     const correlationId = job.data.correlationId || deliveryId || crypto.randomUUID();
     const log = logger.child({ correlationId, deliveryId: deliveryId ?? undefined, jobId: job.id });
 
+    // Extract OpenTelemetry trace context from the queue job payload
+    const parentContext = extractTraceContext(job.data.traceContext);
+
+    // Record queue wait span if the job was queued
+    if (job.timestamp) {
+      await withSpan(
+        "queue.wait",
+        async (span) => {
+          span.setAttribute("secureflow.correlation_id", correlationId);
+          span.setAttribute("secureflow.queue", "github-webhooks");
+          if (job.id) span.setAttribute("secureflow.job_id", String(job.id));
+          span.setAttribute("secureflow.wait_ms", Math.max(0, Date.now() - job.timestamp));
+        },
+        { parentContext, startTime: job.timestamp },
+      );
+    }
+
     // Event Filtering
     if (
       ![
         "pull_request",
+        "merge_group",
         "installation",
         "installation_repositories",
         "branch_protection_rule",
@@ -1310,6 +1585,7 @@ export const worker = new Worker<WebhookJobData>(
           correlationId,
           log,
           isRerun: false,
+          parentContext,
         });
         if (resultIds.dbRepoId) dbRepoId = resultIds.dbRepoId;
         if (resultIds.dbPrId) dbPrId = resultIds.dbPrId;
@@ -1343,9 +1619,7 @@ export const worker = new Worker<WebhookJobData>(
       }
 
       const checkRunId =
-        event === "check_run" && payload.check_run?.id
-          ? Number(payload.check_run.id)
-          : undefined;
+        event === "check_run" && payload.check_run?.id ? Number(payload.check_run.id) : undefined;
 
       for (const pr of attachedPrs) {
         const prAny = pr as Record<string, any>;
@@ -1402,12 +1676,326 @@ export const worker = new Worker<WebhookJobData>(
           log,
           isRerun: true,
           checkRunId,
+          parentContext,
         });
 
         if (resultIds.dbRepoId) dbRepoId = resultIds.dbRepoId;
         if (resultIds.dbPrId) dbPrId = resultIds.dbPrId;
       }
+    } else if (event === "merge_group") {
+      if (action !== "checks_requested") {
+        log.info(`Action not tracked for merge_group: ${sanitize(action)}`);
+        return;
+      }
 
+      const mergeGroup = payload.merge_group;
+      if (!mergeGroup?.head_sha) {
+        log.warn("[Worker] Incomplete merge_group payload: missing head_sha");
+        return;
+      }
+
+      const headSha = mergeGroup.head_sha;
+      const baseSha = mergeGroup.base_sha;
+      const baseRef = mergeGroup.base_ref?.replace(/^refs\/heads\//, "") || "main";
+
+      const repoFullName = repository?.full_name || "unknown";
+      const repoOwner =
+        repository?.owner?.login ||
+        (repository?.full_name ? repository.full_name.split("/")[0] : "");
+      const repoName =
+        repository?.name || (repository?.full_name ? repository.full_name.split("/")[1] : "");
+
+      const lockKey = `merge-group-scan:${repoFullName}:${headSha}`;
+      const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
+      if (!lockToken) {
+        log.warn(
+          `[Worker] merge_group ${headSha} on ${repoFullName} is currently locked by a concurrent scan. Delaying job...`,
+        );
+        await job.moveToDelayed(Date.now() + PR_SCAN_LOCK_RETRY_DELAY_MS, job.token);
+        throw new DelayedError();
+      }
+
+      const lockHeartbeat = startLockHeartbeat(
+        lockKey,
+        lockToken,
+        PR_SCAN_LOCK_TTL_MS,
+        PR_SCAN_LOCK_RENEW_MS,
+      );
+
+      try {
+        let dbRepo = repository?.id
+          ? await prisma.repository.findUnique({
+              where: { githubId: BigInt(repository.id) },
+            })
+          : null;
+
+        if (!dbRepo && repository?.id) {
+          const senderId = payload.sender?.id?.toString();
+          const account = await prisma.account.findFirst({
+            where: { provider: "github", providerAccountId: senderId },
+          });
+
+          if (account) {
+            dbRepo = await prisma.repository.create({
+              data: {
+                githubId: BigInt(repository.id),
+                fullName: repository.full_name,
+                owner: repoOwner,
+                userId: account.userId,
+                isActive: true,
+              },
+            });
+            log.info(
+              `[Worker] Lazy-linked missing repository ${sanitize(repository.full_name)} to user ${sanitize(account.userId)}`,
+            );
+          }
+        }
+
+        if (dbRepo) {
+          dbRepoId = dbRepo.id;
+        }
+
+        const userId = dbRepo?.userId;
+
+        const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+        const appClient = new App({
+          appId,
+          privateKey,
+          ...(customOctokit ? { Octokit: customOctokit } : {}),
+        });
+        const octokit = await appClient.getInstallationOctokit(Number(installation.id));
+
+        const prNumber = extractPrNumberFromMergeGroup(mergeGroup);
+
+        // Base-branch gate configuration
+        const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+          owner: repoOwner,
+          repo: repoName,
+          prNumber: prNumber ?? 0,
+          baseRef,
+        });
+
+        // 1. Fetch merge group combined diff files
+        let mergeGroupFiles: { filename: string; patch: string }[] = [];
+        if (baseSha && headSha) {
+          try {
+            mergeGroupFiles = await fetchMergeGroupFiles(octokit as any, {
+              owner: repoOwner,
+              repo: repoName,
+              baseSha,
+              headSha,
+            });
+          } catch (err) {
+            log.warn(
+              `[Worker] Failed to compareCommits for merge_group ${baseSha}...${headSha}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        // 2. Check if merged diff content matches PR scan
+        let isDiffUnchanged = false;
+        let reusedScan: {
+          decision: string;
+          findingsCount: number;
+          findings: any[];
+        } | null = null;
+
+        if (prNumber) {
+          try {
+            const prFilesResult = await fetchPullRequestFiles(octokit as any, {
+              owner: repoOwner,
+              repo: repoName,
+              pullNumber: prNumber,
+            });
+            const prFiles = prFilesResult.files
+              .filter((f: any) => f.patch && f.status !== "removed")
+              .map((f: any) => ({ filename: f.filename, patch: f.patch }));
+
+            if (isMergeGroupDiffUnchanged(mergeGroupFiles, prFiles)) {
+              isDiffUnchanged = true;
+              if (dbRepo) {
+                const dbPr = await prisma.pullRequest.findFirst({
+                  where: { repositoryId: dbRepo.id, prNumber },
+                  include: {
+                    scans: {
+                      orderBy: { createdAt: "desc" },
+                      take: 1,
+                      include: { findings: true },
+                    },
+                  },
+                });
+
+                if (dbPr?.scans[0]) {
+                  dbPrId = dbPr.id;
+                  const lastScan = dbPr.scans[0];
+                  const mappedDecision =
+                    lastScan.policyDecision === "PASS"
+                      ? "PASS"
+                      : lastScan.policyDecision === "BLOCK"
+                        ? "BLOCKED"
+                        : "REVIEW REQUIRED";
+
+                  reusedScan = {
+                    decision: mappedDecision,
+                    findingsCount: lastScan.findings.length,
+                    findings: lastScan.findings,
+                  };
+                }
+              }
+            }
+          } catch (err) {
+            log.warn(
+              `[Worker] Failed checking PR #${prNumber} files for diff comparison: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        let decision: string;
+        let findingsCount: number;
+        let findingsToReport: any[] = [];
+        let appliedPolicyScopes:
+          | Array<{
+              paths: string[];
+              enable?: string[];
+              disable?: string[];
+              matchedFiles: string[];
+              fileCount: number;
+            }>
+          | undefined;
+
+        if (isDiffUnchanged && reusedScan) {
+          log.info(
+            `[Worker] Merge group diff unchanged for PR #${prNumber}; reusing PR scan decision: ${reusedScan.decision}`,
+          );
+          decision = reusedScan.decision;
+          findingsCount = reusedScan.findingsCount;
+          findingsToReport = reusedScan.findings;
+        } else {
+          log.info(
+            `[Worker] Scanning combined diff for merge group ${headSha} (${mergeGroupFiles.length} changed files)`,
+          );
+
+          let activePolicies: any[] = [];
+          if (userId) {
+            activePolicies = await getActivePoliciesForUser(userId);
+          }
+
+          const scanJobData: ScanJobData = {
+            scanJobId: `merge-group-${deliveryId || Date.now()}`,
+            repositoryId: dbRepo?.id ?? "",
+            installationId: installation.id,
+            repositoryFullName: repository.full_name,
+            prNumber: prNumber ?? 0,
+            headSha,
+            fileChanges: mergeGroupFiles,
+            activePolicies,
+            baseRef,
+            customIgnores: [],
+            customPlaceholders: [],
+            userId,
+            correlationId,
+            deliveryId: deliveryId ?? null,
+          };
+
+          const scanResult = await processScanJob(scanJobData, undefined, {
+            report: false,
+            persist: false,
+            enrich: false,
+          });
+
+          const suppressedFingerprints = new Set<string>();
+          if (dbRepo) {
+            const now = new Date();
+            await handleExpiredDismissals(dbRepo.id, scanResult.findings, now, {
+              prismaClient: prisma,
+              repoFullName: dbRepo.fullName,
+              userId,
+            });
+
+            const dismissed = await prisma.findingTriage.findMany({
+              where: {
+                repositoryId: dbRepo.id,
+                ...activeSuppressionWhere(now),
+              },
+              select: { fingerprint: true },
+            });
+            dismissed.forEach((t: { fingerprint: string }) =>
+              suppressedFingerprints.add(t.fingerprint),
+            );
+          }
+
+          const activeFindings = scanResult.findings.filter(
+            (f: any) => !suppressedFingerprints.has(f.fingerprint),
+          );
+
+          decision = iq.evaluateFindings(activeFindings, gateConfig);
+          findingsCount = activeFindings.length;
+          findingsToReport = activeFindings;
+          appliedPolicyScopes = scanResult.appliedPolicyScopes?.map((s) => ({
+            paths: s.scope.paths,
+            enable: s.scope.enable,
+            disable: s.scope.disable,
+            matchedFiles: s.matchedFiles,
+            fileCount: s.matchedFiles.length,
+          }));
+        }
+
+        const gateSummary = formatGateSummaryLine(gateConfig);
+        const scopesNotice =
+          appliedPolicyScopes && appliedPolicyScopes.length > 0
+            ? formatAppliedScopesSection(
+                appliedPolicyScopes.map((s) => ({
+                  scope: { paths: s.paths, enable: s.enable, disable: s.disable },
+                  matchedFiles: s.matchedFiles,
+                })),
+              )
+            : undefined;
+        const notice =
+          [
+            isDiffUnchanged && prNumber
+              ? `Reused scan result from PR #${prNumber} (merge diff unchanged).`
+              : "Evaluated combined merge group diff.",
+            gateSummary,
+            scopesNotice,
+          ]
+            .filter(Boolean)
+            .join("\n\n") || undefined;
+
+        await postScanCheckRun(octokit as any, {
+          owner: repoOwner,
+          repo: repoName,
+          headSha,
+          decision,
+          findingsCount,
+          fileCount: mergeGroupFiles.length,
+          notice,
+          findings: findingsToReport,
+        });
+
+        if (userId) {
+          await prisma.auditLog.create({
+            data: sanitizeAuditLogInput({
+              userId,
+              action: isDiffUnchanged
+                ? "Merge Group Evaluation (reused from PR)"
+                : "Merge Group Evaluation",
+              resource: `${repository.full_name}#${headSha.slice(0, 7)}`,
+              decision,
+              metadata: {
+                correlationId,
+                deliveryId,
+                head_sha: headSha,
+                base_sha: baseSha,
+                prNumber,
+                reusedFromPr: isDiffUnchanged,
+              },
+            }),
+          });
+        }
+      } finally {
+        lockHeartbeat.stop();
+        await releaseLock(lockKey, lockToken);
+      }
     }
 
     // 4. LOCK: Mark the webhook as processed now that everything succeeded
@@ -1446,10 +2034,12 @@ export async function postScanFailureCheck(
     if (
       !data ||
       (data.event !== "pull_request" &&
+        data.event !== "merge_group" &&
         data.event !== "check_run" &&
         data.event !== "check_suite")
-    )
+    ) {
       return;
+    }
 
     const payload = data.payload as any;
 
@@ -1459,6 +2049,8 @@ export async function postScanFailureCheck(
       if (actionKind === "ignore" || actionKind === "metadata") return;
     } else if (data.event === "check_run" || data.event === "check_suite") {
       if (payload?.action !== "rerequested") return;
+    } else if (data.event === "merge_group") {
+      if (payload?.action !== "checks_requested") return;
     }
 
     const installationId = payload?.installation?.id;
@@ -1474,6 +2066,21 @@ export async function postScanFailureCheck(
       ownerLogin = ctx.ownerLogin;
       repoName = ctx.repoName;
       headSha = ctx.headSha;
+    } else if (data.event === "merge_group") {
+      headSha = payload?.merge_group?.head_sha;
+      const repo = payload?.repository;
+      ownerLogin =
+        typeof repo?.owner?.login === "string" && repo.owner.login !== ""
+          ? repo.owner.login
+          : typeof repo?.full_name === "string"
+            ? repo.full_name.split("/")[0]
+            : undefined;
+      repoName =
+        typeof repo?.name === "string" && repo.name !== ""
+          ? repo.name
+          : typeof repo?.full_name === "string"
+            ? repo.full_name.split("/")[1]
+            : undefined;
     } else {
       const repository = payload.repository;
       repoName =
@@ -1489,14 +2096,14 @@ export async function postScanFailureCheck(
             ? repository.full_name.split("/")[0]
             : undefined;
 
-      const attachedPr = (data.event === "check_run"
-        ? payload.check_run?.pull_requests
-        : payload.check_suite?.pull_requests)?.[0];
+      const attachedPr = (
+        data.event === "check_run"
+          ? payload.check_run?.pull_requests
+          : payload.check_suite?.pull_requests
+      )?.[0];
       headSha =
         attachedPr?.head?.sha ??
-        (data.event === "check_run"
-          ? payload.check_run?.head_sha
-          : payload.check_suite?.head_sha);
+        (data.event === "check_run" ? payload.check_run?.head_sha : payload.check_suite?.head_sha);
 
       if (data.event === "check_run" && payload.check_run?.id) {
         checkRunId = Number(payload.check_run.id);
@@ -1511,7 +2118,7 @@ export async function postScanFailureCheck(
       privateKey,
       ...(customOctokit ? { Octokit: customOctokit } : {}),
     });
-    const octokit = await appClient.getInstallationOctokit(installationId);
+    const octokit = await appClient.getInstallationOctokit(Number(installationId));
 
     await postScanErrorCheckRun(octokit as any, {
       owner: ownerLogin,
@@ -1525,6 +2132,80 @@ export async function postScanFailureCheck(
     log.error("[QUEUE] Could not post fail-closed check run:", {
       error: checkErr?.message ?? String(checkErr),
     });
+  }
+}
+
+export interface PublishScanSarifOptions {
+  octokit: CodeScanningClient;
+  repository: { full_name: string; name: string; owner: { login: string } };
+  pullRequest: { number: number; head: { sha: string } };
+  findings: readonly CodeScanningFinding[];
+  dbRepo:
+    | { id: string; codeScanningEnabled?: boolean | null; codeScanningWarning?: string | null }
+    | null
+    | undefined;
+  log?: { info: (msg: string) => void; error?: (msg: string) => void };
+}
+
+/**
+ * Opt-in per repository (#1865): Uploads findings to GitHub's native Code Scanning UI.
+ * Deliberately after the check run and deliberately unable to fail the scan.
+ * When the GitHub App lacks permissions (403/404), records a dashboard warning on the repository.
+ */
+export async function publishScanSarifAnalysis({
+  octokit,
+  repository,
+  pullRequest,
+  findings,
+  dbRepo,
+  log,
+}: PublishScanSarifOptions): Promise<
+  | { status: "uploaded" }
+  | { status: "skipped"; reason: string }
+  | { status: "error"; error: string }
+> {
+  const target = `${sanitize(repository.full_name)}#${sanitize(String(pullRequest.number))}`;
+  if (!dbRepo?.codeScanningEnabled) {
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: code scanning publishing is disabled.`);
+    return { status: "skipped", reason: "code-scanning-disabled" };
+  }
+
+  try {
+    const sarifOutcome = await uploadSarifAnalysis(octokit, {
+      owner: repository.owner.login,
+      repo: repository.name,
+      commitSha: pullRequest.head.sha,
+      ref: pullRequestRef(pullRequest.number),
+      document: buildSarifDocument(findings),
+    });
+
+    if (sarifOutcome.status === "uploaded") {
+      log?.info(`[Worker] Uploaded SARIF for ${target}`);
+      if (dbRepo.codeScanningWarning) {
+        await prisma.repository.update({
+          where: { id: dbRepo.id },
+          data: { codeScanningWarning: null },
+        });
+      }
+      return { status: "uploaded" };
+    }
+
+    log?.info(`[Worker] Skipped SARIF upload for ${target}: ${sanitize(sarifOutcome.reason)}`);
+    if (sarifOutcome.reason === "code-scanning-unavailable") {
+      const warningMsg =
+        "GitHub App lacks security_events: write permission (Code scanning alerts: Read & Write) or Advanced Security is disabled on this repository.";
+      await prisma.repository.update({
+        where: { id: dbRepo.id },
+        data: { codeScanningWarning: warningMsg },
+      });
+    }
+    return { status: "skipped", reason: sarifOutcome.reason };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    log?.info(
+      `[Worker] SARIF upload errored for ${sanitize(repository.full_name)}: ${sanitize(errorMsg)}`,
+    );
+    return { status: "error", error: errorMsg };
   }
 }
 

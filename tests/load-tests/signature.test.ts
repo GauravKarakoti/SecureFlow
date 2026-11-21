@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeHmacSignature } from "../../load-tests/helpers/signature.js";
-import {
-  parseGithubSignature,
-  verifySignature,
-} from "@/lib/github/webhook-verification";
+import { parseGithubSignature, verifySignature } from "@/lib/github/webhook-verification";
 
 describe("load-tests/helpers/signature.js (HMAC Signature Helper)", () => {
   const secret = "test-webhook-secret-load-testing-only";
@@ -59,8 +56,6 @@ describe("load-tests/helpers/signature.js (HMAC Signature Helper)", () => {
   });
 
   it("throws an error if secret is missing", () => {
-    expect(() => computeHmacSignature(samplePayload, "")).toThrow(
-      /Webhook secret is required/,
-    );
+    expect(() => computeHmacSignature(samplePayload, "")).toThrow(/Webhook secret is required/);
   });
 });

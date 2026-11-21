@@ -9,6 +9,7 @@ This guide explains how to run the automated k6 load testing suite for SecureFlo
 Inbound GitHub webhooks must ingest sudden bursts of pull request events (e.g. bulk merges, monorepo pushes, CI re-runs) and respond promptly with `202 Accepted` (`{"status":"queued"}`). GitHub enforces a strict 10-second delivery timeout; if the endpoint responds slowly or stumbles during high-volume events, GitHub marks deliveries as failed and pauses webhooks.
 
 The load test suite (`load-tests/webhook.k6.js`) measures performance and prevents regressions across critical ingress stages:
+
 - **HMAC-SHA256 Signature Verification**: Constant-time crypto validation using the configured webhook secret.
 - **Request Size & Header Normalization**: Enforcing byte caps and delivery ID constraints before body parsing.
 - **Deduplication Check**: Redis `isDuplicateDelivery` atomic verification.
@@ -21,11 +22,11 @@ The load test suite (`load-tests/webhook.k6.js`) measures performance and preven
 
 The k6 test defines strict, automated pass/fail thresholds:
 
-| Metric | Target / SLA | Rationale |
-| :--- | :--- | :--- |
-| **`http_req_duration` (p95)** | **`< 500 ms`** | 95% of incoming webhook requests must be verified and enqueued in under 500ms, well clear of GitHub's timeout. |
-| **`http_req_failed`** | **`< 1%` (`< 0.01`)** | Overall HTTP failure rate (status codes outside 2xx/3xx) must not exceed 1%. |
-| **`checks`** | **`> 99%` (`> 0.99`)** | Custom assertion rate: status is `202`/`200`, signatures accepted (`≠ 401`), rate limits respected (`≠ 429`), and server errors avoided (`< 500`). |
+| Metric                        | Target / SLA           | Rationale                                                                                                                                          |
+| :---------------------------- | :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`http_req_duration` (p95)** | **`< 500 ms`**         | 95% of incoming webhook requests must be verified and enqueued in under 500ms, well clear of GitHub's timeout.                                     |
+| **`http_req_failed`**         | **`< 1%` (`< 0.01`)**  | Overall HTTP failure rate (status codes outside 2xx/3xx) must not exceed 1%.                                                                       |
+| **`checks`**                  | **`> 99%` (`> 0.99`)** | Custom assertion rate: status is `202`/`200`, signatures accepted (`≠ 401`), rate limits respected (`≠ 429`), and server errors avoided (`< 500`). |
 
 ---
 
@@ -116,10 +117,10 @@ k6 run --vus 2 --duration 10s load-tests/webhook.k6.js
 When the test completes, k6 prints a summary report in your terminal:
 
 ```text
-          /\      |‾‾| /‾‾/   /‾‾/   
-     /\  /  \     |  |/  /   /  /    
-    /  \/    \    |     (   /   ‾‾\  
-   /          \   |  |\  \ |  (‾)  | 
+          /\      |‾‾| /‾‾/   /‾‾/
+     /\  /  \     |  |/  /   /  /
+    /  \/    \    |     (   /   ‾‾\
+   /          \   |  |\  \ |  (‾)  |
   / __________ \  |__| \__\ \_____/ .io
 
   execution: local
@@ -134,7 +135,7 @@ When the test completes, k6 prints a summary report in your terminal:
      ✓ not rate limited (not 429)
      ✓ server error avoided (not 5xx)
 
-     checks.........................: 100.00% ✓ 4800      ✗ 0   
+     checks.........................: 100.00% ✓ 4800      ✗ 0
      data_received..................: 720 kB  12 kB/s
      data_sent......................: 2.1 MB  35 kB/s
    ✓ http_req_duration..............: avg=42.15ms min=12.10ms med=38.40ms max=189.20ms p(90)=68.10ms p(95)=92.30ms
@@ -183,6 +184,7 @@ When the test completes, k6 prints a summary report in your terminal:
 The load test is deliberately **excluded** from standard push/pull request CI pipelines to prevent resource waste and false negatives from shared runner latency.
 
 An opt-in workflow is available under **`.github/workflows/webhook-load-test.yml`**:
+
 - Triggerable via **GitHub Actions UI** (`Run workflow` button) or the GitHub CLI:
   ```bash
   gh workflow run webhook-load-test.yml -f target_url=http://localhost:9002 -f duration=30s

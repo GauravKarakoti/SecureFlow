@@ -9,8 +9,12 @@
 
 import { z } from "zod";
 import { parseSeverity, type Severity } from "@/lib/severity";
+import { stripJsonComments } from "secureflow-cli/contracts";
 import type { IgnoreConfigClient } from "./ignore-config";
 import { resolveBaseRef } from "./ignore-config";
+import { parsePolicyScopes, type PolicyScopeRule } from "./policy-scopes";
+
+export { type PolicyScopeRule };
 
 export const SECUREFLOW_CONFIG_FILE = ".secureflow.json";
 
@@ -36,10 +40,12 @@ export interface GateConfig {
   reviewOn: GateLevel;
   overrides?: GateOverride[];
   paths?: GatePathRule[];
+  policyScopes?: PolicyScopeRule[];
 }
 
 export interface SecureFlowConfig {
   gate: GateConfig;
+  policyScopes?: PolicyScopeRule[];
 }
 
 /** Default gate thresholds when no config exists or on bad configuration. */
@@ -86,7 +92,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   const noOverrides = !gate.overrides || gate.overrides.length === 0;
   // #1557: a config with path rules is never the default gate.
   const noPaths = !gate.paths || gate.paths.length === 0;
-  return sameBlock && sameReview && noOverrides && noPaths;
+  // #1868: a config with policyScopes is never the default gate.
+  const noScopes = !gate.policyScopes || gate.policyScopes.length === 0;
+  return sameBlock && sameReview && noOverrides && noPaths && noScopes;
 }
 
 /**
@@ -113,6 +121,12 @@ export function formatGateSummaryLine(gate?: GateConfig | null): string | null {
   const pathRuleCount = gate.paths?.length ?? 0;
   if (pathRuleCount > 0) {
     parts.push(`${pathRuleCount} path rule${pathRuleCount === 1 ? "" : "s"} active`);
+  }
+
+  // #1868: tell the reader that policy scopes are active.
+  const policyScopeCount = gate.policyScopes?.length ?? 0;
+  if (policyScopeCount > 0) {
+    parts.push(`${policyScopeCount} policy scope${policyScopeCount === 1 ? "" : "s"} active`);
   }
 
   return `Gate: ${parts.join(", ")} (from base branch)`;
@@ -196,7 +210,7 @@ function parsePathRules(rawPaths: unknown): GatePathRule[] {
 export function parseSecureFlowConfig(rawJson: string): GateConfig {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(rawJson);
+    parsed = JSON.parse(stripJsonComments(rawJson));
   } catch (err) {
     console.warn(`[GateConfig] Invalid JSON in ${SECUREFLOW_CONFIG_FILE}: ${describeError(err)}`);
     return { ...DEFAULT_GATE_CONFIG };
@@ -210,16 +224,18 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
   const root = parsed as Record<string, unknown>;
   const rawGate = root.gate;
 
-  if (rawGate === undefined || rawGate === null) {
-    return { ...DEFAULT_GATE_CONFIG };
-  }
-
-  if (typeof rawGate !== "object" || Array.isArray(rawGate)) {
+  if (
+    rawGate !== undefined &&
+    rawGate !== null &&
+    (typeof rawGate !== "object" || Array.isArray(rawGate))
+  ) {
     console.warn(`[GateConfig] 'gate' in ${SECUREFLOW_CONFIG_FILE} must be an object.`);
-    return { ...DEFAULT_GATE_CONFIG };
   }
 
-  const gateObj = rawGate as Record<string, unknown>;
+  const gateObj =
+    rawGate && typeof rawGate === "object" && !Array.isArray(rawGate)
+      ? (rawGate as Record<string, unknown>)
+      : {};
 
   // Support both blockOn and blockAt, reviewOn and reviewAt
   const rawBlock = gateObj.blockOn ?? gateObj.blockAt;
@@ -272,11 +288,16 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
   // without paths parses exactly as before.
   const paths = parsePathRules(gateObj.paths);
 
+  // #1868: parse optional policyScopes from root or gate object
+  const rawPolicyScopes = root.policyScopes ?? gateObj.policyScopes;
+  const { scopes: policyScopes } = parsePolicyScopes(rawPolicyScopes);
+
   return {
     blockOn,
     reviewOn,
     overrides,
     ...(paths.length > 0 ? { paths } : {}),
+    ...(policyScopes.length > 0 ? { policyScopes } : {}),
   };
 }
 

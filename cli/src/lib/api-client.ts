@@ -11,6 +11,21 @@ import {
   type AiFinding,
   type StagedFileForAiScan,
 } from "../contracts/index.js";
+import {
+  defaultPatchGuard,
+  PatchGuard,
+  PatchRateLimitExceededError,
+  PatchBoundaryViolationError,
+  PatchLoopDetectedError,
+} from "./patch-guard.js";
+
+export {
+  defaultPatchGuard,
+  PatchGuard,
+  PatchRateLimitExceededError,
+  PatchBoundaryViolationError,
+  PatchLoopDetectedError,
+};
 
 export type { StagedFileForAiScan, AiFinding };
 
@@ -117,20 +132,33 @@ export interface RemediationPatchResponse {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_BASE_URL = "https://secure-flow-six.vercel.app";
 
+export interface GenerateRemediationPatchOptions {
+  baseUrl?: string;
+  authToken?: string;
+  timeoutMs?: number;
+  patchGuard?: PatchGuard;
+  targetResource?: string;
+  enforceGuard?: boolean;
+}
+
 /**
  * Request AI remediation patch generation for a specific finding via POST /api/findings/[id]/remediate.
  */
 export async function generateRemediationPatch(
   findingId: string,
-  options?: {
-    baseUrl?: string;
-    authToken?: string;
-    timeoutMs?: number;
-  },
+  options?: GenerateRemediationPatchOptions,
 ): Promise<RemediationPatchResponse> {
   const normalizedId = findingId.trim();
   if (!normalizedId) {
     throw new Error("findingId must be a non-empty string");
+  }
+
+  const guard = options?.patchGuard ?? defaultPatchGuard;
+  const targetResource = options?.targetResource ?? `finding:${normalizedId}`;
+  const shouldEnforceGuard = options?.enforceGuard ?? Boolean(options?.targetResource);
+
+  if (shouldEnforceGuard) {
+    guard.assertCanApply({ resource: targetResource, actionType: "REMEDIATION_PATCH" });
   }
 
   const baseUrl = options?.baseUrl || DEFAULT_BASE_URL;
@@ -177,10 +205,28 @@ export async function generateRemediationPatch(
       };
     }
 
-    return (data as RemediationPatchResponse) || { success: true };
+    const response = (data as RemediationPatchResponse) || { success: true };
+
+    if (shouldEnforceGuard && response.patch?.patchDiff) {
+      guard.validatePatchDiff(targetResource, response.patch.patchDiff);
+      guard.recordAction({
+        resource: targetResource,
+        actionType: "REMEDIATION_PATCH",
+        patchDiff: response.patch.patchDiff,
+      });
+    }
+
+    return response;
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(`Remediation request timed out after ${timeoutMs}ms`);
+    }
+    if (
+      err instanceof PatchRateLimitExceededError ||
+      err instanceof PatchBoundaryViolationError ||
+      err instanceof PatchLoopDetectedError
+    ) {
+      throw err;
     }
     throw new NetworkUnavailableError(err);
   } finally {

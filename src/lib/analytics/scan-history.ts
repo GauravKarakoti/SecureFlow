@@ -88,6 +88,10 @@ export interface AnalyticsPayload {
     trendDirection: "up" | "down" | "flat";
     /** Count of open findings that have exceeded their target resolution age. */
     overdueFindings: number;
+    /** Average time to resolve findings, formatted (e.g. "4.2h" or "1.5d") (#1869). */
+    avgResolutionTime: string | null;
+    /** Total number of resolved findings. */
+    resolvedFindings: number;
   };
 }
 
@@ -645,8 +649,8 @@ export async function fetchOverdueCount(userId: string): Promise<number> {
   });
 
   const dismissedKeys = new Set(
-    dismissedTriages.map((t: { fingerprint: string; repositoryId: string }) =>
-      `${t.repositoryId}:${t.fingerprint}`,
+    dismissedTriages.map(
+      (t: { fingerprint: string; repositoryId: string }) => `${t.repositoryId}:${t.fingerprint}`,
     ),
   );
 
@@ -689,6 +693,64 @@ export async function fetchOverdueCount(userId: string): Promise<number> {
 }
 
 /**
+ * Format average resolution duration in a human-readable form.
+ */
+export function formatResolutionTime(avgHours: number | null): string | null {
+  if (avgHours === null || !Number.isFinite(avgHours) || avgHours <= 0) return null;
+  if (avgHours < 1) {
+    const mins = Math.max(1, Math.round(avgHours * 60));
+    return `${mins}m`;
+  }
+  if (avgHours < 24) {
+    return `${avgHours.toFixed(1)}h`;
+  }
+  const days = avgHours / 24;
+  return `${days.toFixed(1)}d`;
+}
+
+/**
+ * Compute resolution metrics (average resolution time and resolved count) across user's repositories (#1869).
+ */
+export async function fetchResolutionMetrics(userId: string): Promise<{
+  avgResolutionTime: string | null;
+  resolvedFindings: number;
+}> {
+  const resolvedRows = await prisma.findingTriage.findMany({
+    where: {
+      repository: { userId },
+      status: "RESOLVED",
+      resolvedAt: { not: null },
+    },
+    select: {
+      createdAt: true,
+      resolvedAt: true,
+    },
+  });
+
+  if (!resolvedRows || resolvedRows.length === 0) {
+    return { avgResolutionTime: null, resolvedFindings: 0 };
+  }
+
+  let totalHours = 0;
+  let count = 0;
+
+  for (const row of resolvedRows) {
+    if (row.resolvedAt) {
+      const diffMs = row.resolvedAt.getTime() - row.createdAt.getTime();
+      const hours = Math.max(0, diffMs / (1000 * 60 * 60));
+      totalHours += hours;
+      count += 1;
+    }
+  }
+
+  const avgHours = count > 0 ? totalHours / count : null;
+  return {
+    avgResolutionTime: formatResolutionTime(avgHours),
+    resolvedFindings: count,
+  };
+}
+
+/**
  * Compose the full analytics payload in a single call.
  *
  * This is the entry point called by the server component. It runs all
@@ -698,16 +760,25 @@ export async function getAnalyticsPayload(
   userId: string,
   days: number = DEFAULT_DAYS,
 ): Promise<AnalyticsPayload> {
-  const [dailyMetrics, severityTrend, repoSummaries, topFindingTypes, scanVelocity, summary, overdueFindings] =
-    await Promise.all([
-      fetchDailyScanMetrics(userId, days),
-      fetchSeverityTrend(userId, days),
-      fetchRepoSummaries(userId),
-      fetchTopFindingTypes(userId, days),
-      fetchScanVelocity(userId, days),
-      fetchAnalyticsSummary(userId, days),
-      fetchOverdueCount(userId),
-    ]);
+  const [
+    dailyMetrics,
+    severityTrend,
+    repoSummaries,
+    topFindingTypes,
+    scanVelocity,
+    summary,
+    overdueFindings,
+    resolutionMetrics,
+  ] = await Promise.all([
+    fetchDailyScanMetrics(userId, days),
+    fetchSeverityTrend(userId, days),
+    fetchRepoSummaries(userId),
+    fetchTopFindingTypes(userId, days),
+    fetchScanVelocity(userId, days),
+    fetchAnalyticsSummary(userId, days),
+    fetchOverdueCount(userId),
+    fetchResolutionMetrics(userId),
+  ]);
 
   return {
     dailyMetrics,
@@ -715,6 +786,11 @@ export async function getAnalyticsPayload(
     repoSummaries,
     topFindingTypes,
     scanVelocity,
-    summary: { ...summary, overdueFindings },
+    summary: {
+      ...summary,
+      overdueFindings,
+      avgResolutionTime: resolutionMetrics.avgResolutionTime,
+      resolvedFindings: resolutionMetrics.resolvedFindings,
+    },
   };
 }

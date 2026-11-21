@@ -109,6 +109,14 @@ jobs:
       - name: Verify OpenAPI Spec Synchronization
         run: npm run verify:openapi
 
+      # Compare per-route JavaScript bundle size against stored budgets (#1872).
+      - name: Check JavaScript Bundle Size Budgets
+        run: npm run check:bundle-budget
+
+      # Run Lighthouse CI audit on authentication and dashboard surfaces (#1872).
+      - name: Run Lighthouse CI Audits
+        run: npm run lhci:audit
+
   cli:
     name: CLI Build & Test
     runs-on: ubuntu-latest

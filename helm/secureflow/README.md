@@ -277,8 +277,22 @@ is scraped once. The Service type and port come from `app.service.*`.
 | `worker.resources.requests`  | Enforced CPU and memory requests for worker container (OOM protection during heavy AST/SBOM scans) | `cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi` |
 | `worker.resources.limits`    | Enforced CPU and memory limits for worker container | `cpu: 2000m, memory: 2Gi, ephemeral-storage: 10Gi` |
 | `worker.autoscaling.enabled` | Enable HorizontalPodAutoscaler for workers      | `false`          |
+| `worker.autoscaling.queueTrigger.enabled` | Enable queue-depth external metric HPA trigger for BullMQ queues (#1797) | `false` |
+| `worker.autoscaling.queueTrigger.metricName` | Metric name for BullMQ queue length external metric | `secureflow_bullmq_scan_queue_waiting` |
+| `worker.autoscaling.queueTrigger.targetAverageValue` | Target queue waiting jobs threshold for triggering scale out | `10` |
+| `worker.autoscaling.queueTrigger.metricType` | Target metric type (`Value` or `AverageValue`) | `Value` |
+| `worker.localInference.enabled` | Enable local AI inference with VRAM limits and concurrency controls (#1797) | `false` |
+| `worker.localInference.url` | Endpoint URL of local LLM inference server (Ollama / vLLM) | `http://ollama.ai.svc.cluster.local:11434/v1` |
+| `worker.localInference.model` | Default local inference model ID | `llama3` |
+| `worker.localInference.fallbackModels` | Comma-separated list of fallback local models during VRAM pressure | `llama3.2:3b,llama3.2:1b` |
+| `worker.localInference.vramConcurrencyThreshold` | Maximum concurrent local inference generations before queueing/failover | `1` |
+| `worker.localInference.maxQueueWaitMs` | Maximum milliseconds to wait in local inference semaphore queue | `30000` |
+| `worker.localInference.resources.limits` | Hardware accelerator / GPU resource limits for worker inference pods | `nvidia.com/gpu: 1` |
+| `worker.localInference.resources.requests` | Hardware accelerator / GPU resource requests for worker inference pods | `nvidia.com/gpu: 1` |
 | `worker.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for workers          | `true`           |
 | `worker.podDisruptionBudget.minAvailable` | Minimum available worker replicas during voluntary disruptions | `1` |
+| `worker.terminationGracePeriodSeconds` | Pod termination grace period in seconds (default 35s, worker shutdown 25s) | `35` |
+| `worker.lifecycle`           | Container lifecycle hooks (e.g. preStop sleep to allow endpoint draining) | `preStop: exec: command: ["/bin/sh", "-c", "sleep 2"]` |
 | `worker.affinity`            | Node affinity and pod anti-affinity rules for workers | *(preconfigured for worker/compute nodes)* |
 | `resourceQuota.enabled`      | Enable Kubernetes namespace ResourceQuota budget | `true`           |
 | `resourceQuota.hard`         | Hard compute and object limits for the namespace | *(4 CPU / 8Gi req, 8 CPU / 16Gi limit)* |

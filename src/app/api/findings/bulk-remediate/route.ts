@@ -14,6 +14,9 @@ import { withErrorHandler } from "@/lib/middleware/error-handler";
 import { ArmorIQService } from "@/lib/armor/iq";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "@/lib/armor/armoriq-breaker";
 import { enqueueUnverifiedRemediationIntent } from "@/lib/queue/remediationDlq";
+import { verifyOperatorClearance, ClearanceLevel } from "@/lib/middleware/clearance";
+import { validateAndSanitizeGroqAction } from "@/lib/security/groq-actions";
+import { logIncidentBatch } from "@/lib/incident/incident-logger";
 
 const MAX_BULK_REMEDIATION_FINDINGS = MAX_PAGE_SIZE;
 
@@ -214,6 +217,14 @@ const handler = async function POST(req: NextRequest) {
 
     // Authorize bulk actions through ArmorIQ when applying remediation patches
     if (action === "apply") {
+      const clearanceCheck = verifyOperatorClearance(session, ClearanceLevel.USER);
+      if (!clearanceCheck.authorized) {
+        return NextResponse.json(
+          { error: "Forbidden", message: clearanceCheck.reason || "Insufficient operator clearance" },
+          { status: 403 },
+        );
+      }
+
       const armorClient = ArmorIQService.getClient();
       if (armorClient) {
         const bulkPlan = {
@@ -334,6 +345,17 @@ const handler = async function POST(req: NextRequest) {
         updatedCount = result.count;
       }
 
+      // Log committed bulk incidents to PostgreSQL (<200ms) (#1819)
+      await logIncidentBatch(
+        uniqueIds.map((fId) => ({
+          userId,
+          action: action === "rollback" ? "BULK_REMEDIATION_ROLLBACK" : "BULK_REMEDIATION_APPLIED",
+          resource: `finding:${fId}`,
+          decision: "ALLOW",
+          severity: "HIGH",
+        })),
+      );
+
       return NextResponse.json({
         success: true,
         updatedCount,
@@ -410,10 +432,24 @@ const handler = async function POST(req: NextRequest) {
       const client = txClient as RemediationPatchDelegate;
       const patches: unknown[] = [];
       for (const item of generatedResults) {
+        let cleanDiff = item.patchDiff;
+        try {
+          const sanitized = validateAndSanitizeGroqAction({
+            actionType: "REMEDIATION_PATCH",
+            severity: "HIGH",
+            targetResource: item.fileLocation || "src/unknown",
+            rationale: item.explanation || "Bulk remediation patch",
+            patchDiff: item.patchDiff,
+          });
+          cleanDiff = sanitized.patchDiff || item.patchDiff;
+        } catch {
+          // Keep raw diff on boundary warning
+        }
+
         const patch = await client.remediationPatch.upsert({
           where: { findingId: item.findingId },
-          update: { patchDiff: item.patchDiff, status: "GENERATED" },
-          create: { findingId: item.findingId, patchDiff: item.patchDiff, status: "GENERATED" },
+          update: { patchDiff: cleanDiff, status: "GENERATED" },
+          create: { findingId: item.findingId, patchDiff: cleanDiff, status: "GENERATED" },
         });
         patches.push(patch);
       }
@@ -423,6 +459,17 @@ const handler = async function POST(req: NextRequest) {
     await (typeof prisma.$transaction === "function"
       ? prisma.$transaction(savePatches)
       : savePatches(prisma));
+
+    // Log bulk generated patches to PostgreSQL (<200ms) (#1819)
+    await logIncidentBatch(
+      generatedResults.map((r) => ({
+        userId,
+        action: "BULK_REMEDIATION_GENERATED",
+        resource: r.fileLocation || `finding:${r.findingId}`,
+        decision: "ALLOW",
+        severity: "HIGH",
+      })),
+    );
 
     const combinedDiff = generatedResults.map((r) => r.patchDiff).join("\n\n");
     const combinedExplanation =

@@ -62,6 +62,8 @@ const mockProps = {
     avgRiskScore: 34.5,
     trendDirection: "down" as const,
     overdueFindings: 0,
+    avgResolutionTime: "4.2h",
+    resolvedFindings: 12,
   },
 };
 
@@ -76,13 +78,15 @@ describe("AnalyticsClient", () => {
     expect(screen.getByText(/Deep dive into scan history/)).toBeTruthy();
   });
 
-  it("renders all four summary stat cards", () => {
+  it("renders all summary stat cards including resolution time", () => {
     render(<AnalyticsClient {...mockProps} />);
     // Used getAllByText because these labels also appear as table headers
     expect(screen.getAllByText("Total Scans")[0]).toBeTruthy();
     expect(screen.getAllByText("Total Findings")[0]).toBeTruthy();
     expect(screen.getAllByText("Pass Rate")[0]).toBeTruthy();
     expect(screen.getAllByText("Avg Risk Score")[0]).toBeTruthy();
+    expect(screen.getAllByText("Avg Resolution")[0]).toBeTruthy();
+    expect(screen.getByText("4.2h")).toBeTruthy();
   });
 
   it("renders themed Heist Risk Score, Vault Integrity Status, and Shareable Report button (#1711)", () => {

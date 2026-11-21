@@ -4,7 +4,14 @@ export default defineConfig({
   testDir: process.env.PLAYWRIGHT_TEST_DIR || ".",
   testMatch: ["e2e/**/*.spec.ts", "tests/e2e/**/*.spec.ts"],
   timeout: 60_000,
-  expect: { timeout: 15_000 },
+  expect: {
+    timeout: 15_000,
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.02,
+      animations: "disabled",
+    },
+  },
+  snapshotPathTemplate: "{testDir}/e2e/__screenshots__/{arg}{ext}",
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
@@ -35,7 +42,9 @@ export default defineConfig({
       GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || "e2e-webhook-secret",
       GITLAB_WEBHOOK_TOKEN: process.env.GITLAB_WEBHOOK_TOKEN || "e2e-gitlab-token",
       BITBUCKET_WEBHOOK_SECRET: process.env.BITBUCKET_WEBHOOK_SECRET || "e2e-bitbucket-secret",
-      GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY || "ci-build-placeholder",
+      GITHUB_PRIVATE_KEY:
+        process.env.GITHUB_PRIVATE_KEY ||
+        "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC3\n-----END PRIVATE KEY-----",
       GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "ci-build-placeholder",
       GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "ci-build-placeholder",
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9002",
@@ -58,14 +67,25 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: ["**/visual-regression.spec.ts"],
     },
     {
       name: "Mobile Safari",
       use: { ...devices["Mobile Safari"] },
+      testIgnore: ["**/visual-regression.spec.ts"],
     },
     {
       name: "Pixel 5",
       use: { ...devices["Pixel 5"] },
+      testIgnore: ["**/visual-regression.spec.ts"],
+    },
+    {
+      name: "visual",
+      testMatch: /visual-regression\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 900 },
+      },
     },
   ],
 });

@@ -6,6 +6,7 @@ import {
   computeTrendDirection,
   computePassRate,
   roundTo,
+  formatResolutionTime,
 } from "./scan-history";
 
 describe("generateDateRange", () => {
@@ -163,5 +164,28 @@ describe("roundTo", () => {
 
   it("handles negative numbers", () => {
     expect(roundTo(-3.456)).toBe(-3.5);
+  });
+});
+
+describe("formatResolutionTime (#1869)", () => {
+  it("formats minutes for durations under one hour", () => {
+    expect(formatResolutionTime(0.5)).toBe("30m");
+    expect(formatResolutionTime(0.1)).toBe("6m");
+  });
+
+  it("formats hours for durations under 24 hours", () => {
+    expect(formatResolutionTime(4.2)).toBe("4.2h");
+    expect(formatResolutionTime(12)).toBe("12.0h");
+  });
+
+  it("formats days for durations 24 hours or longer", () => {
+    expect(formatResolutionTime(24)).toBe("1.0d");
+    expect(formatResolutionTime(36)).toBe("1.5d");
+  });
+
+  it("returns null for non-positive or null values", () => {
+    expect(formatResolutionTime(null)).toBeNull();
+    expect(formatResolutionTime(0)).toBeNull();
+    expect(formatResolutionTime(-5)).toBeNull();
   });
 });

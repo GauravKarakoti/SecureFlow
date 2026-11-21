@@ -1,5 +1,77 @@
 # secureflow-cli
 
+## 3.9.0
+
+### Minor Changes
+
+- 42e5e04: Add cursor pagination and broken-link pinpointing to /api/admin/audit/verify (#1796).
+- f98cfbd: Add stale-while-revalidate fallback and threatIntelSource telemetry to threat intelligence cache during MCP scans (#1795).
+- 43a42ef: feat(dashboard): per-repository security health overview with trend (#1870)
+- 933cf49: feat(helm): [NSoC_2026] add local AI inference VRAM resource limits and queue HPA triggers to worker chart (#1797)
+- 3c46ebf: Add automated bundle size budgets, @next/bundle-analyzer, and Lighthouse CI quality gates (#1872).
+
+  - Added `@next/bundle-analyzer` integration opt-in via `ANALYZE=true` and `npm run analyze`.
+  - Configured per-route JavaScript bundle size budgets and growth thresholds in `bundle-budget.json`.
+  - Added `scripts/check-bundle-budgets.ts` to inspect Next.js build manifests and enforce budget thresholds in CI.
+  - Configured Lighthouse CI audits on authentication and dashboard pages in `lighthouse-budget.json` and `.lighthouserc.json`.
+  - Added `scripts/lighthouse-summary.ts` to output formatted audit results into GitHub Actions job summaries (`$GITHUB_STEP_SUMMARY`).
+  - Added budget adjustment policies and justification documentation in `CONTRIBUTING.md`.
+
+### Patch Changes
+
+- 0badba3: Add Playwright visual regression snapshot testing for key dashboard pages (#1871).
+
+  - Added `toHaveScreenshot` snapshot test suite (`e2e/visual-regression.spec.ts`) for key dashboard pages with masked dynamic content, frozen clock, and disabled animations.
+  - Stored baseline snapshots in `e2e/__screenshots__/`.
+  - Added dedicated `test:visual` and `test:visual:update` scripts.
+  - Added opt-in CI workflow (`.github/workflows/visual-regression.yml`) with automated diff artifact uploading on failure.
+  - Documented baseline review and update procedures in `CONTRIBUTING.md`.
+
+## 3.8.0
+
+### Minor Changes
+
+- 0dbbe86: Improve accessibility (a11y) across severity badges, tables, and charts to comply with WCAG AA. Ensure interactive elements are keyboard reachable with visible focus rings, add ARIA labels to icon buttons, severity badges, and charts, enforce non-color indicators (icons and text) alongside severity colors, fix light-mode and dark-mode text contrast ratios, and provide automated axe-core audits.
+- 79a54a1: Automatically mark findings as resolved when a later push removes them (#1869). After each completed full scan of a pull request, compares new finding fingerprints with open findings from earlier scans of the same pull request. Findings whose fingerprint is no longer detected are marked as `RESOLVED`, recording the resolving commit SHA, timestamp, and audit trail. Dismissed findings maintain their dismissed status, and failed or partial scans never resolve findings. The dashboard displays "resolved by commit <sha>" on finding badges and cards, and average resolution time is computed and surfaced in the analytics dashboard.
+- 596ee63: Handle GitHub `check_run` and `check_suite` rerequested events to trigger manual scan re-runs (#1863). Clicking "Re-run" on a SecureFlow check run or check suite starts a new scan that updates the existing check run and pull request comment. Foreign check runs from third-party apps are safely ignored. Re-requests share the same signature verification, HMAC checking, delivery deduplication, and per-PR distributed locking as the synchronize path, preventing duplicate concurrent scans under rapid clicks. Audit logs record manual re-run triggers.
+- 61be29a: Publish scan findings to GitHub Code Scanning via SARIF upload API (#1865). Adds a per-repository opt-in setting ("Publish findings to GitHub Code Scanning") in Settings (`/dashboard/settings`). Following a scan, findings are exported as SARIF v2.1.0 and uploaded to GitHub's code scanning API for the commit SHA and ref with stable tool name, rule IDs, and fingerprints to prevent duplicate alerts. Secret values and tokens are strictly sanitized using `maskFindingText` before upload. Missing permissions (`security_events: write`) or disabled Advanced Security are surfaced as actionable warnings on the repository card without failing the scan check run.
+- 4018984: Track finding age and show overdue indicators by severity. Compute finding age from creation date, display age and overdue badges on the Findings dashboard, show overdue finding count on the Analytics page, and support configurable target thresholds via environment variables with validation.
+- 9ff261b: docs(observability): ship a ready-made Grafana dashboard and optional Helm ConfigMap for existing metrics (#1784)
+- cc3be99: feat(mcp): [NSoC_2026] gracefully handle client disconnections and add liveness checks (#1769)
+- 0f4671f: Support GitHub Merge Queue by handling the `merge_group` webhook event (`checks_requested`). Automatically reports the required check run `SecureFlow Scan` on the merge group head SHA, reusing previous PR scan results when diff content is unchanged or executing a fast scan of the combined diff against the base-branch policy gate.
+- bcb3ce7: Support signed outbound webhooks for scan and finding events (#1866). Allows users to register one or more HTTPS endpoints with selected events (`scan.completed`, `scan.blocked`, `finding.created`, `finding.dismissed`). Requests are signed with an `X-SecureFlow-Signature` HMAC-SHA256 header using a per-endpoint secret shown once at registration, and include event ID and timestamp for replay protection. Delivery is asynchronous with short timeout, retries with exponential backoff, and a delivery log visible in Settings. Enforces strict SSRF protection by blocking private, loopback, and link-local addresses upon saving and dispatch, with zero code snippets or secrets included in payloads.
+- d3e0733: Add Personal API Tokens with granular scopes, expiry, and last-used tracking (#1867). Users can generate named Bearer tokens (`sft_...`) with customizable expiry (30, 90 days, or custom date) and granular permissions (`findings:read`, `findings:write`, `scans:read`, `scans:write`, `policies:read`, `policies:write`, `audit:read`). Tokens are displayed once at creation and stored exclusively as SHA-256 hashes in PostgreSQL. API routes enforce required scopes (returning 403 on insufficient permissions) and validate token status (returning 401 on expired or revoked tokens). Successful requests record `lastUsedAt` and `lastUsedIp`, rate limiting is enforced per token, and token creation/revocation lifecycle events are captured in the tamper-evident audit log.
+- 00fde54: Scope policies to paths in `.secureflow.json` for monorepos (#1868). Extends `.secureflow.json` with an optional `policyScopes` list where each entry specifies file path globs and either `enable` or `disable` lists of policy names. Files matching a scope only receive the policies allowed for that scope before the diff is sent to the scanner. Scopes are read exclusively from the base branch, invalid globs and unknown policies produce warnings without crashing scans, and applied scopes are reported in pull request comments.
+- b21ab06: feat(reports): generate weekly security digest summarizing findings and trends via Brevo mailing service (#1788)
+
+### Patch Changes
+
+- ed5f408: Add comprehensive contributor guide in CONTRIBUTING.md and link from README.md. Documents system prerequisites, 2-minute quickstart to set up and run tests with zero external credentials, instructions for building and running the CLI and Mission Control dashboard (mock mode, Docker Compose, local Postgres), explanations and concrete examples for `level1`, `level2`, and `level3` difficulty labels, branch naming conventions, Conventional Commits, and PR checklist guidance.
+
+## 3.7.0
+
+### Minor Changes
+
+- f9cc22a: Follow NO_COLOR specification and automatically detect non-interactive terminals to disable ANSI color formatting, with `--color` to force color on and `--no-color` to explicitly disable it.
+- 891037b: Add `--since REF` option to scan only files changed versus a git reference (e.g. `--since origin/main`). Includes added, copied, modified, and renamed files while skipping deleted files, and fails with clear user guidance when outside a git repository or when the specified git ref does not exist.
+- 9fca054: Add environment variables (`AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL`) for remediation and explanation models with startup validation and verbose active model logging.
+- 7fcdfb7: Add side-by-side vulnerable code and remediation review view per finding with highlighted affected lines, line number gutter, secret masking, one-click copy buttons for code and suggested fix, direct shareable URL route with copy link button, graceful empty state handling for missing code context, a dedicated not-found page for missing findings, and navigation links from the findings table rows.
+- ec2109f: Refresh the latest scanned PR verdict and existing SecureFlow check after a repository owner suppresses or reopens a finding. Store scan context in Prisma migration `20261117084000_finding_triage_scan_context`, allow optional notes with a required dismissal category, and preserve suppression across rescans.
+- cf20549: Support GitHub Enterprise Server through configurable API and web base URLs (#1809). Adds `GITHUB_API_URL` (defaulting to `https://api.github.com`) and `GITHUB_WEB_URL` (defaulting to `https://github.com` or custom instance origin), validates them with the typed environment schema, routes all Octokit and GitHub App client calls through the configured API base URL, ensures comments, notifications, and dashboard links use the configured web URL, rejects non-HTTPS URLs in production mode, and documents setup in `docs/setup.md`.
+- f7504d0: Support reasons and expiry dates for `.secureflowignore` entries (#1811). Allows ignore patterns to specify an optional `reason` and optional `expires` date (via bracket syntax `[expires=YYYY-MM-DD]: <reason>`, comment syntax, colon separator, or JSON entries) while maintaining backward compatibility with plain patterns. Expired entries are no longer applied and are reported in the pull request comment so they can be reviewed. Entries without reasons emit a scan log warning, and invalid dates are reported safely without crashing the scan.
+- 7e45a3d: Add saved filter views and shareable URL query state for the Findings table. Active filters (severity, status, repository, type, search, sort, date range) sync to URL parameters, query parameters are validated on the server with fallback to defaults, and users can save, apply, and delete private named filter views.
+- 11cd06b: Add golden-file regression test suite for scanner prompts (#1807). Adds 12 code samples (positives and negatives covering hardcoded secrets, SQL injection, wildcard CORS, root containers, command injection, path traversal, and safe code) with recorded Groq LLM fixtures, CI unit tests running without network or real API keys, an opt-in live prompt regression runner (`npm run test:prompts:live`) with readable diff reporting and `--update` support, and updated documentation in CONTRIBUTING.md.
+- a56ff09: Add Light, Dark, and System theme options in the application header with persistent user preference in localStorage. Default to system preference, avoid flash of wrong theme on first paint via inline blocking script, ensure high contrast across severity badges and UI cards in both themes, and handle dynamic system color-scheme changes.
+- 7068da5: Add k6 load test suite for webhook endpoint with documented thresholds (#1810). Adds `load-tests/webhook.k6.js` and `load-tests/helpers/signature.js` to simulate ramping GitHub pull request webhook traffic with authentic HMAC-SHA256 signatures and synthetic repository data, defines p95 response time (< 500ms) and failure rate (< 1%) thresholds, adds an opt-in manual GitHub Actions workflow (`.github/workflows/webhook-load-test.yml`), and documents local Docker Compose execution and metric interpretation in `docs/load-testing.md`.
+
+### Patch Changes
+
+- dd6e654: Add comprehensive architecture documentation and Mermaid diagrams in docs/architecture.md (#1808). Includes end-to-end webhook-to-check-run sequence diagram, system component topology, failure routing (DLQ, circuit breaker), simplified PostgreSQL data model, and links from README.md and CONTRIBUTING.md.
+- a792a38: Add snapshot test suite and deterministic fixtures for CLI output formatting to catch accidental layout, border, badge, and summary regressions with color disabled.
+- 00aae29: Add Dependabot configuration for npm package folders and GitHub Actions with weekly grouped updates, add a scheduled and on-demand workflow running npm audit that fails on high or critical advisories, and document maintainer triage procedures.
+- 5695aa6: feat(reports): [NSoC_2026] add themed heist metrics and one-click shareable report export (#1711)
+- 4b196df: Sync severity, status, search text, and sort order with URL query parameters on the findings table. Restore active filters on page load, fallback invalid query parameters to defaults without crashing, enable browser back/forward history navigation, and add a Clear filters button.
+
 ## 3.6.0
 
 ### Minor Changes
@@ -209,7 +281,7 @@
 - 068e898: Add GitHub-flavored Markdown (`--format markdown` or `--format md`) report export support to the SecureFlow CLI exporter module.
 - 5a20029: Add configurable minimum severity threshold filtering (`minSeverity`) to the Slack webhook notification integration module.
 - 0e64a02: Analytics charts now use UTC days throughout. The date range was built from the server's local midnight while rows were bucketed by their UTC date, so on a server east of UTC the range ended on the previous day and today's scans were missing from the daily, severity and velocity charts. Adds query-level tests for `scan-history.ts` (22% → 100% line coverage).
-- 5e9ffec: Fall back to `llama-3.1-8b-instant` for the PR scan when `GROQ_MODEL` is not set. `GROQ_MODEL` is optional, but the scanner passed `process.env.GROQ_MODEL!` straight to Groq, so a deployment without it sent requests with no model and every scan failed.
+- 5e9ffec: Fall back to `llama-3.1-8b-instant` for the PR scan when `AI_MODEL` is not set. `AI_MODEL` is optional, but the scanner passed `process.env.AI_MODEL!` straight to Groq, so a deployment without it sent requests with no model and every scan failed.
 - 93e4bd8: `AuditSanitizer.serializePayload` now preserves `Date` values. `JSON.stringify` converts a Date with `toJSON()` before the replacer sees it, so the `instanceof Date` branch never matched and Dates came back from `deserializePayload` as plain strings. The replacer now reads the original value.
 - 5ac22f3: Session roles are re-read from the database at least every five minutes. They were copied into the JWT at sign-in and only refreshed when missing or on an explicit `update()`, so demoting an admin (or deleting a user) had no effect on that user's existing session, which lasts a year. Every admin check reads `session.user.roles`.
 - 8fa0289: Fix bulk remediation answering 403 when a finding id is repeated, and cap a request at 100 findings (one dashboard page), since each finding starts its own AI call.
@@ -231,9 +303,9 @@
 - 8d84863: The security-explanation fallback chain now uses models Groq still serves (`openai/gpt-oss-120b`, `qwen/qwen3.6-27b`). All three previous fallbacks are shut down (`llama-3.3-70b-versatile` and `llama-3.1-8b-instant` on 2026-08-16, `mixtral-8x7b-32768` on 2025-03-20), so a rate-limited or timed-out primary model failed outright instead of failing over.
 - fbad878: Show the Dependency Security card on the findings page. It filtered on a `DEPENDENCY_VULNERABILITY` finding type that does not exist (the SBOM worker stores dependency findings as `VULNERABILITY` with a `Dependency: name@version` snippet), so it never rendered. The card is now built from those rows, using the fields the page actually loads.
 - ddc8671: Keep what the user typed in the findings search box when the debounced search is applied. The URL stores the trimmed term, and syncing the box back from it removed a trailing space, so pausing after "api " left "api" in the box before the next word. The debounce also no longer re-applies a term the URL already holds.
-- ef5b712: With `GROQ_MODEL` unset, the Genkit instance and the heist transmission now default to `openai/gpt-oss-20b`, the default documented in `genkit.ts`, instead of `llama-3.1-8b-instant`, which the same file notes Groq deprecated. `defaultModel` also no longer turns a blank `GROQ_MODEL` into `groq/`, or an already-namespaced id into `groq/groq/…`.
-- c846c06: Prefix `GROQ_MODEL` with the `groq/` namespace before handing it to Genkit. The documented value (`GROQ_MODEL=openai/gpt-oss-20b`) is a bare Groq id, which Genkit rejects with `NOT_FOUND`, so the heist message stream and the first model of the security-explanation fallback chain failed whenever `GROQ_MODEL` was set.
-- 4401eae: The Groq SDK callers (PR scan, streamed explanations, prompt-injection classifier) now default to `openai/gpt-oss-20b` when `GROQ_MODEL` is unset, instead of `llama-3.1-8b-instant`, which Groq shut down on 2026-08-16. `docs/setup.md` and the README recommended the same retired model.
+- ef5b712: With `AI_MODEL` unset, the Genkit instance and the heist transmission now default to `openai/gpt-oss-20b`, the default documented in `genkit.ts`, instead of `llama-3.1-8b-instant`, which the same file notes Groq deprecated. `defaultModel` also no longer turns a blank `AI_MODEL` into `groq/`, or an already-namespaced id into `groq/groq/…`.
+- c846c06: Prefix `AI_MODEL` with the `groq/` namespace before handing it to Genkit. The documented value (`AI_MODEL=openai/gpt-oss-20b`) is a bare Groq id, which Genkit rejects with `NOT_FOUND`, so the heist message stream and the first model of the security-explanation fallback chain failed whenever `AI_MODEL` was set.
+- 4401eae: The Groq SDK callers (PR scan, streamed explanations, prompt-injection classifier) now default to `openai/gpt-oss-20b` when `AI_MODEL` is unset, instead of `llama-3.1-8b-instant`, which Groq shut down on 2026-08-16. `docs/setup.md` and the README recommended the same retired model.
 - 9ff8b5c: `/api/health` no longer calls Groq with the server's API key on every request. The endpoint is public and exempt from rate limiting, so anyone could use it to send an unlimited stream of authenticated requests on that key. The Groq probe result is now reused for 60 seconds, and concurrent checks share one request. Adds tests for `health-check.ts` (0% → 100%).
 - 992da71: `/api/health` no longer returns raw component error messages to anonymous callers. Prisma's messages include the database host and port, and ioredis's describe the client's retry settings. Monitors still get each component's status and latency. Signed-in users, including the `/dashboard/status` refresh, still see the messages.
 - 6baf966: Stop the public leaderboard endpoint from returning raw database error messages, which can name the database host, to unauthenticated callers over JSON and SSE.

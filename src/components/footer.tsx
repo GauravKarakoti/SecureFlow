@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { getVersionInfo } from "@/lib/version";
 /** GitHub brand mark. Inlined because lucide-react no longer ships brand icons. */
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -92,6 +93,7 @@ const SOCIAL_LINKS = [
  */
 export function Footer() {
   const currentYear = new Date().getFullYear();
+  const { version } = getVersionInfo();
 
   return (
     <footer className="mt-auto border-t border-white/5 bg-background px-6 py-12">
@@ -158,8 +160,22 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-12 border-t border-white/5 pt-6 text-center text-sm text-muted-foreground">
-          © {currentYear} SecureFlow Inc. All rights reserved.
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-6 text-center text-sm text-muted-foreground sm:flex-row">
+          <div>© {currentYear} SecureFlow Inc. All rights reserved.</div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="font-mono text-muted-foreground" data-testid="footer-version">
+              v{version}
+            </span>
+            <span>·</span>
+            <Link
+              href="https://github.com/GauravKarakoti/SecureFlow/blob/main/CHANGELOG.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Changelog
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

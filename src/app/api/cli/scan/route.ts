@@ -17,6 +17,7 @@ import { getOrSynthesize } from "@/lib/audio-cache";
 import { resolveVoiceId, streamSpeech } from "@/lib/elevenlabs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { authenticateUserOrToken } from "@/lib/auth/api-token";
 import { withErrorHandler, AppError } from "@/lib/middleware/error-handler";
 import {
   withRateLimit,
@@ -77,9 +78,23 @@ async function streamToBuffer(stream: unknown): Promise<Buffer> {
 }
 
 const handler = withErrorHandler(async function POST(req: NextRequest) {
-  // 1. Authenticated User Rate Limit Check
-  const session = await auth();
-  const userId = session?.user?.id;
+  // 1. Authenticated User / API Token Rate Limit Check (#1867)
+  let userId: string | null = null;
+  const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+  if (authHeader) {
+    const authResult = await authenticateUserOrToken(req, { requiredScopes: ["scans:write"] });
+    if (!authResult.ok) {
+      return NextResponse.json(
+        { error: authResult.error, message: authResult.message },
+        { status: authResult.status },
+      );
+    }
+    userId = authResult.userId;
+  } else {
+    const session = await auth();
+    userId = session?.user?.id ?? null;
+  }
+
   if (userId) {
     const userLimit = await checkRateLimitDetailed(
       `rate-limit:cli:scan:user:${userId}`,

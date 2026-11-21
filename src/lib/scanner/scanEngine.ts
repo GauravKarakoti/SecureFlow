@@ -50,11 +50,23 @@ import {
   DEFAULT_GATE_CONFIG,
   type GateConfig,
 } from "./gate-config";
+import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
+import {
+  getActiveSuppressionRules,
+  recordSuppressionRuleEvents,
+} from "@/lib/suppression-rules/service";
+import {
+  groupFilesByPolicyScope,
+  collectAppliedScopes,
+  formatAppliedScopesSection,
+  type AppliedScopeSummary,
+} from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
-import { activeSuppressionWhere } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
+import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;
@@ -92,6 +104,7 @@ export interface ScanJobResult {
   skippedFiles?: Array<{ filename: string; reason: string }>;
   reusedFromCache?: boolean;
   expiredIgnoreRules?: ExpiredIgnoreRule[];
+  appliedPolicyScopes?: AppliedScopeSummary[];
 }
 
 export interface ScanProgress {
@@ -299,12 +312,15 @@ export async function processScanJob(
     policyVersion,
     customIgnores,
     customPlaceholders,
+    policyScopes: repositoryGateConfig.policyScopes,
   });
   const cacheKey = scanCacheKey(cacheHash);
 
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+
+  const appliedPolicyScopes = collectAppliedScopes(fileChanges, repositoryGateConfig.policyScopes);
 
   const cachedFindings = await getCachedScan(cacheKey);
   if (cachedFindings) {
@@ -336,55 +352,64 @@ export async function processScanJob(
 
     let scannedFiles = 0;
 
-    for (let i = 0; i < fileChanges.length; i += CHUNK_SIZE) {
-      const chunk = fileChanges.slice(i, i + CHUNK_SIZE);
+    // Group files by their applicable policy scope (#1868)
+    const fileGroups = groupFilesByPolicyScope(
+      fileChanges,
+      activePolicies as any[],
+      repositoryGateConfig.policyScopes,
+    );
 
-      try {
-        const chunkFindings = await scanner.scanPullRequest(
-          chunk,
-          activePolicies as any[],
-          customIgnores,
-          customPlaceholders,
-        );
-        allFindings.push(...chunkFindings);
-        if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
-          allSkippedFiles.push(...scanner.lastSkippedFiles);
+    for (const group of fileGroups) {
+      for (let i = 0; i < group.files.length; i += CHUNK_SIZE) {
+        const chunk = group.files.slice(i, i + CHUNK_SIZE);
+
+        try {
+          const chunkFindings = await scanner.scanPullRequest(
+            chunk,
+            group.policies as any[],
+            customIgnores,
+            customPlaceholders,
+          );
+          allFindings.push(...chunkFindings);
+          if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
+            allSkippedFiles.push(...scanner.lastSkippedFiles);
+          }
+        } catch (err) {
+          log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
+          // Fail the scan rather than continue: findings from the other chunks would be
+          // evaluated as if these files were clean, and a PR whose risky file sat in this
+          // chunk would pass.
+          throw new ScanIncompleteError(
+            chunk.map((file) => file.filename),
+            err,
+          );
         }
-      } catch (err) {
-        log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
-          error: err instanceof Error ? err.message : String(err),
+
+        scannedFiles += chunk.length;
+        const vulnCount = allFindings.length;
+        const progress = progressPercent(scannedFiles, totalFiles);
+
+        onProgress({
+          phase: "scanning",
+          scannedFiles,
+          totalFiles,
+          vulnerabilitiesFound: vulnCount,
+          progress,
         });
-        console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
-        // Fail the scan rather than continue: findings from the other chunks would be
-        // evaluated as if these files were clean, and a PR whose risky file sat in this
-        // chunk would pass.
-        throw new ScanIncompleteError(
-          chunk.map((file) => file.filename),
-          err,
-        );
-      }
 
-      scannedFiles = Math.min(i + CHUNK_SIZE, totalFiles);
-      const vulnCount = allFindings.length;
-      const progress = progressPercent(scannedFiles, totalFiles);
+        // Update database progress
+        await updateScanJobProgress(scanJobId, {
+          scannedFiles,
+          vulnerabilitiesFound: vulnCount,
+        }).catch(() => {});
 
-      onProgress({
-        phase: "scanning",
-        scannedFiles,
-        totalFiles,
-        vulnerabilitiesFound: vulnCount,
-        progress,
-      });
-
-      // Update database progress
-      await updateScanJobProgress(scanJobId, {
-        scannedFiles,
-        vulnerabilitiesFound: vulnCount,
-      }).catch(() => {});
-
-      // Yield to event loop between chunks
-      if (i + CHUNK_SIZE < fileChanges.length) {
-        await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+        // Yield to event loop between chunks
+        if (scannedFiles < totalFiles) {
+          await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+        }
       }
     }
 
@@ -409,22 +434,64 @@ export async function processScanJob(
     f.fingerprint = computeFingerprint(repositoryId, f.fileLocation, f.type, f.codeSnippet);
   });
 
+  const now = new Date();
+  if (repositoryId) {
+    await handleExpiredDismissals(repositoryId, allFindings, now, {
+      prismaClient: prisma,
+      repoFullName: repositoryFullName,
+      userId,
+    });
+  }
+
   // Check for suppressed (dismissed) findings
   const suppressedFingerprints = new Set<string>();
   if (repositoryId) {
     const dismissed = await prisma.findingTriage.findMany({
       where: {
         repositoryId,
-        ...activeSuppressionWhere(new Date()),
+        ...activeSuppressionWhere(now),
       },
       select: { fingerprint: true },
     });
     dismissed.forEach((t: { fingerprint: string }) => suppressedFingerprints.add(t.fingerprint));
   }
 
-  const activeFindings = allFindings.filter(
+  const nonDismissedFindings = allFindings.filter(
     (f) => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint),
   );
+
+  // Apply installation-wide suppression rules after repository fingerprint dismissals (#1891)
+  let activeFindings = nonDismissedFindings;
+  let ruleSuppressedFindings: EnrichedScanFinding[] = [];
+
+  try {
+    const activeRules = await getActiveSuppressionRules(new Date());
+    if (activeRules.length > 0) {
+      const suppressionEval = evaluateSuppressionRules(
+        nonDismissedFindings,
+        activeRules,
+        repositoryId,
+        new Date(),
+      );
+      activeFindings = suppressionEval.activeFindings;
+      ruleSuppressedFindings = suppressionEval.suppressedFindings;
+
+      if (suppressionEval.ruleMatches.length > 0) {
+        await recordSuppressionRuleEvents(
+          suppressionEval.ruleMatches.map((m) => ({
+            ruleId: m.rule.id,
+            repositoryId,
+            findingFingerprint: m.finding.fingerprint,
+            fileLocation: m.finding.fileLocation,
+          })),
+        );
+      }
+    }
+  } catch (err) {
+    log.error("[ScanEngine] Failed evaluating suppression rules:", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Enrich active findings with AI explanations in batches to prevent rate-limit storms (thundering herd)
   const enrichedFindings: EnrichedScanFinding[] = [];
@@ -501,8 +568,13 @@ export async function processScanJob(
 
       // Post PR comment if there are findings, skipped files, or expired ignore rules
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
-      const suppressedCount = allFindings.length - activeFindings.length;
-      if (enrichedFindings.length > 0 || allSkippedFiles.length > 0 || expiredRules.length > 0) {
+      const previouslyDismissedCount = allFindings.length - nonDismissedFindings.length;
+      if (
+        enrichedFindings.length > 0 ||
+        allSkippedFiles.length > 0 ||
+        expiredRules.length > 0 ||
+        ruleSuppressedFindings.length > 0
+      ) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
           body += `Scanned commit: \`${headSha}\`\n\n`;
@@ -522,6 +594,10 @@ export async function processScanJob(
           body += `\n`;
         }
 
+        if (appliedPolicyScopes.length > 0) {
+          body += formatAppliedScopesSection(appliedPolicyScopes);
+        }
+
         if (allSkippedFiles.length > 0) {
           body += `> ⚠️ **${allSkippedFiles.length} file(s) were not scanned** (too large or scan deadline exceeded):\n`;
           allSkippedFiles.forEach((f) => {
@@ -530,8 +606,12 @@ export async function processScanJob(
           body += `\n`;
         }
 
-        if (suppressedCount > 0) {
-          body += `🛡️ **${suppressedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+        if (previouslyDismissedCount > 0) {
+          body += `🛡️ **${previouslyDismissedCount} previously dismissed** finding(s) were suppressed for this repository.\n\n`;
+        }
+
+        if (ruleSuppressedFindings.length > 0) {
+          body += `🛡️ **${ruleSuppressedFindings.length}** finding(s) were suppressed by installation suppression rule(s).\n\n`;
         }
 
         const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
@@ -583,7 +663,11 @@ export async function processScanJob(
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
       );
-      const findingsToPersist = [...enrichedFindings, ...suppressedFindings];
+      const findingsToPersist = [
+        ...enrichedFindings,
+        ...suppressedFindings,
+        ...ruleSuppressedFindings,
+      ];
 
       await prisma.scanResult.create({
         data: scanResultCreateData({
@@ -594,6 +678,23 @@ export async function processScanJob(
           scoredFindings: activeFindings,
           findingsToPersist,
         }),
+      });
+
+      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
+      const isPartialScan = allSkippedFiles.length > 0;
+      await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId: dbPr.id,
+        headSha,
+        currentFindings: allFindings,
+        fileChanges,
+        isPartialScan,
+        userId,
+        repoFullName: repositoryFullName,
+      }).catch((err) => {
+        log.warn(`[ScanEngine] Failed to auto-resolve fixed findings:`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       // Audit log
@@ -705,5 +806,6 @@ export async function processScanJob(
     skippedFiles: allSkippedFiles,
     reusedFromCache,
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
+    appliedPolicyScopes,
   };
 }

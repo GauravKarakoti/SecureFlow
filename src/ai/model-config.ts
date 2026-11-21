@@ -32,7 +32,7 @@ export function normalizeAiUrl(rawUrl: string): string {
 export const SUPPORTED_AI_PROVIDERS = ["groq", "ollama", "vllm", "openai", "custom"] as const;
 export type AiProvider = (typeof SUPPORTED_AI_PROVIDERS)[number];
 
-export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+export const DEFAULT_AI_MODEL = "openai/gpt-oss-20b";
 export const DEFAULT_OLLAMA_MODEL = "llama3";
 export const DEFAULT_VLLM_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct";
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
@@ -119,7 +119,7 @@ export function resolveAiConfig(
   if (!model) {
     switch (provider) {
       case "groq":
-        model = env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
+        model = env.AI_MODEL?.trim() || DEFAULT_AI_MODEL;
         break;
       case "ollama":
         model = env.OLLAMA_MODEL?.trim() || env.LOCAL_AI_MODEL?.trim() || DEFAULT_OLLAMA_MODEL;

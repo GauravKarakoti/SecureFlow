@@ -48,6 +48,8 @@ export interface ScanJobData {
   userId?: string;
   /** Correlation ID for distributed tracing across webhook, queue, and worker (#1537). */
   correlationId?: string;
+  /** OpenTelemetry W3C trace context carrier for distributed trace propagation (#1897). */
+  traceContext?: Record<string, string>;
   /** GitHub webhook delivery ID if triggered via webhook. */
   deliveryId?: string | null;
 }

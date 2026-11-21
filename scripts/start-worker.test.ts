@@ -46,9 +46,13 @@ vi.mock("../src/lib/queue/remediationDlq", () => ({
   })),
 }));
 
-vi.mock("../src/lib/queue/shutdown", () => ({
-  setupWorkerSignalHandlers: vi.fn(),
-}));
+vi.mock("../src/lib/queue/shutdown", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/queue/shutdown")>();
+  return {
+    ...actual,
+    setupWorkerSignalHandlers: vi.fn(),
+  };
+});
 
 import { worker } from "../src/lib/queue/worker";
 import { outboundWorker } from "../src/lib/queue/outboundWorker";
@@ -152,7 +156,7 @@ describe("scripts/start-worker.ts (#1354)", () => {
         expect.objectContaining({
           workers: [worker, outboundWorker, sbomWorker],
           drain: expect.any(Array),
-          timeoutMs: 10000,
+          timeoutMs: 25000,
           onShutdownComplete: expect.any(Function),
         }),
       );
@@ -200,6 +204,53 @@ describe("scripts/start-worker.ts (#1354)", () => {
       expect(registeredOnComplete).toBeDefined();
       registeredOnComplete!();
       expect(mockServer.close).toHaveBeenCalled();
+    });
+
+    it("respects shutdownTimeoutMs option and WORKER_SHUTDOWN_TIMEOUT_MS env var (#1894)", () => {
+      // 1. Explicit shutdownTimeoutMs option
+      startWorkerServer({
+        autoListen: false,
+        setupSignals: true,
+        shutdownTimeoutMs: 15000,
+        plan: {
+          queues: ["github-webhooks"],
+          scanWorkerEnabled: false,
+          scanConcurrency: null,
+        },
+      });
+
+      expect(setupWorkerSignalHandlers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeoutMs: 15000,
+        }),
+      );
+
+      // 2. WORKER_SHUTDOWN_TIMEOUT_MS environment variable
+      const origEnv = process.env.WORKER_SHUTDOWN_TIMEOUT_MS;
+      try {
+        process.env.WORKER_SHUTDOWN_TIMEOUT_MS = "40000";
+        startWorkerServer({
+          autoListen: false,
+          setupSignals: true,
+          plan: {
+            queues: ["github-webhooks"],
+            scanWorkerEnabled: false,
+            scanConcurrency: null,
+          },
+        });
+
+        expect(setupWorkerSignalHandlers).toHaveBeenCalledWith(
+          expect.objectContaining({
+            timeoutMs: 40000,
+          }),
+        );
+      } finally {
+        if (origEnv !== undefined) {
+          process.env.WORKER_SHUTDOWN_TIMEOUT_MS = origEnv;
+        } else {
+          delete process.env.WORKER_SHUTDOWN_TIMEOUT_MS;
+        }
+      }
     });
   });
 });

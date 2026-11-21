@@ -6,15 +6,15 @@ This runbook provides operators with actionable troubleshooting steps for diagno
 
 ## 📋 Triage Matrix
 
-| Issue Category           | Primary Symptoms                                                                   | Key Environment Variables                                                                        | Section                                                                                  |
-| :----------------------- | :--------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
-| **Webhook Deliveries**   | PRs opened without scans triggering; 401/413/500 errors in GitHub App delivery log | `GITHUB_WEBHOOK_SECRET`<br>`GITHUB_WEBHOOK_MAX_BYTES`<br>`GITHUB_APP_ID`<br>`GITHUB_PRIVATE_KEY` | [1. Webhook Deliveries Failing](#1-webhook-deliveries-failing)                           |
-| **Queues & Redis**       | PR checks stuck in pending; jobs pile up in `waiting`; `RedisConfigurationError`   | `REDIS_URL`<br>`UPSTASH_REDIS_REST_URL`<br>`UPSTASH_REDIS_REST_TOKEN`                            | [2. Queue Stuck or Redis Unavailable](#2-queue-stuck-or-redis-unavailable)               |
-| **Groq / AI Scanner**    | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`GROQ_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                      | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
-| **Database Pooling**     | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
-| **Proxy Rate Limiting**  | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
-| **Weekly Digest & Brevo**| Digest emails not arriving; Brevo API errors; digests not generating               | `BREVO_API_KEY`<br>`BREVO_SENDER_EMAIL`<br>`BREVO_SENDER_NAME`                                   | [6. Weekly Security Digest & Email Delivery](#6-weekly-security-digest--email-delivery)  |
-| **Dependency Audits**    | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
+| Issue Category            | Primary Symptoms                                                                   | Key Environment Variables                                                                        | Section                                                                                  |
+| :------------------------ | :--------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
+| **Webhook Deliveries**    | PRs opened without scans triggering; 401/413/500 errors in GitHub App delivery log | `GITHUB_WEBHOOK_SECRET`<br>`GITHUB_WEBHOOK_MAX_BYTES`<br>`GITHUB_APP_ID`<br>`GITHUB_PRIVATE_KEY` | [1. Webhook Deliveries Failing](#1-webhook-deliveries-failing)                           |
+| **Queues & Redis**        | PR checks stuck in pending; jobs pile up in `waiting`; `RedisConfigurationError`   | `REDIS_URL`<br>`UPSTASH_REDIS_REST_URL`<br>`UPSTASH_REDIS_REST_TOKEN`                            | [2. Queue Stuck or Redis Unavailable](#2-queue-stuck-or-redis-unavailable)               |
+| **Groq / AI Scanner**     | Scans fail with 429 or timeout; model not found errors; PR check run failure       | `GROQ_API_KEY`<br>`AI_MODEL`<br>`LLM_CACHE_TTL_SECONDS`<br>`LOCAL_AI_URL`                        | [3. Groq Errors and Rate Limits](#3-groq-errors-and-rate-limits)                         |
+| **Database Pooling**      | `too many clients already`; `ETIMEDOUT`; `role "nextjs" does not exist`            | `DATABASE_POOL_URL`<br>`DATABASE_URL`<br>`DB_POOL_MAX`                                           | [4. Database Pooling Errors](#4-database-pooling-errors)                                 |
+| **Proxy Rate Limiting**   | Legitimate users hit 429 ("Rate limit exceeded"); all users share one bucket       | `TRUSTED_PROXY_HOP_COUNT`<br>`TRUSTED_PROXY_IPS`                                                 | [5. Rate-Limit Buckets Wrong Behind a Proxy](#5-rate-limit-buckets-wrong-behind-a-proxy) |
+| **Weekly Digest & Brevo** | Digest emails not arriving; Brevo API errors; digests not generating               | `BREVO_API_KEY`<br>`BREVO_SENDER_EMAIL`<br>`BREVO_SENDER_NAME`                                   | [6. Weekly Security Digest & Email Delivery](#6-weekly-security-digest--email-delivery)  |
+| **Dependency Audits**     | Weekly audit workflow fails on High/Critical CVEs; Dependabot PR updates           | `N/A` (CI/CD Pipeline)                                                                           | [Security Docs: Dependency Triage](security/dependency-triage.md)                        |
 
 ---
 
@@ -246,7 +246,7 @@ SecureFlow uses Groq's high-speed inference engine (default model: `openai/gpt-o
 ### Relevant Environment Variables
 
 - `GROQ_API_KEY` _(Required)_: Authentication API key obtained from [console.groq.com](https://console.groq.com).
-- `GROQ_MODEL` _(Optional, default: `openai/gpt-oss-20b`)_: Primary Groq model ID.
+- `AI_MODEL` _(Optional, default: `openai/gpt-oss-20b`)_: Primary Groq model ID.
 - `LLM_CACHE_TTL_SECONDS` _(Optional, default: `86400` / 24 hours)_: Time-to-live for caching LLM diff analysis in Redis.
 - `LOCAL_AI_URL`, `LOCAL_AI_MODEL`, `LOCAL_AI_FALLBACK_MODELS` _(Optional)_: Configuration for local, air-gapped inference (e.g. Ollama or vLLM), bypassing Groq entirely.
 
@@ -312,9 +312,9 @@ SecureFlow uses Groq's high-speed inference engine (default model: `openai/gpt-o
 ### Fix
 
 1. **Set Active, Supported Model**:
-   - Ensure `GROQ_MODEL` points to an active model (or unset it to default to `openai/gpt-oss-20b`):
+   - Ensure `AI_MODEL` points to an active model (or unset it to default to `openai/gpt-oss-20b`):
      ```env
-     GROQ_MODEL="openai/gpt-oss-20b"
+     AI_MODEL="openai/gpt-oss-20b"
      ```
    - _Avoid deprecated models_: Do not use decommissioned models such as `llama-3.1-8b-instant`.
 2. **Exclude Non-Code / Generated Files**:
@@ -539,7 +539,6 @@ SecureFlow builds a weekly roll-up per user or organization covering new finding
 - `BREVO_API_KEY` _(Recommended in production, Secret)_: API key for Brevo transactional email delivery via REST API v3 (`https://api.brevo.com/v3/smtp/email`). Redacted from logs and error messages.
 - `BREVO_SENDER_EMAIL` _(Optional, default: `security@secureflow.dev`)_: Verified sender email address configured in Brevo.
 - `BREVO_SENDER_NAME` _(Optional, default: `SecureFlow Security`)_: Display name for outbound digest emails.
-- `WEEKLY_DIGEST_SCHEDULE` _(Optional, default: `0 8 * * 1`)_: Cron schedule syntax indicating when digests are scheduled (default: Mondays at 08:00 UTC).
 - `SMTP_HOST` _(Optional fallback)_: SMTP hostname (e.g. `smtp-relay.brevo.com`). When both Brevo and SMTP are omitted, emails are skipped and digests are stored for dashboard display only.
 - `SMTP_PORT` _(Optional, default: `587`)_: SMTP port (`465` for TLS, `587` for STARTTLS).
 - `SMTP_USER` _(Optional)_: SMTP username / API key.
@@ -580,10 +579,39 @@ Use this checklist to verify your deployment configuration when diagnosing syste
 [ ] GITHUB_WEBHOOK_SECRET is identical in GitHub App settings and SecureFlow .env
 [ ] GITHUB_WEBHOOK_MAX_BYTES is sized for your repository diff volumes (default 5MB)
 [ ] REDIS_URL is configured (using rediss:// for cloud/TLS Redis) and worker process is active
-[ ] GROQ_API_KEY is valid and GROQ_MODEL points to an active model (e.g. openai/gpt-oss-20b)
+[ ] GROQ_API_KEY is valid and AI_MODEL points to an active model (e.g. openai/gpt-oss-20b)
 [ ] DATABASE_POOL_URL is configured for serverless production queries (PgBouncer/Neon Pooler)
 [ ] DB_POOL_MAX is tuned to stay within PostgreSQL max_connections (default 10)
 [ ] TRUSTED_PROXY_HOP_COUNT is set to 1 (single proxy) or 2 (Cloudflare + proxy) in production
 [ ] BREVO_API_KEY is configured for delivering weekly security digests via Brevo
 [ ] SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM configured if fallback SMTP delivery is desired
 ```
+
+---
+
+## 7. Version Verification & Upgrades
+
+To check which version and build commit SHA are currently running, query `GET /api/version` or inspect the dashboard footer:
+
+```bash
+curl -s http://localhost:9002/api/version
+```
+
+When upgrading SecureFlow or executing an emergency rollback, follow the step-by-step checklist in the **[Safe Upgrade Guide](./upgrade.md)**.
+
+## 8. Database Backups, Restoration & Verification
+
+To create or restore PostgreSQL backups or verify backup integrity in an ephemeral database:
+
+```bash
+# Create compressed backup
+npm run db:backup
+
+# Restore backup (refuses to overwrite non-empty databases without --force)
+npm run db:restore -- --file=backups/latest.dump [--force]
+
+# Verify backup integrity in an ephemeral temporary database
+npm run db:verify-backup
+```
+
+For scheduled Linux `cron` entries, Kubernetes `CronJob` manifests, and retention pruning strategies, see the **[Database Backup, Restore & Verification Guide](./database-backup-restore.md)**.

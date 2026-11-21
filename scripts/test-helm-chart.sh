@@ -271,6 +271,21 @@ partial="$("$helm_bin" template check "$chart_dir" \
   --set worker.resources.limits.cpu=3)"
 grep -Fq 'ephemeral-storage:' <<< "$partial"
 
+# Worker graceful shutdown and lifecycle hooks (#1894)
+worker_manifest="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only)"
+grep -Fq 'terminationGracePeriodSeconds: 35' <<< "$worker_manifest"
+grep -Fq 'preStop:' <<< "$worker_manifest"
+grep -Fq 'sleep 2' <<< "$worker_manifest"
+
+# Custom terminationGracePeriodSeconds override
+worker_override="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set worker.terminationGracePeriodSeconds=60)"
+grep -Fq 'terminationGracePeriodSeconds: 60' <<< "$worker_override"
+
 # values.schema.json must reject missing or malformed resource blocks.
 expect_schema_rejection() {
   if "$helm_bin" template check "$chart_dir" \
@@ -337,3 +352,65 @@ for validation in schema template; do
   expect_provider_rejection "${skip[@]}" --set secrets.existingSecret=precreated-secret "${sealed_args[@]}"
   expect_provider_rejection "${skip[@]}" --set secrets.existingSecret=precreated-secret "${external_args[@]}" "${sealed_args[@]}"
 done
+
+# Local AI inference and queue-depth HPA triggers (#1797)
+for local_inf in false true; do
+  "$helm_bin" lint "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set worker.localInference.enabled="$local_inf"
+  "$helm_bin" template check "$chart_dir" \
+    --set secrets.authSecret=local-test-only \
+    --set worker.localInference.enabled="$local_inf" > /dev/null
+done
+
+# Verify local inference environment variables and GPU resource limits in worker deployment
+worker_local_inf="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set worker.localInference.enabled=true \
+  --set worker.localInference.url="http://ollama-service.internal:11434/v1" \
+  --set worker.localInference.model="llama3-custom" \
+  --set worker.localInference.fallbackModels="llama3.2:1b" \
+  --set worker.localInference.vramConcurrencyThreshold=2 \
+  --set worker.localInference.maxQueueWaitMs=45000 \
+  --set 'worker.localInference.resources.limits.nvidia\.com/gpu=1' \
+  --set 'worker.localInference.resources.requests.nvidia\.com/gpu=1')"
+
+grep -Fq 'name: LOCAL_AI_URL' <<< "$worker_local_inf"
+grep -Fq 'value: "http://ollama-service.internal:11434/v1"' <<< "$worker_local_inf"
+grep -Fq 'name: LOCAL_AI_MODEL' <<< "$worker_local_inf"
+grep -Fq 'value: "llama3-custom"' <<< "$worker_local_inf"
+grep -Fq 'name: LOCAL_AI_FALLBACK_MODELS' <<< "$worker_local_inf"
+grep -Fq 'value: "llama3.2:1b"' <<< "$worker_local_inf"
+grep -Fq 'name: VRAM_CONCURRENCY_THRESHOLD' <<< "$worker_local_inf"
+grep -Fq 'value: "2"' <<< "$worker_local_inf"
+grep -Fq 'name: LOCAL_AI_MAX_QUEUE_WAIT_MS' <<< "$worker_local_inf"
+grep -Fq 'value: "45000"' <<< "$worker_local_inf"
+grep -Fq 'nvidia.com/gpu: 1' <<< "$worker_local_inf"
+
+# Verify worker HPA with external queue trigger
+worker_hpa_queue="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-hpa.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set worker.autoscaling.enabled=true \
+  --set worker.autoscaling.queueTrigger.enabled=true \
+  --set worker.autoscaling.queueTrigger.metricName="secureflow_bullmq_scan_queue_waiting" \
+  --set worker.autoscaling.queueTrigger.targetAverageValue=25 \
+  --set worker.autoscaling.queueTrigger.metricType="Value")"
+
+grep -Fq 'type: External' <<< "$worker_hpa_queue"
+grep -Fq 'name: "secureflow_bullmq_scan_queue_waiting"' <<< "$worker_hpa_queue"
+grep -Fq 'type: Value' <<< "$worker_hpa_queue"
+grep -Fq 'value: 25' <<< "$worker_hpa_queue"
+
+# Verify AverageValue metric type in queue trigger
+worker_hpa_avg="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-hpa.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set worker.autoscaling.enabled=true \
+  --set worker.autoscaling.queueTrigger.enabled=true \
+  --set worker.autoscaling.queueTrigger.targetAverageValue=15 \
+  --set worker.autoscaling.queueTrigger.metricType="AverageValue")"
+
+grep -Fq 'type: AverageValue' <<< "$worker_hpa_avg"
+grep -Fq 'averageValue: 15' <<< "$worker_hpa_avg"

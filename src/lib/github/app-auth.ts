@@ -132,9 +132,7 @@ export function getGitHubAppCredentials(
   const webUrl = getGitHubWebUrl(env);
 
   const customOctokit =
-    typeof Octokit?.defaults === "function"
-      ? Octokit.defaults({ baseUrl: apiUrl })
-      : Octokit;
+    typeof Octokit?.defaults === "function" ? Octokit.defaults({ baseUrl: apiUrl }) : Octokit;
 
   // Keys are commonly stored with literal "\n" sequences in a single-line env var.
   return {

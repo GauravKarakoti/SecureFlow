@@ -19,6 +19,7 @@ import {
   Shield,
   ArrowRight,
   Command as CommandIcon,
+  FolderGit2,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
@@ -91,6 +92,14 @@ function CommandPaletteContent({ setOpen }: { setOpen: (nextOpen: boolean) => vo
         icon: ShieldAlert,
         keywords: ["findings", "vulnerabilities", "breaches", "issues", "security"],
         perform: () => navigateTo("/dashboard/findings"),
+      },
+      {
+        id: "nav-repositories",
+        name: "Go to Repositories",
+        category: "Navigation",
+        icon: FolderGit2,
+        keywords: ["repositories", "repos", "health", "score", "projects", "overview"],
+        perform: () => navigateTo("/dashboard/repositories"),
       },
       {
         id: "nav-analytics",

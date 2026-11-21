@@ -48,7 +48,7 @@ Featured in Nexus Spring of Code
 - [🔒 Defense Strategy (Security Policies)](#-defense-strategy-security-policies)
 - [📊 Architecture](#-architecture)
 - [📖 Technical Documentation](#-technical-documentation)
-- [🤝 Contributing](#-contributing)
+- [🤝 Contributing & Difficulty Labels](#-contributing)
 - [❓ FAQ](#-faq)
 - [📄 License](#-license)
 
@@ -386,6 +386,10 @@ SecureFlow's Docker image uses a secure multi-stage build running as an unprivil
 - **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
 - **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
 
+### Upgrading SecureFlow
+
+When upgrading between releases, follow our step-by-step checklist covering database backups, migration execution, health validation, and rollback procedures in the **[Safe Upgrade Guide](./docs/upgrade.md)**.
+
 ---
 
 ## 🔑 Environment Variables Reference
@@ -522,6 +526,9 @@ secureflow scan --verbose
 | `npm run db:migrate` | Run Prisma migrations                                                        |
 | `npm run db:push`    | Push schema to DB without migrations                                         |
 | `npm run db:seed`    | Seed default policy templates                                                |
+| `npm run db:backup`  | Create timestamped compressed PostgreSQL backup (`pg_dump`)                  |
+| `npm run db:restore` | Restore backup into PostgreSQL (`pg_restore`, requires `--force` for non-empty DB) |
+| `npm run db:verify-backup` | Restore into ephemeral database and verify table counts & migrations   |
 | `npm run genkit:dev` | Start Genkit AI development environment                                      |
 | `npm run retention`  | Unified data retention runner (dry-run default; pass `-- --apply` to delete) |
 
@@ -564,6 +571,8 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
 - **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
+- **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
+- **[Database Backup, Restore & Verification Guide](./docs/database-backup-restore.md)**: Procedures for compressed PostgreSQL dumps (`pg_dump`), safe restores with non-empty database safety guards, ephemeral database verification, Linux `cron`, and Kubernetes `CronJob` scheduling.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.
@@ -591,26 +600,44 @@ The badge reflects the latest scan: **passing** (green), **review required** (ye
 
 ## 🤝 Contributing
 
-Every good heist needs a crew. Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on branching, commit messages, and the PR process.
+Every good heist needs a crew! Contributions are welcome from developers of all skill levels.
+
+For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+
+### 🎯 Issue Difficulty Labels
+
+We label open issues by difficulty so you can immediately find work suited to your experience:
+
+- 🟢 **[`level1`](./CONTRIBUTING.md#🟢-level1-beginner--good-first-issue)** (**Beginner / Good First Issue**): Isolated bug fixes, documentation, styling, accessibility contrast, and unit tests (1–2 files).  
+  _Examples_: Severity badge contrast ratios, `--no-color` CLI support, snapshot tests.  
+  👉 [Browse `level1` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level1)
+- 🟡 **[`level2`](./CONTRIBUTING.md#🟡-level2-intermediate--feature-enhancement)** (**Intermediate / Feature Enhancement**): CLI subcommands, UI components, state synchronization, and database migrations (3–6 files).  
+  _Examples_: Interactive `secureflow init` command, `--since REF` diff scanning, Dark mode toggle, side-by-side code viewer.  
+  👉 [Browse `level2` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level2)
+- 🔴 **[`level3`](./CONTRIBUTING.md#🔴-level3-advanced--architectural-work)** (**Advanced / Architectural Work**): Core scanning engines, BullMQ queue workers, LLM orchestration, and cryptography (7+ files).  
+  _Examples_: Configurable AI model providers, DLQ auto-retries, HMAC audit trail chain, k6 load testing.  
+  👉 [Browse `level3` issues](https://github.com/GauravKarakoti/SecureFlow/labels/level3)
+
+> 📖 **Full Details & Matrix**: See the **[Issue Difficulty Comparison Matrix in CONTRIBUTING.md](./CONTRIBUTING.md#🎯-issue-difficulty-labels-level1-level2-level3)** for detailed expectations and guidelines.
+
+### Branch Naming Conventions
+
+Create a branch from `main` following the `<type>/<description>` format:
 
 ```bash
-# Create a branch following the naming convention
-
-
 git checkout -b fix/your-issue-name   # bug fix
-
 git checkout -b feat/your-feature     # new feature
-
 git checkout -b docs/update-readme    # documentation
+git checkout -b test/add-unit-tests   # testing
 ```
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages:
+### Commit Guidelines
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages:
 
 ```bash
 git commit -m "fix: description of what you fixed"
-
-git commit -m "feat: description of new feature"
-
+git commit -m "feat(cli): description of new feature"
 git commit -m "docs: description of documentation change"
 ```
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -30,6 +31,7 @@ import {
   type TriageStatus,
   type DismissalReason,
 } from "@/lib/actions/triage";
+import { computeExpiryDate } from "@/lib/triage/expiry";
 
 const STATUS_OPTIONS: { value: TriageStatus; label: string }[] = [
   { value: "OPEN", label: "Open" },
@@ -54,10 +56,11 @@ const STATUS_BADGE: Record<TriageStatus, string> = {
 };
 
 const EXPIRY_OPTIONS = [
-  { value: "none", label: "No expiry" },
-  { value: "7", label: "7 days" },
+  { value: "none", label: "No expiry (permanent)" },
   { value: "30", label: "30 days" },
   { value: "90", label: "90 days" },
+  { value: "end_of_quarter", label: "End of quarter" },
+  { value: "custom", label: "Custom date" },
 ] as const;
 
 type SingleFindingTriageControlsProps = {
@@ -82,13 +85,6 @@ function isBulkProps(props: FindingTriageControlsProps): props is BulkFindingTri
 
 function statusLabel(status: TriageStatus): string {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
-}
-
-function computeExpiryDate(days: string): Date | null {
-  if (days === "none" || !days) return null;
-  const numDays = parseInt(days, 10);
-  if (Number.isNaN(numDays) || numDays <= 0) return null;
-  return new Date(Date.now() + numDays * 24 * 60 * 60 * 1000);
 }
 
 function isExpiryLapsed(expiryDate: Date | null): boolean {
@@ -119,13 +115,15 @@ function SingleTriageControls({
   const [reason, setReason] = useState<DismissalReason>(currentReason ?? "FALSE_POSITIVE");
   const [note, setNote] = useState(currentNote ?? "");
   const [expirySelection, setExpirySelection] = useState<string>("none");
+  const [customDate, setCustomDate] = useState<string>("");
 
   const isDismissal = status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED";
   const dirty =
     status !== currentStatus ||
     note !== (currentNote ?? "") ||
     (status === "DISMISSED" && reason !== (currentReason ?? "FALSE_POSITIVE")) ||
-    (isDismissal && expirySelection !== "none");
+    (isDismissal && expirySelection !== "none") ||
+    (isDismissal && expirySelection === "custom" && customDate !== "");
 
   // Determine current expiry status for UI badge/text
   const currentExpiryDate = currentExpiresAt ? new Date(currentExpiresAt) : null;
@@ -134,7 +132,9 @@ function SingleTriageControls({
   const save = () => {
     startTransition(async () => {
       try {
-        const computedExpiry = isDismissal ? computeExpiryDate(expirySelection) : null;
+        const computedExpiry = isDismissal
+          ? computeExpiryDate(expirySelection, customDate)
+          : null;
         const result = await setFindingStatus({
           repositoryId,
           fingerprint,
@@ -198,8 +198,9 @@ function SingleTriageControls({
         value={status}
         onValueChange={(v) => {
           setStatus(v as TriageStatus);
-          if (v !== "FALSE_POSITIVE" && v !== "IGNORED") {
+          if (v !== "FALSE_POSITIVE" && v !== "IGNORED" && v !== "DISMISSED") {
             setExpirySelection("none");
+            setCustomDate("");
           }
         }}
         disabled={isPending}
@@ -256,6 +257,24 @@ function SingleTriageControls({
         </div>
       )}
 
+      {isDismissal && expirySelection === "custom" && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            Custom Expiry Date (max 1 year)
+          </label>
+          <Input
+            type="date"
+            min={new Date().toISOString().slice(0, 10)}
+            max={new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+            value={customDate}
+            onChange={(e) => setCustomDate(e.target.value)}
+            disabled={isPending}
+            data-testid="triage-custom-expiry-input"
+            className="h-9 text-sm"
+          />
+        </div>
+      )}
+
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -294,6 +313,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const [reason, setReason] = useState<DismissalReason>("FALSE_POSITIVE");
   const [pendingStatus, setPendingStatus] = useState<TriageStatus | null>(null);
   const [expiryDays, setExpiryDays] = useState<string>("none");
+  const [customExpiryDate, setCustomExpiryDate] = useState<string>("");
 
   const count = targets.length;
 
@@ -308,7 +328,9 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           applyStatus === "DISMISSED" ||
           applyStatus === "FALSE_POSITIVE" ||
           applyStatus === "IGNORED";
-        const computedExpiry = isDismissal ? computeExpiryDate(expiryDays) : null;
+        const computedExpiry = isDismissal
+          ? computeExpiryDate(expiryDays, customExpiryDate)
+          : null;
 
         const result = await setFindingStatuses({
           items: targets,
@@ -319,14 +341,18 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         });
         if (result.ok) {
           toast({
-            variant: "success",
-            title: "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
+            variant: result.skippedCount && result.skippedCount > 0 ? "default" : "success",
+            title:
+              result.skippedCount && result.skippedCount > 0
+                ? "Bulk triage completed with warnings"
+                : "PLAN EXECUTED: BULK TRIAGE RECORDED 🛡️",
             description:
               result.warning ??
               `${count} findings updated to ${statusLabel(applyStatus)}. Vault security updated.`,
           });
           setNote("");
           setExpiryDays("none");
+          setCustomExpiryDate("");
           onDone?.();
           router.refresh();
         } else {
@@ -366,7 +392,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
 
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">
-          Dismissal Expiry (for False Positive / Ignored)
+          Dismissal Expiry
         </label>
         <Select value={expiryDays} onValueChange={setExpiryDays} disabled={isPending}>
           <SelectTrigger className="h-9 text-sm" data-testid="bulk-triage-expiry-select">
@@ -381,6 +407,24 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           </SelectContent>
         </Select>
       </div>
+
+      {expiryDays === "custom" && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            Custom Expiry Date (max 1 year)
+          </label>
+          <Input
+            type="date"
+            min={new Date().toISOString().slice(0, 10)}
+            max={new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+            value={customExpiryDate}
+            onChange={(e) => setCustomExpiryDate(e.target.value)}
+            disabled={isPending}
+            data-testid="bulk-triage-custom-expiry-input"
+            className="h-9 text-sm"
+          />
+        </div>
+      )}
 
       <Textarea
         value={note}
@@ -398,8 +442,10 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           onClick={() => setPendingStatus("DISMISSED")}
           disabled={isPending}
           className="border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
+          aria-label="Dismiss selected"
+          data-testid="dismiss-selected-button"
         >
-          Dismiss
+          Dismiss selected
         </Button>
         <Button
           size="sm"
@@ -451,8 +497,20 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
             <AlertDialogDescription>
               Every finding selected on this page will be marked as <strong>{pendingLabel}</strong>
               {pendingStatus &&
-                (pendingStatus === "FALSE_POSITIVE" || pendingStatus === "IGNORED") && (
-                  <> with {expiryDays === "none" ? "no expiry" : `${expiryDays} days expiry`}</>
+                (pendingStatus === "FALSE_POSITIVE" ||
+                  pendingStatus === "IGNORED" ||
+                  pendingStatus === "DISMISSED") && (
+                  <>
+                    {" "}
+                    with{" "}
+                    {expiryDays === "none"
+                      ? "no expiry"
+                      : expiryDays === "custom"
+                        ? `expiry on ${customExpiryDate}`
+                        : expiryDays === "end_of_quarter"
+                          ? "expiry at end of quarter"
+                          : `${expiryDays} days expiry`}
+                  </>
                 )}
               . This updates the database and creates an audit entry for each finding.
             </AlertDialogDescription>

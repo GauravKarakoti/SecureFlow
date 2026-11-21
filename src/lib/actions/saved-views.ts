@@ -13,6 +13,7 @@ export interface SavedViewFilters {
   from?: string | null;
   to?: string | null;
   sort?: string;
+  expiring?: string | null;
 }
 
 export interface SavedViewDto {
@@ -39,7 +40,9 @@ async function requireUser(): Promise<string> {
  * Sanitize and whitelist filter fields so no sensitive data (tokens, snippets)
  * can ever be stored in a saved view.
  */
-export function sanitizeViewFilters(filters: Record<string, unknown> = {}): SavedViewFilters {
+export async function sanitizeViewFilters(
+  filters: Record<string, unknown> = {},
+): Promise<SavedViewFilters> {
   const sanitized: SavedViewFilters = {};
 
   if (Array.isArray(filters.severity)) {
@@ -71,6 +74,9 @@ export function sanitizeViewFilters(filters: Record<string, unknown> = {}): Save
   }
   if (typeof filters.sort === "string" && filters.sort.trim()) {
     sanitized.sort = filters.sort.trim();
+  }
+  if (typeof filters.expiring === "string" && filters.expiring.trim()) {
+    sanitized.expiring = filters.expiring.trim();
   }
 
   return sanitized;
@@ -116,7 +122,7 @@ export async function createSavedView(input: {
     throw new Error("View name cannot exceed 80 characters");
   }
 
-  const sanitized = sanitizeViewFilters(input.filters as Record<string, unknown>);
+  const sanitized = await sanitizeViewFilters(input.filters as Record<string, unknown>);
 
   const saved = await prisma.savedView.upsert({
     where: {

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "SecureFlow Route Bundle Budgets",
+  "version": 1,
+  "description": "Per-route JavaScript bundle size budgets and growth thresholds (#1872)",
+  "settings": {
+    "maxRouteGrowthPercent": 10,
+    "maxRouteGrowthKb": 25,
+    "unit": "kB"
+  },
+  "routes": {
+    "/": {
+      "budgetKb": 250,
+      "baselineKb": 180,
+      "description": "Landing page and public redirect"
+    },
+    "/api/auth/signin": {
+      "budgetKb": 150,
+      "baselineKb": 90,
+      "description": "Authentication and sign-in page"
+    },
+    "/dashboard": {
+      "budgetKb": 350,
+      "baselineKb": 270,
+      "description": "Mission Control dashboard overview"
+    },
+    "/dashboard/findings": {
+      "budgetKb": 400,
+      "baselineKb": 320,
+      "description": "Security findings list and triage drawer"
+    },
+    "/dashboard/policies": {
+      "budgetKb": 350,
+      "baselineKb": 260,
+      "description": "Security policies rule configuration"
+    },
+    "/dashboard/analytics": {
+      "budgetKb": 350,
+      "baselineKb": 280,
+      "description": "Vulnerability metrics and trend sparklines"
+    },
+    "/dashboard/settings": {
+      "budgetKb": 350,
+      "baselineKb": 270,
+      "description": "Repository settings, API tokens, and webhooks"
+    },
+    "/dashboard/audit": {
+      "budgetKb": 300,
+      "baselineKb": 220,
+      "description": "Tamper-evident HMAC audit trail log"
+    },
+    "/dashboard/digest": {
+      "budgetKb": 300,
+      "baselineKb": 210,
+      "description": "Weekly executive vulnerability digest"
+    },
+    "/dashboard/ai-health": {
+      "budgetKb": 350,
+      "baselineKb": 260,
+      "description": "AI model health and circuit breaker status"
+    }
+  }
+}

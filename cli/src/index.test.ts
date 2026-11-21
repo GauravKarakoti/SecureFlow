@@ -202,6 +202,35 @@ describe("mcp subcommand routing", () => {
     expect(m.getStagedFiles).not.toHaveBeenCalled();
   });
 
+  it("passes parsed heartbeat and stall options to startMcpServer", async () => {
+    const code = await runCli(
+      "mcp",
+      "--heartbeat-interval=15000",
+      "--heartbeat-timeout=5000",
+      "--stall-timeout=30000",
+    );
+    expect(code).toBe(0);
+    expect(m.startMcpServer).toHaveBeenCalledWith({
+      heartbeatIntervalMs: 15000,
+      heartbeatTimeoutMs: 5000,
+      stallTimeoutMs: 30000,
+    });
+  });
+
+  it("awaits session.waitForClose when returned", async () => {
+    let closed = false;
+    const session = {
+      waitForClose: vi.fn().mockImplementation(async () => {
+        closed = true;
+      }),
+    };
+    m.startMcpServer.mockResolvedValue(session);
+    const code = await runCli("mcp");
+    expect(code).toBe(0);
+    expect(session.waitForClose).toHaveBeenCalledTimes(1);
+    expect(closed).toBe(true);
+  });
+
   it("prints MCP help without starting the server", async () => {
     const code = await runCli("mcp", "--help");
     expect(code).toBe(0);
@@ -484,6 +513,58 @@ describe("--init flag & initialization modes (#1758)", () => {
     const code = await runCli("--init", "--blank");
     expect(code).toBe(1);
     expect(output(errorSpy)).toContain("Failed to write package.json");
+  });
+
+  it("supports 'init' subcommand as an alternative to '--init'", async () => {
+    const { initSecureFlow } = await import("./lib/tui.js");
+    vi.mocked(initSecureFlow).mockResolvedValueOnce({
+      success: true,
+      message: "Successfully initialized configuration",
+      hookPath: ".husky/pre-commit",
+    });
+
+    const code = await runCli("init");
+    expect(code).toBe(0);
+    expect(initSecureFlow).toHaveBeenCalled();
+    expect(output(logSpy)).toContain("[SecureFlow Init]");
+  });
+});
+
+describe("validate command (#1898)", () => {
+  it("exits with code 0 when all configuration files are valid", async () => {
+    const existsSpy = vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation((p: any) => {
+      if (String(p).endsWith(".json")) {
+        return JSON.stringify({ gate: { blockOn: "HIGH" } });
+      }
+      return "[paths]\nnode_modules/**\n";
+    });
+
+    const code = await runCli("validate");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain("Configuration validation passed");
+
+    existsSpy.mockRestore();
+    readSpy.mockRestore();
+  });
+
+  it("exits with code 1 and prints line numbers when configuration has errors", async () => {
+    const existsSpy = vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation((p: any) => {
+      if (String(p).endsWith(".json")) {
+        return '{\n  "gate": {\n    "blockOn": "SUPER_CRITICAL"\n  }\n}';
+      }
+      return "[paths]\nnode_modules/**\n";
+    });
+
+    const code = await runCli("validate");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("Configuration validation failed");
+    expect(output(errorSpy)).toContain(".secureflow.json:3");
+    expect(output(errorSpy)).toContain('Invalid severity "SUPER_CRITICAL"');
+
+    existsSpy.mockRestore();
+    readSpy.mockRestore();
   });
 });
 

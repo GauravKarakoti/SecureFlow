@@ -83,7 +83,40 @@ Two roles are seeded out of the box:
 
 For browser-driven requests (dashboard, share pages), the NextAuth session cookie is sent automatically — no extra headers needed.
 
-For programmatic clients that hold a session cookie, simply include it. There is currently **no bearer-token / API-key flow**; all auth is cookie-based.
+#### Personal API Tokens (Bearer Auth)
+
+For automated workflows, CI/CD pipelines, scripts, and the SecureFlow CLI, SecureFlow supports scoped **Personal API Tokens** (`sft_...`).
+
+To authenticate using a personal token, supply it in the `Authorization` HTTP header:
+
+```http
+GET /api/findings
+Authorization: Bearer sft_3a8f1b2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a
+```
+
+##### Token Security & Storage Guarantees
+
+- **Zero Raw Storage**: The plain token is shown exactly once upon creation. Only its SHA-256 hash (`tokenHash`) and an 8-character prefix (`tokenPrefix`, e.g. `sft_3a8f1b2c`) are stored in PostgreSQL.
+- **Granular Scopes**: Tokens are restricted to specific permissions. If an endpoint requires a scope the token does not possess, the API rejects the request with HTTP `403 Forbidden` (`INSUFFICIENT_SCOPE`).
+- **Expiry & Revocation**: Tokens can be created with 30-day, 90-day, or custom expiry dates. Expired or revoked tokens are rejected immediately with HTTP `401 Unauthorized` (`TOKEN_EXPIRED` or `TOKEN_REVOKED`).
+- **Audit Logging & Last Used**: Creation and revocation events are recorded in the tamper-evident audit ledger (`API_TOKEN_CREATE`, `API_TOKEN_REVOKE`). Each successful API call records `lastUsedAt` timestamp and `lastUsedIp`.
+- **Per-Token Rate Limiting**: Existing rate limits are enforced per token ID / hash rather than sharing an IP-wide rate-limit bucket.
+
+##### Supported Scopes
+
+| Scope            | Description                     | Allowed Operations                                                      |
+| :--------------- | :------------------------------ | :---------------------------------------------------------------------- |
+| `findings:read`  | Read findings and triage state  | `GET /api/findings`, `GET /api/findings/[id]`                           |
+| `findings:write` | Modify findings and remediation | `PATCH /api/findings/[id]`, `POST /api/findings/bulk-remediate`         |
+| `scans:read`     | Query scans and background jobs | `GET /api/findings/status/[jobId]`, `GET /api/sbom/scan/status/[jobId]` |
+| `scans:write`    | Trigger automated scans         | `POST /api/cli/scan`, `POST /api/findings`, `POST /api/sbom/scan`       |
+| `policies:read`  | Read and export policies        | `GET /api/policies/export`, Policy template inspection                  |
+| `policies:write` | Configure and test policies     | `POST /api/policies/import`, `POST /api/policies/test`                  |
+| `audit:read`     | Read audit logs                 | `GET /api/audit`, `GET /api/admin/audit/verify`                         |
+
+##### Browser Session Cookie Auth
+
+Programmatic clients holding a valid session cookie can alternatively pass:
 
 ```http
 GET /api/admin/export
@@ -286,9 +319,10 @@ The `X-Hub-Signature-256` header must be `sha256=` + the hex HMAC of the raw req
 | --------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `pull_request`              | `opened`, `synchronize`, `reopened` | Full scan pipeline (below).                                                                             |
 | `pull_request`              | `closed`                            | Records merge/closure state for leaderboard scoring. No scan.                                           |
+| `merge_group`               | `checks_requested`                  | Merge queue evaluation: reuses PR scan result if diff unchanged or runs fast combined scan.             |
 | `installation`              | `created`                           | Links the installer's GitHub account (via `sender.id`) and bulk-inserts selected repos in chunks of 50. |
 | `installation_repositories` | `added`                             | Inserts newly-added repos for an existing installation.                                                 |
-| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.   |
+| `check_run`                 | `rerequested`                       | Enqueues scan job for attached PR(s) and updates the existing check run. Foreign checks are ignored.    |
 | `check_suite`               | `rerequested`                       | Enqueues scan job for attached PR(s). Foreign check suites are ignored.                                 |
 | _(anything else)_           | —                                   | Returns `200 { "message": "Event not tracked" }`.                                                       |
 
@@ -397,6 +431,16 @@ For a tracked `pull_request` event, the handler:
 6. Updates the Check Run conclusion: `success` (PASS), `action_required` (REVIEW REQUIRED), or `failure` (BLOCKED).
 7. Updates the placeholder comment with the full AI Security Report (or a ✅ "no vulnerabilities" message).
 8. Persists `PullRequest`, `ScanResult`, and `Finding` rows.
+9. If `codeScanningEnabled` is turned on for the repository, converts findings to SARIF 2.1.0 with secret masking and uploads them via GitHub's Code Scanning API (`POST /repos/{owner}/{repo}/code-scanning/sarifs`).
+
+#### Code scanning SARIF upload (`POST /repos/{owner}/{repo}/code-scanning/sarifs`)
+
+Repositories with **Publish findings to GitHub Code Scanning** opted in push scan results directly to GitHub's **Security → Code scanning alerts** tab:
+
+- **Format**: SARIF 2.1.0 (gzipped JSON), generated via `buildSarifDocument`.
+- **Tool driver**: `SecureFlow` with deterministic rule IDs (`ruleIdFor`) and stable partial fingerprints (`secureflow/finding/v1`) to prevent alert duplication across commit scans.
+- **Secret Redaction**: Finding messages, snippets, and descriptions pass through `maskFindingText`, ensuring raw API keys and secrets are replaced with `[REDACTED_BY_THE_PROFESSOR]`.
+- **Fault-tolerance**: Failures due to missing GitHub App permissions (`security_events: write`) or disabled Advanced Security (403/404) do not fail the scan check run; a warning is persisted to `Repository.codeScanningWarning` and displayed on the repository card in Settings.
 
 #### Required environment variables
 
@@ -468,6 +512,48 @@ Content-Type: application/json
 - `401 Unauthorized` — Missing or invalid HMAC signature
 - `413 Payload Too Large` — Payload exceeds byte limit
 - `500 Internal Server Error` — `BITBUCKET_WEBHOOK_SECRET` not configured
+
+---
+
+### 3b. Outbound Webhooks (SIEM, Ticketing, Chatbots) (#1866)
+
+SecureFlow dispatches cryptographically signed JSON webhooks to user-configured HTTPS destinations for automated integration with ticketing systems, SIEMs, and custom bots.
+
+#### Events Emitted
+
+| Event               | Description                                                                   |
+| :------------------ | :---------------------------------------------------------------------------- |
+| `scan.completed`    | Pull request scan finished; contains decision, metadata, and severity counts. |
+| `scan.blocked`      | Emitted when a scan fails policy (decision is `BLOCKED`).                     |
+| `finding.created`   | Emitted for security findings discovered during scans.                        |
+| `finding.dismissed` | Emitted when a finding is triaged as dismissed or false positive.             |
+
+#### Request Headers
+
+```http
+POST /your-webhook-endpoint
+Content-Type: application/json
+X-SecureFlow-Signature: sha256=<hmac-sha256-hex>
+X-SecureFlow-Event: scan.completed
+X-SecureFlow-Event-Id: evt_123e4567-e89b-12d3-a456-426614174000
+X-SecureFlow-Timestamp: 2026-11-19T18:00:00.000Z
+User-Agent: SecureFlow-Webhook/1.0
+```
+
+#### Verifying Signatures
+
+```ts
+import crypto from "node:crypto";
+
+function verifySignature(payload: string, signatureHeader: string, secret: string): boolean {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
+}
+```
+
+#### Privacy & Zero-Leakage Guarantee
+
+Outbound payloads strictly omit code snippets, file contents, diffs, and secret values. Only safe metadata (`repository`, `prNumber`, `commitSha`, `decision`, finding `type`, `severity`, and file locations) is included.
 
 ---
 

@@ -44,16 +44,13 @@ import {
   parseCacheClearArg,
   parseCacheDirArg,
 } from "./lib/output-args.js";
-import { getCacheEntry, setCacheEntry, clearCache, resolveCacheDir } from "./cache.js";
+import { getCacheEntry, setCacheEntry, clearCache } from "./cache.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
   TerminalSpinner,
   formatTuiScanSummary,
-  initHuskyPreCommitHook,
-  initBlankPrepareScript,
   initSecureFlow,
   formatInitGreeting,
-  colors,
 } from "./lib/tui.js";
 
 const VERBOSE = process.argv.includes("--verbose");
@@ -95,11 +92,38 @@ Usage:
 
 Description:
   Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio.
-  Communicates using JSON-RPC protocol over standard input/output.
+  Communicates using JSON-RPC protocol over standard input/output with automatic
+  heartbeat liveness monitoring and graceful broken pipe / EOF recovery.
 
 Options:
-  -h, --help    Show this help message
+  -h, --help                     Show this help message
+  --heartbeat-interval=<ms>      Interval between client liveness ping checks (default: 30000ms, 0 to disable)
+  --heartbeat-timeout=<ms>       Timeout waiting for client pong response (default: 10000ms)
+  --stall-timeout=<ms>           Timeout for stdio stream inactivity / stall detection (default: 60000ms, 0 to disable)
 `);
+}
+
+function parseMcpOptions(argv: string[]) {
+  const options: {
+    heartbeatIntervalMs?: number;
+    heartbeatTimeoutMs?: number;
+    stallTimeoutMs?: number;
+  } = {};
+
+  for (const arg of argv) {
+    if (arg.startsWith("--heartbeat-interval=")) {
+      const val = Number.parseInt(arg.slice("--heartbeat-interval=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.heartbeatIntervalMs = val;
+    } else if (arg.startsWith("--heartbeat-timeout=")) {
+      const val = Number.parseInt(arg.slice("--heartbeat-timeout=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.heartbeatTimeoutMs = val;
+    } else if (arg.startsWith("--stall-timeout=")) {
+      const val = Number.parseInt(arg.slice("--stall-timeout=".length), 10);
+      if (!Number.isNaN(val) && val >= 0) options.stallTimeoutMs = val;
+    }
+  }
+
+  return options;
 }
 
 function printHelp(): void {
@@ -108,18 +132,25 @@ SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
   secureflow [options]
+  secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
   cache-clear            Clear the local scan cache directory (.secureflow/cache)
 
 Options:
-  --init                 Initialize SecureFlow (choose between Blank and Husky)
+  --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
+  --validate [file]      Validate configuration files against schema
+  --force, -f            Overwrite existing configuration files without confirmation
+  --severity <level>     Minimum blocking severity threshold for init or fail-on
+  --ignore <paths>       Paths to ignore for init (comma-separated globs)
+  --languages <langs>    Languages in repository for init (comma-separated)
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
   --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
@@ -135,7 +166,6 @@ Options:
   --dry-run              Simulate scan execution without writing files
   --file <path>          Target file for explain subcommand
   --finding-type <type>  Vulnerability type identifier for explain subcommand
-  --severity <level>     Severity level (low, medium, high, critical)
   --poll                 Poll until SBOM scan completion (for sbom command)
   -v, --voice            Play an audio summary debrief of scan findings upon completion
   --color                Force colored output even on non-TTY terminals
@@ -143,6 +173,10 @@ Options:
   -h, --help             Show this help message
 
 Examples:
+  $ secureflow --init                              # Initialize configuration (.secureflow.json, .secureflowignore) and git hooks
+  $ secureflow --init --severity HIGH --force      # Non-interactive initialization with severity threshold
+  $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
+  $ secureflow validate .secureflow.json           # Validate specific configuration file
   $ secureflow                                     # Run standard security scan on staged files
   $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
@@ -256,12 +290,64 @@ async function main(): Promise<number> {
     }
   }
 
-  if (
+  const isValidateCommand =
+    process.argv[2] === "validate" ||
+    process.argv.includes("--validate") ||
+    process.argv.some((arg) => arg.startsWith("--validate="));
+
+  if (isValidateCommand) {
+    let targetPath: string | undefined;
+    if (process.argv[2] === "validate") {
+      const candidate = process.argv[3];
+      if (candidate && !candidate.startsWith("-")) {
+        targetPath = candidate;
+      }
+    } else {
+      const idx = process.argv.findIndex((a) => a === "--validate" || a.startsWith("--validate="));
+      if (idx !== -1) {
+        const arg = process.argv[idx]!;
+        if (arg.startsWith("--validate=")) {
+          targetPath = arg.slice("--validate=".length);
+        } else if (idx + 1 < process.argv.length && !process.argv[idx + 1]!.startsWith("-")) {
+          targetPath = process.argv[idx + 1];
+        }
+      }
+    }
+
+    const { validateConfigFiles } = await import("./init-config.js");
+    const report = validateConfigFiles({
+      filePath: targetPath,
+      targetDir: process.cwd(),
+    });
+
+    if (report.valid) {
+      console.log("✅ [SecureFlow] Configuration validation passed.");
+      for (const [file, res] of Object.entries(report.files)) {
+        if (res.exists) {
+          console.log(`   ✓ ${file} is valid`);
+        }
+      }
+      return 0;
+    } else {
+      console.error(
+        `❌ [SecureFlow] Configuration validation failed with ${report.allErrors.length} error(s):`,
+      );
+      for (const err of report.allErrors) {
+        const colStr = err.column ? `:${err.column}` : "";
+        console.error(`   ${err.file}:${err.line}${colStr} - ${err.message}`);
+      }
+      return 1;
+    }
+  }
+
+  const isInitCommand =
+    process.argv[2] === "init" ||
     process.argv.some(
       (arg) =>
         arg === "--init" || arg.startsWith("--init=") || arg === "--husky" || arg === "--blank",
-    )
-  ) {
+    );
+
+  if (isInitCommand) {
     const result = await initSecureFlow();
     const greeting = formatInitGreeting(result);
     if (result.success) {
@@ -283,7 +369,11 @@ async function main(): Promise<number> {
 
     try {
       const { startMcpServer } = await import("./mcp/index.js");
-      await startMcpServer();
+      const mcpOptions = parseMcpOptions(process.argv);
+      const session = await startMcpServer(mcpOptions);
+      if (session && typeof session.waitForClose === "function") {
+        await session.waitForClose();
+      }
       return 0;
     } catch (err) {
       console.error(

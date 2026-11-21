@@ -31,7 +31,7 @@ async function llmInjectionCheck(text: string): Promise<boolean> {
     const response = await getGroqClient().chat.completions.create(
       {
         // Same unset default as DEFAULT_SCAN_MODEL; llama-3.1-8b-instant is shut down.
-        model: env.GROQ_MODEL || "openai/gpt-oss-20b",
+        model: env.AI_MODEL || "openai/gpt-oss-20b",
         temperature: 0,
         max_tokens: 5,
         messages: [
@@ -144,7 +144,7 @@ const INJECTION_PATTERNS: RegExp[] = [
   /\b(?:hypothetical universe|movie script|superuser clearance)\b.{0,140}\b(?:approve|bypass|disable)\b/i,
 ];
 
-function detectPromptInjection(text: string): boolean {
+export function detectPromptInjection(text: string): boolean {
   if (!text) return false;
   return INJECTION_PATTERNS.some((pattern) => pattern.test(text));
 }

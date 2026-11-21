@@ -2,8 +2,10 @@ import {
   lookupCisaKevEntry,
   lookupOsvAdvisory,
   searchCisaKevCatalog,
+  loadCisaKevCatalog,
   type CisaKevVulnerability,
 } from "./threat-intel-feed.js";
+import { getThreatIntelCacheWithSwr } from "./threat-intel-cache.js";
 
 export interface ThreatIntelligenceEntry {
   id: string;
@@ -21,6 +23,54 @@ export interface ThreatIntelligenceSearchResult extends ThreatIntelligenceEntry 
   dueDate?: string;
   vendorProject?: string;
   product?: string;
+}
+
+export type ThreatIntelResolutionSource = "live" | "cache" | "stale-fallback";
+
+let currentThreatIntelSource: ThreatIntelResolutionSource = "live";
+
+export function getThreatIntelSource(): ThreatIntelResolutionSource {
+  return currentThreatIntelSource;
+}
+
+export function setThreatIntelSource(source: ThreatIntelResolutionSource): void {
+  currentThreatIntelSource = source;
+}
+
+export async function resolveThreatIntelSource(
+  options: { checkLive?: boolean } = {},
+): Promise<ThreatIntelResolutionSource> {
+  const isOffline = process.env.SECUREFLOW_AIRGAPPED === "1" || process.env.OFFLINE_MODE === "1";
+  if (isOffline) {
+    currentThreatIntelSource = "stale-fallback";
+    return "stale-fallback";
+  }
+
+  try {
+    const catalog = await loadCisaKevCatalog({ allowStale: true });
+    if (!catalog) {
+      currentThreatIntelSource = "stale-fallback";
+      return "stale-fallback";
+    }
+
+    const cachedResult = await getThreatIntelCacheWithSwr<unknown>("cisa-kev-catalog", {
+      allowExpiredFallback: true,
+    });
+    if (cachedResult) {
+      if (cachedResult.isStale) {
+        currentThreatIntelSource = "stale-fallback";
+        return "stale-fallback";
+      }
+      currentThreatIntelSource = "cache";
+      return "cache";
+    }
+
+    currentThreatIntelSource = "live";
+    return "live";
+  } catch {
+    currentThreatIntelSource = "stale-fallback";
+    return "stale-fallback";
+  }
 }
 
 export const KNOWLEDGE_BASE: ThreatIntelligenceEntry[] = [
@@ -146,6 +196,8 @@ export async function searchThreatIntelligence(
     );
   }
 
+  currentThreatIntelSource = liveMatches.length > 0 ? "live" : "stale-fallback";
+
   return [...results.values()].slice(0, Math.max(1, Math.min(limit, 50)));
 }
 
@@ -179,6 +231,7 @@ export async function lookupThreatIntelligenceById(
   const liveLookupUnavailable = osvResult.status === "rejected" || kevResult.status === "rejected";
 
   if (osv || kev) {
+    currentThreatIntelSource = liveLookupUnavailable ? "stale-fallback" : "live";
     return {
       id: osv?.id ?? normalized,
       cve: normalized,
@@ -202,6 +255,7 @@ export async function lookupThreatIntelligenceById(
   }
 
   if (bundled) {
+    currentThreatIntelSource = "stale-fallback";
     return {
       ...bundled,
       source: "BUNDLED",

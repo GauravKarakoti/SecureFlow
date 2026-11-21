@@ -61,6 +61,9 @@ export interface FindingRow {
   triageStatus: FindingStatus;
   triageNote: string | null;
   triageReason: string | null;
+  triageExpiresAt?: Date | null;
+  resolvedAt?: Date | null;
+  resolvedCommitSha?: string | null;
   /** Age of the finding in whole days (from createdAt). */
   ageDays: number | null;
   /** True when the finding has exceeded the configurable target age for its severity. */
@@ -124,10 +127,24 @@ export async function getUserFindings(
   const normalized = normalizeFindingsQuery(query);
 
   const { suppressedFingerprints, byKey } = await getUserTriage(userId);
+  const now = new Date();
+  const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+  const expiringFingerprints: string[] = [];
+  for (const [key, entry] of byKey) {
+    if (entry.expiresAt) {
+      const expTime = new Date(entry.expiresAt).getTime();
+      if (expTime > now.getTime() && expTime <= now.getTime() + fourteenDaysMs) {
+        const fingerprint = key.slice(key.indexOf(":") + 1);
+        expiringFingerprints.push(fingerprint);
+      }
+    }
+  }
+
   const context = {
     userId,
     dismissedFingerprints: suppressedFingerprints,
     fingerprintsByStatus: groupFingerprintsByStatus(byKey),
+    expiringFingerprints,
   };
 
   const listWhere = buildFindingsWhere(context, normalized);
@@ -256,6 +273,9 @@ export async function getUserFindings(
       triageStatus,
       triageNote: triage?.note ?? null,
       triageReason: triage?.dismissalReason ?? null,
+      triageExpiresAt: triage?.expiresAt ?? null,
+      resolvedAt: triage?.resolvedAt ?? null,
+      resolvedCommitSha: triage?.resolvedCommitSha ?? null,
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
     };

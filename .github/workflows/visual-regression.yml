@@ -1,0 +1,123 @@
+name: Visual Regression Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: "Update baseline snapshots and commit artifact"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual-regression:
+    name: Playwright Visual Regression
+    # Opt-in trigger: runs on manual workflow_dispatch, when labeled with 'visual-regression', or when PR title contains '[visual]'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'visual-regression') ||
+      contains(github.event.pull_request.title, '[visual]')
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+
+    env:
+      CI: "true"
+      NEXTAUTH_URL: http://localhost:9002
+      AUTH_URL: http://localhost:9002
+      NEXTAUTH_SECRET: e2e-test-secret-key
+      AUTH_SECRET: e2e-test-secret-key
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_TRUST_HOST: "true"
+      NEXT_PUBLIC_MOCK_DB: "true"
+      NEXT_PUBLIC_MOCK_AUTH: "true"
+      ALLOW_MOCK_AUTH: "true"
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/secureflow
+      DATABASE_POOL_URL: postgresql://ci:ci@localhost:5432/secureflow
+      GROQ_API_KEY: ci-build-placeholder
+      GITHUB_APP_ID: "1"
+      GITHUB_WEBHOOK_SECRET: e2e-webhook-secret
+      GITLAB_WEBHOOK_TOKEN: e2e-gitlab-token
+      BITBUCKET_WEBHOOK_SECRET: e2e-bitbucket-secret
+      GITHUB_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        ci-build-placeholder-not-a-real-key
+        -----END PRIVATE KEY-----
+      GITHUB_CLIENT_ID: ci-build-placeholder
+      GITHUB_CLIENT_SECRET: ci-build-placeholder
+      NEXT_PUBLIC_APP_URL: http://localhost:9002
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Cache npm cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-node22-
+
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'src/**/*.js', 'src/**/*.jsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}-
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Install Playwright Chromium with OS dependencies
+        run: npx playwright install chromium --with-deps
+
+      - name: Build Application for Visual Tests
+        run: npm run build
+
+      - name: Run Visual Regression Tests
+        run: npm run test:visual
+
+      - name: Upload Visual Diff Artifacts on Failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: visual-regression-diffs
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14

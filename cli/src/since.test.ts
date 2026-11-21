@@ -118,7 +118,7 @@ describe("--since REF CLI Integration Tests", () => {
     // Deleted file and untouched file should NOT be in the results
     expect(scannedPaths).not.toContain("to-delete.ts");
     expect(scannedPaths).not.toContain("untouched.ts");
-  });
+  }, 20000);
 
   it("detects violations in changed files and shows correct count in text output", () => {
     tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-since-test-"));

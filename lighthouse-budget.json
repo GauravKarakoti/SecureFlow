@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "SecureFlow Lighthouse CI Performance Budgets",
+  "version": 1,
+  "description": "Lighthouse CI score and timing budgets for critical authentication and dashboard surfaces (#1872)",
+  "pages": {
+    "/api/auth/signin": {
+      "name": "Sign-in & Authentication Page",
+      "minScores": {
+        "performance": 0.7,
+        "accessibility": 0.85,
+        "bestPractices": 0.85
+      },
+      "maxTimingsMs": {
+        "firstContentfulPaint": 2500,
+        "interactive": 4000
+      }
+    },
+    "/dashboard": {
+      "name": "Mission Control Dashboard",
+      "minScores": {
+        "performance": 0.7,
+        "accessibility": 0.85,
+        "bestPractices": 0.85
+      },
+      "maxTimingsMs": {
+        "firstContentfulPaint": 2500,
+        "interactive": 4500
+      }
+    }
+  }
+}

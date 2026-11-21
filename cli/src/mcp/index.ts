@@ -1,9 +1,17 @@
 import { createHmac, createHash } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  EmptyResultSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { SCAN_CONTENT_SCHEMA, scanSuppliedContent } from "./scan.js";
-import { lookupThreatIntelligenceById, searchThreatIntelligence } from "../threat-intel.js";
+import {
+  getThreatIntelSource,
+  lookupThreatIntelligenceById,
+  searchThreatIntelligence,
+} from "../threat-intel.js";
 import { generateSarifReport } from "../sarif.js";
 import type { FileScanResult, Severity, Violation } from "../scanner.js";
 import {
@@ -594,13 +602,15 @@ export function createThreatIntelMcpServer(): Server {
       const query = typeof args?.query === "string" ? args.query : "";
       const matches = await searchThreatIntelligence(query);
       const liveMatches = matches.filter((item) => item.source !== "BUNDLED");
+      const threatIntelSource = getThreatIntelSource();
 
       const result = {
         matches,
+        threatIntelSource,
         liveSummary:
           liveMatches.length > 0
-            ? `Found ${liveMatches.length} synchronized CISA KEV record(s).`
-            : null,
+            ? `Found ${liveMatches.length} synchronized CISA KEV record(s) (source: ${threatIntelSource}).`
+            : `Serving threat intelligence advisory records (source: ${threatIntelSource}).`,
       };
 
       return {
@@ -810,16 +820,290 @@ export function createThreatIntelMcpServer(): Server {
   return server;
 }
 
-export async function startMcpServer(): Promise<void> {
+export interface McpServerOptions {
+  /**
+   * Custom readable stream for standard input (defaults to process.stdin).
+   */
+  stdin?: NodeJS.ReadableStream;
+  /**
+   * Custom writable stream for standard output (defaults to process.stdout).
+   */
+  stdout?: NodeJS.WritableStream;
+  /**
+   * Heartbeat ping interval in milliseconds to verify client liveness.
+   * If > 0, the server periodically sends a ping request to the client.
+   * Defaults to 30000 (30 seconds), or env SECUREFLOW_MCP_HEARTBEAT_INTERVAL_MS / SECUREFLOW_MCP_HEARTBEAT_MS.
+   * Set to 0 to disable periodic ping-pong checks.
+   */
+  heartbeatIntervalMs?: number;
+  /**
+   * Heartbeat timeout in milliseconds to wait for a client pong response.
+   * Defaults to 10000 (10 seconds), or env SECUREFLOW_MCP_HEARTBEAT_TIMEOUT_MS.
+   */
+  heartbeatTimeoutMs?: number;
+  /**
+   * Maximum duration of stdio stream inactivity / stall allowed before client is deemed unresponsive.
+   * Defaults to 60000 (60 seconds), or env SECUREFLOW_MCP_LIVENESS_TIMEOUT_MS / SECUREFLOW_MCP_STALL_TIMEOUT_MS.
+   * Set to 0 to disable stall detection.
+   */
+  stallTimeoutMs?: number;
+  /**
+   * Callback invoked when a disconnection, stream EOF, broken pipe, or stall occurs.
+   */
+  onDisconnect?: (reason: string) => void;
+  /**
+   * Whether to call process.exit(0) upon graceful shutdown of stdio transport.
+   * Defaults to true in non-test environments, false in test environments.
+   */
+  exitOnDisconnect?: boolean;
+}
+
+export interface McpServerSession {
+  server: Server;
+  transport: StdioServerTransport;
+  close: () => Promise<void>;
+  waitForClose: () => Promise<void>;
+  isAlive: () => boolean;
+  getLastActivity: () => number;
+}
+
+export async function startMcpServer(options: McpServerOptions = {}): Promise<McpServerSession> {
+  const stdin = options.stdin ?? process.stdin;
+  const stdout = options.stdout ?? process.stdout;
+
+  const envHeartbeat =
+    process.env.SECUREFLOW_MCP_HEARTBEAT_INTERVAL_MS ?? process.env.SECUREFLOW_MCP_HEARTBEAT_MS;
+  const heartbeatIntervalMs =
+    options.heartbeatIntervalMs ?? (envHeartbeat ? Number.parseInt(envHeartbeat, 10) : 30000);
+
+  const envHeartbeatTimeout = process.env.SECUREFLOW_MCP_HEARTBEAT_TIMEOUT_MS;
+  const heartbeatTimeoutMs =
+    options.heartbeatTimeoutMs ??
+    (envHeartbeatTimeout ? Number.parseInt(envHeartbeatTimeout, 10) : 10000);
+
+  const envStallTimeout =
+    process.env.SECUREFLOW_MCP_LIVENESS_TIMEOUT_MS ?? process.env.SECUREFLOW_MCP_STALL_TIMEOUT_MS;
+  const stallTimeoutMs =
+    options.stallTimeoutMs ?? (envStallTimeout ? Number.parseInt(envStallTimeout, 10) : 60000);
+
+  const isTestEnv =
+    process.env.NODE_ENV === "test" ||
+    Boolean(process.env.VITEST) ||
+    Boolean(process.env.JEST_WORKER_ID);
+  const exitOnDisconnect = options.exitOnDisconnect ?? !isTestEnv;
+
   const server = createThreatIntelMcpServer();
-  const transport = new StdioServerTransport();
+  const transport = new StdioServerTransport(stdin as any, stdout as any);
+
+  let lastActivity = Date.now();
+  let isShuttingDown = false;
+  let isClosed = false;
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+  let stallTimer: NodeJS.Timeout | null = null;
+  let heartbeatInFlight = false;
+
+  let resolveClose: () => void = () => {};
+  const closePromise = new Promise<void>((resolve) => {
+    resolveClose = resolve;
+  });
+
+  const recordActivity = () => {
+    lastActivity = Date.now();
+  };
+
+  const triggerShutdown = async (reason: string): Promise<void> => {
+    if (isShuttingDown) {
+      return closePromise;
+    }
+    isShuttingDown = true;
+
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (stallTimer) {
+      clearInterval(stallTimer);
+      stallTimer = null;
+    }
+
+    // Clean up stream listeners
+    if (typeof (stdout as any).removeListener === "function") {
+      (stdout as any).removeListener("error", handleStdoutError);
+    }
+    if (typeof (stdin as any).removeListener === "function") {
+      (stdin as any).removeListener("error", handleStdinError);
+      (stdin as any).removeListener("end", handleStdinEnd);
+      (stdin as any).removeListener("close", handleStdinClose);
+      (stdin as any).removeListener("data", recordActivity);
+    }
+
+    process.removeListener("SIGINT", sigintListener);
+    process.removeListener("SIGTERM", sigtermListener);
+
+    try {
+      await transport.close().catch(() => {});
+    } catch {
+      // Ignore transport close errors
+    }
+
+    try {
+      await server.close().catch(() => {});
+    } catch {
+      // Ignore server close errors
+    }
+
+    try {
+      options.onDisconnect?.(reason);
+    } catch {
+      // Suppress callback errors
+    }
+
+    isClosed = true;
+    resolveClose();
+
+    if (exitOnDisconnect) {
+      process.exit(0);
+    }
+
+    return closePromise;
+  };
+
+  const handleStdoutError = (error: any) => {
+    const code = error?.code;
+    const isBrokenPipe =
+      code === "EPIPE" || code === "ERR_STREAM_DESTROYED" || code === "ECONNRESET";
+
+    if (isBrokenPipe) {
+      console.error(
+        `[SecureFlow MCP] Client disconnected abruptly (stdout broken pipe: ${code}). Daemon remaining intact; initiating clean transport shutdown.`,
+      );
+    } else {
+      console.error(`[SecureFlow MCP] stdout stream error: ${error?.message || String(error)}`);
+    }
+    void triggerShutdown(isBrokenPipe ? `Broken pipe: ${code}` : `stdout error: ${error?.message}`);
+  };
+
+  const handleStdinError = (error: any) => {
+    const code = error?.code;
+    const isBrokenPipe =
+      code === "EPIPE" || code === "ERR_STREAM_DESTROYED" || code === "ECONNRESET";
+
+    if (isBrokenPipe) {
+      console.error(
+        `[SecureFlow MCP] Client input stream disconnected (${code}). Initiating graceful shutdown...`,
+      );
+    } else {
+      console.error(`[SecureFlow MCP] stdin stream error: ${error?.message || String(error)}`);
+    }
+    void triggerShutdown(
+      isBrokenPipe ? `stdin disconnected: ${code}` : `stdin error: ${error?.message}`,
+    );
+  };
+
+  const handleStdinEnd = () => {
+    console.error(
+      `[SecureFlow MCP] Client input stream closed (EOF received). Initiating graceful shutdown...`,
+    );
+    void triggerShutdown("EOF on stdin");
+  };
+
+  const handleStdinClose = () => {
+    void triggerShutdown("stdin stream closed");
+  };
+
+  const sigintListener = () => {
+    console.error("[SecureFlow MCP] Received SIGINT. Shutting down cleanly...");
+    void triggerShutdown("SIGINT");
+  };
+
+  const sigtermListener = () => {
+    console.error("[SecureFlow MCP] Received SIGTERM. Shutting down cleanly...");
+    void triggerShutdown("SIGTERM");
+  };
+
+  if (typeof (stdout as any).on === "function") {
+    (stdout as any).on("error", handleStdoutError);
+  }
+  if (typeof (stdin as any).on === "function") {
+    (stdin as any).on("error", handleStdinError);
+    (stdin as any).on("end", handleStdinEnd);
+    (stdin as any).on("close", handleStdinClose);
+    (stdin as any).on("data", recordActivity);
+  }
+
+  process.once("SIGINT", sigintListener);
+  process.once("SIGTERM", sigtermListener);
+
   await server.connect(transport);
   console.error("SecureFlow Threat Intelligence MCP Server running via stdio");
+
+  // Dedicated stall detection watchdog
+  if (stallTimeoutMs > 0) {
+    const stallCheckInterval = Math.max(10, Math.min(stallTimeoutMs, 5000));
+    stallTimer = setInterval(async () => {
+      if (isShuttingDown) return;
+      const now = Date.now();
+      if (now - lastActivity > stallTimeoutMs) {
+        console.error(
+          `[SecureFlow MCP] Stdio stream stall detected: inactive for ${now - lastActivity}ms (limit: ${stallTimeoutMs}ms). Initiating graceful shutdown...`,
+        );
+        await triggerShutdown(`Stream stall: inactive for ${now - lastActivity}ms`);
+      }
+    }, stallCheckInterval);
+
+    stallTimer.unref?.();
+  }
+
+  // Active heartbeat / client liveness check
+  if (heartbeatIntervalMs > 0) {
+    heartbeatTimer = setInterval(async () => {
+      if (isShuttingDown || heartbeatInFlight) return;
+
+      heartbeatInFlight = true;
+      try {
+        await server.request({ method: "ping" }, EmptyResultSchema, {
+          timeout: heartbeatTimeoutMs,
+        });
+        recordActivity();
+      } catch (err: any) {
+        if (isShuttingDown) return;
+
+        // MethodNotFound (-32601) indicates the client received and processed the JSON-RPC request
+        if (
+          err?.code === -32601 ||
+          (typeof err?.message === "string" &&
+            err.message.toLowerCase().includes("method not found"))
+        ) {
+          recordActivity();
+        } else {
+          console.error(
+            `[SecureFlow MCP] Client heartbeat check failed (${err?.message || String(err)}). Initiating graceful shutdown...`,
+          );
+          await triggerShutdown(`Heartbeat ping failed: ${err?.message || String(err)}`);
+        }
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }, heartbeatIntervalMs);
+
+    heartbeatTimer.unref?.();
+  }
+
+  return {
+    server,
+    transport,
+    close: () => triggerShutdown("Manual close requested"),
+    waitForClose: () => closePromise,
+    isAlive: () => !isShuttingDown && !isClosed,
+    getLastActivity: () => lastActivity,
+  };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1])) {
-  startMcpServer().catch((err) => {
-    console.error("Fatal error starting MCP server:", err);
-    process.exit(1);
-  });
+  startMcpServer()
+    .then((session) => session?.waitForClose?.())
+    .catch((err) => {
+      console.error("Fatal error starting MCP server:", err);
+      process.exit(1);
+    });
 }

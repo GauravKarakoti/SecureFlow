@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { DashboardSidebar, DashboardHeader, MobileDrawer } from "@/components/dashboard-nav";
+import { DashboardFooter } from "@/components/dashboard-footer";
 import { useSession } from "next-auth/react";
 import { VoiceAlertProvider } from "@/components/audio/voice-alert-provider";
 import { CommandPalette } from "@/components/command-palette";
@@ -32,6 +33,7 @@ export function DashboardClientLayout({
         <div className="flex-1 flex flex-col min-w-0">
           <DashboardHeader user={session?.user} onMenuClick={() => setDrawerOpen(true)} />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
+          <DashboardFooter />
         </div>
       </div>
     </VoiceAlertProvider>

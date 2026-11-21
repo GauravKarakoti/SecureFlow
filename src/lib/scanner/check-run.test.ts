@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   postScanCheckRun,
   postScanErrorCheckRun,
+  postScanCancelledCheckRun,
   SCAN_CHECK_NAME,
   mapSeverityToAnnotationLevel,
   findingToAnnotation,
@@ -118,6 +119,45 @@ describe("postScanErrorCheckRun", () => {
         conclusion: "failure",
       }),
     );
+  });
+});
+
+describe("postScanCancelledCheckRun (#1894)", () => {
+  it("creates a completed check run with conclusion neutral by default and explanatory message", async () => {
+    const o = mk();
+    await postScanCancelledCheckRun(o, {
+      owner: "owner",
+      repo: "repo",
+      headSha: "commit123",
+      reason: "Worker rescheduled during deployment",
+    });
+
+    expect(o.rest.checks.create).toHaveBeenCalledTimes(1);
+    const arg = o.rest.checks.create.mock.calls[0][0];
+    expect(arg.name).toBe(SCAN_CHECK_NAME);
+    expect(arg.status).toBe("completed");
+    expect(arg.conclusion).toBe("neutral");
+    expect(arg.output.title).toBe("Scan Interrupted");
+    expect(arg.output.summary).toContain("Worker rescheduled during deployment");
+  });
+
+  it("updates existing check run with conclusion cancelled when requested", async () => {
+    const o = mk(888);
+    await postScanCancelledCheckRun(o, {
+      owner: "owner",
+      repo: "repo",
+      headSha: "commit123",
+      checkRunId: 888,
+      conclusion: "cancelled",
+    });
+
+    expect(o.rest.checks.create).not.toHaveBeenCalled();
+    expect(o.rest.checks.update).toHaveBeenCalledTimes(1);
+    const arg = o.rest.checks.update.mock.calls[0][0];
+    expect(arg.check_run_id).toBe(888);
+    expect(arg.name).toBe(SCAN_CHECK_NAME);
+    expect(arg.status).toBe("completed");
+    expect(arg.conclusion).toBe("cancelled");
   });
 });
 

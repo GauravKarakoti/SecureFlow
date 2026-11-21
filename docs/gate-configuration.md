@@ -115,3 +115,91 @@ a scan; the default gate (or the rest of the config) is used.
 - When path rules are active, the check-run gate summary line says so
   (for example `Gate: block on CRITICAL+, review on MEDIUM+, 2 path rules active (from base branch)`),
   and a config with `paths` is never treated as the default gate.
+
+## Monorepo Policy Scoping (`policyScopes`)
+
+In monorepos, different directories and components typically require different policies:
+
+- A `terraform/` or `infra/` folder needs infrastructure security and cloud compliance checks.
+- A frontend `src/components/` folder needs Cross-Site Scripting (XSS) and client security policies.
+- A `tests/` or `fixtures/` folder should not be flagged for test mock passwords or hardcoded test keys.
+
+To prevent noise and accelerate scan times, add an optional `policyScopes` list to `.secureflow.json`:
+
+```json
+{
+  "gate": {
+    "blockOn": "HIGH",
+    "reviewOn": "MEDIUM"
+  },
+  "policyScopes": [
+    {
+      "paths": ["terraform/**", "*.tf"],
+      "enable": ["Infrastructure Security", "Hardcoded Secrets"]
+    },
+    {
+      "paths": ["frontend/**"],
+      "enable": ["Cross-Site Scripting (XSS)", "Content Security Policy"]
+    },
+    {
+      "paths": ["tests/**", "**/*.test.*"],
+      "disable": ["No Hardcoded Secrets"]
+    }
+  ]
+}
+```
+
+### Options & Behavior
+
+Each entry in `policyScopes` specifies:
+
+- **`paths`**: Array of glob patterns matching changed files (e.g. `terraform/**`, `*.tf`). Globs follow the same syntax as `.secureflowignore`.
+- **`enable`**: (Optional) Array of policy names (case-insensitive) to apply to matching files. When specified, only these policies run against the matching file.
+- **`disable`**: (Optional) Array of policy names (case-insensitive) to exclude from matching files.
+
+### Precedence and Conflicting Scopes
+
+When a file matches multiple scopes, they are evaluated in definition order:
+
+- An `enable` rule sets the allowed policies for the file.
+- A subsequent `disable` rule removes specific policies from that set.
+- A file that matches no scopes receives all active policies as usual.
+
+### Safe Failure and Base Branch Guarantees
+
+- **Base branch enforcement**: `.secureflow.json` is loaded exclusively from the base branch, preventing unauthorized changes in PR head branches.
+- **Graceful degradation**: Invalid globs, non-string policy names, or unknown policy names are logged as warnings and ignored without failing or interrupting the scan.
+- **PR comment reporting**: Applied policy scopes and the count of files scanned under each scope are shown in the PR comment summary under `📁 Policy Scopes Applied`.
+
+## CLI Initialization and Validation (`secureflow --init` & `secureflow validate`)
+
+To simplify repository setup and avoid manual syntax mistakes, use the SecureFlow CLI:
+
+### 1. Generating Configuration (`secureflow --init`)
+
+Run `secureflow --init` to interactively configure your repository:
+
+```bash
+# Interactive setup: guides you through hook mode, severity thresholds, ignores, and languages
+npx secureflow --init
+
+# Non-interactive / scripted setup with flags
+npx secureflow --init --husky --severity HIGH --languages typescript,terraform --force
+```
+
+This creates both `.secureflow.json` and `.secureflowignore` with helpful comments and sensible defaults. Existing files will never be overwritten without explicit confirmation or the `--force` flag.
+
+### 2. Validating Configuration (`secureflow validate`)
+
+Run `secureflow validate` in CI or locally to verify your configuration files against the schema:
+
+```bash
+# Validates both .secureflow.json and .secureflowignore in the current repository
+npx secureflow validate
+
+# Validate a specific file
+npx secureflow validate .secureflow.json
+```
+
+`secureflow validate` reports unknown keys, invalid severity levels, and malformed globs with exact file and line numbers, exiting non-zero when errors are detected.
+
