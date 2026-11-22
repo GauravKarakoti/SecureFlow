@@ -310,13 +310,13 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
             placeholder="Search repositories by name or owner..."
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="pl-9 bg-zinc-900/60 border-zinc-800 text-sm font-mono"
+            className="pl-9 bg-zinc-900/60 border-zinc-800 text-sm font-mono min-h-[44px]"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Score Tier Filter */}
-          <div className="flex items-center gap-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md px-2.5 py-1 text-xs font-mono">
+          <div className="flex items-center gap-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md px-3 py-1.5 text-xs font-mono min-h-[44px]">
             <Filter className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-muted-foreground">Tier:</span>
             <select
@@ -346,7 +346,7 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
           </div>
 
           {/* Sort By Dropdown */}
-          <div className="flex items-center gap-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md px-2.5 py-1 text-xs font-mono">
+          <div className="flex items-center gap-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md px-3 py-1.5 text-xs font-mono min-h-[44px]">
             <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-muted-foreground">Sort:</span>
             <select
@@ -415,20 +415,25 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
           </Button>
         </Card>
       ) : (
-        <div className="rounded-md border border-white/5 bg-card/60 overflow-hidden shadow">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-white/5 bg-zinc-950/80 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3 px-4 font-semibold">Repository</th>
-                  <th className="py-3 px-4 font-semibold">Health Score</th>
-                  <th className="py-3 px-4 font-semibold">8-Week Trend</th>
-                  <th className="py-3 px-4 font-semibold">Open Findings</th>
-                  <th className="py-3 px-4 font-semibold">Blocked PRs (30d)</th>
-                  <th className="py-3 px-4 font-semibold">Median Resolve</th>
-                  <th className="py-3 px-4 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
+        <div className="space-y-2">
+          <div className="flex items-center justify-end gap-1.5 text-[11px] font-mono text-muted-foreground sm:hidden px-1 pb-1">
+            <span>Scroll table horizontally</span>
+            <span aria-hidden="true">&rarr;</span>
+          </div>
+          <div className="rounded-md border border-white/5 bg-card/60 overflow-hidden shadow">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm min-w-[640px]">
+                <thead className="sticky top-0 bg-zinc-950/95 backdrop-blur z-10 border-b border-white/5">
+                  <tr className="border-b border-white/5 bg-zinc-950/80 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                    <th className="py-3 px-4 font-semibold">Repository</th>
+                    <th className="py-3 px-4 font-semibold">Health Score</th>
+                    <th className="py-3 px-4 font-semibold">8-Week Trend</th>
+                    <th className="py-3 px-4 font-semibold">Open Findings</th>
+                    <th className="py-3 px-4 font-semibold">Blocked PRs (30d)</th>
+                    <th className="py-3 px-4 font-semibold">Median Resolve</th>
+                    <th className="py-3 px-4 font-semibold text-right">Action</th>
+                  </tr>
+                </thead>
               <tbody className="divide-y divide-white/5 font-mono text-xs">
                 {paginatedRepos.map((repo) => (
                   <tr key={repo.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -572,7 +577,8 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
                 size="sm"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="h-7 px-2 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs"
+                className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
+                aria-label="Previous page"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </Button>
@@ -584,13 +590,15 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
                 size="sm"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="h-7 px-2 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs"
+                className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
+                aria-label="Next page"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
         </div>
+      </div>
       )}
     </div>
   );

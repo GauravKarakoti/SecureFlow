@@ -162,7 +162,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex justify-end px-4 pt-4">
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Close menu"
           >
             <X className="w-5 h-5" />
@@ -191,17 +191,17 @@ export function DashboardHeader({
   return (
     <header className="h-16 border-b border-white/5 px-4 sm:px-8 flex items-center justify-between glass-card sticky top-0 z-40">
       {/* ── Left: breadcrumb + username ───────────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {/* Hamburger — mobile only */}
         <button
           onClick={onMenuClick}
-          className="lg:hidden w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="lg:hidden w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="text-sm text-muted-foreground flex items-center gap-1">
+        <div className="text-sm text-muted-foreground flex items-center gap-1 truncate">
           <span className="text-white font-medium">User</span>
           <span>/</span>
           {/* Username — scrambles into real name on hover (see CyberTextReveal) */}
@@ -213,7 +213,7 @@ export function DashboardHeader({
           onClick={() => {
             window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
           }}
-          className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px]"
           title="Open Command Palette (Ctrl+K or ⌘K)"
           aria-label="Open Command Palette (Ctrl+K or ⌘K)"
         >
@@ -225,7 +225,7 @@ export function DashboardHeader({
       </div>
 
       {/* ── Right: theme toggle + avatar + logout ─────────────── */}
-      <div className="flex items-center gap-3 sm:gap-4">
+      <div className="flex items-center gap-3 sm:gap-4 shrink-0">
         {/* ThemeToggle is the leftmost item of this action cluster */}
         <ThemeToggle />
 
@@ -235,7 +235,7 @@ export function DashboardHeader({
         {/* Logout Button */}
         <button
           onClick={() => signOut({ callbackUrl: "/" })}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title="Log out"
           aria-label="Log out"
         >

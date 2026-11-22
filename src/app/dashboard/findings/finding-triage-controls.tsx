@@ -206,7 +206,7 @@ function SingleTriageControls({
         }}
         disabled={isPending}
       >
-        <SelectTrigger className="h-9 text-sm">
+        <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-status-select">
           <SelectValue placeholder="Set status" />
         </SelectTrigger>
         <SelectContent>
@@ -226,7 +226,7 @@ function SingleTriageControls({
             onValueChange={(v) => setReason(v as DismissalReason)}
             disabled={isPending}
           >
-            <SelectTrigger className="h-9 text-sm">
+            <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-reason-select">
               <SelectValue placeholder="Select reason" />
             </SelectTrigger>
             <SelectContent>
@@ -244,7 +244,7 @@ function SingleTriageControls({
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
           <Select value={expirySelection} onValueChange={setExpirySelection} disabled={isPending}>
-            <SelectTrigger className="h-9 text-sm" data-testid="triage-expiry-select">
+            <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-expiry-select">
               <SelectValue placeholder="Select expiry period" />
             </SelectTrigger>
             <SelectContent>
@@ -271,7 +271,7 @@ function SingleTriageControls({
             onChange={(e) => setCustomDate(e.target.value)}
             disabled={isPending}
             data-testid="triage-custom-expiry-input"
-            className="h-9 text-sm"
+            className="min-h-[44px] text-sm"
           />
         </div>
       )}
@@ -286,10 +286,16 @@ function SingleTriageControls({
         }
         rows={2}
         disabled={isPending}
-        className="text-sm"
+        className="text-sm min-h-[44px]"
       />
 
-      <Button size="sm" onClick={save} disabled={!dirty || isPending} className="w-full">
+      <Button
+        size="default"
+        onClick={save}
+        disabled={!dirty || isPending}
+        className="w-full min-h-[44px]"
+        data-testid="save-triage-button"
+      >
         {isPending ? "Saving…" : "Save triage"}
       </Button>
     </div>
@@ -435,49 +441,49 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button
-          size="sm"
+          size="default"
           variant="outline"
           onClick={() => setPendingStatus("DISMISSED")}
           disabled={isPending}
-          className="border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
+          className="min-h-[44px] border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
           aria-label="Dismiss selected"
           data-testid="dismiss-selected-button"
         >
           Dismiss selected
         </Button>
         <Button
-          size="sm"
+          size="default"
           variant="outline"
           onClick={() => setPendingStatus("RESOLVED")}
           disabled={isPending}
-          className="border-green-500/20 bg-green-500/10 text-green-300 hover:bg-green-500/20 hover:text-green-200"
+          className="min-h-[44px] border-green-500/20 bg-green-500/10 text-green-300 hover:bg-green-500/20 hover:text-green-200"
         >
           Mark Resolved
         </Button>
         <Button
-          size="sm"
+          size="default"
           variant="outline"
           onClick={() => setPendingStatus("FALSE_POSITIVE")}
           disabled={isPending}
-          className="border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
+          className="min-h-[44px] border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
         >
           Mark False positive
         </Button>
         <Button
-          size="sm"
+          size="default"
           variant="outline"
           onClick={() => setPendingStatus("IGNORED")}
           disabled={isPending}
-          className="border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
+          className="min-h-[44px] border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
         >
           Mark Ignored
         </Button>
         <Button
-          size="sm"
+          size="default"
           variant="outline"
           onClick={() => setPendingStatus("OPEN")}
           disabled={isPending}
-          className="border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
+          className="min-h-[44px] border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
         >
           Reopen
         </Button>
