@@ -241,3 +241,74 @@ export function parseCacheDirArg(argv: readonly string[]): string | undefined {
   }
   return raw.trim();
 }
+
+const FLAGS_WITH_VALUE = new Set([
+  "-o",
+  "--output",
+  "--format",
+  "--ignore-file",
+  "--ignore",
+  "--since",
+  "--fail-on",
+  "--cache-dir",
+  "--cache-ttl",
+  "--ttl",
+  "--cache-max-size",
+  "--max-size",
+  "--local-model",
+  "--file",
+  "--finding-type",
+  "--severity",
+  "--validate",
+  "--dir",
+]);
+
+const KNOWN_COMMANDS = new Set([
+  "validate",
+  "init",
+  "mcp",
+  "sbom",
+  "explain",
+  "cache-clear",
+  "cache-prune",
+  "cache-stats",
+]);
+
+/**
+ * Parses target directory from `--dir <path>` or positional arguments.
+ * Returns undefined if scanning staged git files or running a specific subcommand.
+ */
+export function parseTargetDirectoryArg(argv: readonly string[]): string | undefined {
+  // Check explicit --dir
+  const explicit = optionValue(argv, ["--dir"]);
+  if (explicit !== undefined) {
+    if (explicit === null || explicit.trim().length === 0) {
+      throw new CliUsageError("--dir requires a directory path");
+    }
+    return explicit.trim();
+  }
+
+  // Look for positional argument
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg.startsWith("-")) {
+      if (FLAGS_WITH_VALUE.has(arg)) {
+        i++;
+      }
+      continue;
+    }
+    if (KNOWN_COMMANDS.has(arg)) {
+      return undefined;
+    }
+    if (arg === "scan") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) {
+        return next;
+      }
+      return ".";
+    }
+    return arg;
+  }
+
+  return undefined;
+}

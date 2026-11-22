@@ -7,6 +7,7 @@ import {
   readStagedContent,
   getChangedFilesSince,
   getRepoRoot,
+  isGitRepository,
 } from "./git.js";
 import {
   scanFile,
@@ -49,7 +50,9 @@ import {
   parseCacheTtlArg,
   parseCacheMaxSizeArg,
   parseCacheDirArg,
+  parseTargetDirectoryArg,
 } from "./lib/output-args.js";
+import { discoverWorkspaceFiles } from "./workspace.js";
 import {
   getCacheEntry,
   setCacheEntry,
@@ -145,7 +148,7 @@ function printHelp(): void {
 SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
-  secureflow [options]
+  secureflow [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
@@ -170,6 +173,7 @@ Options:
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
   --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
+  --dir <path>           Recursively scan workspace directory
   --no-cache             Disable scan caching and force fresh analysis on all files
   --cache-dir <path>     Specify custom local cache directory
   --cache-ttl <duration> Max time-to-live for cache entries (e.g. 7d, 30d, 24h)
@@ -196,6 +200,8 @@ Examples:
   $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
   $ secureflow validate .secureflow.json           # Validate specific configuration file
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow src/                                # Recursively scan target workspace directory
+  $ secureflow --dir .                             # Recursively scan entire workspace
   $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
   $ secureflow cache-clear                         # Clear the local scan results cache
@@ -631,12 +637,35 @@ async function main(): Promise<number> {
   }
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
+  const targetDir = parseTargetDirectoryArg(process.argv);
+  const repoInGit = isGitRepository();
   const isSinceMode = sinceRef !== undefined;
+  const isDirMode = targetDir !== undefined || (!isSinceMode && !repoInGit);
+  const repoRoot = getRepoRoot();
   let filesToScan: string[];
 
+  const ignoreData = loadSecureFlowIgnore(customIgnorePath);
+  const customIgnores = ignoreData?.compiledPatterns ?? [];
+
+  if (VERBOSE && ignoreData) {
+    console.log(
+      `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
+    );
+  }
+
   try {
-    if (sinceRef !== undefined) {
+    if (targetDir !== undefined) {
+      filesToScan = discoverWorkspaceFiles(targetDir, {
+        workspaceRoot: repoRoot,
+        customIgnores,
+      });
+    } else if (sinceRef !== undefined) {
       filesToScan = getChangedFilesSince(sinceRef);
+    } else if (!repoInGit) {
+      filesToScan = discoverWorkspaceFiles(".", {
+        workspaceRoot: repoRoot,
+        customIgnores,
+      });
     } else {
       filesToScan = getStagedFiles();
     }
@@ -670,12 +699,10 @@ async function main(): Promise<number> {
   let violationCount = 0;
 
   if (filesToScan.length > 0) {
-    const repoRoot = isSinceMode ? getRepoRoot() : undefined;
-
     for (const filePath of filesToScan) {
       let content: string | null = null;
 
-      if (isSinceMode) {
+      if (isDirMode || isSinceMode) {
         try {
           const resolvedPath = repoRoot ? path.resolve(repoRoot, filePath) : filePath;
           if (fs.existsSync(resolvedPath)) {
@@ -881,7 +908,11 @@ ${textOutput}`);
         } below ${describeFailThreshold(failOnThreshold)}. Scan passing.`,
       );
     } else {
-      const modeLabel = isSinceMode ? `changed file(s) since ${sinceRef}` : "staged file(s)";
+      const modeLabel = isDirMode
+        ? `file(s) in ${targetDir ?? "directory"}`
+        : isSinceMode
+          ? `changed file(s) since ${sinceRef}`
+          : "staged file(s)";
       console.log(`✅ SecureFlow scan passed (${filesToScan.length} ${modeLabel}).`);
     }
   }
