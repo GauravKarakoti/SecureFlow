@@ -85,6 +85,93 @@ describe("Check conclusion logic (unchanged)", () => {
       }),
     );
   });
+
+  describe("Zero analyzed files handling (PR with no scan targets)", () => {
+    it("sets conclusion to neutral and title to 'Nothing to scan' when fileCount is 0", async () => {
+      const o = mk();
+      await postScanCheckRun(o, { ...base, decision: "PASS", fileCount: 0, findingsCount: 0 });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: SCAN_CHECK_NAME,
+          status: "completed",
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: no changed files.",
+          }),
+        }),
+      );
+      // Ensure it never produces success conclusion when fileCount is 0
+      expect(o.rest.checks.create.mock.calls[0][0].conclusion).not.toBe("success");
+    });
+
+    it("explains 'unsupported file types' when emptyReason is provided", async () => {
+      const o = mk();
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        emptyReason: "unsupported file types",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: unsupported file types.",
+          }),
+        }),
+      );
+    });
+
+    it("explains 'all paths ignored' when emptyReason is provided", async () => {
+      const o = mk();
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        emptyReason: "all paths ignored",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: all paths ignored.",
+          }),
+        }),
+      );
+    });
+
+    it("updates existing check run with neutral conclusion and 'Nothing to scan' title", async () => {
+      const o = mk(777);
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        checkRunId: 777,
+        emptyReason: "unsupported file types",
+      });
+
+      expect(o.rest.checks.create).not.toHaveBeenCalled();
+      expect(o.rest.checks.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          check_run_id: 777,
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: unsupported file types.",
+          }),
+        }),
+      );
+    });
+  });
 });
 
 describe("postScanErrorCheckRun", () => {
