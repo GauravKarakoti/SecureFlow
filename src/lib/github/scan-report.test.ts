@@ -1,10 +1,85 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   SECUREFLOW_COMMENT_MARKER,
   renderScanReportSummary,
+  renderScanReportWithBaseOwners,
   toBlockquote,
   toCodeSpan,
 } from "./scan-report";
+
+describe("rendering a sticky report with base CODEOWNERS", () => {
+  const base = { owner: "example", repo: "project", baseRef: "base-sha" };
+  const findings = [
+    {
+      severity: "LOW",
+      type: "Example",
+      fileLocation: "src/config.ts",
+      explanation: "Example explanation",
+    },
+    { severity: "LOW", type: "Example", fileLocation: "src/generated/item.ts" },
+  ];
+  const input = { findings, totalFindings: 4, inlineCount: 2, commitSha: "head-sha" };
+  const inline = ["src/api.ts", "src/api.ts"];
+
+  it("adds owners per finding and counts findings posted inline", async () => {
+    const getContent = vi.fn().mockResolvedValue({
+      data: "*.ts @example/platform ops@example.test\n/src/generated/",
+    });
+    const body = await renderScanReportWithBaseOwners(
+      { rest: { repos: { getContent } } },
+      base,
+      input,
+      inline,
+    );
+    expect(body).toContain(
+      "**By owner:** `@example/platform` (3), `ops@example.test` (3), Unowned (1)",
+    );
+    expect(body).toContain("`src/api.ts` (2) — `@example/platform`, `ops@example.test`");
+    expect(body).toContain("`src/config.ts`\n**Owners:** `@example/platform`, `ops@example.test`");
+    expect(body).toContain("`src/generated/item.ts`\n**Owners:** Unowned");
+    expect(getContent).toHaveBeenCalledWith(expect.objectContaining({ ref: "base-sha" }));
+  });
+
+  it("renders the same ownership for findings moved to the sticky fallback", async () => {
+    const client = {
+      rest: { repos: { getContent: vi.fn().mockResolvedValue({ data: "*.ts @platform" }) } },
+    };
+    const all = [
+      ...findings,
+      ...inline.map((fileLocation) => ({ severity: "LOW", type: "Example", fileLocation })),
+    ];
+    const body = await renderScanReportWithBaseOwners(
+      client,
+      base,
+      { ...input, findings: all },
+      [],
+    );
+    expect(body).toContain("**By owner:** `@platform` (4)");
+    expect(body.match(/\*\*Owners:\*\* `@platform`/g)).toHaveLength(4);
+    expect(body).not.toContain("Owners of findings posted inline");
+  });
+
+  it("preserves the report byte for byte when base ownership is absent", async () => {
+    const getContent = vi.fn().mockRejectedValue({ status: 404 });
+    expect(
+      await renderScanReportWithBaseOwners(
+        { rest: { repos: { getContent } } },
+        base,
+        input,
+        inline,
+      ),
+    ).toBe(renderScanReportSummary(input));
+    expect(getContent).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves the original report when the optional ownership would be too long", async () => {
+    const data = "* " + Array.from({ length: 5000 }, (_, index) => "@owner-" + index).join(" ");
+    const client = { rest: { repos: { getContent: vi.fn().mockResolvedValue({ data }) } } };
+    expect(await renderScanReportWithBaseOwners(client, base, input, inline)).toBe(
+      renderScanReportSummary(input),
+    );
+  });
+});
 
 const finding = (overrides: Record<string, unknown> = {}) => ({
   severity: "HIGH",
