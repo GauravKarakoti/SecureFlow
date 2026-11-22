@@ -72,6 +72,7 @@ model User {
   apiTokens      ApiToken[]
   outboundWebhooks OutboundWebhook[]
   suppressionRules SuppressionRule[]
+  assignedTriages  FindingTriage[]  @relation("FindingTriageAssignee")
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -364,6 +365,8 @@ model FindingTriage {
   dismissalReason DismissalReason?
   dismissedAt     DateTime?
   dismissedById   String?
+  assigneeId      String?
+  assignee        User?               @relation("FindingTriageAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   note              String?
   resolvedById      String?
   resolvedAt        DateTime?
@@ -375,6 +378,7 @@ model FindingTriage {
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
   @@index([fingerprint])
+  @@index([assigneeId])
   // Suppressed/triage lookups on the dashboard (#731). getSuppressedFingerprints
   // filters a repository's rows by status; the plain (repositoryId) index still
   // scans and filters status, so pair them.

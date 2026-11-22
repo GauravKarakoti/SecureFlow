@@ -16,7 +16,9 @@ import {
   Clock,
   AlertCircle,
   X,
+  UserCheck,
 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/ui/severity-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
+import FindingAssigneeSelect from "./finding-assignee-select";
 import BulkRemediationBar from "./bulk-remediation-bar";
 import FindingsPagination from "./findings-pagination";
 import FindingsToolbar from "./findings-toolbar";
@@ -595,6 +598,38 @@ export default function FindingsClient({
                               {formatAgeDays(finding.createdAt)}
                             </span>
 
+                            {/* Assignee display in header */}
+                            <div
+                              className="shrink-0 md:order-5 flex items-center gap-1.5"
+                              data-testid="finding-assignee-display"
+                            >
+                              {finding.assignee ? (
+                                <span
+                                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded-full"
+                                  title={`Assigned to ${finding.assignee.name || finding.assignee.email}`}
+                                >
+                                  <Avatar className="h-3.5 w-3.5">
+                                    <AvatarImage
+                                      src={finding.assignee.image ?? undefined}
+                                      alt={finding.assignee.name ?? "Assignee"}
+                                    />
+                                    <AvatarFallback className="text-[8px]">
+                                      {(finding.assignee.name ?? finding.assignee.email ?? "U")
+                                        .slice(0, 2)
+                                        .toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="max-w-[80px] truncate">
+                                    {finding.assignee.name || finding.assignee.email}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground/60 font-mono">
+                                  Unassigned
+                                </span>
+                              )}
+                            </div>
+
                             {/* Action row on mobile / button on desktop */}
                             <div className="flex items-center justify-between md:justify-end w-full md:w-auto pt-1 md:pt-0 md:order-6">
                               <span className="text-[11px] text-muted-foreground font-mono md:hidden">
@@ -613,6 +648,16 @@ export default function FindingsClient({
                             </div>
                           </div>
                         </AccordionTrigger>
+                        {finding.repositoryId && finding.fingerprint && (
+                          <div className="hidden lg:block shrink-0 pr-2">
+                            <FindingAssigneeSelect
+                              repositoryId={finding.repositoryId}
+                              fingerprint={finding.fingerprint}
+                              currentAssignee={finding.assignee}
+                              variant="table"
+                            />
+                          </div>
+                        )}
                       </div>
                       <AccordionContent className="pb-6 pt-2">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
@@ -651,14 +696,27 @@ export default function FindingsClient({
                             </div>
 
                             {finding.repositoryId && finding.fingerprint && (
-                              <FindingTriageControls
-                                repositoryId={finding.repositoryId}
-                                fingerprint={finding.fingerprint}
-                                currentStatus={(finding.triageStatus ?? "OPEN") as TriageStatus}
-                                currentNote={finding.triageNote ?? null}
-                                currentReason={finding.triageReason as DismissalReason | null}
-                                currentExpiresAt={finding.triageExpiresAt}
-                              />
+                              <div className="space-y-4">
+                                <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-2">
+                                  <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                    <UserCheck className="w-3.5 h-3.5" /> Assigned Reviewer
+                                  </h4>
+                                  <FindingAssigneeSelect
+                                    repositoryId={finding.repositoryId}
+                                    fingerprint={finding.fingerprint}
+                                    currentAssignee={finding.assignee}
+                                    variant="detail"
+                                  />
+                                </div>
+                                <FindingTriageControls
+                                  repositoryId={finding.repositoryId}
+                                  fingerprint={finding.fingerprint}
+                                  currentStatus={(finding.triageStatus ?? "OPEN") as TriageStatus}
+                                  currentNote={finding.triageNote ?? null}
+                                  currentReason={finding.triageReason as DismissalReason | null}
+                                  currentExpiresAt={finding.triageExpiresAt}
+                                />
+                              </div>
                             )}
                           </div>
 
