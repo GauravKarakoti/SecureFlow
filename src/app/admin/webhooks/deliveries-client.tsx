@@ -1,21 +1,16 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition } from "react";
 import {
   Webhook,
-  Activity,
   CheckCircle,
   AlertTriangle,
   XCircle,
   Clock,
   RefreshCw,
   Search,
-  Filter,
-  ExternalLink,
   ChevronLeft,
   ChevronRight,
-  Info,
-  GitPullRequest,
   Check,
   Copy,
 } from "lucide-react";
@@ -50,6 +45,18 @@ interface DeliveriesClientProps {
   initialRepositories: string[];
 }
 
+function formatTimeAgo(dateInput: string | Date, nowMs: number) {
+  const date = new Date(dateInput);
+  const seconds = Math.floor((nowMs - date.getTime()) / 1000);
+  if (seconds < 60) return `${Math.max(seconds, 0)}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export function DeliveriesClient({
   initialDeliveries,
   initialTotal,
@@ -60,6 +67,7 @@ export function DeliveriesClient({
   const [total, setTotal] = useState(initialTotal);
   const [stats, setStats] = useState(initialStats);
   const [repositories] = useState(initialRepositories);
+  const [nowMs, setNowMs] = useState<number>(() => new Date(0).getTime());
 
   const [selectedOutcome, setSelectedOutcome] = useState<string>("ALL");
   const [selectedRepo, setSelectedRepo] = useState<string>("ALL");
@@ -69,6 +77,13 @@ export function DeliveriesClient({
 
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncClock = () => setNowMs(Date.now());
+    syncClock();
+    const timer = window.setInterval(syncClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const fetchDeliveries = (
     newPage = 0,
@@ -92,6 +107,7 @@ export function DeliveriesClient({
           setTotal(data.total || 0);
           if (data.stats) setStats(data.stats);
           setPage(newPage);
+          setNowMs(Date.now());
         }
       } catch (err) {
         console.error("Failed to load webhook deliveries", err);
@@ -127,18 +143,6 @@ export function DeliveriesClient({
       setCopiedId(text);
       setTimeout(() => setCopiedId(null), 2000);
     }
-  };
-
-  const formatTimeAgo = (dateInput: string | Date) => {
-    const date = new Date(dateInput);
-    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (seconds < 60) return `${Math.max(seconds, 0)}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
   };
 
   const getOutcomeBadge = (outcome: string) => {
@@ -431,7 +435,7 @@ export function DeliveriesClient({
                           <span>{delivery.eventType}</span>
                           {delivery.action && (
                             <span className="text-muted-foreground font-mono text-[10px]">
-                              • {delivery.action}
+                              - {delivery.action}
                             </span>
                           )}
                         </div>
@@ -479,7 +483,7 @@ export function DeliveriesClient({
                           dateTime={new Date(delivery.createdAt).toISOString()}
                           title={new Date(delivery.createdAt).toLocaleString()}
                         >
-                          {formatTimeAgo(delivery.createdAt)}
+                          {formatTimeAgo(delivery.createdAt, nowMs)}
                         </time>
                       </td>
                     </tr>
@@ -505,7 +509,7 @@ export function DeliveriesClient({
                       dateTime={new Date(delivery.createdAt).toISOString()}
                       className="text-[11px] font-mono text-muted-foreground"
                     >
-                      {formatTimeAgo(delivery.createdAt)}
+                      {formatTimeAgo(delivery.createdAt, nowMs)}
                     </time>
                   </div>
 
