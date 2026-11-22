@@ -284,4 +284,60 @@ describe("ArmorIQScanner deterministic pre-scanner integration (#1448)", () => {
     const findings = await scanner.scanPullRequest(files);
     expect(findings).toHaveLength(0);
   });
+
+  describe("repository fingerprint isolation (#1935)", () => {
+    it("generates distinct fingerprints for the same secret across different repositories", () => {
+      const lines = [
+        {
+          number: 10,
+          content: 'const token = "ghp_1234567890abcdef1234567890abcdef1234";',
+        },
+      ];
+
+      const findingsRepoA = detectSecretsInAddedLines("src/auth.ts", lines, [], "repo-tenant-a");
+      const findingsRepoB = detectSecretsInAddedLines("src/auth.ts", lines, [], "repo-tenant-b");
+      const findingsDefault = detectSecretsInAddedLines("src/auth.ts", lines);
+
+      expect(findingsRepoA).toHaveLength(1);
+      expect(findingsRepoB).toHaveLength(1);
+      expect(findingsDefault).toHaveLength(1);
+
+      // Verify that multi-tenant repositories have distinct fingerprints
+      expect(findingsRepoA[0].dynamicFingerprint).not.toBe(findingsRepoB[0].dynamicFingerprint);
+      expect(findingsRepoA[0].dynamicFingerprint).not.toBe(findingsDefault[0].dynamicFingerprint);
+      expect(findingsRepoB[0].dynamicFingerprint).not.toBe(findingsDefault[0].dynamicFingerprint);
+    });
+
+    it("isolates patch-based detections across repositories", () => {
+      const patch = [
+        "@@ -1,3 +1,4 @@",
+        " function init() {",
+        `+  const apiKey = "${FAKE_AWS}";`,
+        " }",
+      ].join("\n");
+
+      const findingsOrg1 = detectSecretsInPatch("lib/config.ts", patch, [], "org-alpha/repo-1");
+      const findingsOrg2 = detectSecretsInPatch("lib/config.ts", patch, [], "org-beta/repo-2");
+
+      expect(findingsOrg1).toHaveLength(1);
+      expect(findingsOrg2).toHaveLength(1);
+      expect(findingsOrg1[0].dynamicFingerprint).not.toBe(findingsOrg2[0].dynamicFingerprint);
+    });
+
+    it("isolates files-based detections across repositories", () => {
+      const files = [
+        {
+          filename: "lib/config.ts",
+          patch: `+const key = "${FAKE_AWS}";`,
+        },
+      ];
+
+      const findingsRepo1 = detectSecretsInFiles(files, [], "repo-1");
+      const findingsRepo2 = detectSecretsInFiles(files, [], "repo-2");
+
+      expect(findingsRepo1).toHaveLength(1);
+      expect(findingsRepo2).toHaveLength(1);
+      expect(findingsRepo1[0].dynamicFingerprint).not.toBe(findingsRepo2[0].dynamicFingerprint);
+    });
+  });
 });
