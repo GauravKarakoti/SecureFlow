@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   computeFingerprint,
   computeDynamicFingerprint,
+  normalizeSnippetForFingerprint,
   dynamicFingerprintEngine,
   PayloadSignature,
 } from "./fingerprint";
@@ -61,6 +62,46 @@ describe("computeFingerprint", () => {
     const a = computeFingerprint("repo", "1src", "Secret", "x");
     const b = computeFingerprint("repo1", "src", "Secret", "x");
     expect(a).not.toBe(b);
+  });
+
+  describe("whitespace and line-drift normalization", () => {
+    it("normalizes snippets by collapsing intra-line spaces and standardizing line endings", () => {
+      const raw = "\r\n  const  a   =   1;\r\n\r\n\r\n  const   b = 2;  \r\n";
+      const normalized = normalizeSnippetForFingerprint(raw);
+      expect(normalized).toBe("const a = 1;\n\nconst b = 2;");
+      expect(normalizeSnippetForFingerprint(null)).toBe("");
+      expect(normalizeSnippetForFingerprint(undefined)).toBe("");
+    });
+
+    it("produces identical fingerprints for CRLF and LF line endings", () => {
+      const lfSnippet = 'const token = "ghp_secret";\nconst user = "admin";';
+      const crlfSnippet = 'const token = "ghp_secret";\r\nconst user = "admin";';
+
+      const fpLf = computeFingerprint("repo-1", "src/auth.ts", "Secret", lfSnippet);
+      const fpCrlf = computeFingerprint("repo-1", "src/auth.ts", "Secret", crlfSnippet);
+
+      expect(fpLf).toBe(fpCrlf);
+    });
+
+    it("survives indentation and Prettier formatting re-alignments", () => {
+      const unformatted = 'function leak() {\nconst token = "ghp_secret";\n}';
+      const formatted = '  function leak() {\n    const token = "ghp_secret";\n  }';
+
+      const fp1 = computeFingerprint("repo-1", "src/auth.ts", "Secret", unformatted);
+      const fp2 = computeFingerprint("repo-1", "src/auth.ts", "Secret", formatted);
+
+      expect(fp1).toBe(fp2);
+    });
+
+    it("survives multiple blank lines and intra-line tab/space variations", () => {
+      const code1 = 'const key\t=\t"AKIA123";\n\n\nconsole.log(key);';
+      const code2 = 'const key = "AKIA123";\n\nconsole.log(key);';
+
+      const fp1 = computeFingerprint("repo-1", "src/aws.ts", "Secret", code1);
+      const fp2 = computeFingerprint("repo-1", "src/aws.ts", "Secret", code2);
+
+      expect(fp1).toBe(fp2);
+    });
   });
 });
 
