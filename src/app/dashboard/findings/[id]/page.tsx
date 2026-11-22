@@ -120,6 +120,12 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         </Link>
         <div className="flex items-center gap-2">
           <ShareFindingButton findingId={finding.id} />
+          <Link href={`/dashboard/pull-requests/${finding.scanResult.pullRequestId}`}>
+            <Button size="sm" variant="outline" className="gap-2">
+              <History className="w-3.5 h-3.5" />
+              Compare Scans
+            </Button>
+          </Link>
           <Link href={`/dashboard/findings/${finding.id}/remediation`}>
             <Button size="sm" className="gap-2">
               <Wrench className="w-3.5 h-3.5" />
@@ -163,7 +169,12 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
               <div className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
                 <span>{repoName}</span>
                 <span>•</span>
-                <span>PR #{prNumber}</span>
+                <Link
+                  href={`/dashboard/pull-requests/${finding.scanResult.pullRequestId}`}
+                  className="hover:text-primary transition-colors hover:underline"
+                >
+                  PR #{prNumber}
+                </Link>
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <FileCode className="w-3 h-3" />
