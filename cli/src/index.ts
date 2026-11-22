@@ -19,6 +19,9 @@ import {
   filterBySeverity,
   parseSeverityFilter,
   generateVoiceSummaryText,
+  countFindingsBySeverity,
+  formatSeverityCounts,
+  type FailOnSeverity,
   type FileScanResult,
   type OutputFormat,
   type Severity,
@@ -132,6 +135,7 @@ SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
   secureflow [options]
+  secureflow scan [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
@@ -160,7 +164,7 @@ Options:
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
   --ignore-file <path>   Path to custom ignore configuration file
-  --fail-on <level>      Fail scan threshold (low, medium, high, critical)
+  --fail-on <level>      Fail scan threshold (critical, high, medium, low, none)
   --local                Run scan locally without uploading files externally
   --local-model <tag>    Specify local AI model tag (default: llama3)
   --dry-run              Simulate scan execution without writing files
@@ -507,6 +511,7 @@ async function main(): Promise<number> {
   let sinceRef: string | undefined;
   let noCache = false;
   let customCacheDir: string | undefined;
+  let failOnThreshold: FailOnSeverity | null = null;
   try {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
@@ -514,11 +519,15 @@ async function main(): Promise<number> {
     sinceRef = parseSinceArg(process.argv);
     noCache = parseNoCacheArg(process.argv);
     customCacheDir = parseCacheDirArg(process.argv);
+    failOnThreshold = parseFailOnArg(process.argv);
   } catch (error) {
     if (!(error instanceof CliUsageError)) throw error;
     console.error(`❌ [SecureFlow] ${error.message}`);
     return 1;
   }
+  const hasFailOnFlag = process.argv.some(
+    (arg) => arg === "--fail-on" || arg.startsWith("--fail-on="),
+  );
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
   const isSinceMode = sinceRef !== undefined;
@@ -532,7 +541,7 @@ async function main(): Promise<number> {
     }
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
-    return 1;
+    return hasFailOnFlag ? 2 : 1;
   }
 
   const fileResults: FileScanResult[] = [];
@@ -715,11 +724,16 @@ ${textOutput}`);
     );
   }
 
-  const failOnThreshold = parseFailOnArg();
+  const activeThreshold = failOnThreshold ?? parseFailOnArg();
   // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
   // filter, not a security gate bypass. --fail-on must see every finding.
-  const shouldFail = shouldFailScan(violationCount, allAiFindings, failOnThreshold);
-  const blockingAi = blockingAiFindings(allAiFindings, failOnThreshold);
+  const shouldFail = shouldFailScan(violationCount, allAiFindings, activeThreshold);
+  const blockingAi = blockingAiFindings(allAiFindings, activeThreshold);
+
+  if (format === "text") {
+    const counts = countFindingsBySeverity(violationCount, allAiFindings);
+    console.log(formatSeverityCounts(counts));
+  }
 
   if (voiceEnabled) {
     const summaryText = generateVoiceSummaryText(violationCount, allAiFindings, !shouldFail);
@@ -741,7 +755,7 @@ ${textOutput}`);
       const subject = parts.length > 0 ? parts.join(" and ") : "findings";
       console.error(
         `\n❌ SecureFlow blocked this commit: ${subject} at or above ${describeFailThreshold(
-          failOnThreshold,
+          activeThreshold,
         )}. Remove the exposed secrets/env variables, then re-stage.`,
       );
     }
@@ -754,7 +768,7 @@ ${textOutput}`);
       console.log(
         `⚠️  SecureFlow advisory warning: ${advisoryCount} finding${
           advisoryCount === 1 ? "" : "s"
-        } below ${describeFailThreshold(failOnThreshold)}. Scan passing.`,
+        } below ${describeFailThreshold(activeThreshold)}. Scan passing.`,
       );
     } else {
       const modeLabel = isSinceMode ? `changed file(s) since ${sinceRef}` : "staged file(s)";
@@ -773,5 +787,6 @@ main()
     console.error(
       `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
     );
-    process.exit(1);
+    const hasFailOn = process.argv.some((a) => a === "--fail-on" || a.startsWith("--fail-on="));
+    process.exit(hasFailOn ? 2 : 1);
   });
