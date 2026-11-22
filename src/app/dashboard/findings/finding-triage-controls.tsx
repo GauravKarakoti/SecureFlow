@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { can } from "@/lib/auth/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -112,6 +114,8 @@ function SingleTriageControls({
 }: SingleFindingTriageControlsProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const { data: session } = useSession();
+  const canTriage = session?.user ? can(session.user, repositoryId, "findings:dismiss") : true;
   const [isPending, startTransition] = useTransition();
   const [nowMs] = useState(() => Date.now());
   const [status, setStatus] = useState<TriageStatus>(currentStatus);
@@ -195,6 +199,12 @@ function SingleTriageControls({
         </div>
       </div>
 
+      {!canTriage && (
+        <div className="rounded border border-amber-500/20 bg-amber-500/10 p-2 text-xs text-amber-300">
+          Read-only view: You need Triager or Admin permissions to triage findings.
+        </div>
+      )}
+
       <Select
         value={status}
         onValueChange={(v) => {
@@ -204,7 +214,7 @@ function SingleTriageControls({
             setCustomDate("");
           }
         }}
-        disabled={isPending}
+        disabled={!canTriage || isPending}
       >
         <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-status-select">
           <SelectValue placeholder="Set status" />
@@ -224,7 +234,7 @@ function SingleTriageControls({
           <Select
             value={reason}
             onValueChange={(v) => setReason(v as DismissalReason)}
-            disabled={isPending}
+            disabled={!canTriage || isPending}
           >
             <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-reason-select">
               <SelectValue placeholder="Select reason" />
@@ -243,7 +253,7 @@ function SingleTriageControls({
       {isDismissal && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
-          <Select value={expirySelection} onValueChange={setExpirySelection} disabled={isPending}>
+          <Select value={expirySelection} onValueChange={setExpirySelection} disabled={!canTriage || isPending}>
             <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-expiry-select">
               <SelectValue placeholder="Select expiry period" />
             </SelectTrigger>
@@ -269,7 +279,7 @@ function SingleTriageControls({
             max={new Date(nowMs + ONE_YEAR_MS).toISOString().slice(0, 10)}
             value={customDate}
             onChange={(e) => setCustomDate(e.target.value)}
-            disabled={isPending}
+            disabled={!canTriage || isPending}
             data-testid="triage-custom-expiry-input"
             className="min-h-[44px] text-sm"
           />
@@ -285,14 +295,14 @@ function SingleTriageControls({
             : "Optional note (why is this being resolved?)"
         }
         rows={2}
-        disabled={isPending}
+        disabled={!canTriage || isPending}
         className="text-sm min-h-[44px]"
       />
 
       <Button
         size="default"
         onClick={save}
-        disabled={!dirty || isPending}
+        disabled={!canTriage || !dirty || isPending}
         className="w-full min-h-[44px]"
         data-testid="save-triage-button"
       >
@@ -315,6 +325,8 @@ export interface BulkTriageBarProps {
 export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const { data: session } = useSession();
+  const canTriage = session?.user ? can(session.user, targets[0]?.repositoryId || null, "findings:dismiss") : true;
   const [isPending, startTransition] = useTransition();
   const [nowMs] = useState(() => Date.now());
   const [note, setNote] = useState("");
@@ -396,9 +408,15 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         </Badge>
       </div>
 
+      {!canTriage && (
+        <div className="rounded border border-amber-500/20 bg-amber-500/10 p-2 text-xs text-amber-300">
+          Read-only view: You need Triager or Admin permissions to perform bulk triage.
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
-        <Select value={expiryDays} onValueChange={setExpiryDays} disabled={isPending}>
+        <Select value={expiryDays} onValueChange={setExpiryDays} disabled={!canTriage || isPending}>
           <SelectTrigger className="h-9 text-sm" data-testid="bulk-triage-expiry-select">
             <SelectValue placeholder="Select expiry period" />
           </SelectTrigger>
@@ -423,7 +441,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
             max={new Date(nowMs + ONE_YEAR_MS).toISOString().slice(0, 10)}
             value={customExpiryDate}
             onChange={(e) => setCustomExpiryDate(e.target.value)}
-            disabled={isPending}
+            disabled={!canTriage || isPending}
             data-testid="bulk-triage-custom-expiry-input"
             className="h-9 text-sm"
           />
@@ -435,7 +453,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
         onChange={(e) => setNote(e.target.value)}
         placeholder="Optional note for this bulk action"
         rows={2}
-        disabled={isPending}
+        disabled={!canTriage || isPending}
         className="text-sm"
       />
 
@@ -444,7 +462,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           size="default"
           variant="outline"
           onClick={() => setPendingStatus("DISMISSED")}
-          disabled={isPending}
+          disabled={!canTriage || isPending}
           className="min-h-[44px] border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
           aria-label="Dismiss selected"
           data-testid="dismiss-selected-button"
@@ -455,7 +473,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           size="default"
           variant="outline"
           onClick={() => setPendingStatus("RESOLVED")}
-          disabled={isPending}
+          disabled={!canTriage || isPending}
           className="min-h-[44px] border-green-500/20 bg-green-500/10 text-green-300 hover:bg-green-500/20 hover:text-green-200"
         >
           Mark Resolved
@@ -464,7 +482,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           size="default"
           variant="outline"
           onClick={() => setPendingStatus("FALSE_POSITIVE")}
-          disabled={isPending}
+          disabled={!canTriage || isPending}
           className="min-h-[44px] border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
         >
           Mark False positive
@@ -473,7 +491,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           size="default"
           variant="outline"
           onClick={() => setPendingStatus("IGNORED")}
-          disabled={isPending}
+          disabled={!canTriage || isPending}
           className="min-h-[44px] border-zinc-500/20 bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 hover:text-white"
         >
           Mark Ignored
@@ -482,7 +500,7 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
           size="default"
           variant="outline"
           onClick={() => setPendingStatus("OPEN")}
-          disabled={isPending}
+          disabled={!canTriage || isPending}
           className="min-h-[44px] border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
         >
           Reopen

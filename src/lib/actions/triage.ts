@@ -18,6 +18,7 @@ import {
   dispatchOutboundWebhooksForUser,
   buildFindingDismissedPayload,
 } from "@/lib/webhooks/outbound-dispatcher";
+import { can } from "@/lib/auth/permissions";
 
 export type TriageStatus = SharedTriageStatus;
 export type { DismissalReason };
@@ -78,6 +79,12 @@ export async function setFindingStatus(
   }
   if (!isTriageStatus(status)) {
     return { ok: false, error: "Invalid status" };
+  }
+
+  const isDismissing = status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED";
+  const requiredAction = isDismissing ? "findings:dismiss" : "findings:restore";
+  if (!can(session.user, repositoryId, requiredAction)) {
+    return { ok: false, error: "Permission denied: your role does not allow triaging findings" };
   }
 
   // A category is required; the explanatory note is optional.
@@ -222,6 +229,18 @@ export async function setFindingStatuses(
 
   if (!isTriageStatus(input.status)) {
     return { ok: false, error: "Invalid status" };
+  }
+
+  const isDismissing =
+    input.status === "DISMISSED" ||
+    input.status === "FALSE_POSITIVE" ||
+    input.status === "IGNORED";
+  const requiredAction = isDismissing ? "findings:dismiss" : "findings:restore";
+  if (!can(session.user, null, requiredAction)) {
+    return {
+      ok: false,
+      error: "Permission denied: your role does not allow triaging findings",
+    };
   }
 
   const items = normalizeTriageTargets(input.items);
