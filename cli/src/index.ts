@@ -7,6 +7,7 @@ import {
   readStagedContent,
   getChangedFilesSince,
   getRepoRoot,
+  isGitRepository,
 } from "./git.js";
 import {
   scanFile,
@@ -22,6 +23,8 @@ import {
   countFindingsBySeverity,
   formatSeverityCounts,
   type FailOnSeverity,
+  DEFAULT_IGNORE_PATTERNS,
+  compileIgnorePatterns,
   type FileScanResult,
   type OutputFormat,
   type Severity,
@@ -45,9 +48,23 @@ import {
   parseSinceArg,
   parseNoCacheArg,
   parseCacheClearArg,
+  parseCachePruneArg,
+  parseCacheStatsArg,
+  parseCacheTtlArg,
+  parseCacheMaxSizeArg,
   parseCacheDirArg,
+  parseTargetDirectoryArg,
 } from "./lib/output-args.js";
-import { getCacheEntry, setCacheEntry, clearCache } from "./cache.js";
+import { discoverWorkspaceFiles } from "./workspace.js";
+import {
+  getCacheEntry,
+  setCacheEntry,
+  clearCache,
+  pruneCache,
+  getCacheStats,
+  parseDurationMs,
+  parseSizeBytes,
+} from "./cache.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
   TerminalSpinner,
@@ -134,8 +151,8 @@ function printHelp(): void {
 SecureFlow CLI - Security analysis tool for staged git files
 
 Usage:
-  secureflow [options]
-  secureflow scan [options]
+  secureflow [path] [options]
+  secureflow scan [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
@@ -147,6 +164,8 @@ Commands:
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
   cache-clear            Clear the local scan cache directory (.secureflow/cache)
+  cache-prune            Prune expired (TTL) and excess (max size) entries from cache
+  cache-stats            Display diagnostic storage statistics and telemetry for scan cache
 
 Options:
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
@@ -158,8 +177,11 @@ Options:
   --husky                Initialize using Husky pre-commit hook (.husky/pre-commit)
   --blank                Initialize using Blank mode (package.json prepare script)
   --since <ref>          Scan only files changed versus specified git ref (e.g. --since origin/main)
+  --dir <path>           Recursively scan workspace directory
   --no-cache             Disable scan caching and force fresh analysis on all files
   --cache-dir <path>     Specify custom local cache directory
+  --cache-ttl <duration> Max time-to-live for cache entries (e.g. 7d, 30d, 24h)
+  --cache-max-size <sz>  Maximum cache directory storage ceiling (e.g. 50MB, 100M)
   --verbose              Enable verbose logging
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
@@ -182,9 +204,14 @@ Examples:
   $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
   $ secureflow validate .secureflow.json           # Validate specific configuration file
   $ secureflow                                     # Run standard security scan on staged files
+  $ secureflow src/                                # Recursively scan target workspace directory
+  $ secureflow --dir .                             # Recursively scan entire workspace
   $ secureflow --since origin/main                 # Scan only files changed versus origin/main
   $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
   $ secureflow cache-clear                         # Clear the local scan results cache
+  $ secureflow cache-prune --ttl 7d                # Prune cache entries older than 7 days
+  $ secureflow cache-prune --max-size 50MB         # Evict oldest cache entries until within 50MB
+  $ secureflow cache-stats                         # Show cache size, entry count, and health stats
   $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
   $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
   $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
@@ -292,6 +319,95 @@ async function main(): Promise<number> {
       console.error(`❌ [SecureFlow] Failed to clear cache directory at ${result.cacheDir}`);
       return 1;
     }
+  }
+
+  if (parseCachePruneArg(process.argv)) {
+    let customCacheDir: string | undefined;
+    let ttlMs: number | undefined;
+    let maxSizeBytes: number | undefined;
+    try {
+      customCacheDir = parseCacheDirArg(process.argv);
+      const ttlStr = parseCacheTtlArg(process.argv);
+      if (ttlStr !== undefined) {
+        const parsedTtl = parseDurationMs(ttlStr);
+        if (parsedTtl === null) {
+          throw new CliUsageError(
+            `Invalid TTL duration "${ttlStr}". Examples: 7d, 24h, 30m, 3600s`,
+          );
+        }
+        ttlMs = parsedTtl;
+      }
+      const maxSizeStr = parseCacheMaxSizeArg(process.argv);
+      if (maxSizeStr !== undefined) {
+        const parsedSize = parseSizeBytes(maxSizeStr);
+        if (parsedSize === null) {
+          throw new CliUsageError(
+            `Invalid max cache size "${maxSizeStr}". Examples: 50MB, 100M, 1GB`,
+          );
+        }
+        maxSizeBytes = parsedSize;
+      }
+    } catch (err: any) {
+      console.error(`❌ [SecureFlow] ${err.message}`);
+      return 1;
+    }
+    const repoRoot = getRepoRoot();
+    const result = pruneCache({ ttlMs, maxSizeBytes, cacheDir: customCacheDir, cwd: repoRoot });
+    const freedFormatted =
+      result.freedBytes < 1024
+        ? `${result.freedBytes} B`
+        : result.freedBytes < 1024 * 1024
+          ? `${(result.freedBytes / 1024).toFixed(1)} KB`
+          : `${(result.freedBytes / (1024 * 1024)).toFixed(2)} MB`;
+    console.log(
+      `🧹 [SecureFlow] Cache pruned: ${result.prunedCount} entr${result.prunedCount === 1 ? "y" : "ies"} removed (${freedFormatted} freed), ${result.remainingCount} remaining.`,
+    );
+    return 0;
+  }
+
+  if (parseCacheStatsArg(process.argv)) {
+    let customCacheDir: string | undefined;
+    try {
+      customCacheDir = parseCacheDirArg(process.argv);
+    } catch (err: any) {
+      console.error(`❌ [SecureFlow] ${err.message}`);
+      return 1;
+    }
+    const repoRoot = getRepoRoot();
+    const stats = getCacheStats(customCacheDir, repoRoot);
+
+    if (process.argv.includes("--json")) {
+      console.log(JSON.stringify(stats, null, 2));
+      return 0;
+    }
+
+    const sizeFormatted =
+      stats.totalSizeBytes < 1024
+        ? `${stats.totalSizeBytes} B`
+        : stats.totalSizeBytes < 1024 * 1024
+          ? `${(stats.totalSizeBytes / 1024).toFixed(1)} KB`
+          : `${(stats.totalSizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+
+    console.log(`\n📦 [SecureFlow] Scan Cache Statistics`);
+    console.log(`─────────────────────────────────────────────`);
+    console.log(`Location:          ${stats.cacheDir}`);
+    console.log(`Total Entries:     ${stats.entryCount}`);
+    console.log(`Disk Storage:      ${sizeFormatted}`);
+    console.log(`Orphaned Temp:     ${stats.tempFileCount} files`);
+    console.log(
+      `Oldest Entry:      ${stats.oldestEntryAt ? new Date(stats.oldestEntryAt).toISOString() : "None"}`,
+    );
+    console.log(
+      `Newest Entry:      ${stats.newestEntryAt ? new Date(stats.newestEntryAt).toISOString() : "None"}`,
+    );
+    const versions = Object.entries(stats.rulesetVersions);
+    if (versions.length > 0) {
+      console.log(
+        `Ruleset Versions:  ${versions.map(([v, count]) => `v${v} (${count})`).join(", ")}`,
+      );
+    }
+    console.log(`─────────────────────────────────────────────\n`);
+    return 0;
   }
 
   const isValidateCommand =
@@ -530,12 +646,35 @@ async function main(): Promise<number> {
   );
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
+  const targetDir = parseTargetDirectoryArg(process.argv);
+  const repoInGit = isGitRepository();
   const isSinceMode = sinceRef !== undefined;
+  const isDirMode = targetDir !== undefined || (!isSinceMode && !repoInGit);
+  const repoRoot = getRepoRoot();
   let filesToScan: string[];
 
+  const ignoreData = loadSecureFlowIgnore(customIgnorePath);
+  const customIgnores = ignoreData?.compiledPatterns ?? [];
+
+  if (VERBOSE && ignoreData) {
+    console.log(
+      `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
+    );
+  }
+
   try {
-    if (sinceRef !== undefined) {
+    if (targetDir !== undefined) {
+      filesToScan = discoverWorkspaceFiles(targetDir, {
+        workspaceRoot: repoRoot,
+        customIgnores,
+      });
+    } else if (sinceRef !== undefined) {
       filesToScan = getChangedFilesSince(sinceRef);
+    } else if (!repoInGit) {
+      filesToScan = discoverWorkspaceFiles(".", {
+        workspaceRoot: repoRoot,
+        customIgnores,
+      });
     } else {
       filesToScan = getStagedFiles();
     }
@@ -551,9 +690,14 @@ async function main(): Promise<number> {
   const newlyAnalyzed: Array<{ filePath: string; content: string; result: FileScanResult }> = [];
   let analyzedCount = 0;
   let cachedCount = 0;
+  let skippedCount = 0;
 
-  const ignoreData = loadSecureFlowIgnore(customIgnorePath);
-  const customIgnores = ignoreData?.compiledPatterns ?? [];
+  const repoRoot = getRepoRoot();
+  const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
+  const customIgnores = compileIgnorePatterns([
+    ...DEFAULT_IGNORE_PATTERNS,
+    ...(ignoreData ? ignoreData.config.ignoredPaths : []),
+  ]);
 
   if (VERBOSE && ignoreData) {
     console.log(
@@ -564,12 +708,10 @@ async function main(): Promise<number> {
   let violationCount = 0;
 
   if (filesToScan.length > 0) {
-    const repoRoot = isSinceMode ? getRepoRoot() : undefined;
-
     for (const filePath of filesToScan) {
       let content: string | null = null;
 
-      if (isSinceMode) {
+      if (isDirMode || isSinceMode) {
         try {
           const resolvedPath = repoRoot ? path.resolve(repoRoot, filePath) : filePath;
           if (fs.existsSync(resolvedPath)) {
@@ -601,6 +743,9 @@ async function main(): Promise<number> {
           path: filePath,
         };
         fileResults.push(result);
+        if (result.skipped) {
+          skippedCount++;
+        }
         if (cached.aiFindings && cached.aiFindings.length > 0) {
           cachedAiFindings.push(
             ...cached.aiFindings.map((f) => ({ ...f, fileLocation: filePath })),
@@ -615,6 +760,9 @@ async function main(): Promise<number> {
         analyzedCount++;
         const result = scanFile(filePath, content, customIgnores);
         fileResults.push(result);
+        if (result.skipped) {
+          skippedCount++;
+        }
         newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {
           reportSkipped(result);
@@ -675,6 +823,9 @@ async function main(): Promise<number> {
     }
     if (filesToScan.length > 0) {
       console.log(`ℹ️  [SecureFlow] Analyzed ${analyzedCount} file(s) (${cachedCount} cached).`);
+      if (VERBOSE) {
+        console.log(`ℹ️  [SecureFlow] Skipped ${skippedCount} file(s) (ignored or excluded).`);
+      }
     }
   }
   if (
@@ -771,7 +922,11 @@ ${textOutput}`);
         } below ${describeFailThreshold(activeThreshold)}. Scan passing.`,
       );
     } else {
-      const modeLabel = isSinceMode ? `changed file(s) since ${sinceRef}` : "staged file(s)";
+      const modeLabel = isDirMode
+        ? `file(s) in ${targetDir ?? "directory"}`
+        : isSinceMode
+          ? `changed file(s) since ${sinceRef}`
+          : "staged file(s)";
       console.log(`✅ SecureFlow scan passed (${filesToScan.length} ${modeLabel}).`);
     }
   }

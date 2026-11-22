@@ -40,10 +40,21 @@ const m = vi.hoisted(() => ({
   parseSinceArg: vi.fn(),
   parseNoCacheArg: vi.fn(),
   parseCacheClearArg: vi.fn(),
+  parseCachePruneArg: vi.fn(),
+  parseCacheStatsArg: vi.fn(),
+  parseCacheTtlArg: vi.fn(),
+  parseCacheMaxSizeArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
+  parseTargetDirectoryArg: vi.fn(),
+  discoverWorkspaceFiles: vi.fn(),
+  isGitRepository: vi.fn(() => true),
   getCacheEntry: vi.fn(),
   setCacheEntry: vi.fn(),
   clearCache: vi.fn(),
+  pruneCache: vi.fn(),
+  getCacheStats: vi.fn(),
+  parseDurationMs: vi.fn(),
+  parseSizeBytes: vi.fn(),
   resolveCacheDir: vi.fn(),
 }));
 
@@ -53,6 +64,7 @@ vi.mock("./git.js", () => ({
   readStagedContent: m.readStagedContent,
   getChangedFilesSince: m.getChangedFilesSince,
   getRepoRoot: m.getRepoRoot,
+  isGitRepository: m.isGitRepository,
 }));
 vi.mock("./scanner.js", () => ({
   scanFile: m.scanFile,
@@ -81,6 +93,8 @@ vi.mock("./scanner.js", () => ({
   },
   formatSeverityCounts: (c: any) =>
     `Findings by severity: critical: ${c.critical}, high: ${c.high}, medium: ${c.medium}, low: ${c.low}`,
+  DEFAULT_IGNORE_PATTERNS: [],
+  compileIgnorePatterns: vi.fn(() => []),
 }));
 vi.mock("./lib/api-client.js", () => ({
   NetworkUnavailableError: errors.NetworkUnavailableError,
@@ -101,7 +115,15 @@ vi.mock("./lib/output-args.js", () => ({
   parseColorArg: m.parseColorArg,
   parseNoCacheArg: m.parseNoCacheArg,
   parseCacheClearArg: m.parseCacheClearArg,
+  parseCachePruneArg: m.parseCachePruneArg,
+  parseCacheStatsArg: m.parseCacheStatsArg,
+  parseCacheTtlArg: m.parseCacheTtlArg,
+  parseCacheMaxSizeArg: m.parseCacheMaxSizeArg,
   parseCacheDirArg: m.parseCacheDirArg,
+  parseTargetDirectoryArg: m.parseTargetDirectoryArg,
+}));
+vi.mock("./workspace.js", () => ({
+  discoverWorkspaceFiles: m.discoverWorkspaceFiles,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
@@ -109,6 +131,10 @@ vi.mock("./cache.js", () => ({
   getCacheEntry: m.getCacheEntry,
   setCacheEntry: m.setCacheEntry,
   clearCache: m.clearCache,
+  pruneCache: m.pruneCache,
+  getCacheStats: m.getCacheStats,
+  parseDurationMs: m.parseDurationMs,
+  parseSizeBytes: m.parseSizeBytes,
   resolveCacheDir: m.resolveCacheDir,
 }));
 
@@ -682,6 +708,21 @@ describe("caching and cache-clear flags", () => {
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
   });
 
+  it("reports the number of skipped files in verbose mode", async () => {
+    m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.scanFile.mockImplementation((filePath: string) => {
+      if (filePath === "b.ts") {
+        return { path: filePath, violations: [], skipped: "matched .secureflowignore" };
+      }
+      return scanResult(filePath, []);
+    });
+
+    const code = await runCli("--verbose");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain("Skipped 1 file(s) (ignored or excluded).");
+  });
+
   it("bypasses cache when --no-cache is passed", async () => {
     m.parseNoCacheArg.mockReturnValue(true);
     m.getStagedFiles.mockReturnValue(["file.ts"]);
@@ -694,6 +735,84 @@ describe("caching and cache-clear flags", () => {
     expect(m.scanFile).toHaveBeenCalledTimes(1);
     expect(m.setCacheEntry).not.toHaveBeenCalled();
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
+  });
+  
+  
+  it("prunes cache and outputs summary when cache-prune is invoked", async () => {
+    m.parseCachePruneArg.mockReturnValue(true);
+    m.parseCacheTtlArg.mockReturnValue("7d");
+    m.parseDurationMs.mockReturnValue(7 * 24 * 60 * 60 * 1000);
+    m.pruneCache.mockReturnValue({
+      prunedCount: 5,
+      freedBytes: 1024 * 50,
+      remainingCount: 10,
+      remainingBytes: 1024 * 100,
+      cacheDir: "/dummy/cache",
+    });
+
+    const code = await runCli("cache-prune", "--ttl", "7d");
+    expect(code).toBe(0);
+    expect(m.pruneCache).toHaveBeenCalledWith({
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+      maxSizeBytes: undefined,
+      cacheDir: undefined,
+      cwd: expect.any(String),
+    });
+    expect(output(logSpy)).toContain("Cache pruned: 5 entries removed");
+    expect(output(logSpy)).toContain("10 remaining");
+  });
+
+  it("prints cache statistics when cache-stats is invoked", async () => {
+    m.parseCacheStatsArg.mockReturnValue(true);
+    m.getCacheStats.mockReturnValue({
+      cacheDir: "/dummy/cache",
+      entryCount: 12,
+      totalSizeBytes: 1024 * 200,
+      tempFileCount: 0,
+      tempSizeBytes: 0,
+      oldestEntryAt: Date.now() - 100000,
+      newestEntryAt: Date.now(),
+      rulesetVersions: { "1.0.0": 12 },
+    });
+
+    const code = await runCli("cache-stats");
+    expect(code).toBe(0);
+    expect(m.getCacheStats).toHaveBeenCalled();
+    expect(output(logSpy)).toContain("Scan Cache Statistics");
+    expect(output(logSpy)).toContain("Total Entries:     12");
+  });
+});
+
+  describe("directory scanning and non-git fallback (#1933)", () => {
+    it("scans files in target directory when positional target is provided", async () => {
+      m.parseTargetDirectoryArg.mockReturnValue("src");
+      m.discoverWorkspaceFiles.mockReturnValue(["src/index.ts"]);
+      m.scanFile.mockReturnValue(scanResult("src/index.ts", []));
+
+      const code = await runCli("src");
+      expect(code).toBe(0);
+      expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+        "src",
+        expect.objectContaining({ workspaceRoot: expect.any(String) }),
+      );
+      expect(m.getStagedFiles).not.toHaveBeenCalled();
+      expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in src).");
+    });
+
+    it("falls back gracefully to current directory scan when not inside a git repository", async () => {
+      m.isGitRepository.mockReturnValue(false);
+      m.discoverWorkspaceFiles.mockReturnValue(["package.json"]);
+      m.scanFile.mockReturnValue(scanResult("package.json", []));
+
+      const code = await runCli();
+      expect(code).toBe(0);
+      expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+        ".",
+        expect.objectContaining({ workspaceRoot: expect.any(String) }),
+      );
+      expect(m.getStagedFiles).not.toHaveBeenCalled();
+      expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in directory).");
+    });
   });
 });
 

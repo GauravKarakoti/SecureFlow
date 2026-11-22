@@ -525,6 +525,7 @@ export class ArmorIQScanner {
     activePolicies: ScannerPolicy[] = [],
     customIgnores: string[] = [],
     customPlaceholders: string[] = [],
+    repositoryId: string = "default-repo",
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
     const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
@@ -570,6 +571,7 @@ export class ArmorIQScanner {
     const deterministicFindings = runDeterministicPrecheck(files, {
       customPlaceholders: combinedPlaceholders,
       customIgnores: combinedIgnores,
+      repositoryId,
     });
 
     for (const file of files) {
@@ -864,7 +866,7 @@ CRITICAL RULES:
               const findingType = normalizeFindingTypeLabel(f.type);
 
               const dynFp = computeDynamicFingerprint(
-                "default-repo",
+                repositoryId,
                 fileLoc,
                 findingType,
                 normalizedSnippet,

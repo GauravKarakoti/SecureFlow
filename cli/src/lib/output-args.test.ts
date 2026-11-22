@@ -11,7 +11,12 @@ import {
   parseColorArg,
   parseNoCacheArg,
   parseCacheClearArg,
+  parseCachePruneArg,
+  parseCacheStatsArg,
+  parseCacheTtlArg,
+  parseCacheMaxSizeArg,
   parseCacheDirArg,
+  parseTargetDirectoryArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -226,5 +231,93 @@ describe("parseCacheDirArg", () => {
   it("rejects empty or missing directory path", () => {
     expect(() => parseCacheDirArg(argv("--cache-dir"))).toThrow(CliUsageError);
     expect(() => parseCacheDirArg(argv("--cache-dir="))).toThrow(CliUsageError);
+  });
+});
+
+describe("parseTargetDirectoryArg (#1933)", () => {
+  it("defaults to undefined when running standard staged scan", () => {
+    expect(parseTargetDirectoryArg(argv())).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("--no-cache"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("--format", "json"))).toBeUndefined();
+  });
+
+  it("parses explicit --dir <path> and --dir=<path>", () => {
+    expect(parseTargetDirectoryArg(argv("--dir", "src"))).toBe("src");
+    expect(parseTargetDirectoryArg(argv("--dir=src/lib"))).toBe("src/lib");
+  });
+
+  it("rejects empty --dir argument", () => {
+    expect(() => parseTargetDirectoryArg(argv("--dir"))).toThrow(CliUsageError);
+    expect(() => parseTargetDirectoryArg(argv("--dir="))).toThrow(CliUsageError);
+  });
+
+  it("parses positional directory path arguments", () => {
+    expect(parseTargetDirectoryArg(argv("src"))).toBe("src");
+    expect(parseTargetDirectoryArg(argv("."))).toBe(".");
+    expect(parseTargetDirectoryArg(argv("packages/core"))).toBe("packages/core");
+    expect(parseTargetDirectoryArg(argv("scan", "src"))).toBe("src");
+  });
+
+  it("returns undefined for known subcommands", () => {
+    expect(parseTargetDirectoryArg(argv("validate"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("init"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("mcp"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("cache-clear"))).toBeUndefined();
+  });
+});
+
+describe("parseCachePruneArg", () => {
+  it("defaults to false when absent", () => {
+    expect(parseCachePruneArg(argv())).toBe(false);
+  });
+
+  it("is true for cache-prune, cache prune, and --cache-prune", () => {
+    expect(parseCachePruneArg(argv("cache-prune"))).toBe(true);
+    expect(parseCachePruneArg(argv("cache", "prune"))).toBe(true);
+    expect(parseCachePruneArg(argv("--cache-prune"))).toBe(true);
+  });
+});
+
+describe("parseCacheStatsArg", () => {
+  it("defaults to false when absent", () => {
+    expect(parseCacheStatsArg(argv())).toBe(false);
+  });
+
+  it("is true for cache-stats, cache stats, and --cache-stats", () => {
+    expect(parseCacheStatsArg(argv("cache-stats"))).toBe(true);
+    expect(parseCacheStatsArg(argv("cache", "stats"))).toBe(true);
+    expect(parseCacheStatsArg(argv("--cache-stats"))).toBe(true);
+  });
+});
+
+describe("parseCacheTtlArg", () => {
+  it("defaults to undefined when absent", () => {
+    expect(parseCacheTtlArg(argv())).toBeUndefined();
+  });
+
+  it("parses --cache-ttl and --ttl values", () => {
+    expect(parseCacheTtlArg(argv("--cache-ttl", "7d"))).toBe("7d");
+    expect(parseCacheTtlArg(argv("--ttl=30d"))).toBe("30d");
+  });
+
+  it("rejects missing values", () => {
+    expect(() => parseCacheTtlArg(argv("--ttl"))).toThrow(CliUsageError);
+    expect(() => parseCacheTtlArg(argv("--cache-ttl="))).toThrow(CliUsageError);
+  });
+});
+
+describe("parseCacheMaxSizeArg", () => {
+  it("defaults to undefined when absent", () => {
+    expect(parseCacheMaxSizeArg(argv())).toBeUndefined();
+  });
+
+  it("parses --cache-max-size and --max-size values", () => {
+    expect(parseCacheMaxSizeArg(argv("--cache-max-size", "50MB"))).toBe("50MB");
+    expect(parseCacheMaxSizeArg(argv("--max-size=100M"))).toBe("100M");
+  });
+
+  it("rejects missing values", () => {
+    expect(() => parseCacheMaxSizeArg(argv("--max-size"))).toThrow(CliUsageError);
+    expect(() => parseCacheMaxSizeArg(argv("--cache-max-size="))).toThrow(CliUsageError);
   });
 });
