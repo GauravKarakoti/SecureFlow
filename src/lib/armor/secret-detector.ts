@@ -168,6 +168,7 @@ export function detectSecretsInAddedLines(
   filename: string,
   added: Array<{ number: number; content: string }>,
   customPlaceholders: string[] = [],
+  repositoryId: string = "default-repo",
 ): ScanFinding[] {
   const findings: ScanFinding[] = [];
 
@@ -200,7 +201,7 @@ export function detectSecretsInAddedLines(
 
         if (!lineFinding) {
           const dynFp = computeDynamicFingerprint(
-            "default-repo",
+            repositoryId,
             filename,
             "Secret",
             maskSecretValue(rawSecret),
@@ -277,9 +278,10 @@ export function detectSecretsInPatch(
   filename: string,
   patch: string,
   customPlaceholders: string[] = [],
+  repositoryId: string = "default-repo",
 ): ScanFinding[] {
   const added = extractAddedLinesFromPatch(patch);
-  return detectSecretsInAddedLines(filename, added, customPlaceholders);
+  return detectSecretsInAddedLines(filename, added, customPlaceholders, repositoryId);
 }
 
 /**
@@ -288,11 +290,17 @@ export function detectSecretsInPatch(
 export function detectSecretsInFiles(
   files: FileChange[],
   customPlaceholders: string[] = [],
+  repositoryId: string = "default-repo",
 ): ScanFinding[] {
   const allFindings: ScanFinding[] = [];
   for (const file of files) {
     if (!file.patch) continue;
-    const findings = detectSecretsInPatch(file.filename, file.patch, customPlaceholders);
+    const findings = detectSecretsInPatch(
+      file.filename,
+      file.patch,
+      customPlaceholders,
+      repositoryId,
+    );
     allFindings.push(...findings);
   }
   return allFindings;

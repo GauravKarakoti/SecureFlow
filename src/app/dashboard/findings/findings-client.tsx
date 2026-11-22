@@ -317,28 +317,28 @@ export default function FindingsClient({
       />
 
       <Card className="glass-card">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle className="text-lg">Recent Findings</CardTitle>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             {total === 0 ? (
               <>
-                <Button variant="outline" size="sm" disabled className="gap-2">
+                <Button variant="outline" size="sm" disabled className="gap-2 min-h-[44px]">
                   <Download className="h-4 w-4" />
                   Export CSV
                 </Button>
-                <Button variant="outline" size="sm" disabled className="gap-2">
+                <Button variant="outline" size="sm" disabled className="gap-2 min-h-[44px]">
                   <Download className="h-4 w-4" />
                   Export JSON
                 </Button>
-                <Button variant="outline" size="sm" disabled className="gap-2">
+                <Button variant="outline" size="sm" disabled className="gap-2 min-h-[44px]">
                   <FileText className="h-4 w-4" />
                   Shareable Report
                 </Button>
               </>
             ) : (
               <>
-                <Button asChild variant="outline" size="sm" className="gap-2">
+                <Button asChild variant="outline" size="sm" className="gap-2 min-h-[44px]">
                   {/* A link, not an onClick over `findings`: that is only the loaded
                       page, while the export should cover the `total` beside it. */}
                   <a href={exportHref} download>
@@ -346,7 +346,7 @@ export default function FindingsClient({
                     Export CSV
                   </a>
                 </Button>
-                <Button asChild variant="outline" size="sm" className="gap-2">
+                <Button asChild variant="outline" size="sm" className="gap-2 min-h-[44px]">
                   <a href={jsonExportHref} download>
                     <Download className="h-4 w-4" />
                     Export JSON
@@ -356,7 +356,7 @@ export default function FindingsClient({
                   asChild
                   variant="outline"
                   size="sm"
-                  className="gap-2 border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300"
+                  className="gap-2 min-h-[44px] border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300"
                 >
                   <a
                     href={`${exportHref}${exportHref.includes("?") ? "&" : "?"}format=html`}
@@ -453,7 +453,7 @@ export default function FindingsClient({
                   )}
                 </div>
               )}
-              <Accordion type="single" collapsible className="space-y-4">
+              <Accordion type="single" collapsible className="space-y-4" data-testid="findings-table">
                 {displayedFindings.map((finding) => {
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
                   const expiryDate = finding.triageExpiresAt
@@ -465,6 +465,7 @@ export default function FindingsClient({
                     <AccordionItem
                       key={finding.id}
                       value={finding.id}
+                      data-testid="finding-row"
                       className="border border-white/10 rounded-xl overflow-hidden px-4 transition-all duration-300 hover:border-primary/40 hover:shadow-lg"
                     >
                       <div className="flex items-center gap-3">
@@ -473,108 +474,130 @@ export default function FindingsClient({
                             checked={selected.has(finding.id)}
                             onCheckedChange={() => toggleOne(finding.id)}
                             aria-label={`Select finding in ${finding.fileLocation}`}
-                            className="shrink-0"
+                            className="shrink-0 min-h-[20px] min-w-[20px]"
                           />
                         )}
                         <AccordionTrigger className="flex-1 hover:no-underline py-4">
-                          <div className="flex items-center gap-4 w-full text-left">
-                            <div className="flex-1">
-                              <div className="font-bold text-sm mb-0.5">
-                                {finding.type} Detected
-                              </div>
-                              <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-2">
-                                <span>{finding.fileLocation}</span>
-                                {finding.createdAt && (
-                                  <>
+                          <div className="flex flex-col md:flex-row md:items-center gap-2.5 md:gap-4 w-full text-left pr-2 md:pr-0">
+                            {/* On mobile: flex header row. On desktop: contents unwraps children into the row */}
+                            <div className="flex items-start justify-between md:contents gap-2">
+                              <div className="flex-1 min-w-0" data-testid="finding-file">
+                                <div className="font-bold text-sm mb-0.5 truncate">
+                                  {finding.type} Detected
+                                </div>
+                                <div className="text-[10px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 break-all">
+                                  <span>{finding.fileLocation}</span>
+                                  {finding.createdAt && (
+                                    <>
+                                      <span>•</span>
+                                      <TimeAgo date={finding.createdAt} />
+                                    </>
+                                  )}
+                                  <span className="inline-flex md:hidden items-center gap-1">
                                     <span>•</span>
-                                    <TimeAgo date={finding.createdAt} />
-                                  </>
-                                )}
+                                    <Clock className="w-3 h-3" />
+                                    {formatAgeDays(finding.createdAt)}
+                                  </span>
+                                </div>
+                              </div>
+                              <div data-testid="finding-severity" className="shrink-0 md:order-5">
+                                <SeverityBadge
+                                  severity={finding.severity}
+                                  title={`Raw severity: ${finding.severity}`}
+                                />
                               </div>
                             </div>
-                            {finding.promptInjectionSuspected && (
-                              <Badge
-                                className="bg-yellow-500 text-black"
-                                title="The scanned code may contain content crafted to influence the AI explanation. Trust the severity badge over the narrative below."
-                              >
-                                ⚠️ Verify manually
-                              </Badge>
-                            )}
-                            {finding.triageStatus && finding.triageStatus !== "OPEN" && (
-                              <Badge
-                                variant="outline"
-                                className={
-                                  finding.triageStatus === "RESOLVED"
-                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px]"
-                                    : "border-white/15 bg-white/5 text-muted-foreground"
-                                }
-                                title={
-                                  finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
-                                    ? `Resolved by commit ${finding.resolvedCommitSha}`
-                                    : "Triage status"
-                                }
-                              >
-                                {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
-                                  ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
-                                  : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
-                              </Badge>
-                            )}
-                            {expiryDate && (
-                              <Badge
-                                variant="outline"
-                                className={
-                                  isExpired
-                                    ? "border-red-500/20 bg-red-500/10 text-red-400 font-mono text-[10px]"
-                                    : "border-amber-500/20 bg-amber-500/10 text-amber-300 font-mono text-[10px]"
-                                }
-                                title={`Dismissal expiry: ${expiryDate.toLocaleDateString()}`}
-                              >
-                                <Clock className="w-3 h-3 mr-1 inline" />
-                                {isExpired
-                                  ? "expired"
-                                  : `expires on ${expiryDate.toLocaleDateString()}`}
-                              </Badge>
-                            )}
-                            {finding.triageNote?.includes("previous dismissal expired on") && (
-                              <Badge
-                                variant="outline"
-                                className="border-amber-500/30 bg-amber-500/10 text-amber-300 font-mono text-[10px]"
-                              >
-                                ⚠️ {finding.triageNote}
-                              </Badge>
-                            )}
-                            {/* Age column */}
+
+                            {/* Badges: wrapped row on mobile, inline on desktop */}
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5 md:pt-0 md:contents">
+                              {finding.promptInjectionSuspected && (
+                                <Badge
+                                  className="bg-yellow-500 text-black shrink-0 text-[10px]"
+                                  title="The scanned code may contain content crafted to influence the AI explanation. Trust the severity badge over the narrative below."
+                                >
+                                  ⚠️ Verify manually
+                                </Badge>
+                              )}
+                              {finding.triageStatus && finding.triageStatus !== "OPEN" && (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    finding.triageStatus === "RESOLVED"
+                                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px] shrink-0"
+                                      : "border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0"
+                                  }
+                                  title={
+                                    finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                      ? `Resolved by commit ${finding.resolvedCommitSha}`
+                                      : "Triage status"
+                                  }
+                                >
+                                  {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
+                                    ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
+                                    : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
+                                </Badge>
+                              )}
+                              {expiryDate && (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    isExpired
+                                      ? "border-red-500/20 bg-red-500/10 text-red-400 font-mono text-[10px] shrink-0"
+                                      : "border-amber-500/20 bg-amber-500/10 text-amber-300 font-mono text-[10px] shrink-0"
+                                  }
+                                  title={`Dismissal expiry: ${expiryDate.toLocaleDateString()}`}
+                                >
+                                  <Clock className="w-3 h-3 mr-1 inline" />
+                                  {isExpired
+                                    ? "expired"
+                                    : `expires on ${expiryDate.toLocaleDateString()}`}
+                                </Badge>
+                              )}
+                              {finding.triageNote?.includes("previous dismissal expired on") && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500/30 bg-amber-500/10 text-amber-300 font-mono text-[10px] shrink-0"
+                                >
+                                  ⚠️ {finding.triageNote}
+                                </Badge>
+                              )}
+                              {/* Overdue badge */}
+                              {finding.isOverdue && (
+                                <Badge
+                                  className="bg-red-600/80 text-white border-red-500/60 font-mono text-[10px] animate-pulse shrink-0"
+                                  title="This finding has exceeded its target resolution age"
+                                >
+                                  <AlertCircle className="w-3 h-3 mr-1" />
+                                  Overdue
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Age column on desktop */}
                             <span
-                              className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                              className="hidden md:inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground shrink-0 md:order-4"
                               title="Finding age"
                             >
                               <Clock className="w-3 h-3" />
                               {formatAgeDays(finding.createdAt)}
                             </span>
-                            {/* Overdue badge */}
-                            {finding.isOverdue && (
-                              <Badge
-                                className="bg-red-600/80 text-white border-red-500/60 font-mono text-[10px] animate-pulse"
-                                title="This finding has exceeded its target resolution age"
+
+                            {/* Action row on mobile / button on desktop */}
+                            <div className="flex items-center justify-between md:justify-end w-full md:w-auto pt-1 md:pt-0 md:order-6">
+                              <span className="text-[11px] text-muted-foreground font-mono md:hidden">
+                                Tap to view triage &amp; AI patch
+                              </span>
+                              <Link
+                                href={`/dashboard/findings/${finding.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] shrink-0"
+                                title="View finding permalink"
+                                aria-label={`View finding ${finding.id} details`}
                               >
-                                <AlertCircle className="w-3 h-3 mr-1" />
-                                Overdue
-                              </Badge>
-                            )}
-                            <SeverityBadge
-                              severity={finding.severity}
-                              title={`Raw severity: ${finding.severity}`}
-                            />
-                            <Link
-                              href={`/dashboard/findings/${finding.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                              title="View finding permalink"
-                              aria-label={`View finding ${finding.id} details`}
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-                              <span className="hidden sm:inline">Details</span>
-                            </Link>
+                                <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span className="hidden sm:inline">Details</span>
+                              </Link>
+                            </div>
                           </div>
                         </AccordionTrigger>
                       </div>

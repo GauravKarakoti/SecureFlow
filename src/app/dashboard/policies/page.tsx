@@ -48,7 +48,7 @@ export default async function PoliciesPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="font-headline text-3xl font-bold tracking-tight mb-2">The Rules</h1>
           <p className="text-muted-foreground">

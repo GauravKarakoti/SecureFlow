@@ -23,6 +23,8 @@ import {
   compileIgnorePatterns,
   loadSecureFlowIgnore,
   normalizeScanPath,
+  DEFAULT_IGNORE_PATTERNS,
+  getEffectiveIgnorePatterns,
   type SecureFlowIgnoreConfig,
 } from "./ignore.js";
 
@@ -37,6 +39,8 @@ export {
   compileIgnorePatterns,
   loadSecureFlowIgnore,
   normalizeScanPath,
+  DEFAULT_IGNORE_PATTERNS,
+  getEffectiveIgnorePatterns,
   type SecureFlowIgnoreConfig,
 };
 
@@ -230,7 +234,9 @@ export function shouldScanFile(
   const lower = path.toLowerCase();
   const basename = lower.split("/").pop() ?? lower;
 
-  if (GENERATED_FILES.some((name) => basename === name.toLowerCase())) return false;
+  if (!customIgnores && GENERATED_FILES.some((name) => basename === name.toLowerCase())) {
+    return false;
+  }
   if (BINARY_EXTENSIONS.some((ext) => lower.endsWith(ext))) return false;
   if (typeof byteLength === "number" && byteLength > MAX_SCANNED_BYTES) return false;
 
@@ -431,11 +437,12 @@ export interface FileScanResult {
 
 /** Scan one staged blob. */
 export function scanFile(path: string, content: string, customIgnores?: RegExp[]): FileScanResult {
-  if (customIgnores && shouldIgnorePath(path, customIgnores)) {
+  const effectiveIgnores = customIgnores ?? compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
+  if (effectiveIgnores && shouldIgnorePath(path, effectiveIgnores)) {
     return { path, violations: [], skipped: "matched .secureflowignore" };
   }
 
-  if (!shouldScanFile(path, Buffer.byteLength(content, "utf-8"))) {
+  if (!shouldScanFile(path, Buffer.byteLength(content, "utf-8"), effectiveIgnores)) {
     return { path, violations: [], skipped: "excluded by type or size" };
   }
 
