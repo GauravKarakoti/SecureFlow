@@ -628,6 +628,48 @@ export function shouldFailScan(
   return false;
 }
 
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+/**
+ * Counts total findings by severity across both local violations (HIGH) and AI findings.
+ */
+export function countFindingsBySeverity(
+  localViolationCount: number,
+  aiFindings: { severity?: string }[] = [],
+): SeverityCounts {
+  let critical = 0;
+  let high = localViolationCount;
+  let medium = 0;
+  let low = 0;
+
+  for (const f of aiFindings) {
+    const sev = (f.severity || "LOW").toUpperCase();
+    if (sev === "CRITICAL") {
+      critical++;
+    } else if (sev === "HIGH") {
+      high++;
+    } else if (sev === "MEDIUM") {
+      medium++;
+    } else if (sev === "LOW") {
+      low++;
+    }
+  }
+
+  return { critical, high, medium, low };
+}
+
+/**
+ * Formats a one-line summary of finding counts per severity.
+ */
+export function formatSeverityCounts(counts: SeverityCounts): string {
+  return `Findings by severity: critical: ${counts.critical}, high: ${counts.high}, medium: ${counts.medium}, low: ${counts.low}`;
+}
+
 // ---------------------------------------------------------------------------
 // Severity filter helpers (--severity flag)
 // ---------------------------------------------------------------------------

@@ -77,6 +77,22 @@ vi.mock("./scanner.js", () => ({
   filterBySeverity: m.filterBySeverity,
   parseSeverityFilter: m.parseSeverityFilter,
   generateVoiceSummaryText: m.generateVoiceSummaryText,
+  countFindingsBySeverity: (localCount: number, aiFindings: any[] = []) => {
+    let critical = 0;
+    let high = localCount;
+    let medium = 0;
+    let low = 0;
+    for (const f of aiFindings) {
+      const s = (f.severity || "LOW").toUpperCase();
+      if (s === "CRITICAL") critical++;
+      else if (s === "HIGH") high++;
+      else if (s === "MEDIUM") medium++;
+      else if (s === "LOW") low++;
+    }
+    return { critical, high, medium, low };
+  },
+  formatSeverityCounts: (c: any) =>
+    `Findings by severity: critical: ${c.critical}, high: ${c.high}, medium: ${c.medium}, low: ${c.low}`,
   DEFAULT_IGNORE_PATTERNS: [],
   compileIgnorePatterns: vi.fn(() => []),
 }));
@@ -196,10 +212,19 @@ beforeEach(() => {
   m.scanFile.mockImplementation((path: string) => scanResult(path));
   m.filterBySeverity.mockImplementation((results: unknown) => results);
   m.formatScanResults.mockReturnValue("FORMATTED");
-  m.parseFailOnArg.mockReturnValue("high");
+  m.parseFailOnArg.mockImplementation((args: string[] = process.argv) => {
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a?.startsWith("--fail-on=")) return a.slice("--fail-on=".length).toUpperCase();
+      if (a === "--fail-on" && args[i + 1]) return args[i + 1]!.toUpperCase();
+    }
+    return "high";
+  });
   m.shouldFailScan.mockReturnValue(false);
   m.blockingAiFindings.mockReturnValue([]);
-  m.describeFailThreshold.mockReturnValue("high");
+  m.describeFailThreshold.mockImplementation((t) =>
+    t ? `the --fail-on=${t} threshold` : "the default HIGH/CRITICAL threshold",
+  );
   m.generateVoiceSummaryText.mockReturnValue("summary");
   m.playVoiceDebrief.mockResolvedValue(undefined);
   m.requestAiFileScan.mockResolvedValue([]);
@@ -788,5 +813,163 @@ describe("caching and cache-clear flags", () => {
       expect(m.getStagedFiles).not.toHaveBeenCalled();
       expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in directory).");
     });
+  });
+});
+
+describe("--fail-on thresholds, exit codes, and severity counts", () => {
+  beforeEach(() => {
+    m.getStagedFiles.mockReturnValue(["src/app.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.scanFile.mockReturnValue(scanResult("src/app.ts", []));
+  });
+
+  it("exits 0 when findings are below the critical threshold", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "critical");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 1, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("below the --fail-on=CRITICAL threshold");
+  });
+
+  it("exits 1 when findings meet or exceed the critical threshold", async () => {
+    const critical = aiFinding("critical");
+    m.requestAiFileScan.mockResolvedValue([critical]);
+    m.blockingAiFindings.mockReturnValue([critical]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "critical");
+    expect(code).toBe(1);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 1, high: 0, medium: 0, low: 0",
+    );
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=CRITICAL threshold",
+    );
+  });
+
+  it("exits 0 when findings are below the high threshold", async () => {
+    const medium = aiFinding("medium");
+    m.requestAiFileScan.mockResolvedValue([medium]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 1, low: 0",
+    );
+  });
+
+  it("exits 1 when findings meet or exceed the high threshold", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.blockingAiFindings.mockReturnValue([high]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=HIGH threshold",
+    );
+  });
+
+  it("exits 0 when findings are below the medium threshold", async () => {
+    const low = aiFinding("low");
+    m.requestAiFileScan.mockResolvedValue([low]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "medium");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 0, low: 1",
+    );
+  });
+
+  it("exits 1 when findings meet or exceed the medium threshold", async () => {
+    const medium = aiFinding("medium");
+    m.requestAiFileScan.mockResolvedValue([medium]);
+    m.blockingAiFindings.mockReturnValue([medium]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "medium");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=MEDIUM threshold",
+    );
+  });
+
+  it("exits 0 when no findings exist with --fail-on low", async () => {
+    m.requestAiFileScan.mockResolvedValue([]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "low");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("SecureFlow scan passed");
+  });
+
+  it("exits 1 when low findings are met with --fail-on low", async () => {
+    const low = aiFinding("low");
+    m.requestAiFileScan.mockResolvedValue([low]);
+    m.blockingAiFindings.mockReturnValue([low]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "low");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=LOW threshold",
+    );
+  });
+
+  it("exits 0 in advisory mode with --fail-on none even when critical findings exist", async () => {
+    const critical = aiFinding("critical");
+    m.requestAiFileScan.mockResolvedValue([critical]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "none");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 1, high: 0, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("advisory warning: 1 finding below");
+  });
+
+  it("supports secureflow scan --fail-on high subcommand syntax", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.blockingAiFindings.mockReturnValue([high]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("scan", "--fail-on", "high");
+    expect(code).toBe(1);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 1, medium: 0, low: 0",
+    );
+  });
+
+  it("exits 2 on scan error when --fail-on is specified", async () => {
+    m.getStagedFiles.mockImplementation(() => {
+      throw new errors.GitError("fatal: not a git repository");
+    });
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(2);
+    expect(output(errorSpy)).toContain("fatal: not a git repository");
+  });
+
+  it("retains default exit code 1 on scan error when --fail-on is omitted", async () => {
+    m.getStagedFiles.mockImplementation(() => {
+      throw new errors.GitError("fatal: not a git repository");
+    });
+
+    const code = await runCli();
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("fatal: not a git repository");
   });
 });

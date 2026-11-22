@@ -511,6 +511,33 @@ secureflow scan --verbose
 # ℹ️  [SecureFlow] Active AI model: provider=groq, model=openai/gpt-oss-20b
 ```
 
+#### CI/CD Quality Gates (`--fail-on`) & Exit Codes
+
+Configure failure thresholds for CI/CD pipelines to fail only when findings reach a chosen severity:
+
+```bash
+# Fail only if critical or high findings are detected
+secureflow scan --fail-on high
+
+# Zero-tolerance mode: fail on any finding
+secureflow scan --fail-on low
+
+# Advisory mode: report findings without failing the pipeline
+secureflow scan --fail-on none
+```
+
+| Exit Code | Meaning                                                                             |
+| :-------: | :---------------------------------------------------------------------------------- |
+|    `0`    | Scan passed; findings are strictly below the `--fail-on` threshold (or 0 findings). |
+|    `1`    | Scan threshold met or exceeded; findings at or above the threshold were found.      |
+|    `2`    | Scan error (e.g. git failure, missing repository, or unreadable scan tree).         |
+
+Before exiting, SecureFlow outputs a concise one-line count per severity:
+
+```text
+Findings by severity: critical: 0, high: 2, medium: 1, low: 0
+```
+
 ---
 
 ## 📝 Available Scripts
