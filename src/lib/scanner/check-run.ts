@@ -41,6 +41,8 @@ export interface ScanCheckParams {
   notice?: string;
   findings?: readonly unknown[] | null;
   checkRunId?: number;
+  emptyReason?: string;
+  conclusion?: "success" | "action_required" | "failure" | "neutral" | "skipped";
 }
 
 /**
@@ -173,26 +175,33 @@ export function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
 }
 
 export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams) {
+  const isZeroScan = p.fileCount === 0 || !!p.emptyReason;
+  const emptyReason = p.emptyReason || "no changed files";
+
   const annotations = buildCheckAnnotations(p.findings);
   const batches = chunkArray(annotations, ANNOTATION_BATCH_SIZE);
   const firstBatch = batches[0];
 
-  const summary =
-    `SecureFlow detected ${p.findingsCount} potential security issues across ${p.fileCount} analyzed file(s).` +
-    (p.notice ? `\n\n${p.notice}` : "");
+  const summary = isZeroScan
+    ? `Nothing to scan: ${emptyReason}.` + (p.notice ? `\n\n${p.notice}` : "")
+    : `SecureFlow detected ${p.findingsCount} potential security issues across ${p.fileCount} analyzed file(s).` +
+      (p.notice ? `\n\n${p.notice}` : "");
 
   const output: {
     title: string;
     summary: string;
     annotations?: CheckAnnotation[];
   } = {
-    title: `Policy Decision: ${String(p.decision)}`,
+    title: isZeroScan ? "Nothing to scan" : `Policy Decision: ${String(p.decision)}`,
     summary,
   };
 
   if (firstBatch && firstBatch.length > 0) {
     output.annotations = firstBatch;
   }
+
+  const conclusion =
+    p.conclusion ?? (isZeroScan ? "neutral" : checkRunConclusion(p.decision));
 
   let result: unknown;
   let checkRunId = p.checkRunId;
@@ -205,7 +214,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
       name: SCAN_CHECK_NAME,
       head_sha: p.headSha,
       status: "completed",
-      conclusion: checkRunConclusion(p.decision),
+      conclusion,
       output,
     });
   } else {
@@ -215,7 +224,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
       name: SCAN_CHECK_NAME,
       head_sha: p.headSha,
       status: "completed",
-      conclusion: checkRunConclusion(p.decision),
+      conclusion,
       output,
     });
 
@@ -231,7 +240,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
         repo: p.repo,
         check_run_id: checkRunId,
         output: {
-          title: `Policy Decision: ${String(p.decision)}`,
+          title: isZeroScan ? "Nothing to scan" : `Policy Decision: ${String(p.decision)}`,
           summary,
           annotations: batches[i],
         },

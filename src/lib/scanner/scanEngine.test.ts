@@ -12,16 +12,20 @@ const mocks = vi.hoisted(() => ({
   pullsGet: vi.fn(),
 }));
 
-vi.mock("@/lib/armor/scanner", () => ({
-  scanner: { scanPullRequest: mocks.scanPullRequest },
-  parseSecureFlowIgnore: (content: string) => ({
-    ignoredPaths: content
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    placeholders: [],
-  }),
-}));
+vi.mock("@/lib/armor/scanner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/armor/scanner")>();
+  return {
+    ...actual,
+    scanner: { scanPullRequest: mocks.scanPullRequest },
+    parseSecureFlowIgnore: (content: string) => ({
+      ignoredPaths: content
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      placeholders: [],
+    }),
+  };
+});
 vi.mock("@/lib/armor/iq", () => ({
   iq: {
     evaluateFindings: (findings: Array<{ severity: string }>) =>
@@ -241,6 +245,111 @@ describe("processScanJob chunk failures", () => {
 
       expect(mocks.getContent).not.toHaveBeenCalled();
       expectScannedWith([]);
+    });
+  });
+
+  describe("Zero analyzed files handling (PR #174 regression)", () => {
+    it("handles an empty diff (0 changed files) with neutral check run and 'Nothing to scan: no changed files' comment", async () => {
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: [] } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      expect(result.scannedFiles).toBe(0);
+      expect(result.zeroScanReason).toBe("no changed files");
+
+      // Verify check run was created with neutral conclusion and emptyReason
+      expect(mocks.checksCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: no changed files.",
+          }),
+        }),
+      );
+
+      // Verify PR comment was posted with Nothing to scan and NO success wording
+      expect(mocks.createComment).toHaveBeenCalledTimes(1);
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("Nothing to scan: no changed files.");
+      expect(commentBody).not.toContain("Scan completed successfully");
+      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
+    });
+
+    it("handles unsupported file types (e.g. README.md) with neutral check run and 'Nothing to scan: unsupported file types'", async () => {
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const mdFiles = [
+        {
+          filename: "README.md",
+          patch: "@@ -1 +1 @@\n+# Documentation update",
+        },
+      ];
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: mdFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      expect(result.scannedFiles).toBe(0);
+      expect(result.zeroScanReason).toBe("unsupported file types");
+
+      expect(mocks.checksCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: unsupported file types.",
+          }),
+        }),
+      );
+
+      expect(mocks.createComment).toHaveBeenCalledTimes(1);
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("Nothing to scan: unsupported file types.");
+      expect(commentBody).not.toContain("Scan completed successfully");
+      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
+    });
+
+    it("handles all paths ignored with neutral check run and 'Nothing to scan: all paths ignored'", async () => {
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const nodeModulesFiles = [
+        {
+          filename: "node_modules/library/index.js",
+          patch: "@@ -0,0 +1 @@\n+const x = 1;",
+        },
+      ];
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: nodeModulesFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      expect(result.scannedFiles).toBe(0);
+      expect(result.zeroScanReason).toBe("all paths ignored");
+
+      expect(mocks.checksCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: all paths ignored.",
+          }),
+        }),
+      );
+
+      expect(mocks.createComment).toHaveBeenCalledTimes(1);
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("Nothing to scan: all paths ignored.");
+      expect(commentBody).not.toContain("Scan completed successfully");
+      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
     });
   });
 });

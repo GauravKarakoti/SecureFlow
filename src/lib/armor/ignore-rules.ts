@@ -474,3 +474,62 @@ export function parseSecureFlowIgnore(
 
   return { ignoredPaths, placeholders, rules, expiredRules, warnings };
 }
+
+export function globToRegexSource(glob: string): string {
+  let out = "";
+
+  for (let i = 0; i < glob.length;) {
+    if (glob.startsWith("/**", i) && i + 3 === glob.length) {
+      out += "(?:/.*)?"; // trailing `/**`: the directory itself or anything below it
+      i += 3;
+    } else if (glob.startsWith("**/", i)) {
+      out += "(?:.*/)?"; // any number of directories, including none
+      i += 3;
+    } else if (glob.startsWith("**", i)) {
+      // `**` is only recursive as a whole path segment; `a**b` is one segment.
+      const segmentStart = i === 0 || glob[i - 1] === "/";
+      const segmentEnd = i + 2 === glob.length || glob[i + 2] === "/";
+      out += segmentStart && segmentEnd ? ".*" : "[^/]*";
+      i += 2;
+    } else if (glob[i] === "*") {
+      out += "[^/]*";
+      i += 1;
+    } else if (glob[i] === "?") {
+      out += "[^/]";
+      i += 1;
+    } else {
+      out += glob[i]!.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      i += 1;
+    }
+  }
+
+  return out;
+}
+
+export function compileIgnorePatterns(patterns: string[]): RegExp[] {
+  return patterns
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && !p.startsWith("#"))
+    .map((p) => {
+      const pattern = p.replace(/\\/g, "/");
+      const hasLeadingSlash = pattern.startsWith("/");
+      const cleanPattern = hasLeadingSlash ? pattern.slice(1) : pattern;
+      const patternWithoutTrailingSlash = cleanPattern.endsWith("/")
+        ? cleanPattern.slice(0, -1)
+        : cleanPattern;
+      const isRootRelative = hasLeadingSlash || patternWithoutTrailingSlash.includes("/");
+
+      let glob = cleanPattern;
+      if (glob.endsWith("/")) {
+        glob += "**";
+      }
+
+      const regexStr = globToRegexSource(glob);
+
+      if (isRootRelative) {
+        return new RegExp(`^${regexStr}$`, "i");
+      } else {
+        return new RegExp(`(^|/)${regexStr}$`, "i");
+      }
+    });
+}
