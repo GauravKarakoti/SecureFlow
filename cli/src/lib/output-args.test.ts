@@ -12,6 +12,7 @@ import {
   parseNoCacheArg,
   parseCacheClearArg,
   parseCacheDirArg,
+  parseTargetDirectoryArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -226,5 +227,37 @@ describe("parseCacheDirArg", () => {
   it("rejects empty or missing directory path", () => {
     expect(() => parseCacheDirArg(argv("--cache-dir"))).toThrow(CliUsageError);
     expect(() => parseCacheDirArg(argv("--cache-dir="))).toThrow(CliUsageError);
+  });
+});
+
+describe("parseTargetDirectoryArg (#1933)", () => {
+  it("defaults to undefined when running standard staged scan", () => {
+    expect(parseTargetDirectoryArg(argv())).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("--no-cache"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("--format", "json"))).toBeUndefined();
+  });
+
+  it("parses explicit --dir <path> and --dir=<path>", () => {
+    expect(parseTargetDirectoryArg(argv("--dir", "src"))).toBe("src");
+    expect(parseTargetDirectoryArg(argv("--dir=src/lib"))).toBe("src/lib");
+  });
+
+  it("rejects empty --dir argument", () => {
+    expect(() => parseTargetDirectoryArg(argv("--dir"))).toThrow(CliUsageError);
+    expect(() => parseTargetDirectoryArg(argv("--dir="))).toThrow(CliUsageError);
+  });
+
+  it("parses positional directory path arguments", () => {
+    expect(parseTargetDirectoryArg(argv("src"))).toBe("src");
+    expect(parseTargetDirectoryArg(argv("."))).toBe(".");
+    expect(parseTargetDirectoryArg(argv("packages/core"))).toBe("packages/core");
+    expect(parseTargetDirectoryArg(argv("scan", "src"))).toBe("src");
+  });
+
+  it("returns undefined for known subcommands", () => {
+    expect(parseTargetDirectoryArg(argv("validate"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("init"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("mcp"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("cache-clear"))).toBeUndefined();
   });
 });
