@@ -296,4 +296,86 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "LOW")])).toBe("PASS");
     });
   });
+
+  describe("confidence configuration and blocking opt-in (#1924)", () => {
+    it("parses minCommentConfidence from confidence object", () => {
+      const json = JSON.stringify({
+        confidence: {
+          minCommentConfidence: "HIGH",
+          filterBlocking: true,
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("HIGH");
+      expect(config.filterBlocking).toBe(true);
+    });
+
+    it("parses minCommentConfidence from root or aliases", () => {
+      const json = JSON.stringify({
+        minConfidence: "low",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("LOW");
+      expect(config.filterBlocking).toBe(false);
+    });
+
+    it("warns and falls back to default when minCommentConfidence is invalid", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        confidence: {
+          minCommentConfidence: "INVALID_CONFIDENCE_LEVEL",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("MEDIUM");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Unknown minCommentConfidence 'INVALID_CONFIDENCE_LEVEL'"),
+      );
+    });
+
+    it("blocking behavior is unchanged by default with low confidence findings", () => {
+      // By default (filterBlocking is false/unset), a CRITICAL finding blocks even with LOW confidence
+      const findingWithLowConf: ScanFinding = {
+        type: "Secret",
+        severity: "CRITICAL",
+        confidence: "LOW",
+        fileLocation: "src/test.ts",
+        description: "Uncertain secret",
+        codeSnippet: "key = 1",
+      };
+
+      const result = engine.evaluateFindings([findingWithLowConf], {
+        blockOn: "CRITICAL",
+        reviewOn: "MEDIUM",
+        minCommentConfidence: "HIGH",
+        filterBlocking: false,
+      });
+
+      expect(result).toBe("BLOCKED");
+    });
+
+    it("blocking behavior respects confidence filter when explicitly opted in", () => {
+      // When filterBlocking: true, finding with LOW confidence is filtered out of blocking evaluation
+      const findingWithLowConf: ScanFinding = {
+        type: "Secret",
+        severity: "CRITICAL",
+        confidence: "LOW",
+        fileLocation: "src/test.ts",
+        description: "Uncertain secret",
+        codeSnippet: "key = 1",
+      };
+
+      const result = engine.evaluateFindings([findingWithLowConf], {
+        blockOn: "CRITICAL",
+        reviewOn: "MEDIUM",
+        minCommentConfidence: "MEDIUM",
+        filterBlocking: true,
+      });
+
+      expect(result).toBe("PASS");
+    });
+  });
 });

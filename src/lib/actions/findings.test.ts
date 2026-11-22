@@ -119,6 +119,8 @@ describe("getUserFindings", () => {
       triageNote: "on it",
       triageReason: null,
       triageExpiresAt: null,
+      assigneeId: null,
+      assignee: null,
       resolvedAt: null,
       resolvedCommitSha: null,
       ageDays: expect.any(Number),

@@ -65,6 +65,14 @@ export interface FindingRow {
   triageExpiresAt?: Date | null;
   resolvedAt?: Date | null;
   resolvedCommitSha?: string | null;
+  assigneeId?: string | null;
+  assignee?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    codename: string | null;
+    image: string | null;
+  } | null;
   /** Detected programming language / file format for the finding location. */
   language?: string;
   /** Age of the finding in whole days (from createdAt). */
@@ -135,12 +143,20 @@ export async function getUserFindings(
   const now = new Date();
   const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
   const expiringFingerprints: string[] = [];
+  const assignedToMeFingerprints: string[] = [];
+  const assignedFingerprints: string[] = [];
   for (const [key, entry] of byKey) {
+    const fingerprint = key.slice(key.indexOf(":") + 1);
     if (entry.expiresAt) {
       const expTime = new Date(entry.expiresAt).getTime();
       if (expTime > now.getTime() && expTime <= now.getTime() + fourteenDaysMs) {
-        const fingerprint = key.slice(key.indexOf(":") + 1);
         expiringFingerprints.push(fingerprint);
+      }
+    }
+    if (entry.assigneeId) {
+      assignedFingerprints.push(fingerprint);
+      if (entry.assigneeId === userId) {
+        assignedToMeFingerprints.push(fingerprint);
       }
     }
   }
@@ -150,6 +166,8 @@ export async function getUserFindings(
     dismissedFingerprints: suppressedFingerprints,
     fingerprintsByStatus: groupFingerprintsByStatus(byKey),
     expiringFingerprints,
+    assignedToMeFingerprints,
+    assignedFingerprints,
   };
 
   const listWhere = buildFindingsWhere(context, normalized);
@@ -285,6 +303,8 @@ export async function getUserFindings(
       triageExpiresAt: triage?.expiresAt ?? null,
       resolvedAt: triage?.resolvedAt ?? null,
       resolvedCommitSha: triage?.resolvedCommitSha ?? null,
+      assigneeId: triage?.assigneeId ?? null,
+      assignee: triage?.assignee ?? null,
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
       noteCount: finding._count?.notes ?? 0,

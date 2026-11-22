@@ -95,6 +95,18 @@ export interface FindingsQuery {
   from?: string | null;
   to?: string | null;
   expiring?: string | null;
+  assignee?: string | null;
+}
+
+export type AssigneeFilter = "me" | "unassigned" | null;
+
+/** Keep only recognised assignee filters. */
+export function parseAssigneeFilter(value: unknown): AssigneeFilter {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (lower === "me" || lower === "assigned_to_me") return "me";
+  if (lower === "unassigned") return "unassigned";
+  return null;
 }
 
 /** A query with every field resolved to a safe, in-range value. */
@@ -112,6 +124,7 @@ export interface NormalizedFindingsQuery {
   from: string | null;
   to: string | null;
   expiring: string | null;
+  assignee: AssigneeFilter;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -317,6 +330,7 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
         query.expiring.trim().toLowerCase() === "true")
         ? "14d"
         : null,
+    assignee: parseAssigneeFilter(query.assignee),
   };
 
   if (query.cursor !== undefined) {
@@ -441,6 +455,10 @@ export interface FindingsWhereContext {
   fingerprintsByStatus?: Partial<Record<FindingStatus, readonly string[]>>;
   /** Fingerprints whose triage expiry falls within the next 14 days. */
   expiringFingerprints?: readonly string[];
+  /** Fingerprints assigned to the current user. */
+  assignedToMeFingerprints?: readonly string[];
+  /** All assigned fingerprints (for unassigned filter). */
+  assignedFingerprints?: readonly string[];
 }
 
 /**
@@ -600,6 +618,16 @@ export function buildFindingsWhere(
     andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
   }
 
+  if (query.assignee === "me") {
+    const targetFingerprints = context.assignedToMeFingerprints ?? [];
+    andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
+  } else if (query.assignee === "unassigned") {
+    const anyAssigned = context.assignedFingerprints ?? [];
+    if (anyAssigned.length > 0) {
+      andClauses.push({ fingerprint: { notIn: [...new Set(anyAssigned)] } });
+    }
+  }
+
   if (andClauses.length > 0) {
     where.AND = andClauses;
   }
@@ -682,6 +710,7 @@ export function fromSearchParams(
     from: single(params.from),
     to: single(params.to),
     expiring: single(params.expiring),
+    assignee: single(params.assignee),
   });
 }
 

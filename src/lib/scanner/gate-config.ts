@@ -12,6 +12,11 @@ import { stripJsonComments } from "secureflow-cli/contracts";
 import type { IgnoreConfigClient } from "./ignore-config";
 import { resolveBaseRef } from "./ignore-config";
 import { parsePolicyScopes, type PolicyScopeRule } from "./policy-scopes";
+import {
+  type ConfidenceLevel,
+  parseConfidence,
+  DEFAULT_MIN_COMMENT_CONFIDENCE,
+} from "@/lib/confidence";
 
 export { type PolicyScopeRule };
 
@@ -34,17 +39,29 @@ export interface GatePathRule {
   reviewOn?: GateLevel;
 }
 
+export interface ConfidenceConfig {
+  minCommentConfidence?: ConfidenceLevel;
+  minConfidence?: ConfidenceLevel;
+  filterBlocking?: boolean;
+}
+
 export interface GateConfig {
   blockOn: GateLevel;
   reviewOn: GateLevel;
   overrides?: GateOverride[];
   paths?: GatePathRule[];
   policyScopes?: PolicyScopeRule[];
+  minCommentConfidence?: ConfidenceLevel;
+  minBlockingConfidence?: ConfidenceLevel;
+  filterBlocking?: boolean;
 }
 
 export interface SecureFlowConfig {
   gate: GateConfig;
   policyScopes?: PolicyScopeRule[];
+  confidence?: ConfidenceConfig;
+  minCommentConfidence?: ConfidenceLevel;
+  filterBlocking?: boolean;
 }
 
 /** Default gate thresholds when no config exists or on bad configuration. */
@@ -52,6 +69,8 @@ export const DEFAULT_GATE_CONFIG: Readonly<GateConfig> = {
   blockOn: "CRITICAL",
   reviewOn: "MEDIUM",
   overrides: [],
+  minCommentConfidence: DEFAULT_MIN_COMMENT_CONFIDENCE,
+  filterBlocking: false,
 };
 
 const GATE_LEVEL_VALUES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"] as const;
@@ -93,7 +112,20 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   const noPaths = !gate.paths || gate.paths.length === 0;
   // #1868: a config with policyScopes is never the default gate.
   const noScopes = !gate.policyScopes || gate.policyScopes.length === 0;
-  return sameBlock && sameReview && noOverrides && noPaths && noScopes;
+  // #1924: confidence settings check
+  const sameConfidence =
+    (gate.minCommentConfidence ?? DEFAULT_GATE_CONFIG.minCommentConfidence) ===
+    DEFAULT_GATE_CONFIG.minCommentConfidence;
+  const sameFilterBlocking = (gate.filterBlocking ?? false) === false;
+  return (
+    sameBlock &&
+    sameReview &&
+    noOverrides &&
+    noPaths &&
+    noScopes &&
+    sameConfidence &&
+    sameFilterBlocking
+  );
 }
 
 /**
@@ -291,12 +323,47 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
   const rawPolicyScopes = root.policyScopes ?? gateObj.policyScopes;
   const { scopes: policyScopes } = parsePolicyScopes(rawPolicyScopes);
 
+  // #1924: parse confidence settings from root.confidence, root, or gateObj
+  const rawConfidenceObj =
+    root.confidence && typeof root.confidence === "object" && !Array.isArray(root.confidence)
+      ? (root.confidence as Record<string, unknown>)
+      : undefined;
+
+  const rawMinConfidence =
+    rawConfidenceObj?.minCommentConfidence ??
+    rawConfidenceObj?.minConfidence ??
+    root.minCommentConfidence ??
+    root.minConfidence ??
+    gateObj.minCommentConfidence ??
+    gateObj.minConfidence;
+
+  let minCommentConfidence = DEFAULT_GATE_CONFIG.minCommentConfidence;
+  if (rawMinConfidence !== undefined) {
+    const parsedConf = parseConfidence(rawMinConfidence);
+    if (parsedConf !== null) {
+      minCommentConfidence = parsedConf;
+    } else {
+      console.warn(
+        `[GateConfig] Unknown minCommentConfidence '${String(rawMinConfidence)}'; using default ${minCommentConfidence}.`,
+      );
+    }
+  }
+
+  const rawFilterBlocking =
+    rawConfidenceObj?.filterBlocking ??
+    rawConfidenceObj?.filterBlockingByConfidence ??
+    root.filterBlocking ??
+    gateObj.filterBlocking;
+  const filterBlocking = typeof rawFilterBlocking === "boolean" ? rawFilterBlocking : false;
+
   return {
     blockOn,
     reviewOn,
     overrides,
     ...(paths.length > 0 ? { paths } : {}),
     ...(policyScopes.length > 0 ? { policyScopes } : {}),
+    minCommentConfidence,
+    filterBlocking,
   };
 }
 

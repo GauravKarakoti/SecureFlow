@@ -352,4 +352,134 @@ describe("processScanJob chunk failures", () => {
       expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
     });
   });
+
+  describe("PR comment confidence threshold and hidden count (#1924)", () => {
+    const base64 = (text: string) => Buffer.from(text).toString("base64");
+
+    it("hides findings below repository threshold and states the hidden count in PR comment", async () => {
+      // Mock .secureflow.json from base branch with minCommentConfidence: "HIGH"
+      mocks.getContent.mockImplementation(({ path }: { path: string }) => {
+        if (path === ".secureflow.json") {
+          return Promise.resolve({
+            data: {
+              content: base64(
+                JSON.stringify({
+                  confidence: { minCommentConfidence: "HIGH" },
+                }),
+              ),
+            },
+          });
+        }
+        return Promise.reject(Object.assign(new Error("Not Found"), { status: 404 }));
+      });
+      mocks.pullsGet.mockResolvedValue({ data: { base: { ref: "main" } } });
+
+      const findings = [
+        {
+          type: "Secret",
+          severity: "CRITICAL",
+          confidence: "HIGH",
+          confidenceReason: "Active API key in production file",
+          description: "High confidence production leak",
+          fileLocation: "src/prod.ts",
+          codeSnippet: "KEY = 123",
+        },
+        {
+          type: "Vulnerability",
+          severity: "MEDIUM",
+          confidence: "LOW",
+          confidenceReason: "Uncertain test fixture token",
+          description: "Low confidence test mock",
+          fileLocation: "tests/mock.ts",
+          codeSnippet: "MOCK = 456",
+        },
+      ];
+
+      mocks.scanPullRequest.mockResolvedValueOnce(findings).mockResolvedValueOnce([]);
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 102 } });
+
+      const result = await processScanJob(jobData, undefined, {
+        report: true,
+        persist: false,
+        enrich: false,
+      });
+
+      expect(mocks.createComment).toHaveBeenCalledTimes(1);
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+
+      // Overall count reports total detected
+      expect(commentBody).toContain("Detected **2** potential issues");
+
+      // Comment mentions hidden count and threshold
+      expect(commentBody).toContain("1 lower-confidence finding");
+      expect(commentBody).toContain("below the `HIGH` confidence threshold was hidden");
+
+      // Visible findings list includes HIGH finding, but NOT LOW finding
+      expect(commentBody).toContain("High confidence production leak");
+      expect(commentBody).toContain("`src/prod.ts`");
+      expect(commentBody).toContain("**Confidence:** HIGH");
+      expect(commentBody).not.toContain("Low confidence test mock");
+      expect(commentBody).not.toContain("`tests/mock.ts`");
+
+      // Result still contains all findings for dashboard visibility and persistence
+      expect(result.findings).toHaveLength(2);
+    });
+
+    it("displays all findings when threshold is LOW", async () => {
+      mocks.getContent.mockImplementation(({ path }: { path: string }) => {
+        if (path === ".secureflow.json") {
+          return Promise.resolve({
+            data: {
+              content: base64(
+                JSON.stringify({
+                  confidence: { minCommentConfidence: "LOW" },
+                }),
+              ),
+            },
+          });
+        }
+        return Promise.reject(Object.assign(new Error("Not Found"), { status: 404 }));
+      });
+      mocks.pullsGet.mockResolvedValue({ data: { base: { ref: "main" } } });
+
+      const findings = [
+        {
+          type: "Secret",
+          severity: "CRITICAL",
+          confidence: "HIGH",
+          fileLocation: "src/prod.ts",
+          description: "High confidence issue",
+          codeSnippet: "KEY = 123",
+        },
+        {
+          type: "Vulnerability",
+          severity: "LOW",
+          confidence: "LOW",
+          fileLocation: "tests/mock.ts",
+          description: "Low confidence issue",
+          codeSnippet: "MOCK = 456",
+        },
+      ];
+
+      mocks.scanPullRequest.mockResolvedValueOnce(findings).mockResolvedValueOnce([]);
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 103 } });
+
+      await processScanJob(jobData, undefined, {
+        report: true,
+        persist: false,
+        enrich: false,
+      });
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+
+      // No findings hidden
+      expect(commentBody).not.toContain("lower-confidence finding");
+      expect(commentBody).toContain("High confidence issue");
+      expect(commentBody).toContain("`src/prod.ts`");
+      expect(commentBody).toContain("Low confidence issue");
+      expect(commentBody).toContain("`tests/mock.ts`");
+    });
+  });
 });

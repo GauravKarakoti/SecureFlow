@@ -237,6 +237,7 @@ describe("normalizeFindingsQuery", () => {
       from: null,
       to: null,
       expiring: null,
+      assignee: null,
     });
   });
 
@@ -674,5 +675,65 @@ describe("searchParams round-trip", () => {
 
     const q2 = normalizeFindingsQuery({ to: "2026-11-15" });
     expect(hasActiveFilters(q2)).toBe(true);
+  });
+});
+
+describe("Assignee filtering (#1921)", () => {
+  const ASSIGNEE_CONTEXT = {
+    userId: "user-1",
+    dismissedFingerprints: [],
+    assignedToMeFingerprints: ["fp-mine-1", "fp-mine-2"],
+    assignedFingerprints: ["fp-mine-1", "fp-mine-2", "fp-other-1"],
+  };
+
+  it("filters to findings assigned to session user when assignee is 'me'", () => {
+    const query = normalizeFindingsQuery({ assignee: "me" });
+    expect(query.assignee).toBe("me");
+
+    const where = buildFindingsWhere(ASSIGNEE_CONTEXT, query) as any;
+    expect(where.AND).toContainEqual({
+      fingerprint: { in: ["fp-mine-1", "fp-mine-2"] },
+    });
+  });
+
+  it("filters to unassigned findings when assignee is 'unassigned'", () => {
+    const query = normalizeFindingsQuery({ assignee: "unassigned" });
+    expect(query.assignee).toBe("unassigned");
+
+    const where = buildFindingsWhere(ASSIGNEE_CONTEXT, query) as any;
+    expect(where.AND).toContainEqual({
+      fingerprint: { notIn: ["fp-mine-1", "fp-mine-2", "fp-other-1"] },
+    });
+  });
+
+  it("parses assignee from searchParams", () => {
+    const q1 = fromSearchParams({ assignee: "me" });
+    expect(q1.assignee).toBe("me");
+
+    const q2 = fromSearchParams({ assignee: "assigned_to_me" });
+    expect(q2.assignee).toBe("me");
+
+    const q3 = fromSearchParams({ assignee: "unassigned" });
+    expect(q3.assignee).toBe("unassigned");
+
+    const q4 = fromSearchParams({ assignee: "unknown_value" });
+    expect(q4.assignee).toBeNull();
+  });
+
+  it("combines assignee filter with severity, type, and search filters", () => {
+    const query = normalizeFindingsQuery({
+      assignee: "me",
+      severity: ["CRITICAL"],
+      type: ["SECRET"],
+      search: "apiKey",
+    });
+
+    const where = buildFindingsWhere(ASSIGNEE_CONTEXT, query) as any;
+    expect(where.severity).toEqual({ in: ["CRITICAL"] });
+    expect(where.type).toEqual({ in: ["SECRET"] });
+    expect(where.AND).toContainEqual({
+      fingerprint: { in: ["fp-mine-1", "fp-mine-2"] },
+    });
+    expect(where.AND.some((clause: any) => clause.OR !== undefined)).toBe(true);
   });
 });

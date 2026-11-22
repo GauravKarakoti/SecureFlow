@@ -1,0 +1,151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://secure-flow-six.vercel.app/schema.json",
+  "title": "SecureFlow Configuration Schema",
+  "description": "JSON Schema for SecureFlow configuration file (.secureflow.json) controlling security gate thresholds, path-specific rules, and monorepo policy scopes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URI of the JSON Schema for validation and editor autocompletion."
+    },
+    "$comment": {
+      "type": "string",
+      "description": "Optional comment or documentation explaining this configuration."
+    },
+    "gate": {
+      "type": "object",
+      "description": "Security gate thresholds and rule overrides for PR merge and CI checks.",
+      "additionalProperties": false,
+      "properties": {
+        "blockOn": {
+          "description": "Severity threshold that blocks PR merge or pipeline execution.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "blockAt": {
+          "description": "Alias for blockOn.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "reviewOn": {
+          "description": "Severity threshold that flags findings for manual reviewer sign-off.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "reviewAt": {
+          "description": "Alias for reviewOn.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "overrides": {
+          "type": "array",
+          "description": "Per-finding-type severity threshold overrides.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Vulnerability type or category name to override (e.g. 'Hardcoded Secrets', 'SQL Injection')."
+              },
+              "blockOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "blockAt": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewAt": {
+                "$ref": "#/definitions/GateLevel"
+              }
+            }
+          }
+        },
+        "paths": {
+          "type": "array",
+          "description": "Path-specific severity threshold overrides matching file glob patterns.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["glob"],
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Glob pattern matching repository paths (e.g. 'infra/**', 'tests/**')."
+              },
+              "blockOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "blockAt": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewAt": {
+                "$ref": "#/definitions/GateLevel"
+              }
+            }
+          }
+        },
+        "policyScopes": {
+          "type": "array",
+          "description": "Path-scoped security policy rules defined within the gate section.",
+          "items": {
+            "$ref": "#/definitions/PolicyScopeRule"
+          }
+        }
+      }
+    },
+    "policyScopes": {
+      "type": "array",
+      "description": "Path-scoped policy rules (enable/disable specific policies for paths in monorepos).",
+      "items": {
+        "$ref": "#/definitions/PolicyScopeRule"
+      }
+    }
+  },
+  "definitions": {
+    "GateLevel": {
+      "type": "string",
+      "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"],
+      "description": "Severity gate level threshold."
+    },
+    "PolicyScopeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths"],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "description": "Glob patterns specifying which files or directories this policy rule applies to.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Glob pattern (e.g. 'src/**', 'components/**', 'tests/**')."
+          }
+        },
+        "enable": {
+          "type": "array",
+          "description": "Names of policy categories or checks to enable for matched paths.",
+          "items": {
+            "type": "string",
+            "description": "Policy name to enable."
+          }
+        },
+        "disable": {
+          "type": "array",
+          "description": "Names of policy categories or checks to disable for matched paths.",
+          "items": {
+            "type": "string",
+            "description": "Policy name to disable."
+          }
+        }
+      }
+    }
+  }
+}

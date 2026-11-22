@@ -162,6 +162,15 @@ export default function FindingsToolbar({
   const activeExpiring =
     rawExpiring === "14d" || rawExpiring === "14" || rawExpiring === "true" ? "14d" : ANY;
 
+  // Validate and restore assignee filter from URL (#1921)
+  const rawAssignee = searchParams.get("assignee")?.trim().toLowerCase();
+  const activeAssignee =
+    rawAssignee === "me" || rawAssignee === "assigned_to_me"
+      ? "me"
+      : rawAssignee === "unassigned"
+        ? "unassigned"
+        : ANY;
+
   // Validate and restore sort from URL, ignoring invalid values and falling back to default ("newest")
   const activeSort = parseSort(searchParams.get("sort"));
 
@@ -206,6 +215,7 @@ export default function FindingsToolbar({
     to: activeTo || undefined,
     sort: activeSort !== DEFAULT_SORT ? activeSort : undefined,
     expiring: activeExpiring !== ANY ? activeExpiring : undefined,
+    assignee: activeAssignee !== ANY ? activeAssignee : undefined,
   };
 
   const hasActiveSeverity = activeSeverity !== ANY;
@@ -216,6 +226,7 @@ export default function FindingsToolbar({
   const hasActiveFrom = Boolean(activeFrom);
   const hasActiveTo = Boolean(activeTo);
   const hasActiveExpiring = activeExpiring !== ANY;
+  const hasActiveAssignee = activeAssignee !== ANY;
 
   const activeCount = [
     hasActiveSeverity,
@@ -226,11 +237,12 @@ export default function FindingsToolbar({
     hasActiveFrom,
     hasActiveTo,
     hasActiveExpiring,
+    hasActiveAssignee,
   ].filter(Boolean).length;
 
   const hasFilterParams =
     activeCount > 0 ||
-    ["severity", "type", "status", "repo", "q", "from", "to", "expiring"].some((key) =>
+    ["severity", "type", "status", "repo", "q", "from", "to", "expiring", "assignee"].some((key) =>
       searchParams.has(key),
     );
 
@@ -311,6 +323,21 @@ export default function FindingsToolbar({
           <SelectContent>
             <SelectItem value={ANY}>All expiry</SelectItem>
             <SelectItem value="14d">Expiring in 14 days</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={activeAssignee} onValueChange={(value) => setSingle("assignee", value)}>
+          <SelectTrigger
+            className="w-full sm:w-[170px] min-h-[44px]"
+            aria-label="Filter by assignee"
+            data-testid="assignee-filter"
+          >
+            <SelectValue placeholder="Assignee" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>All assignees</SelectItem>
+            <SelectItem value="me">Assigned to me</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
           </SelectContent>
         </Select>
 

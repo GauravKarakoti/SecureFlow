@@ -69,6 +69,7 @@ import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expir
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
+import { isConfidenceAtLeast } from "@/lib/confidence";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;
@@ -593,6 +594,14 @@ export async function processScanJob(
       // Post PR comment if there are findings, skipped files, or expired ignore rules
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
       const previouslyDismissedCount = allFindings.length - nonDismissedFindings.length;
+
+      // #1924: Filter findings for PR comment display by minimum confidence threshold
+      const minConfidence = repositoryGateConfig.minCommentConfidence ?? "MEDIUM";
+      const visibleFindings = enrichedFindings.filter((f) =>
+        isConfidenceAtLeast(f.confidence, minConfidence),
+      );
+      const hiddenByConfidenceCount = enrichedFindings.length - visibleFindings.length;
+
       if (
         enrichedFindings.length > 0 ||
         allSkippedFiles.length > 0 ||
@@ -610,6 +619,10 @@ export async function processScanJob(
           body += `⚪ Nothing to scan: ${zeroScanReason}.\n\n`;
         } else {
           body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
+        }
+
+        if (hiddenByConfidenceCount > 0) {
+          body += `🛡️ **${hiddenByConfidenceCount} lower-confidence finding${hiddenByConfidenceCount === 1 ? "" : "s"}** below the \`${minConfidence}\` confidence threshold ${hiddenByConfidenceCount === 1 ? "was" : "were"} hidden from this comment (all findings remain visible in dashboard).\n\n`;
         }
 
         if (expiredRules.length > 0) {
@@ -643,11 +656,15 @@ export async function processScanJob(
 
         const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
 
-        enrichedFindings.forEach((f) => {
+        visibleFindings.forEach((f) => {
           body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
           const findingId = (f as any).id;
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
+          if (f.confidence) {
+            const reasonSuffix = f.confidenceReason ? ` — ${f.confidenceReason}` : "";
+            body += `> **Confidence:** ${f.confidence}${reasonSuffix}\n\n`;
           }
           if (f.promptInjectionSuspected) {
             body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.**\n\n`;

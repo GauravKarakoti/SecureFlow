@@ -36,7 +36,15 @@ vi.mock("@/lib/prisma", () => ({
     auditLog: { findMany: auditLogFindManyMock },
   },
 }));
-vi.mock("next/navigation", () => ({ redirect: redirectMock, notFound: notFoundMock }));
+vi.mock("next/navigation", () => ({
+  redirect: redirectMock,
+  notFound: notFoundMock,
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
 
 vi.mock("@/components/findings/finding-audio-player", () => ({
   default: (props: {
@@ -151,6 +159,17 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
         repositoryId_fingerprint: {
           repositoryId: "repo-1",
           fingerprint: "fp-123456",
+        },
+      },
+      include: {
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            codename: true,
+            image: true,
+          },
         },
       },
     });

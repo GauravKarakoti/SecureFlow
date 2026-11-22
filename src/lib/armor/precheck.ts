@@ -145,6 +145,8 @@ export function precheckFilePatch(
           activeFinding = {
             type: "Secret",
             severity: family.severity,
+            confidence: "HIGH",
+            confidenceReason: `Deterministic pre-scan: ${family.name} pattern match.`,
             description: `Deterministic pre-scan: ${family.name} detected on line ${line.number}.`,
             fileLocation: filename,
             codeSnippet: content,

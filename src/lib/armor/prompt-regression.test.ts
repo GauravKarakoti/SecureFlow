@@ -82,6 +82,13 @@ describe("Prompt Regression Golden-File Test Suite (#1807)", () => {
             );
             expect(hasSufficientSeverity).toBe(true);
           }
+
+          if (sample.expected.expectedConfidence) {
+            const hasExpectedConfidence = findings.some(
+              (f) => f.confidence === sample.expected.expectedConfidence,
+            );
+            expect(hasExpectedConfidence).toBe(true);
+          }
         } else {
           expect(findings).toHaveLength(0);
         }

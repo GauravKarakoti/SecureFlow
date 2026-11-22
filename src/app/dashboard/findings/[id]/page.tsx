@@ -24,6 +24,7 @@ import RemediationGuidanceCard from "@/components/findings/remediation-guidance-
 import ShareFindingButton from "@/components/findings/share-finding-button";
 import FindingActions from "./finding-actions";
 import FindingNotesThread from "../finding-notes-thread";
+import FindingAssigneeSelect from "../finding-assignee-select";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
@@ -70,6 +71,17 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
       repositoryId_fingerprint: {
         repositoryId: repo.id,
         fingerprint: finding.fingerprint,
+      },
+    },
+    include: {
+      assignee: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          codename: true,
+          image: true,
+        },
       },
     },
   });
@@ -140,6 +152,12 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         </Link>
         <div className="flex items-center gap-2">
           <ShareFindingButton findingId={finding.id} />
+          <Link href={`/dashboard/pull-requests/${finding.scanResult.pullRequestId}`}>
+            <Button size="sm" variant="outline" className="gap-2">
+              <History className="w-3.5 h-3.5" />
+              Compare Scans
+            </Button>
+          </Link>
           <Link href={`/dashboard/findings/${finding.id}/remediation`}>
             <Button size="sm" className="gap-2">
               <Wrench className="w-3.5 h-3.5" />
@@ -183,7 +201,12 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
               <div className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
                 <span>{repoName}</span>
                 <span>•</span>
-                <span>PR #{prNumber}</span>
+                <Link
+                  href={`/dashboard/pull-requests/${finding.scanResult.pullRequestId}`}
+                  className="hover:text-primary transition-colors hover:underline"
+                >
+                  PR #{prNumber}
+                </Link>
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <FileCode className="w-3 h-3" />
@@ -233,6 +256,24 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
             initialTriageStatus={(triage?.status as TriageStatus) ?? "OPEN"}
             initialNote={triage?.note ?? ""}
           />
+
+          {/* Finding Assignee Card / Action (#1921) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-white/10 bg-white/[0.02] gap-3">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                Assignee
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Assign this finding to a team member with repository access.
+              </p>
+            </div>
+            <FindingAssigneeSelect
+              repositoryId={repo.id}
+              fingerprint={finding.fingerprint}
+              currentAssignee={triage?.assignee}
+              variant="detail"
+            />
+          </div>
 
           {/* Side-by-Side Vulnerable Code & Remediation Review */}
           <div className="space-y-4">
