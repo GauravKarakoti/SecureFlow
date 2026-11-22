@@ -391,3 +391,93 @@ spec:
             secretName: secureflow-production-secrets
             defaultMode: 0400
 ```
+
+---
+
+## 8. Container Image Verification & Supply Chain Security (Cosign & SLSA Provenance) (#1926)
+
+All official SecureFlow container images published to the GitHub Container Registry (`ghcr.io/gauravkarakoti/secureflow`) are cryptographically signed using **[Sigstore Cosign](https://github.com/sigstore/cosign)** with keyless GitHub Actions OIDC identity. In addition, each release attaches a **CycloneDX Software Bill of Materials (SBOM)** and **SLSA Build Provenance** attestation directly to the image digest.
+
+### Prerequisites
+
+Install `cosign` (v2.0+) using [Sigstore installation instructions](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```bash
+# macOS via Homebrew
+brew install cosign
+
+# Linux
+curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
+sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+sudo chmod +x /usr/local/bin/cosign
+```
+
+---
+
+### 1. Verify Image Signature (`cosign verify`)
+
+To verify that an image was built and published by the official SecureFlow release workflow from this repository:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+To verify a specific release version (e.g. `v1.2.0`):
+
+```bash
+cosign verify \
+  --certificate-identity "https://github.com/GauravKarakoti/SecureFlow/.github/workflows/docker-publish.yml@refs/tags/v1.2.0" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:1.2.0
+```
+
+---
+
+### 2. Verify and Extract CycloneDX SBOM Attestation (`cosign verify-attestation`)
+
+To verify that the CycloneDX SBOM attestation is authentic and untampered:
+
+```bash
+cosign verify-attestation \
+  --type cyclonedx \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+To extract the raw CycloneDX JSON SBOM for compliance scanning (e.g. Dependency-Track, Trivy):
+
+```bash
+cosign verify-attestation \
+  --type cyclonedx \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest \
+  | jq -r '.payload | @base64d | fromjson | .predicate' > secureflow-sbom.cyclonedx.json
+```
+
+---
+
+### 3. Verify SLSA Build Provenance
+
+You can verify the SLSA build provenance attestation using either the GitHub CLI (`gh`) or `cosign`:
+
+#### Using GitHub CLI (`gh attestation verify`):
+
+```bash
+gh attestation verify oci://ghcr.io/gauravkarakoti/secureflow:latest \
+  --repo GauravKarakoti/SecureFlow
+```
+
+#### Using Cosign:
+
+```bash
+cosign verify-attestation \
+  --type slsaprovenance \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```

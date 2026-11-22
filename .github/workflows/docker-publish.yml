@@ -8,6 +8,8 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,16 +17,20 @@ concurrency:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Image
+    name: Build, Sign & Attest Docker Image
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Lowercase owner
         id: owner
         run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      # Install Cosign for keyless image signing and attestation (Sigstore Fulcio/Rekor via GitHub OIDC)
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
 
       # Exposes DOCKER_METADATA_OUTPUT_* env vars used by the build step.
       # Produces tags:
@@ -33,7 +39,7 @@ jobs:
       #   ghcr.io/<owner>/secureflow:1.2.3      (from the triggering v*.*.* tag)
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: ghcr.io/${{ steps.owner.outputs.value }}/secureflow
           tags: |
@@ -42,12 +48,12 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       # Authenticate to GitHub Container Registry using the auto-provisioned
       # GITHUB_TOKEN — no manual secret required.
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -57,7 +63,8 @@ jobs:
       # intermediate layer, not just the final stage), so cold builds on a
       # fresh runner still benefit from previously-cached layers.
       - name: Build and push
-        uses: docker/build-push-action@v7
+        id: build-and-push
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           push: true
@@ -66,3 +73,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.value }}/secureflow:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.value }}/secureflow:buildcache,mode=max
+
+      # Keyless signing via GitHub OIDC. Signs the immutable image digest, NOT a mutable tag.
+      - name: Sign container image with Cosign
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign --yes \
+            "ghcr.io/${{ steps.owner.outputs.value }}/secureflow@${{ steps.build-and-push.outputs.digest }}"
+
+      # Generate CycloneDX Software Bill of Materials (SBOM) for the built image
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@f325610c9f50a54015d37c8d16cb3b0e2c8f4de0 # v0.18.0
+        with:
+          image: ghcr.io/${{ steps.owner.outputs.value }}/secureflow@${{ steps.build-and-push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: secureflow-sbom.cyclonedx.json
+
+      # Attach the CycloneDX SBOM as an in-toto attestation to the exact image digest
+      - name: Attach CycloneDX SBOM attestation with Cosign
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign attest --yes \
+            --type cyclonedx \
+            --predicate secureflow-sbom.cyclonedx.json \
+            "ghcr.io/${{ steps.owner.outputs.value }}/secureflow@${{ steps.build-and-push.outputs.digest }}"
+
+      # Generate and attach SLSA build provenance attestation to the exact image digest
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: ghcr.io/${{ steps.owner.outputs.value }}/secureflow
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          push-to-registry: true
