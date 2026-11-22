@@ -30,7 +30,8 @@ export interface RetentionRule {
   rationale: string;
 }
 
-export type PurgeTarget = "auditLog" | "webhookEvent" | "scanResult" | "findingSnippet";
+export type PurgeTarget =
+  "auditLog" | "webhookEvent" | "scanResult" | "findingSnippet" | "webhookDelivery";
 
 /**
  * The policy.
@@ -48,6 +49,13 @@ export const RETENTION_RULES: readonly RetentionRule[] = [
     defaultDays: 90,
     rationale:
       "Redacts the copied source excerpt while keeping the finding row, so security history survives without an indefinite archive of customer code.",
+  },
+  {
+    target: "webhookDelivery",
+    envVar: "WEBHOOK_DELIVERY_RETENTION_DAYS",
+    defaultDays: 7,
+    rationale:
+      "Webhook delivery diagnostics records are retained for 7 days for troubleshooting before automatic cleanup.",
   },
   {
     target: "webhookEvent",
