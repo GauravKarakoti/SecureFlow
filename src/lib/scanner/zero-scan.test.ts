@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  getZeroScanReason,
-  formatZeroScanComment,
-  type ZeroScanReason,
-} from "./zero-scan";
+import { getZeroScanReason, formatZeroScanComment, type ZeroScanReason } from "./zero-scan";
 import { SECUREFLOW_COMMENT_MARKER } from "@/lib/github/sticky-comment";
 
 describe("zero-scan: getZeroScanReason", () => {
@@ -33,7 +29,11 @@ describe("zero-scan: getZeroScanReason", () => {
     it("returns 'unsupported file types' for markdown and documentation files", () => {
       const files = [
         { filename: "README.md", status: "modified", patch: "@@ -1 +1 @@\n+# Updated README" },
-        { filename: "docs/architecture.md", status: "added", patch: "@@ -0,0 +1 @@\n+# Architecture" },
+        {
+          filename: "docs/architecture.md",
+          status: "added",
+          patch: "@@ -0,0 +1 @@\n+# Architecture",
+        },
       ];
       expect(getZeroScanReason(files)).toBe("unsupported file types");
     });
@@ -58,7 +58,11 @@ describe("zero-scan: getZeroScanReason", () => {
   describe("all paths ignored", () => {
     it("returns 'all paths ignored' when files are in ignored directories", () => {
       const files = [
-        { filename: "node_modules/pkg/index.js", status: "added", patch: "@@ -0,0 +1 @@\n+const x = 1;" },
+        {
+          filename: "node_modules/pkg/index.js",
+          status: "added",
+          patch: "@@ -0,0 +1 @@\n+const x = 1;",
+        },
         { filename: "dist/bundle.js", status: "modified", patch: "@@ -1 +1 @@\n+const y = 2;" },
         { filename: "build/output.js", status: "modified", patch: "@@ -1 +1 @@\n+const z = 3;" },
       ];
@@ -67,8 +71,16 @@ describe("zero-scan: getZeroScanReason", () => {
 
     it("returns 'all paths ignored' when files match custom ignore rules (.secureflowignore)", () => {
       const files = [
-        { filename: "src/generated/types.ts", status: "added", patch: "@@ -0,0 +1 @@\n+export type A = 1;" },
-        { filename: "fixtures/sample.ts", status: "added", patch: "@@ -0,0 +1 @@\n+const val = 2;" },
+        {
+          filename: "src/generated/types.ts",
+          status: "added",
+          patch: "@@ -0,0 +1 @@\n+export type A = 1;",
+        },
+        {
+          filename: "fixtures/sample.ts",
+          status: "added",
+          patch: "@@ -0,0 +1 @@\n+const val = 2;",
+        },
       ];
       const customIgnores = ["src/generated/**", "fixtures/**"];
       expect(getZeroScanReason(files, customIgnores)).toBe("all paths ignored");
@@ -117,7 +129,8 @@ describe("zero-scan: formatZeroScanComment", () => {
 
   it("includes coverage notice when provided", () => {
     const comment = formatZeroScanComment("unsupported file types", {
-      coverageNotice: "⚠️ 2 changed file(s) were not analysed because GitHub did not return a diff.",
+      coverageNotice:
+        "⚠️ 2 changed file(s) were not analysed because GitHub did not return a diff.",
     });
 
     expect(comment).toContain("Nothing to scan: unsupported file types.");
@@ -127,8 +140,10 @@ describe("zero-scan: formatZeroScanComment", () => {
   it("includes expired ignore rules and dismissal notices when provided", () => {
     const comment = formatZeroScanComment("all paths ignored", {
       cleanDismissedNotice: "\n\n🛡️ **1 previously dismissed** finding(s) were suppressed.",
-      cleanRuleNotice: "\n\n🛡️ **2** finding(s) were suppressed by installation suppression rule(s).",
-      cleanExpiredNotice: "\n\n### ⚠️ Expired Ignore Rules (1)\n\n- ⚠️ ignore rule `test/*` expired on 2026-01-01",
+      cleanRuleNotice:
+        "\n\n🛡️ **2** finding(s) were suppressed by installation suppression rule(s).",
+      cleanExpiredNotice:
+        "\n\n### ⚠️ Expired Ignore Rules (1)\n\n- ⚠️ ignore rule `test/*` expired on 2026-01-01",
     });
 
     expect(comment).toContain("Nothing to scan: all paths ignored.");

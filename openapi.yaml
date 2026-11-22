@@ -1158,6 +1158,73 @@ paths:
                     type: string
                     example: Internal Server Error
 
+  /api/admin/webhooks:
+    get:
+      summary: Gets webhooks information
+      description: |
+        Admin-only endpoint that gets webhooks information for admin.
+        Requires ADMIN role in addition to authentication.
+      operationId: getWebhookDelivery
+      security:
+        - sessionAuth: []
+      tags:
+        - Admin
+      responses:
+        "200":
+          description: Webhooks Information
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                default: text
+            Content-Disposition:
+              schema:
+                type: string
+                default: text
+          content:
+            text:
+              schema:
+                type: string
+                description: |
+                  Webhooks Information
+        "401":
+          description: Unauthorized - no session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized access
+        "403":
+          description: Forbidden - requires ADMIN role
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized access
+        "404":
+          description: No webhooks exist
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: No data available
+        "500":
+          description: Webhooks retrieval failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Internal Server Error
+
   /api/webhooks/gitlab:
     post:
       operationId: ingestGitLabWebhook

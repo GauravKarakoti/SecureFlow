@@ -200,8 +200,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
     output.annotations = firstBatch;
   }
 
-  const conclusion =
-    p.conclusion ?? (isZeroScan ? "neutral" : checkRunConclusion(p.decision));
+  const conclusion = p.conclusion ?? (isZeroScan ? "neutral" : checkRunConclusion(p.decision));
 
   let result: unknown;
   let checkRunId = p.checkRunId;
