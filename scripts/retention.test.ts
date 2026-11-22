@@ -92,6 +92,12 @@ describe("scripts/retention.ts - CLI and Data Deletion Boundaries (#1330)", () =
       expect(rule.envVar).toBe("WEBHOOK_EVENT_RETENTION_DAYS");
     });
 
+    it("verifies webhookDelivery retention boundary is 7 days", () => {
+      const rule = retentionFor("webhookDelivery");
+      expect(rule.defaultDays).toBe(7);
+      expect(rule.envVar).toBe("WEBHOOK_DELIVERY_RETENTION_DAYS");
+    });
+
     it("verifies scanResult retention boundary is 180 days", () => {
       const rule = retentionFor("scanResult");
       expect(rule.defaultDays).toBe(180);

@@ -19,12 +19,15 @@ const NOW = new Date("2026-08-16T00:00:00.000Z");
  * changes state.
  */
 function makeClient(
-  rows: Partial<Record<"auditLog" | "webhookEvent" | "scanResult" | "finding", string[]>> = {},
+  rows: Partial<
+    Record<"auditLog" | "webhookEvent" | "webhookDelivery" | "scanResult" | "finding", string[]>
+  > = {},
   openFingerprints: string[] = [],
 ) {
   const tables: Record<string, string[]> = {
     auditLog: [...(rows.auditLog ?? [])],
     webhookEvent: [...(rows.webhookEvent ?? [])],
+    webhookDelivery: [...(rows.webhookDelivery ?? [])],
     scanResult: [...(rows.scanResult ?? [])],
     finding: [...(rows.finding ?? [])],
   };
@@ -57,6 +60,7 @@ function makeClient(
   const db = {
     auditLog: table("auditLog"),
     webhookEvent: table("webhookEvent"),
+    webhookDelivery: table("webhookDelivery"),
     scanResult: table("scanResult"),
     finding: table("finding"),
     findingTriage: {

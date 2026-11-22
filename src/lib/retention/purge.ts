@@ -89,6 +89,11 @@ export interface PurgeClient {
     deleteMany: (args: unknown) => Promise<{ count: number }>;
     findMany: (args: unknown) => Promise<Array<{ id: string }>>;
   };
+  webhookDelivery?: {
+    count: (args: unknown) => Promise<number>;
+    deleteMany: (args: unknown) => Promise<{ count: number }>;
+    findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+  };
   scanResult: {
     count: (args: unknown) => Promise<number>;
     deleteMany: (args: unknown) => Promise<{ count: number }>;
@@ -202,6 +207,28 @@ async function purgeWebhookEvents(
   );
 }
 
+async function purgeWebhookDeliveries(
+  db: PurgeClient,
+  rule: ResolvedRetention,
+  batchSize: number,
+  dryRun: boolean,
+) {
+  if (!db.webhookDelivery) {
+    return { affected: 0, batches: 0, truncated: false };
+  }
+  return runBatched(
+    (take) =>
+      db.webhookDelivery!.findMany({
+        where: { createdAt: { lt: rule.cutoff } },
+        select: { id: true },
+        take,
+      }),
+    (ids) => db.webhookDelivery!.deleteMany({ where: { id: { in: ids } } }),
+    batchSize,
+    dryRun,
+  );
+}
+
 async function purgeScanResults(
   db: PurgeClient,
   rule: ResolvedRetention,
@@ -295,6 +322,9 @@ export async function runRetention(
           break;
         case "webhookEvent":
           outcome = await purgeWebhookEvents(db, rule, batchSize, dryRun);
+          break;
+        case "webhookDelivery":
+          outcome = await purgeWebhookDeliveries(db, rule, batchSize, dryRun);
           break;
         case "scanResult":
           outcome = await purgeScanResults(db, rule, batchSize, dryRun);

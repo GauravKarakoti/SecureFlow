@@ -25,6 +25,7 @@ import { isDuplicateDelivery } from "@/lib/github/webhook-dedup";
 import { env } from "@/lib/env";
 import prisma from "@/lib/prisma";
 import { withSpan, injectTraceContext } from "@/lib/tracing";
+import { recordWebhookDelivery, WEBHOOK_REASON_CODES } from "@/lib/webhooks/delivery-recorder";
 
 /**
  * GitHub webhook ingest (#562, #1534).
@@ -111,11 +112,25 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     // holding a valid signature.
     if (isPayloadTooLarge(req.headers.get("content-length"), maxBytes)) {
       log.warn("Webhook payload exceeds the configured size limit");
+      await recordWebhookDelivery({
+        deliveryId: deliveryId || "unknown",
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.PAYLOAD_TOO_LARGE,
+        error: "Webhook payload exceeds the configured size limit",
+      });
       throw new AppError("Webhook payload exceeds the configured size limit", 413);
     }
     const webhookSecret = env.GITHUB_WEBHOOK_SECRET ?? process.env.GITHUB_WEBHOOK_SECRET;
     if (!webhookSecret || !webhookSecret.trim()) {
       log.error("GITHUB_WEBHOOK_SECRET is not set");
+      await recordWebhookDelivery({
+        deliveryId: deliveryId || "unknown",
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.INTERNAL_ERROR,
+        error: "GITHUB_WEBHOOK_SECRET is not set",
+      });
       throw new AppError("GITHUB_WEBHOOK_SECRET is not set", 500);
     }
 
@@ -127,6 +142,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     // completion record was fully re-processed on every retry.
     if (!deliveryId) {
       log.warn("Missing or invalid x-github-delivery header");
+      await recordWebhookDelivery({
+        deliveryId: rawDeliveryId || "missing",
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.MISSING_DELIVERY_ID,
+        error: "Missing or invalid x-github-delivery header",
+      });
       throw new AppError("Missing or invalid x-github-delivery header", 400);
     }
 
@@ -137,6 +159,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       const msg = `[SECURITY_WARNING] GitHub webhook rejected: Missing or invalid x-hub-signature-256 header (delivery: ${deliveryId})`;
       console.warn(msg);
       log.warn(msg);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.MISSING_SIGNATURE,
+        error: "Missing or invalid x-hub-signature-256 header",
+      });
       throw new AppError("Missing or invalid x-hub-signature-256 header", 401);
     }
 
@@ -156,6 +185,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
         if (totalBytes > maxBytes) {
           reader.releaseLock();
           log.warn("Webhook payload exceeds the configured size limit during stream");
+          await recordWebhookDelivery({
+            deliveryId,
+            eventType: eventHeader,
+            outcome: "rejected",
+            reasonCode: WEBHOOK_REASON_CODES.PAYLOAD_TOO_LARGE,
+            error: "Webhook payload exceeds the configured size limit during stream",
+          });
           throw new AppError("Webhook payload exceeds the configured size limit", 413);
         }
         rawPayloadText += decoder.decode(value, { stream: true });
@@ -168,6 +204,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       // cannot be the only one.
       if (isPayloadTooLarge(payloadByteLength(rawPayloadText), maxBytes)) {
         log.warn("Webhook payload exceeds the configured size limit after read");
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: eventHeader,
+          outcome: "rejected",
+          reasonCode: WEBHOOK_REASON_CODES.PAYLOAD_TOO_LARGE,
+          error: "Webhook payload exceeds the configured size limit after read",
+        });
         throw new AppError("Webhook payload exceeds the configured size limit", 413);
       }
     }
@@ -189,6 +232,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       const msg = `[SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery ${deliveryId}`;
       console.warn(msg);
       log.warn(msg);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.BAD_SIGNATURE,
+        error: "Invalid GitHub webhook signature",
+      });
       throw new AppError("Invalid GitHub webhook signature", 401);
     }
 
@@ -204,6 +254,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     const isDuplicate = await isDuplicateDelivery(deliveryId);
     if (isDuplicate) {
       console.warn(`[WEBHOOK_DEDUPE] Duplicate GitHub webhook delivery ignored: ${deliveryId}`);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: eventHeader,
+        outcome: "ignored",
+        reasonCode: WEBHOOK_REASON_CODES.DUPLICATE,
+        error: "Duplicate webhook delivery ignored",
+      });
       return NextResponse.json(
         { message: "Duplicate webhook delivery ignored", deliveryId },
         { status: 200 },
@@ -219,6 +276,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     const parsed = parseWebhookPayload(rawPayloadText);
     if (!parsed.ok) {
       log.warn(`Webhook payload parse failed: ${parsed.reason}`);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: eventHeader,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.INVALID_PAYLOAD,
+        error: parsed.reason,
+      });
       throw new AppError(parsed.reason, 400);
     }
 
@@ -229,6 +293,13 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       // Answered only after verification, so a successful ping is real evidence
       // that the configured secret matches ours.
       log.info("Received ping event; signature verified");
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: "ping",
+        repository: (parsed.payload as any)?.repository?.full_name ?? null,
+        outcome: "ignored",
+        reasonCode: WEBHOOK_REASON_CODES.PING,
+      });
       return NextResponse.json(
         { status: "pong", deliveryId, correlationId, message: "Webhook signature verified" },
         { status: 200 },
@@ -237,6 +308,14 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
     if (!isTrackedEvent(event)) {
       log.info(`Event not tracked: ${event}`);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: event || "unknown",
+        repository: (parsed.payload as any)?.repository?.full_name ?? null,
+        outcome: "ignored",
+        reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_EVENT,
+        error: `Event not tracked: ${event}`,
+      });
       return NextResponse.json(
         { message: "Event not tracked", deliveryId, correlationId },
         { status: 200 },
@@ -245,6 +324,14 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
 
     if (event === "merge_group" && parsed.payload.action !== "checks_requested") {
       log.info(`Action not tracked for merge_group: ${parsed.payload.action}`);
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: "merge_group",
+        action: typeof parsed.payload.action === "string" ? parsed.payload.action : null,
+        repository: (parsed.payload as any)?.repository?.full_name ?? null,
+        outcome: "ignored",
+        reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_ACTION,
+      });
       return NextResponse.json(
         { message: "Action not tracked", deliveryId, correlationId },
         { status: 200 },
@@ -255,6 +342,14 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     if (event === "check_run") {
       if (parsed.payload.action !== "rerequested") {
         log.info(`check_run action not tracked: ${parsed.payload.action}`);
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: "check_run",
+          action: typeof parsed.payload.action === "string" ? parsed.payload.action : null,
+          repository: (parsed.payload as any)?.repository?.full_name ?? null,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_ACTION,
+        });
         return NextResponse.json(
           { message: "Action not tracked", deliveryId, correlationId },
           { status: 200 },
@@ -263,6 +358,15 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
       if (!isSecureFlowCheckRun(parsed.payload.check_run, configuredAppId)) {
         log.info("Check run not created by SecureFlow ignored");
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: "check_run",
+          action: typeof parsed.payload.action === "string" ? parsed.payload.action : null,
+          repository: (parsed.payload as any)?.repository?.full_name ?? null,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.FOREIGN_CHECK,
+          error: "Check run not created by SecureFlow ignored",
+        });
         return NextResponse.json(
           { message: "Check run not created by SecureFlow ignored", deliveryId, correlationId },
           { status: 200 },
@@ -273,6 +377,14 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
     if (event === "check_suite") {
       if (parsed.payload.action !== "rerequested") {
         log.info(`check_suite action not tracked: ${parsed.payload.action}`);
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: "check_suite",
+          action: typeof parsed.payload.action === "string" ? parsed.payload.action : null,
+          repository: (parsed.payload as any)?.repository?.full_name ?? null,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_ACTION,
+        });
         return NextResponse.json(
           { message: "Action not tracked", deliveryId, correlationId },
           { status: 200 },
@@ -281,6 +393,15 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
       const configuredAppId = env.GITHUB_APP_ID ?? process.env.GITHUB_APP_ID;
       if (!isSecureFlowCheckSuite(parsed.payload.check_suite, configuredAppId)) {
         log.info("Check suite not created by SecureFlow ignored");
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: "check_suite",
+          action: typeof parsed.payload.action === "string" ? parsed.payload.action : null,
+          repository: (parsed.payload as any)?.repository?.full_name ?? null,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.FOREIGN_CHECK,
+          error: "Check suite not created by SecureFlow ignored",
+        });
         return NextResponse.json(
           { message: "Check suite not created by SecureFlow ignored", deliveryId, correlationId },
           { status: 200 },
@@ -357,6 +478,15 @@ const handler = withErrorHandler(async function POST(req: NextRequest) {
         log.error(dbErrMsg, { error: dbError?.message });
       }
     }
+
+    await recordWebhookDelivery({
+      deliveryId,
+      eventType: event || "unknown",
+      action: (parsed.payload as any)?.action ?? null,
+      repository: (parsed.payload as any)?.repository?.full_name ?? null,
+      outcome: "queued",
+      reasonCode: WEBHOOK_REASON_CODES.QUEUED,
+    });
 
     return NextResponse.json({ status: "queued", deliveryId, correlationId }, { status: 202 });
   });

@@ -657,12 +657,6 @@ async function main(): Promise<number> {
     ...(ignoreData ? ignoreData.config.ignoredPaths : []),
   ]);
 
-  if (VERBOSE && ignoreData) {
-    console.log(
-      `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
-    );
-  }
-
   let filesToScan: string[];
 
   try {

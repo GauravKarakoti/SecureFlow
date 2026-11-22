@@ -78,6 +78,7 @@ import {
   getActiveSuppressionRules,
   recordSuppressionRuleEvents,
 } from "@/lib/suppression-rules/service";
+import { recordWebhookDelivery, WEBHOOK_REASON_CODES } from "@/lib/webhooks/delivery-recorder";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -609,6 +610,22 @@ export async function runPullRequestScan({
           data: identity,
         });
       }
+    }
+
+    if (dbRepo && !dbRepo.isActive) {
+      log.info(`[Worker] Repository ${sanitize(repository.full_name)} is inactive; skipping scan.`);
+      if (deliveryId) {
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: event || "pull_request",
+          action: action ?? null,
+          repository: repository.full_name,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.REPO_DISABLED,
+          error: "Repository is inactive / disabled",
+        });
+      }
+      return { dbRepoId: dbRepo.id };
     }
 
     const userId = dbRepo?.userId;
@@ -1462,6 +1479,30 @@ export async function runPullRequestScan({
         }
       }
     }
+
+    if (deliveryId) {
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: event || "pull_request",
+        action: action ?? null,
+        repository: repository?.full_name ?? null,
+        outcome: "scanned",
+        reasonCode: WEBHOOK_REASON_CODES.SCANNED,
+      });
+    }
+  } catch (err: any) {
+    if (deliveryId) {
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: event || "pull_request",
+        action: action ?? null,
+        repository: repository?.full_name ?? null,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.SCAN_FAILED,
+        error: err?.message || "Scan execution failed",
+      });
+    }
+    throw err;
   } finally {
     unregisterInFlightScan(scanTrackingId);
     // Stop renewing before releasing, so a late renewal cannot run after
@@ -1693,7 +1734,27 @@ export const worker = new Worker<WebhookJobData>(
 
       if (actionKind === "ignore") {
         log.info(`Action not tracked: ${sanitize(action)}`);
+        if (deliveryId) {
+          await recordWebhookDelivery({
+            deliveryId,
+            eventType: event || "pull_request",
+            action: action ?? null,
+            repository: repository?.full_name ?? null,
+            outcome: "ignored",
+            reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_ACTION,
+          });
+        }
       } else if (actionKind === "metadata") {
+        if (deliveryId) {
+          await recordWebhookDelivery({
+            deliveryId,
+            eventType: event || "pull_request",
+            action: action ?? null,
+            repository: repository?.full_name ?? null,
+            outcome: "ignored",
+            reasonCode: WEBHOOK_REASON_CODES.METADATA_ONLY,
+          });
+        }
         // No new head commit, so no scan: re-running the pipeline here would cost
         // a Groq call and post a second review on a pull request that is already
         // closed. But `closed` is the only delivery that can tell us a pull
@@ -1719,6 +1780,23 @@ export const worker = new Worker<WebhookJobData>(
         }
       } else {
         assertPullRequestContext(payload as any);
+        if (pull_request?.draft === true) {
+          log.info(
+            `[Worker] PR #${sanitize(pull_request.number)} on ${sanitize(repository?.full_name)} is a draft; skipping scan.`,
+          );
+          if (deliveryId) {
+            await recordWebhookDelivery({
+              deliveryId,
+              eventType: event || "pull_request",
+              action: action ?? null,
+              repository: repository?.full_name ?? null,
+              outcome: "ignored",
+              reasonCode: WEBHOOK_REASON_CODES.DRAFT_PR,
+              error: "Draft pull request skipped",
+            });
+          }
+          return;
+        }
         const resultIds = await runPullRequestScan({
           job,
           payload,

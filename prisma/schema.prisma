@@ -471,6 +471,25 @@ model WebhookEvent {
   @@index([repositoryId, createdAt(sort: Desc)])
 }
 
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  deliveryId String
+  eventType  String
+  action     String?
+  repository String?
+  outcome    String   // "queued" | "scanned" | "ignored" | "rejected"
+  reasonCode String   // stable reason code: QUEUED, SCANNED, BAD_SIGNATURE, UNTRACKED_EVENT, REPO_DISABLED, DRAFT_PR, DUPLICATE, etc.
+  error      String?  // sanitized summary or error message (never payload bodies or secrets)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([repository])
+  @@index([outcome])
+  @@index([deliveryId])
+  @@index([reasonCode])
+  @@map("webhook_deliveries")
+}
+
 model Role {
   id          String           @id @default(cuid())
   name        String           @unique
