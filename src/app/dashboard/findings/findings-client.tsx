@@ -16,6 +16,7 @@ import {
   Clock,
   AlertCircle,
   X,
+  MessageSquare,
   UserCheck,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -585,6 +586,18 @@ export default function FindingsClient({
                                 >
                                   <AlertCircle className="w-3 h-3 mr-1" />
                                   Overdue
+                                </Badge>
+                              )}
+                              {/* Reviewer discussion note count badge (#1920) */}
+                              {Boolean(finding.noteCount && finding.noteCount > 0) && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-blue-500/30 bg-blue-500/10 text-blue-400 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
+                                  title={`${finding.noteCount} ${finding.noteCount === 1 ? "reviewer note" : "reviewer notes"}`}
+                                  data-testid="finding-note-count"
+                                >
+                                  <MessageSquare className="w-3 h-3" />
+                                  <span>{finding.noteCount}</span>
                                 </Badge>
                               )}
                             </div>

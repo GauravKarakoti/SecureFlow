@@ -23,6 +23,7 @@ import CodeContextViewer from "@/components/findings/code-context-viewer";
 import RemediationGuidanceCard from "@/components/findings/remediation-guidance-card";
 import ShareFindingButton from "@/components/findings/share-finding-button";
 import FindingActions from "./finding-actions";
+import FindingNotesThread from "../finding-notes-thread";
 import FindingAssigneeSelect from "../finding-assignee-select";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
@@ -103,6 +104,25 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
     },
     take: 20,
   });
+
+  // Fetch reviewer discussion notes
+  const notes = await prisma.findingNote.findMany({
+    where: { findingId: finding.id },
+    orderBy: { createdAt: "asc" },
+    include: {
+      author: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          codename: true,
+          image: true,
+        },
+      },
+    },
+  });
+
+  const isAdmin = session.user.roles?.includes("ADMIN") ?? false;
 
   const theme = getSeverityTheme(finding.severity);
   const repoName = repo.fullName;
@@ -293,6 +313,14 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
           </div>
+
+          {/* Reviewer Discussion & Notes Thread (#1920) */}
+          <FindingNotesThread
+            findingId={finding.id}
+            initialNotes={notes}
+            currentUserId={session.user.id}
+            isAdmin={isAdmin}
+          />
 
           {/* Status History & Audit Trail */}
           <div className="pt-6 border-t border-white/5 space-y-4">

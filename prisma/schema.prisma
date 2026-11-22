@@ -99,6 +99,7 @@ model User {
   weeklyDigestEnabled Boolean @default(true)
 
   digests SecurityDigest[]
+  findingNotes FindingNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -298,6 +299,7 @@ model Finding {
   createdAt                DateTime                @default(now())
   remediationPatch         RemediationPatch?
   armorIQLogs              ArmorIQEnforcementLog[]
+  notes                    FindingNote[]
 
   @@index([scanResultId])
   // Analytics date windows and newest-first findings within a scan (#1515).
@@ -318,6 +320,21 @@ model Finding {
   @@index([promptInjectionSuspected])
   @@index([suppressionStatus])
   @@index([suppressionRuleId])
+}
+
+model FindingNote {
+  id        String   @id @default(cuid())
+  findingId String
+  authorId  String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([findingId, createdAt])
+  @@index([authorId])
 }
 
 model RemediationPatch {
