@@ -6,6 +6,7 @@ import { isAtLeast, parseSeverity, type Severity } from "@/lib/severity";
 import type { GateConfig, GateLevel, GatePathRule } from "@/lib/scanner/gate-config";
 import { DEFAULT_GATE_CONFIG } from "@/lib/scanner/gate-config";
 import { ArmorIQUnavailableError, withArmorIQBreaker } from "./armoriq-breaker";
+import { isConfidenceAtLeast } from "@/lib/confidence";
 
 const armorIQConfigSchema = z.object({
   apiKey: z.string().default(""),
@@ -104,6 +105,16 @@ export class ArmorIQPolicyEngine {
    */
   evaluateFindings(findings: ScanFinding[], gate?: GateConfig | null): PolicyResult {
     const config = gate ?? DEFAULT_GATE_CONFIG;
+    // #1924: Do not let confidence change the blocking decision unless the repository explicitly opts in.
+    const eligibleFindings = config.filterBlocking
+      ? findings.filter((f) =>
+          isConfidenceAtLeast(
+            f.confidence,
+            config.minBlockingConfidence ?? config.minCommentConfidence ?? "MEDIUM",
+          ),
+        )
+      : findings;
+
     const globalBlock = config.blockOn;
     const globalReview = config.reviewOn;
     const overrides = config.overrides ?? [];
@@ -130,8 +141,8 @@ export class ArmorIQPolicyEngine {
       };
     };
 
-    // Check BLOCKED condition across all findings
-    for (const finding of findings) {
+    // Check BLOCKED condition across eligible findings
+    for (const finding of eligibleFindings) {
       const { blockOn } = getFindingGate(finding);
       if (blockOn !== "NONE") {
         if (isAtLeast(finding.severity, blockOn as Severity)) {
@@ -140,8 +151,8 @@ export class ArmorIQPolicyEngine {
       }
     }
 
-    // Check REVIEW REQUIRED condition across all findings
-    for (const finding of findings) {
+    // Check REVIEW REQUIRED condition across eligible findings
+    for (const finding of eligibleFindings) {
       const parsed = parseSeverity(finding.severity);
       // Uninterpretable severity always requires human review
       if (parsed === null) {

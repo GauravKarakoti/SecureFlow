@@ -637,4 +637,134 @@ describe("scan model", () => {
     expect(findings[1].fileLocation).toBe("data.unknownext");
     expect(findings[1].language).toBe("unknown");
   });
+
+  describe("Scanner confidence scoring (#1924)", () => {
+    it("parses valid confidence values (HIGH, MEDIUM, LOW) and confidenceReason", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Secret",
+                    severity: "CRITICAL",
+                    confidence: "HIGH",
+                    confidenceReason: "Live AWS access key detected in config",
+                    description: "Active AWS key",
+                    fileLocation: "src/aws.ts",
+                    codeSnippet: "key = 'AKIA123'",
+                  },
+                  {
+                    type: "Vulnerability",
+                    severity: "MEDIUM",
+                    confidence: "LOW",
+                    confidenceReason: "Test fixture mock token",
+                    description: "Potential test token",
+                    fileLocation: "tests/mock.ts",
+                    codeSnippet: "token = 'test'",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/aws.ts", patch: "+key = 'AKIA123'" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(2);
+      expect(findings[0].confidence).toBe("HIGH");
+      expect(findings[0].confidenceReason).toBe("Live AWS access key detected in config");
+      expect(findings[1].confidence).toBe("LOW");
+      expect(findings[1].confidenceReason).toBe("Test fixture mock token");
+    });
+
+    it("defaults safely to MEDIUM when confidence is missing in LLM response", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Vulnerability",
+                    severity: "HIGH",
+                    description: "SQL injection without confidence field",
+                    fileLocation: "src/db.ts",
+                    codeSnippet: "query()",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/db.ts", patch: "+query()" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0].confidence).toBe("MEDIUM");
+    });
+
+    it("defaults safely to MEDIUM when confidence is invalid in LLM response", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Vulnerability",
+                    severity: "HIGH",
+                    confidence: "SUPER_HIGH_VERY_SURE",
+                    confidenceReason: "Hallucinated confidence level",
+                    description: "Issue with invalid confidence",
+                    fileLocation: "src/app.ts",
+                    codeSnippet: "doWork()",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/app.ts", patch: "+doWork()" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0].confidence).toBe("MEDIUM");
+      expect(findings[0].confidenceReason).toBe("Hallucinated confidence level");
+    });
+
+    it("includes confidence schema and guidance in the prompt sent to LLM", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify({ findings: [] }) } }],
+      });
+
+      await scannerInstance.scanPullRequest(
+        [{ filename: "src/index.ts", patch: "+const a = 1;" }],
+        [],
+      );
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const userPrompt = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(userPrompt).toContain('"confidence": "HIGH | MEDIUM | LOW"');
+      expect(userPrompt).toContain('"confidenceReason":');
+      expect(userPrompt).toContain("For confidence: Assign");
+    });
+  });
 });

@@ -291,4 +291,37 @@ export function handleCors(origin: string, res: any) {
     },
     policies: DEFAULT_PROMPT_REGRESSION_POLICIES,
   },
+  // ──────────────── Golden Samples for Confidence (#1924) ────────────────
+  {
+    id: "high-confidence-prod-secret",
+    name: "Production Database Password (High Confidence)",
+    filename: "src/config/database.ts",
+    code: `export const databaseUrl = "postgres://app_admin:Sup3rS3cr3tPr0dK3y99@prod-db.internal:5432/production";`,
+    patch: createUnifiedPatch(
+      `export const databaseUrl = "postgres://app_admin:Sup3rS3cr3tPr0dK3y99@prod-db.internal:5432/production";`,
+    ),
+    expected: {
+      shouldDetect: true,
+      category: "SECRET",
+      minSeverity: "CRITICAL",
+      expectedConfidence: "HIGH",
+    },
+    policies: DEFAULT_PROMPT_REGRESSION_POLICIES,
+  },
+  {
+    id: "low-confidence-test-fixture",
+    name: "Mock Token in Test Fixture (Low Confidence)",
+    filename: "tests/fixtures/mock-auth.ts",
+    code: `export const TEST_BEARER_TOKEN = "test_token_placeholder_abc1234567890";`,
+    patch: createUnifiedPatch(
+      `export const TEST_BEARER_TOKEN = "test_token_placeholder_abc1234567890";`,
+    ),
+    expected: {
+      shouldDetect: true,
+      category: "SECRET",
+      minSeverity: "LOW",
+      expectedConfidence: "LOW",
+    },
+    policies: DEFAULT_PROMPT_REGRESSION_POLICIES,
+  },
 ];

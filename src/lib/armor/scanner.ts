@@ -14,6 +14,11 @@ import { shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import {
+  type ConfidenceLevel,
+  normalizeConfidence,
+  DEFAULT_CONFIDENCE,
+} from "@/lib/confidence";
 
 export type ScanFinding = {
   type: string;
@@ -30,6 +35,8 @@ export type ScanFinding = {
   isZeroDay?: boolean;
   language?: string;
   framework?: string;
+  confidence?: ConfidenceLevel;
+  confidenceReason?: string;
 };
 
 export interface FileChange {
@@ -654,6 +661,7 @@ The changes are organized under individual <file> tags.
 CRITICAL RULES SCOPED BY FILE TYPE:
 - For '.env.example' or '.env' files: ONLY flag a line if the right side of the equals sign contains a REAL, active credential (e.g., a long random alphanumeric string, a hash, or a valid token). DO NOT flag lines with descriptive text, empty quotes, or generic placeholders.
 - For '.ts' or '.js' files: You MUST flag any instance of 'console.log(process.env...)' as a CRITICAL contextual leak or any 'console.log(<variable>)' where the 'variable' is instantiated with 'process.env...'.
+- For confidence: Assign "HIGH" for definite, active vulnerabilities and real credentials; "MEDIUM" for standard, probable issues; "LOW" for uncertain patterns, test fixtures, or plausible mock values. Provide a short one-line confidenceReason.
 
 Aggregated Code Changes:
 ${batchContent}
@@ -666,6 +674,8 @@ Format:
       "reasoning": "Step 1: Explain exactly why this snippet is an executable vulnerability. If it is just a string description, a safe mock variable, or a schema type, do not flag it.",
       "type": "Secret | Vulnerability | Misconfig",
       "severity": "CRITICAL | HIGH | MEDIUM | LOW",
+      "confidence": "HIGH | MEDIUM | LOW",
+      "confidenceReason": "One-line reason for the assigned confidence score.",
       "description": "Detailed explanation.",
       "fileLocation": "The exact path/filename from the <file> tag",
       "codeSnippet": "The specific problematic line(s)",
@@ -826,6 +836,17 @@ CRITICAL RULES:
                 normalizedSnippet,
               );
 
+              const rawConfidence = f.confidence;
+              const confidence = normalizeConfidence(rawConfidence, DEFAULT_CONFIDENCE);
+              const confidenceReason =
+                typeof f.confidenceReason === "string" && f.confidenceReason.trim()
+                  ? f.confidenceReason.trim()
+                  : typeof f.confidence_reason === "string" && f.confidence_reason.trim()
+                    ? f.confidence_reason.trim()
+                    : typeof f.reason === "string" && f.reason.trim()
+                      ? f.reason.trim()
+                      : undefined;
+
               return {
                 type: findingType,
                 // Shared normalization rather than a local valid-list: the model
@@ -833,6 +854,8 @@ CRITICAL RULES:
                 // one of the five canonical levels, and the local check discarded
                 // all of those down to MEDIUM.
                 severity: normalizeSeverity(f.severity),
+                confidence,
+                ...(confidenceReason ? { confidenceReason } : {}),
                 description: String(f.description || "No description provided."),
                 fileLocation: fileLoc,
                 codeSnippet: normalizedSnippet,
