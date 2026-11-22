@@ -71,6 +71,8 @@ export interface FindingRow {
   ageDays: number | null;
   /** True when the finding has exceeded the configurable target age for its severity. */
   isOverdue: boolean;
+  /** Number of reviewer discussion notes on this finding (#1920). */
+  noteCount: number;
 }
 
 export interface FindingsStats {
@@ -172,6 +174,9 @@ export async function getUserFindings(
           include: { repository: { select: { id: true, fullName: true } } },
         },
       },
+    },
+    _count: {
+      select: { notes: true },
     },
   } as const;
 
@@ -282,6 +287,7 @@ export async function getUserFindings(
       resolvedCommitSha: triage?.resolvedCommitSha ?? null,
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
+      noteCount: finding._count?.notes ?? 0,
     };
   });
 
