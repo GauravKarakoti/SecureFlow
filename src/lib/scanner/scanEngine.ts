@@ -21,6 +21,8 @@ import { upsertSecureFlowComment, SECUREFLOW_COMMENT_MARKER } from "@/lib/github
 import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
+import { getZeroScanReason, type ZeroScanReason } from "./zero-scan";
+import { compileIgnorePatterns, ignoreReasonFor } from "@/lib/armor/ignore-rules";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -63,7 +65,7 @@ import {
 } from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
-import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
@@ -105,6 +107,8 @@ export interface ScanJobResult {
   reusedFromCache?: boolean;
   expiredIgnoreRules?: ExpiredIgnoreRule[];
   appliedPolicyScopes?: AppliedScopeSummary[];
+  analyzedFiles?: string[];
+  zeroScanReason?: ZeroScanReason;
 }
 
 export interface ScanProgress {
@@ -277,10 +281,14 @@ export async function processScanJob(
     ...(initialCustomPlaceholders ?? []),
     ...repositoryIgnoreConfig.placeholders,
   ];
+  const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
   // If no file changes provided, fetch from GitHub
   let fileChanges = initialFileChanges;
-  if (fileChanges.length === 0) {
+  if (
+    (!fileChanges || fileChanges.length === 0) &&
+    typeof (octokit as any)?.paginate?.iterator === "function"
+  ) {
     const { owner, repo } = splitRepositoryFullName(repositoryFullName);
     const result = await fetchPullRequestFiles(octokit as any, {
       owner,
@@ -291,6 +299,7 @@ export async function processScanJob(
       .filter((f: any) => f.patch && f.status !== "removed")
       .map((f: any) => ({ filename: f.filename, patch: f.patch }));
   }
+  fileChanges = fileChanges ?? [];
 
   const totalFiles = fileChanges.length;
   log.info(`[ScanEngine] Scanning ${totalFiles} files`);
@@ -318,6 +327,7 @@ export async function processScanJob(
 
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
+  let allAnalyzedFiles: string[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
 
   const appliedPolicyScopes = collectAppliedScopes(fileChanges, repositoryGateConfig.policyScopes);
@@ -326,6 +336,7 @@ export async function processScanJob(
   if (cachedFindings) {
     reusedFromCache = true;
     allFindings = cachedFindings.map((f) => ({ ...f }));
+    allAnalyzedFiles = fileChanges.map((f) => f.filename);
     log.info(
       `[ScanEngine] Reusing ${allFindings.length} scan findings from cache for ${repositoryFullName}#${prNumber}`,
     );
@@ -373,6 +384,15 @@ export async function processScanJob(
           allFindings.push(...chunkFindings);
           if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
             allSkippedFiles.push(...scanner.lastSkippedFiles);
+          }
+          if (scanner.lastAnalyzedFiles && scanner.lastAnalyzedFiles.length > 0) {
+            allAnalyzedFiles.push(...scanner.lastAnalyzedFiles);
+          } else if (scanner.lastAnalyzedFiles === undefined) {
+            // Scanner mock fallback for tests
+            const scannableChunkFiles = chunk
+              .filter((f) => ignoreReasonFor(f.filename, compiledCustomIgnores) === null)
+              .map((f) => f.filename);
+            allAnalyzedFiles.push(...scannableChunkFiles);
           }
         } catch (err) {
           log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
@@ -530,6 +550,9 @@ export async function processScanJob(
   }
 
   const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
+  const analyzedFilesCount = reusedFromCache ? totalFiles : allAnalyzedFiles.length;
+  const zeroScanReason =
+    analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
 
   // --- Phase 5: Post to GitHub ---
   onProgress({
@@ -561,7 +584,8 @@ export async function processScanJob(
         headSha,
         decision,
         findingsCount: enrichedFindings.length,
-        fileCount: totalFiles,
+        fileCount: analyzedFilesCount,
+        emptyReason: analyzedFilesCount === 0 ? zeroScanReason : undefined,
         notice: checkNotice,
         findings: enrichedFindings,
       });
@@ -573,7 +597,8 @@ export async function processScanJob(
         enrichedFindings.length > 0 ||
         allSkippedFiles.length > 0 ||
         expiredRules.length > 0 ||
-        ruleSuppressedFindings.length > 0
+        ruleSuppressedFindings.length > 0 ||
+        analyzedFilesCount === 0
       ) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
@@ -581,6 +606,8 @@ export async function processScanJob(
         }
         if (enrichedFindings.length > 0) {
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
+        } else if (analyzedFilesCount === 0) {
+          body += `⚪ Nothing to scan: ${zeroScanReason}.\n\n`;
         } else {
           body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
         }
@@ -824,7 +851,8 @@ export async function processScanJob(
 
   return {
     scanJobId,
-    scannedFiles: totalFiles,
+    scannedFiles: analyzedFilesCount,
+    analyzedFiles: allAnalyzedFiles,
     vulnerabilitiesFound: enrichedFindings.length,
     riskScore,
     policyDecision: storedPolicyDecision(decision),
@@ -834,5 +862,6 @@ export async function processScanJob(
     reusedFromCache,
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
     appliedPolicyScopes,
+    zeroScanReason,
   };
 }

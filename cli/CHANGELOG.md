@@ -1,5 +1,21 @@
 # secureflow-cli
 
+## 3.11.0
+
+### Minor Changes
+
+- fd11fd4: feat(cli): add LRU eviction, TTL expiry, max storage limits, and cache-prune/cache-stats commands to scan cache (#1934)
+- 94726bd: feat(cli): add recursive directory scanning with workspace path sandboxing and non-git fallback (#1933)
+- 491ecb1: feat(cli): add --fail-on severity thresholds, exit codes (0, 1, 2), and one-line severity count summary
+- 1e57feb: feat(ui): make the dashboard tables usable on phones (card layout, sticky headers, horizontal scroll hints) (#1929)
+- c9fb1c1: feat(policies): backtest a changed policy against recent scans to preview its impact (#1892)
+- c8a0be0: Add Export CSV and Export JSON buttons to findings dashboard with active filters, sorting, and full streaming support
+- a7ae4d0: feat(cli): support gitignore-style .secureflowignore with default ignores, negation, and verbose skipped file counts (#1827)
+
+### Patch Changes
+
+- d03d4bb: fix(armor): isolate deterministic secret fingerprints by repository and normalize whitespace line-drift (#1935)
+
 ## 3.10.0
 
 ### Minor Changes

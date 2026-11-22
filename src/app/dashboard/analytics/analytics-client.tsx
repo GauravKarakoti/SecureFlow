@@ -765,122 +765,124 @@ export default function AnalyticsClient({
                   </caption>
                   <thead className="sticky top-0 bg-background/95 backdrop-blur z-10 border-b border-white/10">
                     <tr className="border-b border-white/10">
-                    <th
-                      scope="col"
-                      className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Repository
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Scans
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Findings
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Critical
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      High
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Risk Score
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Pass Rate
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
-                      Last Scan
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRepos.map((repo) => (
-                    <tr
-                      key={repo.repositoryId}
-                      className="border-b border-white/5 hover:bg-white/[0.03] transition-colors"
-                    >
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-xs font-medium text-primary truncate max-w-[200px] block">
-                          {repo.repositoryName}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs">{repo.totalScans}</td>
-                      <td className="py-3 px-4 text-right font-mono text-xs">
-                        {repo.totalFindings}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span
-                          aria-label={`${repo.criticalFindings} critical findings`}
-                          className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
-                            repo.criticalFindings > 0
-                              ? "text-red-700 dark:text-red-400"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {repo.criticalFindings > 0 && (
-                            <AlertOctagon className="w-3 h-3 shrink-0" aria-hidden="true" />
-                          )}
-                          <span>{repo.criticalFindings}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span
-                          aria-label={`${repo.highFindings} high findings`}
-                          className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
-                            repo.highFindings > 0
-                              ? "text-orange-800 dark:text-orange-400"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {repo.highFindings > 0 && (
-                            <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                          )}
-                          <span>{repo.highFindings}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <RiskScoreBadge score={repo.averageRiskScore} />
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <PassRateBadge rate={repo.passRate} />
-                      </td>
-                      <td className="py-3 px-4 text-right text-xs text-muted-foreground">
-                        {repo.lastScanAt ? (
-                          <span className="flex items-center justify-end gap-1">
-                            <Clock className="w-3 h-3" />
-                            <TimeAgo date={repo.lastScanAt} />
-                          </span>
-                        ) : (
-                          <span className="italic">Never</span>
-                        )}
-                      </td>
+                      <th
+                        scope="col"
+                        className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Repository
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Scans
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Findings
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Critical
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        High
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Risk Score
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Pass Rate
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Last Scan
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {visibleRepos.map((repo) => (
+                      <tr
+                        key={repo.repositoryId}
+                        className="border-b border-white/5 hover:bg-white/[0.03] transition-colors"
+                      >
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs font-medium text-primary truncate max-w-[200px] block">
+                            {repo.repositoryName}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs">
+                          {repo.totalScans}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs">
+                          {repo.totalFindings}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <span
+                            aria-label={`${repo.criticalFindings} critical findings`}
+                            className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
+                              repo.criticalFindings > 0
+                                ? "text-red-700 dark:text-red-400"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {repo.criticalFindings > 0 && (
+                              <AlertOctagon className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            )}
+                            <span>{repo.criticalFindings}</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <span
+                            aria-label={`${repo.highFindings} high findings`}
+                            className={`inline-flex items-center gap-1 font-mono text-xs font-bold ${
+                              repo.highFindings > 0
+                                ? "text-orange-800 dark:text-orange-400"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {repo.highFindings > 0 && (
+                              <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            )}
+                            <span>{repo.highFindings}</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <RiskScoreBadge score={repo.averageRiskScore} />
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <PassRateBadge rate={repo.passRate} />
+                        </td>
+                        <td className="py-3 px-4 text-right text-xs text-muted-foreground">
+                          {repo.lastScanAt ? (
+                            <span className="flex items-center justify-end gap-1">
+                              <Clock className="w-3 h-3" />
+                              <TimeAgo date={repo.lastScanAt} />
+                            </span>
+                          ) : (
+                            <span className="italic">Never</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CardContent>

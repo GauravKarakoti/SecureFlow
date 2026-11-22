@@ -651,19 +651,13 @@ async function main(): Promise<number> {
   const isSinceMode = sinceRef !== undefined;
   const isDirMode = targetDir !== undefined || (!isSinceMode && !repoInGit);
   const repoRoot = getRepoRoot();
-  let filesToScan: string[];
-
   const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
   const customIgnores = compileIgnorePatterns([
     ...DEFAULT_IGNORE_PATTERNS,
     ...(ignoreData ? ignoreData.config.ignoredPaths : []),
   ]);
 
-  if (VERBOSE && ignoreData) {
-    console.log(
-      `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
-    );
-  }
+  let filesToScan: string[];
 
   try {
     if (targetDir !== undefined) {
@@ -694,6 +688,12 @@ async function main(): Promise<number> {
   let analyzedCount = 0;
   let cachedCount = 0;
   let skippedCount = 0;
+
+  if (VERBOSE && ignoreData) {
+    console.log(
+      `ℹ️  [SecureFlow] Loaded ${ignoreData.config.ignoredPaths.length} ignore pattern(s) from ignore configuration`,
+    );
+  }
 
   let violationCount = 0;
 
