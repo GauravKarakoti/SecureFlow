@@ -386,6 +386,38 @@ SecureFlow's Docker image uses a secure multi-stage build running as an unprivil
 - **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
 - **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
 
+### 🔐 Container Image Signing & Supply Chain Verification
+
+All official SecureFlow container images (`ghcr.io/gauravkarakoti/secureflow`) are cryptographically signed with **Sigstore Cosign** via GitHub OIDC, and published with attached **CycloneDX SBOM** and **SLSA Build Provenance** attestations.
+
+#### 1. Verify Image Signature:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+#### 2. Verify CycloneDX SBOM Attestation:
+
+```bash
+cosign verify-attestation \
+  --type cyclonedx \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+#### 3. Verify SLSA Build Provenance:
+
+```bash
+gh attestation verify oci://ghcr.io/gauravkarakoti/secureflow:latest \
+  --repo GauravKarakoti/SecureFlow
+```
+
+For detailed provenance extraction and Kubernetes admission controller (Kyverno) policies, see the **[Container Image Verification Guide](./docs/deployment.md#8-container-image-verification--supply-chain-security-cosign--slsa-provenance-1926)**.
+
 ### Upgrading SecureFlow
 
 When upgrading between releases, follow our step-by-step checklist covering database backups, migration execution, health validation, and rollback procedures in the **[Safe Upgrade Guide](./docs/upgrade.md)**.
