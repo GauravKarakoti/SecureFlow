@@ -1,0 +1,10 @@
+# Configuration for chart-testing (ct lint)
+# https://github.com/helm/chart-testing
+remote: origin
+target-branch: main
+chart-dirs:
+  - helm
+chart-repos: []
+validate-maintainers: false
+check-version-increment: false
+helm-extra-set-args: "--set secrets.authSecret=local-test-only"
