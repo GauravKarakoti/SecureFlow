@@ -20,6 +20,7 @@ import {
   Cpu,
   Mail,
   FolderGit2,
+  Users,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
   { name: "AI Model Health", href: "/dashboard/ai-health", icon: Cpu },
   { name: "Security Digest", href: "/dashboard/digest", icon: Mail },
+  { name: "Team Members", href: "/dashboard/members", icon: Users },
   { name: "Vault Logs", href: "/dashboard/audit", icon: History },
   { name: "System Status", href: "/dashboard/status", icon: Activity },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },

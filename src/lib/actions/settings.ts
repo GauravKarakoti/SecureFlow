@@ -16,6 +16,7 @@ import {
   OUTBOUND_EVENT_TYPES,
   type OutboundEventType,
 } from "@/lib/webhooks/outbound-dispatcher";
+import { can, assertCan } from "@/lib/auth/permissions";
 
 export async function updateSlackWebhook(url: string | null) {
   const session = await auth();
@@ -24,6 +25,7 @@ export async function updateSlackWebhook(url: string | null) {
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  assertCan(session?.user, null, "settings:edit");
 
   // Strict Slack webhook URL validation
   if (url !== null && url.trim() !== "") {
@@ -62,6 +64,7 @@ export async function updateTeamsWebhook(url: string | null) {
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  assertCan(session?.user, null, "settings:edit");
 
   // Strict Teams webhook URL validation
   if (url !== null && url.trim() !== "") {
@@ -400,6 +403,12 @@ export async function createApiToken(input: CreateApiTokenInput): Promise<Create
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  if (!can(session?.user, null, "api_tokens:manage")) {
+    return {
+      success: false,
+      error: "Permission denied: Only administrators can create API tokens.",
+    };
+  }
 
   const name = input?.name?.trim();
   if (!name || name.length < 1 || name.length > 100) {
@@ -492,6 +501,12 @@ export async function revokeApiToken(tokenId: string): Promise<RevokeApiTokenRes
   const userId = session?.user?.id;
   if (!userId) {
     throw new Error("Unauthorized");
+  }
+  if (!can(session?.user, null, "api_tokens:manage")) {
+    return {
+      success: false,
+      error: "Permission denied: Only administrators can revoke API tokens.",
+    };
   }
 
   const token = await prisma.apiToken.findFirst({

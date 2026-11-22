@@ -18,7 +18,7 @@
 
 export const ADMIN_ROLE = "ADMIN";
 
-export type RoleName = "ADMIN" | "USER";
+export type RoleName = "ADMIN" | "USER" | "TRIAGER" | "VIEWER";
 
 /**
  * Raised when a write would leave the application with no administrator.
