@@ -1,0 +1,82 @@
+suite: test ingress template
+templates:
+  - ingress.yaml
+
+values:
+  - ../values.yaml
+
+tests:
+  - it: should not render ingress by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render ingress when enabled with default host and path
+    set:
+      ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].host
+          value: secureflow.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-secureflow-app
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 9002
+
+  - it: should render ingress with custom ingressClassName, annotations, TLS, and custom hosts
+    set:
+      ingress.enabled: true
+      ingress.className: traefik
+      ingress.annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      ingress.hosts:
+        - host: dashboard.secureflow.io
+          paths:
+            - path: /api
+              pathType: ImplementationSpecific
+      ingress.tls:
+        - secretName: secureflow-tls-cert
+          hosts:
+            - dashboard.secureflow.io
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: letsencrypt-prod
+      - equal:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.entrypoints"]
+          value: websecure
+      - equal:
+          path: spec.rules[0].host
+          value: dashboard.secureflow.io
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /api
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: ImplementationSpecific
+      - equal:
+          path: spec.tls[0].secretName
+          value: secureflow-tls-cert
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: dashboard.secureflow.io

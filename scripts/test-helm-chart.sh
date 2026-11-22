@@ -5,6 +5,12 @@ trap 'echo "Helm chart test failed at line $LINENO" >&2' ERR
 chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/secureflow" && pwd)"
 helm_bin="${HELM_BIN:-helm}"
 
+# Run helm-unittest suites if the plugin is installed
+if "$helm_bin" plugin list 2>/dev/null | grep -q 'unittest'; then
+  echo "Running helm-unittest..."
+  "$helm_bin" unittest "$chart_dir"
+fi
+
 for monitor in false true; do
   "$helm_bin" lint "$chart_dir" \
     --set secrets.authSecret=local-test-only \

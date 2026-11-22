@@ -78,7 +78,7 @@ kind: NetworkPolicy
 metadata:
   name: {{ include "secureflow.fullname" . }}-worker-egress
   labels:
-    {{- omit (include "secureflow.labels" . | fromYaml) "app.kubernetes.io/component" | toYaml | nindent 4 }}
+    {{- include "secureflow.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
   podSelector:
