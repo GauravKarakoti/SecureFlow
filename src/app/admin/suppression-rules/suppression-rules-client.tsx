@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   ShieldAlert,
   Plus,
@@ -18,7 +18,18 @@ import {
   createSuppressionRuleAction,
   updateSuppressionRuleAction,
   deleteSuppressionRuleAction,
+  renewSuppressionRuleAction,
 } from "./actions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { SuppressionRule } from "@prisma/client";
 import type { SuppressionRuleWithStats } from "@/lib/suppression-rules/service";
 
 interface RepositoryOption {
@@ -38,6 +49,9 @@ export default function SuppressionRulesClient({
   const [rules, setRules] = useState<SuppressionRuleWithStats[]>(initialRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<SuppressionRuleWithStats | null>(null);
+  const [renewingRule, setRenewingRule] = useState<SuppressionRuleWithStats | null>(null);
+  const [renewalDate, setRenewalDate] = useState("");
+  const renewalTrigger = useRef<HTMLButtonElement | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -87,6 +101,35 @@ export default function SuppressionRulesClient({
     setIsModalOpen(true);
   };
 
+  const replaceRule = (updated: SuppressionRule) => {
+    setRules((prev) =>
+      prev.map((rule) => (rule.id === updated.id ? { ...rule, ...updated } : rule)),
+    );
+  };
+
+  const handleRenewal = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!renewingRule) return;
+    const { id, name: ruleName } = renewingRule;
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const updated = await renewSuppressionRuleAction(id, renewalDate);
+        if ("error" in updated) {
+          setError(updated.error);
+          return;
+        }
+        replaceRule(updated);
+        setSuccess(`Suppression rule "${ruleName}" renewed.`);
+        setRenewingRule(null);
+      } catch {
+        setError("The rule could not be renewed. Try again.");
+      }
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -96,27 +139,30 @@ export default function SuppressionRulesClient({
       try {
         if (!name.trim()) throw new Error("Rule name is required.");
         if (!reason.trim()) throw new Error("Reason is required.");
+        const expiry = expiresAt ? new Date(expiresAt).toISOString() : null;
 
         if (editingRule) {
-          const updated = await updateSuppressionRuleAction(editingRule.id, {
-            name: name.trim(),
-            description: description.trim() || null,
-            scope,
-            repositoryIds: scope === "SELECTED" ? selectedRepoIds : [],
-            matchCategory: matchCategory.trim() || null,
-            matchPolicy: matchPolicy.trim() || null,
-            pathGlob: pathGlob.trim() || null,
-            reason: reason.trim(),
-            expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-          });
-
-          setRules((prev) =>
-            prev.map((r) =>
-              r.id === updated.id
-                ? { ...r, ...updated, thirtyDaySuppressionCount: r.thirtyDaySuppressionCount }
-                : r,
-            ),
+          const originalDate = editingRule.expiresAt?.toISOString().slice(0, 10) ?? "";
+          const updated = await updateSuppressionRuleAction(
+            editingRule.id,
+            {
+              name: name.trim(),
+              description: description.trim() || null,
+              scope,
+              repositoryIds: scope === "SELECTED" ? selectedRepoIds : [],
+              matchCategory: matchCategory.trim() || null,
+              matchPolicy: matchPolicy.trim() || null,
+              pathGlob: pathGlob.trim() || null,
+              reason: reason.trim(),
+              expiresAt: expiresAt === originalDate ? undefined : expiry,
+            },
+            editingRule.expiresAt,
           );
+          if ("error" in updated) {
+            setError(updated.error);
+            return;
+          }
+          replaceRule(updated);
           setSuccess("Suppression rule updated successfully.");
         } else {
           const created = await createSuppressionRuleAction({
@@ -128,7 +174,7 @@ export default function SuppressionRulesClient({
             matchPolicy: matchPolicy.trim() || null,
             pathGlob: pathGlob.trim() || null,
             reason: reason.trim(),
-            expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+            expiresAt: expiry,
           });
 
           setRules((prev) => [{ ...created, thirtyDaySuppressionCount: 0 }, ...prev]);
@@ -169,21 +215,25 @@ export default function SuppressionRulesClient({
     (acc, r) => acc + (r.thirtyDaySuppressionCount || 0),
     0,
   );
-  const activeRulesCount = rules.filter(
-    (r) => !r.expiresAt || new Date(r.expiresAt) > new Date(),
-  ).length;
+  const now = new Date();
+  const isExpired = (rule: SuppressionRuleWithStats) =>
+    rule.expiresAt !== null && new Date(rule.expiresAt) <= now;
+  const expiredRulesCount = rules.filter(isExpired).length;
 
   return (
     <div className="space-y-6">
       {/* Top Banner & Notifications */}
-      {error && (
+      {error && !isModalOpen && !renewingRule && (
         <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 flex items-center gap-2">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <p className="text-sm">{error}</p>
         </div>
       )}
       {success && (
-        <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 flex items-center gap-2">
+        <div
+          role="status"
+          className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 flex items-center gap-2"
+        >
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <p className="text-sm">{success}</p>
         </div>
@@ -198,8 +248,9 @@ export default function SuppressionRulesClient({
         <div className="p-5 rounded-xl border border-border bg-card">
           <div className="text-sm font-medium text-muted-foreground">Active Rules</div>
           <div className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
-            {activeRulesCount}
+            {rules.length - expiredRulesCount}
           </div>
+          <div className="mt-1 text-xs text-muted-foreground">{expiredRulesCount} expired</div>
         </div>
         <div className="p-5 rounded-xl border border-border bg-card">
           <div className="text-sm font-medium text-muted-foreground">
@@ -245,17 +296,18 @@ export default function SuppressionRulesClient({
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden divide-y divide-border">
           {rules.map((rule) => {
-            const isExpired = rule.expiresAt && new Date(rule.expiresAt) <= new Date();
+            const expired = isExpired(rule);
+            const expiry = rule.expiresAt && new Date(rule.expiresAt).toISOString();
 
             return (
               <div
                 key={rule.id}
-                className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                className={`p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${expired ? "bg-amber-500/5" : ""}`}
               >
                 <div className="space-y-2 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-base text-foreground">{rule.name}</span>
-                    {isExpired ? (
+                    {expired ? (
                       <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                         Expired
                       </span>
@@ -305,10 +357,13 @@ export default function SuppressionRulesClient({
                         </span>
                       </div>
                     )}
-                    {rule.expiresAt ? (
+                    {expiry ? (
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" />
-                        <span>Expires: {new Date(rule.expiresAt).toLocaleDateString()}</span>
+                        <span>
+                          Expires:{" "}
+                          <time dateTime={expiry}>{expiry.slice(0, 16).replace("T", " ")} UTC</time>
+                        </span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1">
@@ -325,12 +380,28 @@ export default function SuppressionRulesClient({
 
                 <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
                   <button
-                    onClick={() => openEditModal(rule)}
-                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
-                    title="Edit Rule"
-                    aria-label="Edit Rule"
+                    onClick={(event) => {
+                      if (rule.expiresAt && new Date(rule.expiresAt) <= new Date()) {
+                        renewalTrigger.current = event.currentTarget;
+                        setRenewalDate("");
+                        setError(null);
+                        setRenewingRule(rule);
+                      } else {
+                        openEditModal(rule);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 p-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
+                    title={expired ? "Renew Rule" : "Edit Rule"}
+                    aria-label={expired ? `Renew ${rule.name}` : `Edit ${rule.name}`}
                   >
-                    <Edit2 className="w-4 h-4" />
+                    {expired ? (
+                      <>
+                        <Calendar className="w-4 h-4" aria-hidden="true" />
+                        Renew
+                      </>
+                    ) : (
+                      <Edit2 className="w-4 h-4" aria-hidden="true" />
+                    )}
                   </button>
                   <button
                     onClick={() => handleDelete(rule.id, rule.name)}
@@ -347,6 +418,64 @@ export default function SuppressionRulesClient({
         </div>
       )}
 
+      <Dialog
+        open={Boolean(renewingRule)}
+        onOpenChange={(open) => {
+          if (!open && !isPending) {
+            setRenewingRule(null);
+            setError(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[calc(100%_-_2rem)] rounded-lg"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            renewalTrigger.current?.focus();
+          }}
+        >
+          <DialogTitle>Renew Suppression Rule</DialogTitle>
+          <DialogDescription>
+            {renewingRule?.name} has expired. Renewing it applies the existing criteria again until
+            midnight UTC at the start of the new expiry date.
+          </DialogDescription>
+          <form onSubmit={handleRenewal} className="space-y-4">
+            <label className="block space-y-1 text-sm font-medium">
+              <span>New expiry date (UTC)</span>
+              <Input
+                type="date"
+                required
+                min={new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10)}
+                value={renewalDate}
+                onChange={(event) => setRenewalDate(event.target.value)}
+                disabled={isPending}
+              />
+            </label>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending}
+                onClick={() => {
+                  setRenewingRule(null);
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPending}>
+                {isPending ? "Renewing…" : "Renew Rule"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Dialog */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -356,6 +485,11 @@ export default function SuppressionRulesClient({
             </h3>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
                   Rule Name *
