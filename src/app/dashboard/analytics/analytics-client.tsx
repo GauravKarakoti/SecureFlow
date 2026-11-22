@@ -276,7 +276,7 @@ export default function AnalyticsClient({
                     href={`?range=${range}`}
                     scroll={false}
                     aria-current={active ? "page" : undefined}
-                    className={`rounded px-2.5 py-1 font-mono text-xs transition-colors ${
+                    className={`min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded px-3 py-1 font-mono text-xs transition-colors ${
                       active
                         ? "bg-primary/20 text-primary"
                         : "text-muted-foreground hover:text-foreground"
@@ -290,13 +290,13 @@ export default function AnalyticsClient({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportCSV}
             disabled={exporting}
-            className="border-white/10 hover:border-primary/40 bg-white/5 cursor-pointer font-mono text-xs"
+            className="border-white/10 hover:border-primary/40 bg-white/5 cursor-pointer font-mono text-xs min-h-[44px]"
           >
             <Download className="w-3.5 h-3.5 mr-2" />
             Export CSV
@@ -306,7 +306,7 @@ export default function AnalyticsClient({
             size="sm"
             onClick={handleExportJSON}
             disabled={exporting}
-            className="border-white/10 hover:border-primary/40 bg-white/5 cursor-pointer font-mono text-xs"
+            className="border-white/10 hover:border-primary/40 bg-white/5 cursor-pointer font-mono text-xs min-h-[44px]"
           >
             <Download className="w-3.5 h-3.5 mr-2" />
             Export JSON
@@ -315,10 +315,9 @@ export default function AnalyticsClient({
             asChild
             variant="outline"
             size="sm"
-            className="border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300 cursor-pointer font-mono text-xs"
+            className="border-[#5A29E4]/40 hover:border-[#5A29E4] bg-[#5A29E4]/10 text-violet-300 cursor-pointer font-mono text-xs min-h-[44px]"
           >
             <a href="/api/findings/export?format=html" target="_blank" rel="noopener noreferrer">
-              <Download className="w-3.5 h-3.5 mr-2" />
               Shareable Report
             </a>
           </Button>
@@ -745,18 +744,27 @@ export default function AnalyticsClient({
               description="Connect repositories to see scan comparison data."
             />
           ) : (
-            <div
-              tabIndex={0}
-              role="region"
-              aria-label="Repository comparison table"
-              className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
-            >
-              <table className="w-full text-sm" aria-label="Repository Comparison">
-                <caption className="sr-only">
-                  Security scan comparison across connected repositories
-                </caption>
-                <thead>
-                  <tr className="border-b border-white/10">
+            <div className="space-y-2">
+              <div
+                className="flex items-center justify-end gap-1.5 text-[11px] font-mono text-muted-foreground sm:hidden px-1 pb-1"
+                data-testid="analytics-table-scroll-hint"
+              >
+                <span>Scroll table horizontally</span>
+                <span aria-hidden="true">&rarr;</span>
+              </div>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="Repository comparison table"
+                data-testid="analytics-table-container"
+                className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg border border-white/5"
+              >
+                <table className="w-full text-sm min-w-[640px]" aria-label="Repository Comparison">
+                  <caption className="sr-only">
+                    Security scan comparison across connected repositories
+                  </caption>
+                  <thead className="sticky top-0 bg-background/95 backdrop-blur z-10 border-b border-white/10">
+                    <tr className="border-b border-white/10">
                     <th
                       scope="col"
                       className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
@@ -872,6 +880,7 @@ export default function AnalyticsClient({
                   ))}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
         </CardContent>

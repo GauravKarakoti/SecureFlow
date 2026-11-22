@@ -172,7 +172,7 @@ export function PolicyEditModal({
                 onClick={handlePreview}
                 disabled={isPreviewLoading || isSaving || !description.trim()}
                 data-testid="preview-impact-button"
-                className="h-7 text-xs gap-1.5 border-primary/30 hover:border-primary/50 text-primary hover:text-primary hover:bg-primary/10"
+                className="min-h-[44px] text-xs gap-1.5 border-primary/30 hover:border-primary/50 text-primary hover:text-primary hover:bg-primary/10 px-3 py-2"
               >
                 {isPreviewLoading ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -284,15 +284,18 @@ export function PolicyEditModal({
 
                   {/* Comparison Table */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-300">
-                      Severity Comparison
-                    </label>
+                    <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+                      <span>Severity Comparison</span>
+                      <span className="sm:hidden text-[10px] font-mono text-zinc-400">
+                        Scroll horizontally &rarr;
+                      </span>
+                    </div>
                     <div className="overflow-x-auto rounded border border-white/10">
                       <table
                         data-testid="severity-comparison-table"
-                        className="w-full text-xs text-left"
+                        className="w-full text-xs text-left min-w-[480px]"
                       >
-                        <thead className="bg-zinc-900 border-b border-white/10 text-zinc-400">
+                        <thead className="sticky top-0 bg-zinc-900 border-b border-white/10 text-zinc-400 z-10">
                           <tr>
                             <th className="py-2 px-3">Severity</th>
                             <th className="py-2 px-3 text-center">Unchanged</th>
@@ -411,7 +414,7 @@ export function PolicyEditModal({
               variant="ghost"
               onClick={onClose}
               disabled={isSaving}
-              className="hover:bg-white/10 text-zinc-400 hover:text-white"
+              className="hover:bg-white/10 text-zinc-400 hover:text-white min-h-[44px]"
             >
               Cancel
             </Button>
@@ -419,7 +422,7 @@ export function PolicyEditModal({
               type="submit"
               disabled={isSaving}
               data-testid="save-policy-edit-button"
-              className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground min-h-[44px]"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Save Changes
