@@ -550,4 +550,91 @@ describe("scan model", () => {
 
     expect(mockCreate.mock.calls[0][0].model).toBe("openai/gpt-oss-20b");
   });
+
+  it("detects language and framework and passes them as scan context in prompt (#1925)", async () => {
+    const scannerInstance = new ArmorIQScanner();
+    const files = [
+      {
+        filename: "Dockerfile",
+        patch: "+FROM alpine:latest\n+RUN apk add curl",
+      },
+      {
+        filename: "infra/main.tf",
+        patch: '+resource "aws_s3_bucket" "b" { bucket = "my-bucket" }',
+      },
+      {
+        filename: "src/server.ts",
+        patch: '+import express from "express";\n+const app = express();',
+      },
+      {
+        filename: "scripts/backup",
+        patch: "+#!/bin/bash\n+echo 'backup'",
+      },
+      {
+        filename: "data.unknownext",
+        patch: "+some unknown content",
+      },
+    ];
+
+    mockCreate.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              findings: [
+                {
+                  type: "Vulnerability",
+                  severity: "HIGH",
+                  description: "Issue in express server",
+                  fileLocation: "src/server.ts",
+                  codeSnippet: "express()",
+                },
+                {
+                  type: "Misconfig",
+                  severity: "LOW",
+                  description: "Unknown format issue",
+                  fileLocation: "data.unknownext",
+                  codeSnippet: "unknown content",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    const findings = await scannerInstance.scanPullRequest(files, []);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+
+    // Verify Dockerfile detected
+    expect(promptContent).toContain('<file name="Dockerfile" language="dockerfile"');
+    expect(promptContent).toContain("[File Context: Language=dockerfile]");
+
+    // Verify Terraform detected
+    expect(promptContent).toContain('<file name="infra/main.tf" language="terraform"');
+    expect(promptContent).toContain("[File Context: Language=terraform]");
+
+    // Verify TypeScript and Express framework detected
+    expect(promptContent).toContain('<file name="src/server.ts" language="typescript" framework="express"');
+    expect(promptContent).toContain("[File Context: Language=typescript, Framework=express]");
+
+    // Verify shebang script detected without extension
+    expect(promptContent).toContain('<file name="scripts/backup" language="shell"');
+    expect(promptContent).toContain("[File Context: Language=shell]");
+
+    // Verify unknown file does not break scan and passes language="unknown"
+    expect(promptContent).toContain('<file name="data.unknownext" language="unknown"');
+    expect(promptContent).toContain("[File Context: Language=unknown]");
+
+    // Verify returned findings have language assigned
+    expect(findings).toHaveLength(2);
+    expect(findings[0].fileLocation).toBe("src/server.ts");
+    expect(findings[0].language).toBe("typescript");
+    expect(findings[0].framework).toBe("express");
+
+    expect(findings[1].fileLocation).toBe("data.unknownext");
+    expect(findings[1].language).toBe("unknown");
+  });
 });

@@ -25,6 +25,7 @@ import ShareFindingButton from "@/components/findings/share-finding-button";
 import FindingActions from "./finding-actions";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,8 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         ? `Line ${finding.lineStart}`
         : null;
 
+  const detectedLang = detectFileLanguage(finding.fileLocation);
+
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
       {/* Navigation header */}
@@ -157,7 +160,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                   </Badge>
                 )}
               </div>
-              <p className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
+              <div className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
                 <span>{repoName}</span>
                 <span>•</span>
                 <span>PR #{prNumber}</span>
@@ -167,7 +170,24 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                   {finding.fileLocation}
                   {lineInfo && <span className="text-primary font-semibold">({lineInfo})</span>}
                 </span>
-              </p>
+                <span>•</span>
+                <Badge
+                  variant="outline"
+                  className="border-white/20 text-xs font-mono capitalize"
+                  data-testid="finding-language"
+                >
+                  {detectedLang.language}
+                </Badge>
+                {detectedLang.framework && (
+                  <Badge
+                    variant="outline"
+                    className="border-white/20 text-xs font-mono capitalize bg-white/5"
+                    data-testid="finding-framework"
+                  >
+                    {detectedLang.framework}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </CardHeader>

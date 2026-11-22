@@ -47,6 +47,7 @@ import type { SbomScanResult } from "@/types/sbom"; // [NEW] Import SBOM Type
 import { TimeAgo } from "@/components/time-ago";
 import { formatAgeDays } from "@/lib/findings/age";
 import type { SavedViewDto } from "@/lib/actions/saved-views";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -492,6 +493,13 @@ export default function FindingsClient({
                                 </div>
                                 <div className="text-[10px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 break-all">
                                   <span>{finding.fileLocation}</span>
+                                  <Badge
+                                    variant="outline"
+                                    className="border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0 capitalize py-0 px-1.5 h-4"
+                                    data-testid="finding-language"
+                                  >
+                                    {finding.language || detectFileLanguage(finding.fileLocation).language}
+                                  </Badge>
                                   {finding.createdAt && (
                                     <>
                                       <span>•</span>
