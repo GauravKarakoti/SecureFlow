@@ -502,7 +502,8 @@ export default function FindingsClient({
                                     className="border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0 capitalize py-0 px-1.5 h-4"
                                     data-testid="finding-language"
                                   >
-                                    {finding.language || detectFileLanguage(finding.fileLocation).language}
+                                    {finding.language ||
+                                      detectFileLanguage(finding.fileLocation).language}
                                   </Badge>
                                   {finding.createdAt && (
                                     <>

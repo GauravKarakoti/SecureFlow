@@ -61,7 +61,6 @@ vi.mock("ioredis", () => {
   return { default: Redis };
 });
 
-// Stub next-auth so importing @/auth never tries to read next.config.js.
 vi.mock("next-auth", () => ({
   default: vi.fn(() => ({
     handlers: {},

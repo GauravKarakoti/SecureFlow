@@ -171,7 +171,10 @@ export default function FindingNotesThread({
                       {authorDisplayName}
                     </span>
                     <span className="text-muted-foreground">•</span>
-                    <TimeAgo date={note.createdAt} className="text-[11px] font-mono text-muted-foreground" />
+                    <TimeAgo
+                      date={note.createdAt}
+                      className="text-[11px] font-mono text-muted-foreground"
+                    />
                   </div>
 
                   {canDelete && (

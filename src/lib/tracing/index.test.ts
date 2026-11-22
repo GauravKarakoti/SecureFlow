@@ -187,8 +187,9 @@ describe("OpenTelemetry Tracing Module", () => {
 
     beforeEach(() => {
       memoryExporter = new InMemorySpanExporter();
-      provider = new BasicTracerProvider();
-      provider.addSpanProcessor(new SimpleSpanProcessor(memoryExporter));
+      provider = new BasicTracerProvider({
+        spanProcessors: [new SimpleSpanProcessor(memoryExporter)],
+      });
       trace.setGlobalTracerProvider(provider);
 
       contextManager = new AsyncLocalStorageContextManager();
@@ -197,10 +198,10 @@ describe("OpenTelemetry Tracing Module", () => {
     });
 
     afterEach(async () => {
-      contextManager.disable();
+      await contextManager?.disable();
       context.disable();
       trace.disable();
-      await provider.shutdown();
+      await provider?.shutdown();
     });
 
     it("produces a root span and all expected child spans in the same trace without leaking code", async () => {

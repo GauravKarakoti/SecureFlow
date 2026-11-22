@@ -39,7 +39,10 @@ export async function togglePolicy(input: unknown): Promise<TogglePolicyResult> 
     return { ok: false, error: TOGGLE_ERRORS.unauthenticated };
   }
   if (!can(session.user, null, "policies:toggle")) {
-    return { ok: false, error: "Permission denied: You do not have permission to modify policies." };
+    return {
+      ok: false,
+      error: "Permission denied: You do not have permission to modify policies.",
+    };
   }
   const userId = session.user.id;
 
@@ -235,7 +238,10 @@ export async function rollbackPolicy(input: unknown): Promise<RollbackPolicyResu
     return { ok: false, error: "Your session has expired. Sign in again to rollback policies." };
   }
   if (!can(session.user, null, "policies:edit")) {
-    return { ok: false, error: "Permission denied: You do not have permission to rollback policies." };
+    return {
+      ok: false,
+      error: "Permission denied: You do not have permission to rollback policies.",
+    };
   }
   const userId = session.user.id;
 

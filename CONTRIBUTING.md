@@ -325,26 +325,26 @@ npm run worker
 
 We prioritize deterministic, fast, and comprehensive testing. Always ensure relevant suites pass before opening a PR:
 
-| Command                       | Scope                | Description                                                         |
-| :---------------------------- | :------------------- | :------------------------------------------------------------------ |
-| `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                   |
-| `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests      |
-| `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`               |
-| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                      |
-| `npm run lint`                | ESLint               | Lints TypeScript and React source code                              |
-| `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards              |
-| `npm run format`              | Prettier             | Automatically formats all files with Prettier                       |
-| `npm run test:a11y`           | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit          |
-| `npm run test:e2e`            | End-to-End           | Runs Playwright browser end-to-end tests                            |
-| `npm run test:visual`         | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages      |
-| `npm run test:visual:update`  | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`         |
-| `npm run db:check-drift`      | Prisma               | Verifies that Prisma schema and migrations are in sync              |
-| `npm run lint:openapi`        | OpenAPI              | Validates `openapi.yaml` with Spectral linter                       |
-| `npm run verify:openapi`      | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml`  |
-| `npm run analyze`             | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server  |
-| `npm run check:bundle-budget` | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json` |
-| `npm run lhci:audit`          | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`           |
-| `npm run test:helm`           | Helm Chart           | Runs `helm-unittest` test suites under `helm/secureflow/tests/`     |
+| Command                       | Scope                | Description                                                                  |
+| :---------------------------- | :------------------- | :--------------------------------------------------------------------------- |
+| `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                            |
+| `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests               |
+| `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`                        |
+| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                               |
+| `npm run lint`                | ESLint               | Lints TypeScript and React source code                                       |
+| `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards                       |
+| `npm run format`              | Prettier             | Automatically formats all files with Prettier                                |
+| `npm run test:a11y`           | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit                   |
+| `npm run test:e2e`            | End-to-End           | Runs Playwright browser end-to-end tests                                     |
+| `npm run test:visual`         | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages               |
+| `npm run test:visual:update`  | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`                  |
+| `npm run db:check-drift`      | Prisma               | Verifies that Prisma schema and migrations are in sync                       |
+| `npm run lint:openapi`        | OpenAPI              | Validates `openapi.yaml` with Spectral linter                                |
+| `npm run verify:openapi`      | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml`           |
+| `npm run analyze`             | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server           |
+| `npm run check:bundle-budget` | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json`          |
+| `npm run lhci:audit`          | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`                    |
+| `npm run test:helm`           | Helm Chart           | Runs `helm-unittest` test suites under `helm/secureflow/tests/`              |
 | `npm run test:helm:all`       | Helm Chart           | Runs full lint, rendering, and contract suite (`scripts/test-helm-chart.sh`) |
 
 ### Running Specific Tests

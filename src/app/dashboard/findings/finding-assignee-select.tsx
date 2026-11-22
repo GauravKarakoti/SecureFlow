@@ -1,32 +1,24 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { User, UserPlus, Loader2, Check } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { UserPlus, Loader2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import {
-  assignFinding,
-  getAssignableUsers,
-  type AssignableUser,
-} from "@/lib/actions/assignee";
+import { assignFinding, getAssignableUsers, type AssignableUser } from "@/lib/actions/assignee";
+
+interface AssigneeSummary {
+  id: string;
+  name: string | null;
+  email: string | null;
+  codename: string | null;
+  image: string | null;
+}
 
 interface FindingAssigneeSelectProps {
   repositoryId: string;
   fingerprint: string;
-  currentAssignee?: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    codename: string | null;
-    image: string | null;
-  } | null;
+  currentAssignee?: AssigneeSummary | null;
   variant?: "table" | "detail";
 }
 
@@ -38,21 +30,21 @@ export default function FindingAssigneeSelect({
   currentAssignee,
   variant = "table",
 }: FindingAssigneeSelectProps) {
-  let router: any = null;
-  try {
-    router = useRouter();
-  } catch {
-    router = { refresh: () => {} };
-  }
+  const router = useRouter();
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [assignee, setAssignee] = useState(currentAssignee ?? null);
+  const [overrideState, setOverrideState] = useState<{
+    sourceAssignee: AssigneeSummary | null;
+    value: AssigneeSummary | null;
+  } | null>(null);
   const [users, setUsers] = useState<AssignableUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  useEffect(() => {
-    setAssignee(currentAssignee ?? null);
-  }, [currentAssignee]);
+  const normalizedCurrent = currentAssignee ?? null;
+  const assignee =
+    overrideState && overrideState.sourceAssignee === normalizedCurrent
+      ? overrideState.value
+      : normalizedCurrent;
 
   const loadUsers = async () => {
     if (users.length > 0 || loadingUsers) return;
@@ -72,7 +64,10 @@ export default function FindingAssigneeSelect({
     const selectedUser = targetId ? users.find((u) => u.id === targetId) : null;
 
     startTransition(async () => {
-      setAssignee(selectedUser ? { ...selectedUser } : null);
+      setOverrideState({
+        sourceAssignee: normalizedCurrent,
+        value: selectedUser ? { ...selectedUser } : null,
+      });
 
       try {
         const result = await assignFinding({
@@ -90,26 +85,26 @@ export default function FindingAssigneeSelect({
           });
           router.refresh();
         } else {
-          setAssignee(currentAssignee ?? null);
+          setOverrideState(null);
           toast({
             variant: "destructive",
             title: "Assignment failed",
             description: result.error || "Could not update assignment.",
           });
         }
-      } catch (err: any) {
-        setAssignee(currentAssignee ?? null);
+      } catch (err: unknown) {
+        setOverrideState(null);
+        const message = err instanceof Error ? err.message : "An unexpected error occurred.";
         toast({
           variant: "destructive",
           title: "Assignment failed",
-          description: err?.message || "An unexpected error occurred.",
+          description: message,
         });
       }
     });
   };
 
-  const displayName =
-    assignee?.name || assignee?.codename || assignee?.email || "Unassigned";
+  const displayName = assignee?.name || assignee?.codename || assignee?.email || "Unassigned";
 
   return (
     <div
@@ -121,7 +116,7 @@ export default function FindingAssigneeSelect({
         value={assignee?.id ?? UNASSIGNED_VALUE}
         onValueChange={handleAssign}
         onOpenChange={(open) => {
-          if (open) loadUsers();
+          if (open) void loadUsers();
         }}
         disabled={isPending}
       >
@@ -173,9 +168,7 @@ export default function FindingAssigneeSelect({
                     {(u.name || u.codename || u.email || "U").charAt(0).toUpperCase()}
                   </div>
                 )}
-                <span className="truncate max-w-[140px]">
-                  {u.name || u.codename || u.email}
-                </span>
+                <span className="truncate max-w-[140px]">{u.name || u.codename || u.email}</span>
               </div>
             </SelectItem>
           ))}

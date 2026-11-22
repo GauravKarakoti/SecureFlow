@@ -42,11 +42,7 @@ function toComparableInput(s: any): ComparableScanInput {
   };
 }
 
-export default async function ScanDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function ScanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) {
     redirect("/api/auth/signin");

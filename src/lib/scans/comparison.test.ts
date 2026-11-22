@@ -45,7 +45,9 @@ describe("Scan Comparison (#1923)", () => {
       expect(isScanFailed(makeScan({ status: "FAILED" }))).toBe(true);
       expect(isScanFailed(makeScan({ status: "failed" }))).toBe(true);
       expect(isScanFailed(makeScan({ error: "Timeout occurred" }))).toBe(true);
-      expect(isScanFailed(makeScan({ isFailed: false, status: "COMPLETED", error: null }))).toBe(false);
+      expect(isScanFailed(makeScan({ isFailed: false, status: "COMPLETED", error: null }))).toBe(
+        false,
+      );
     });
 
     it("identifies a partial scan via isPartial, status, or scannedFiles < totalFiles", () => {
@@ -200,8 +202,16 @@ describe("Scan Comparison (#1923)", () => {
 
       const fNew1 = makeFinding({ id: "f-n1", fingerprint: "fp-n1", severity: "MEDIUM" });
       const fNew2 = makeFinding({ id: "f-n2", fingerprint: "fp-n2", severity: "HIGH" });
-      const targetUnchanged1 = makeFinding({ id: "f-u1-target", fingerprint: "fp-u1", severity: "CRITICAL" });
-      const targetUnchanged2 = makeFinding({ id: "f-u2-target", fingerprint: "fp-u2", severity: "LOW" });
+      const targetUnchanged1 = makeFinding({
+        id: "f-u1-target",
+        fingerprint: "fp-u1",
+        severity: "CRITICAL",
+      });
+      const targetUnchanged2 = makeFinding({
+        id: "f-u2-target",
+        fingerprint: "fp-u2",
+        severity: "LOW",
+      });
 
       const target = makeScan({
         id: "scan-target",

@@ -617,7 +617,9 @@ describe("scan model", () => {
     expect(promptContent).toContain("[File Context: Language=terraform]");
 
     // Verify TypeScript and Express framework detected
-    expect(promptContent).toContain('<file name="src/server.ts" language="typescript" framework="express"');
+    expect(promptContent).toContain(
+      '<file name="src/server.ts" language="typescript" framework="express"',
+    );
     expect(promptContent).toContain("[File Context: Language=typescript, Framework=express]");
 
     // Verify shebang script detected without extension

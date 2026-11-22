@@ -26,7 +26,8 @@ describe("SafeNoteText component", () => {
   });
 
   it("converts http and https URLs into safe anchor links", () => {
-    const text = "See ticket https://linear.app/issue/SEC-101 for info and http://insecure.test as well.";
+    const text =
+      "See ticket https://linear.app/issue/SEC-101 for info and http://insecure.test as well.";
     const { container } = render(<SafeNoteText text={text} />);
 
     const links = container.querySelectorAll("a");

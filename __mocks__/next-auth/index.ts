@@ -9,19 +9,21 @@ import { SAFE_MOCK_SESSION } from "../../tests/fixtures/mock-session";
 export { SAFE_MOCK_SESSION };
 
 export const auth = vi.fn(async () => SAFE_MOCK_SESSION);
-export const signIn = vi.fn();
-export const signOut = vi.fn();
+export const signIn = vi.fn(async () => ({ ok: true }));
+export const signOut = vi.fn(async () => ({ ok: true }));
 export const useSession = vi.fn(() => ({
   data: SAFE_MOCK_SESSION,
   status: "authenticated",
 }));
 export const SessionProvider = ({ children }: { children: unknown }) => children;
 
-const NextAuth = vi.fn(() => ({
+const createNextAuthInstance = () => ({
   handlers: { GET: vi.fn(), POST: vi.fn() },
-  auth,
-  signIn,
-  signOut,
-}));
+  auth: vi.fn(async () => null),
+  signIn: vi.fn(async () => ({ ok: true })),
+  signOut: vi.fn(async () => ({ ok: true })),
+});
+
+const NextAuth = vi.fn(() => createNextAuthInstance());
 
 export default NextAuth;

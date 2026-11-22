@@ -34,9 +34,9 @@ describe("ScanDetailPage (/dashboard/scans/[id]) (#1923)", () => {
   it("redirects unauthenticated users to signin", async () => {
     authMock.mockResolvedValueOnce(null);
 
-    await expect(
-      ScanDetailPage({ params: Promise.resolve({ id: "scan-1" }) }),
-    ).rejects.toThrow("NEXT_REDIRECT: /api/auth/signin");
+    await expect(ScanDetailPage({ params: Promise.resolve({ id: "scan-1" }) })).rejects.toThrow(
+      "NEXT_REDIRECT: /api/auth/signin",
+    );
   });
 
   it("triggers notFound when scan does not exist or user lacks access", async () => {

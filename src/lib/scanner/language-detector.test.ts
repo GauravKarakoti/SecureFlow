@@ -67,8 +67,12 @@ describe("detectFileLanguage", () => {
     });
 
     it("detects GitHub Actions workflow files", () => {
-      expect(detectFileLanguage(".github/workflows/ci.yml")).toEqual({ language: "github-actions" });
-      expect(detectFileLanguage(".github/workflows/deploy.yaml")).toEqual({ language: "github-actions" });
+      expect(detectFileLanguage(".github/workflows/ci.yml")).toEqual({
+        language: "github-actions",
+      });
+      expect(detectFileLanguage(".github/workflows/deploy.yaml")).toEqual({
+        language: "github-actions",
+      });
     });
 
     it("detects environment files", () => {
@@ -98,8 +102,12 @@ describe("detectFileLanguage", () => {
     });
 
     it("detects ruby and perl scripts without extension", () => {
-      expect(detectFileLanguage("bin/worker", "#!/usr/bin/env ruby\nputs 1")).toEqual({ language: "ruby" });
-      expect(detectFileLanguage("bin/audit", "#!/usr/bin/perl\nprint 1;")).toEqual({ language: "perl" });
+      expect(detectFileLanguage("bin/worker", "#!/usr/bin/env ruby\nputs 1")).toEqual({
+        language: "ruby",
+      });
+      expect(detectFileLanguage("bin/audit", "#!/usr/bin/perl\nprint 1;")).toEqual({
+        language: "perl",
+      });
     });
   });
 
@@ -137,12 +145,12 @@ describe("detectFileLanguage", () => {
     });
 
     it("detects Python frameworks: FastAPI, Flask, Django", () => {
-      expect(
-        detectFileLanguage("main.py", "from fastapi import FastAPI\napp = FastAPI()"),
-      ).toEqual({
-        language: "python",
-        framework: "fastapi",
-      });
+      expect(detectFileLanguage("main.py", "from fastapi import FastAPI\napp = FastAPI()")).toEqual(
+        {
+          language: "python",
+          framework: "fastapi",
+        },
+      );
 
       expect(
         detectFileLanguage("app.py", "from flask import Flask\napp = Flask(__name__)"),
@@ -151,9 +159,7 @@ describe("detectFileLanguage", () => {
         framework: "flask",
       });
 
-      expect(
-        detectFileLanguage("views.py", "from django.http import HttpResponse"),
-      ).toEqual({
+      expect(detectFileLanguage("views.py", "from django.http import HttpResponse")).toEqual({
         language: "python",
         framework: "django",
       });
@@ -168,18 +174,14 @@ describe("detectFileLanguage", () => {
     });
 
     it("detects Gin and Echo in Go", () => {
-      expect(
-        detectFileLanguage("main.go", 'import "github.com/gin-gonic/gin"'),
-      ).toEqual({
+      expect(detectFileLanguage("main.go", 'import "github.com/gin-gonic/gin"')).toEqual({
         language: "go",
         framework: "gin",
       });
     });
 
     it("detects Actix in Rust", () => {
-      expect(
-        detectFileLanguage("main.rs", "use actix_web::{get, App, HttpServer};"),
-      ).toEqual({
+      expect(detectFileLanguage("main.rs", "use actix_web::{get, App, HttpServer};")).toEqual({
         language: "rust",
         framework: "actix",
       });
