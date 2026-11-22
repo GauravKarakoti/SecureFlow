@@ -40,10 +40,18 @@ const m = vi.hoisted(() => ({
   parseSinceArg: vi.fn(),
   parseNoCacheArg: vi.fn(),
   parseCacheClearArg: vi.fn(),
+  parseCachePruneArg: vi.fn(),
+  parseCacheStatsArg: vi.fn(),
+  parseCacheTtlArg: vi.fn(),
+  parseCacheMaxSizeArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
   getCacheEntry: vi.fn(),
   setCacheEntry: vi.fn(),
   clearCache: vi.fn(),
+  pruneCache: vi.fn(),
+  getCacheStats: vi.fn(),
+  parseDurationMs: vi.fn(),
+  parseSizeBytes: vi.fn(),
   resolveCacheDir: vi.fn(),
 }));
 
@@ -85,6 +93,10 @@ vi.mock("./lib/output-args.js", () => ({
   parseColorArg: m.parseColorArg,
   parseNoCacheArg: m.parseNoCacheArg,
   parseCacheClearArg: m.parseCacheClearArg,
+  parseCachePruneArg: m.parseCachePruneArg,
+  parseCacheStatsArg: m.parseCacheStatsArg,
+  parseCacheTtlArg: m.parseCacheTtlArg,
+  parseCacheMaxSizeArg: m.parseCacheMaxSizeArg,
   parseCacheDirArg: m.parseCacheDirArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
@@ -93,6 +105,10 @@ vi.mock("./cache.js", () => ({
   getCacheEntry: m.getCacheEntry,
   setCacheEntry: m.setCacheEntry,
   clearCache: m.clearCache,
+  pruneCache: m.pruneCache,
+  getCacheStats: m.getCacheStats,
+  parseDurationMs: m.parseDurationMs,
+  parseSizeBytes: m.parseSizeBytes,
   resolveCacheDir: m.resolveCacheDir,
 }));
 
@@ -669,5 +685,49 @@ describe("caching and cache-clear flags", () => {
     expect(m.scanFile).toHaveBeenCalledTimes(1);
     expect(m.setCacheEntry).not.toHaveBeenCalled();
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
+  });
+
+  it("prunes cache and outputs summary when cache-prune is invoked", async () => {
+    m.parseCachePruneArg.mockReturnValue(true);
+    m.parseCacheTtlArg.mockReturnValue("7d");
+    m.parseDurationMs.mockReturnValue(7 * 24 * 60 * 60 * 1000);
+    m.pruneCache.mockReturnValue({
+      prunedCount: 5,
+      freedBytes: 1024 * 50,
+      remainingCount: 10,
+      remainingBytes: 1024 * 100,
+      cacheDir: "/dummy/cache",
+    });
+
+    const code = await runCli("cache-prune", "--ttl", "7d");
+    expect(code).toBe(0);
+    expect(m.pruneCache).toHaveBeenCalledWith({
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+      maxSizeBytes: undefined,
+      cacheDir: undefined,
+      cwd: expect.any(String),
+    });
+    expect(output(logSpy)).toContain("Cache pruned: 5 entries removed");
+    expect(output(logSpy)).toContain("10 remaining");
+  });
+
+  it("prints cache statistics when cache-stats is invoked", async () => {
+    m.parseCacheStatsArg.mockReturnValue(true);
+    m.getCacheStats.mockReturnValue({
+      cacheDir: "/dummy/cache",
+      entryCount: 12,
+      totalSizeBytes: 1024 * 200,
+      tempFileCount: 0,
+      tempSizeBytes: 0,
+      oldestEntryAt: Date.now() - 100000,
+      newestEntryAt: Date.now(),
+      rulesetVersions: { "1.0.0": 12 },
+    });
+
+    const code = await runCli("cache-stats");
+    expect(code).toBe(0);
+    expect(m.getCacheStats).toHaveBeenCalled();
+    expect(output(logSpy)).toContain("Scan Cache Statistics");
+    expect(output(logSpy)).toContain("Total Entries:     12");
   });
 });
