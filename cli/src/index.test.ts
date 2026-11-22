@@ -736,8 +736,7 @@ describe("caching and cache-clear flags", () => {
     expect(m.setCacheEntry).not.toHaveBeenCalled();
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
   });
-  
-  
+
   it("prunes cache and outputs summary when cache-prune is invoked", async () => {
     m.parseCachePruneArg.mockReturnValue(true);
     m.parseCacheTtlArg.mockReturnValue("7d");
@@ -783,36 +782,35 @@ describe("caching and cache-clear flags", () => {
   });
 });
 
-  describe("directory scanning and non-git fallback (#1933)", () => {
-    it("scans files in target directory when positional target is provided", async () => {
-      m.parseTargetDirectoryArg.mockReturnValue("src");
-      m.discoverWorkspaceFiles.mockReturnValue(["src/index.ts"]);
-      m.scanFile.mockReturnValue(scanResult("src/index.ts", []));
+describe("directory scanning and non-git fallback (#1933)", () => {
+  it("scans files in target directory when positional target is provided", async () => {
+    m.parseTargetDirectoryArg.mockReturnValue("src");
+    m.discoverWorkspaceFiles.mockReturnValue(["src/index.ts"]);
+    m.scanFile.mockReturnValue(scanResult("src/index.ts", []));
 
-      const code = await runCli("src");
-      expect(code).toBe(0);
-      expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
-        "src",
-        expect.objectContaining({ workspaceRoot: expect.any(String) }),
-      );
-      expect(m.getStagedFiles).not.toHaveBeenCalled();
-      expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in src).");
-    });
+    const code = await runCli("src");
+    expect(code).toBe(0);
+    expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+      "src",
+      expect.objectContaining({ workspaceRoot: expect.any(String) }),
+    );
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in src).");
+  });
 
-    it("falls back gracefully to current directory scan when not inside a git repository", async () => {
-      m.isGitRepository.mockReturnValue(false);
-      m.discoverWorkspaceFiles.mockReturnValue(["package.json"]);
-      m.scanFile.mockReturnValue(scanResult("package.json", []));
+  it("falls back gracefully to current directory scan when not inside a git repository", async () => {
+    m.isGitRepository.mockReturnValue(false);
+    m.discoverWorkspaceFiles.mockReturnValue(["package.json"]);
+    m.scanFile.mockReturnValue(scanResult("package.json", []));
 
-      const code = await runCli();
-      expect(code).toBe(0);
-      expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
-        ".",
-        expect.objectContaining({ workspaceRoot: expect.any(String) }),
-      );
-      expect(m.getStagedFiles).not.toHaveBeenCalled();
-      expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in directory).");
-    });
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+      ".",
+      expect.objectContaining({ workspaceRoot: expect.any(String) }),
+    );
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in directory).");
   });
 });
 

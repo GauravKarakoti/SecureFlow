@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  isSuppressionActive,
-  activeSuppressionWhere,
-  computeExpiryDate,
-  getEndOfQuarter,
-  isExpiringSoon,
-  handleExpiredDismissals,
-} from "./expiry";
+import { isSuppressionActive, computeExpiryDate } from "./expiry";
+import { handleExpiredDismissals } from "./expiry-server";
 import {
   buildFindingsWhere,
   normalizeFindingsQuery,

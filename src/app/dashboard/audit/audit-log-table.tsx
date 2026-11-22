@@ -971,7 +971,8 @@ export default function AuditLogTable({
                     {(meta.reusedFromCache ||
                       meta.cacheHit ||
                       meta.cacheStatus === "reused from cache" ||
-                      (typeof log.action === "string" && log.action.includes("reused from cache"))) && (
+                      (typeof log.action === "string" &&
+                        log.action.includes("reused from cache"))) && (
                       <Badge
                         variant="outline"
                         className="text-[9px] text-cyan-400 border-cyan-800/60 font-mono tracking-tight shrink-0"

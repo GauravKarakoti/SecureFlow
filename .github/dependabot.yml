@@ -25,6 +25,9 @@ updates:
       - dependency-name: "typescript"
         versions:
           - ">= 6.0.3"
+      - dependency-name: "@opentelemetry/api"
+        versions:
+          - ">= 1.9.0"
     groups:
       dependencies:
         patterns:

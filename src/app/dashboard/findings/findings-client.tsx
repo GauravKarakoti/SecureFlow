@@ -453,7 +453,12 @@ export default function FindingsClient({
                   )}
                 </div>
               )}
-              <Accordion type="single" collapsible className="space-y-4" data-testid="findings-table">
+              <Accordion
+                type="single"
+                collapsible
+                className="space-y-4"
+                data-testid="findings-table"
+              >
                 {displayedFindings.map((finding) => {
                   const selectable = Boolean(finding.repositoryId && finding.fingerprint);
                   const expiryDate = finding.triageExpiresAt

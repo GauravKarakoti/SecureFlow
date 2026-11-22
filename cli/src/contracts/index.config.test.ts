@@ -5,7 +5,7 @@ import {
   stripJsonComments,
   isValidGlob,
   isValidExpiryDate,
-} from "./config-schema.js";
+} from "./index.js";
 
 describe("stripJsonComments", () => {
   it("removes single-line // comments while preserving line count", () => {

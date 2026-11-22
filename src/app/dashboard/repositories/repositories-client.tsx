@@ -434,171 +434,171 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
                     <th className="py-3 px-4 font-semibold text-right">Action</th>
                   </tr>
                 </thead>
-              <tbody className="divide-y divide-white/5 font-mono text-xs">
-                {paginatedRepos.map((repo) => (
-                  <tr key={repo.id} className="hover:bg-white/[0.02] transition-colors group">
-                    {/* Repository Name & Link */}
-                    <td className="py-3.5 px-4 font-medium">
-                      <Link
-                        href={`/dashboard/findings?repo=${repo.id}`}
-                        className="flex items-center gap-2 text-foreground group-hover:text-primary transition-colors font-semibold"
-                        title={`View findings for ${repo.fullName}`}
-                      >
-                        <FolderGit2 className="w-4 h-4 text-zinc-400 group-hover:text-primary shrink-0" />
-                        <span>{repo.fullName}</span>
-                      </Link>
-                      <span className="text-[10px] text-zinc-500 block pl-6">
-                        {repo.hasScans && repo.lastScanAt
-                          ? `Last scanned ${new Date(repo.lastScanAt).toLocaleDateString()}`
-                          : "No scans recorded"}
-                      </span>
-                    </td>
-
-                    {/* Health Score */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">{getTierBadge(repo)}</td>
-
-                    {/* 8-Week Sparkline Trend */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <TrendSparkline data={repo.trend} width={110} height={28} />
-                    </td>
-
-                    {/* Open Findings Breakdown */}
-                    <td className="py-3.5 px-4">
-                      {repo.hasScans ? (
+                <tbody className="divide-y divide-white/5 font-mono text-xs">
+                  {paginatedRepos.map((repo) => (
+                    <tr key={repo.id} className="hover:bg-white/[0.02] transition-colors group">
+                      {/* Repository Name & Link */}
+                      <td className="py-3.5 px-4 font-medium">
                         <Link
                           href={`/dashboard/findings?repo=${repo.id}`}
-                          className="flex flex-wrap items-center gap-1.5 hover:opacity-80 transition-opacity"
-                          title="Click to view open findings"
+                          className="flex items-center gap-2 text-foreground group-hover:text-primary transition-colors font-semibold"
+                          title={`View findings for ${repo.fullName}`}
                         >
-                          {repo.openFindings.critical > 0 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                              {repo.openFindings.critical} crit
-                            </span>
-                          )}
-                          {repo.openFindings.high > 0 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                              {repo.openFindings.high} high
-                            </span>
-                          )}
-                          {repo.openFindings.medium > 0 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                              {repo.openFindings.medium} med
-                            </span>
-                          )}
-                          {repo.openFindings.low > 0 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                              {repo.openFindings.low} low
-                            </span>
-                          )}
-                          {repo.openFindings.total === 0 && (
-                            <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-semibold">
-                              <ShieldCheck className="w-3.5 h-3.5" /> 0 open
-                            </span>
-                          )}
+                          <FolderGit2 className="w-4 h-4 text-zinc-400 group-hover:text-primary shrink-0" />
+                          <span>{repo.fullName}</span>
                         </Link>
-                      ) : (
-                        <span className="text-zinc-500">—</span>
-                      )}
-                    </td>
-
-                    {/* Blocked PRs in last 30d */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {repo.blockedPrsLast30Days > 0 ? (
-                        <span className="text-amber-400 font-bold flex items-center gap-1">
-                          <Ban className="w-3.5 h-3.5 shrink-0" />
-                          {repo.blockedPrsLast30Days}
+                        <span className="text-[10px] text-zinc-500 block pl-6">
+                          {repo.hasScans && repo.lastScanAt
+                            ? `Last scanned ${new Date(repo.lastScanAt).toLocaleDateString()}`
+                            : "No scans recorded"}
                         </span>
-                      ) : (
-                        <span className="text-zinc-500">0</span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Median Time to Resolve */}
-                    <td className="py-3.5 px-4 whitespace-nowrap text-zinc-300">
-                      {repo.medianResolveTimeFormatted !== "—" ? (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                          {repo.medianResolveTimeFormatted}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-500">—</span>
-                      )}
-                    </td>
+                      {/* Health Score */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">{getTierBadge(repo)}</td>
 
-                    {/* Action Link */}
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <Link href={`/dashboard/findings?repo=${repo.id}`}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2.5 text-xs font-mono text-primary hover:text-primary hover:bg-primary/10 gap-1"
-                        >
-                          Findings
-                          <ExternalLink className="w-3 h-3" />
-                        </Button>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {/* 8-Week Sparkline Trend */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <TrendSparkline data={repo.trend} width={110} height={28} />
+                      </td>
 
-          {/* ─── Pagination Footer ────────────────────────────────────────── */}
-          <div className="p-3 border-t border-white/5 bg-zinc-950/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <span>
-                Showing {Math.min((currentPage - 1) * pageSize + 1, sortedRepos.length)}–
-                {Math.min(currentPage * pageSize, sortedRepos.length)} of {sortedRepos.length}{" "}
-                repositories
-              </span>
+                      {/* Open Findings Breakdown */}
+                      <td className="py-3.5 px-4">
+                        {repo.hasScans ? (
+                          <Link
+                            href={`/dashboard/findings?repo=${repo.id}`}
+                            className="flex flex-wrap items-center gap-1.5 hover:opacity-80 transition-opacity"
+                            title="Click to view open findings"
+                          >
+                            {repo.openFindings.critical > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                                {repo.openFindings.critical} crit
+                              </span>
+                            )}
+                            {repo.openFindings.high > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                                {repo.openFindings.high} high
+                              </span>
+                            )}
+                            {repo.openFindings.medium > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                                {repo.openFindings.medium} med
+                              </span>
+                            )}
+                            {repo.openFindings.low > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                {repo.openFindings.low} low
+                              </span>
+                            )}
+                            {repo.openFindings.total === 0 && (
+                              <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-semibold">
+                                <ShieldCheck className="w-3.5 h-3.5" /> 0 open
+                              </span>
+                            )}
+                          </Link>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </td>
 
-              <div className="flex items-center gap-1 ml-3 border-l border-white/10 pl-3">
-                <span>Per page:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-zinc-900 border border-zinc-800 text-foreground rounded px-1.5 py-0.5 text-xs focus:outline-none cursor-pointer"
-                >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
+                      {/* Blocked PRs in last 30d */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {repo.blockedPrsLast30Days > 0 ? (
+                          <span className="text-amber-400 font-bold flex items-center gap-1">
+                            <Ban className="w-3.5 h-3.5 shrink-0" />
+                            {repo.blockedPrsLast30Days}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-500">0</span>
+                        )}
+                      </td>
+
+                      {/* Median Time to Resolve */}
+                      <td className="py-3.5 px-4 whitespace-nowrap text-zinc-300">
+                        {repo.medianResolveTimeFormatted !== "—" ? (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                            {repo.medianResolveTimeFormatted}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </td>
+
+                      {/* Action Link */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <Link href={`/dashboard/findings?repo=${repo.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2.5 text-xs font-mono text-primary hover:text-primary hover:bg-primary/10 gap-1"
+                          >
+                            Findings
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </Button>
-              <span className="px-2">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
+            {/* ─── Pagination Footer ────────────────────────────────────────── */}
+            <div className="p-3 border-t border-white/5 bg-zinc-950/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span>
+                  Showing {Math.min((currentPage - 1) * pageSize + 1, sortedRepos.length)}–
+                  {Math.min(currentPage * pageSize, sortedRepos.length)} of {sortedRepos.length}{" "}
+                  repositories
+                </span>
+
+                <div className="flex items-center gap-1 ml-3 border-l border-white/10 pl-3">
+                  <span>Per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="bg-zinc-900 border border-zinc-800 text-foreground rounded px-1.5 py-0.5 text-xs focus:outline-none cursor-pointer"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <span className="px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="min-h-[44px] min-w-[44px] px-3 border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs inline-flex items-center justify-center"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
       )}
     </div>
   );

@@ -11,8 +11,7 @@ import { normalizeFindingTypeLabel } from "@/lib/finding-taxonomy";
 import { normalizeSeverity, type Severity } from "@/lib/severity";
 import { parseUnifiedPatch, renderNumberedLines } from "./diff";
 import { shouldIgnorePath } from "./ignore-rules";
-import { maskIngressFileContent, maskSecrets } from "./secret-masking";
-import { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 
 export type ScanFinding = {

@@ -7,7 +7,6 @@
  * Implements Issue #1491 & #1470.
  */
 
-import { z } from "zod";
 import { parseSeverity, type Severity } from "@/lib/severity";
 import { stripJsonComments } from "secureflow-cli/contracts";
 import type { IgnoreConfigClient } from "./ignore-config";
