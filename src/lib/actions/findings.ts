@@ -19,6 +19,7 @@ import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 
 import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
 import { findingAgeDays, isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 
 /**
  * Server actions for the Security Findings dashboard (#561).
@@ -64,6 +65,8 @@ export interface FindingRow {
   triageExpiresAt?: Date | null;
   resolvedAt?: Date | null;
   resolvedCommitSha?: string | null;
+  /** Detected programming language / file format for the finding location. */
+  language?: string;
   /** Age of the finding in whole days (from createdAt). */
   ageDays: number | null;
   /** True when the finding has exceeded the configurable target age for its severity. */
@@ -259,6 +262,7 @@ export async function getUserFindings(
       type: finding.type,
       severity: finding.severity,
       fileLocation: finding.fileLocation,
+      language: detectFileLanguage(finding.fileLocation).language,
       lineStart: finding.lineStart ?? null,
       lineEnd: finding.lineEnd ?? null,
       codeSnippet: finding.codeSnippet ?? null,

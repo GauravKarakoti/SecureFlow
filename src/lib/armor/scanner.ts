@@ -13,6 +13,7 @@ import { parseUnifiedPatch, renderNumberedLines } from "./diff";
 import { shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 
 export type ScanFinding = {
   type: string;
@@ -27,6 +28,8 @@ export type ScanFinding = {
   signatureVersion?: string;
   matchedSignatures?: string[];
   isZeroDay?: boolean;
+  language?: string;
+  framework?: string;
 };
 
 export interface FileChange {
@@ -479,6 +482,7 @@ export class ArmorIQScanner {
     const allFindings: ScanFinding[] = [];
     const skippedFiles: SkippedFile[] = [];
     const analyzedFiles: string[] = [];
+    const detectedFileMap = new Map<string, { language: string; framework?: string }>();
     const ABSOLUTE_MAX_FILE_SIZE = resolveDiffFileMaxChars();
     const MAX_COMBINED_LENGTH = resolveDiffChunkMaxChars();
 
@@ -590,8 +594,11 @@ export class ArmorIQScanner {
       analyzedFiles.push(file.filename);
       const sanitizedLines = sanitizeRecursively(addedLines);
       const maskedLines = maskIngressFileContent(sanitizedLines);
+      const detectedContext = detectFileLanguage(file.filename, file.patch);
+      detectedFileMap.set(file.filename, detectedContext);
+      const contextHeader = `[File Context: Language=${detectedContext.language}${detectedContext.framework ? `, Framework=${detectedContext.framework}` : ""}]`;
       const wrapperOverhead =
-        `<file name="${file.filename}" context_warning="${fileContext}">\n\n</file>\n\n`.length;
+        `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>\n${contextHeader}\n\n</file>\n\n`.length;
       const maxContentSize = MAX_COMBINED_LENGTH - wrapperOverhead;
 
       let fileContent = maskedLines;
@@ -603,7 +610,8 @@ export class ArmorIQScanner {
         fileContent = fileContent.substring(0, truncateIndex) + truncationMsg;
       }
 
-      const fileContentBlock = `<file name="${file.filename}" context_warning="${fileContext}">
+      const fileContentBlock = `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>
+${contextHeader}
 ${fileContent}
 </file>
 
@@ -834,6 +842,10 @@ CRITICAL RULES:
                 signatureVersion: dynFp.signatureVersion,
                 matchedSignatures: dynFp.matchedSignatures.map((s) => s.id),
                 isZeroDay: dynFp.isZeroDayDetected,
+                language: (detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).language,
+                ...((detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).framework
+                  ? { framework: (detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).framework }
+                  : {}),
               };
             });
 

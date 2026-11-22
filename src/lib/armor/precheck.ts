@@ -19,6 +19,7 @@ import { parseUnifiedPatch, addedLines } from "./diff";
 import { computeDynamicFingerprint } from "./fingerprint";
 import { ignoreReasonFor } from "./ignore-rules";
 import { compileIgnorePatterns } from "./scanner";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import type { Severity } from "@/lib/severity";
 import type { FileChange, ScanFinding } from "./scanner";
 
@@ -139,6 +140,7 @@ export function precheckFilePatch(
         if (!activeFinding) {
           const redacted = redactSecret(rawSecret);
           const dynFp = computeDynamicFingerprint(repositoryId, filename, "Secret", redacted);
+          const detected = detectFileLanguage(filename, patch);
 
           activeFinding = {
             type: "Secret",
@@ -152,6 +154,8 @@ export function precheckFilePatch(
             signatureVersion: dynFp.signatureVersion,
             matchedSignatures: [family.id, "precheck-deterministic"],
             isZeroDay: false,
+            language: detected.language,
+            ...(detected.framework ? { framework: detected.framework } : {}),
           };
         }
       }
