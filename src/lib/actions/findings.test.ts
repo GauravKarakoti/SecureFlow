@@ -127,15 +127,17 @@ describe("getUserFindings", () => {
       isOverdue: true,
       noteCount: 0,
     });
-    expect(result.findings[1]).toMatchObject({ triageStatus: "OPEN", triageNote: null, noteCount: 0 });
+    expect(result.findings[1]).toMatchObject({
+      triageStatus: "OPEN",
+      triageNote: null,
+      noteCount: 0,
+    });
   });
 
   it("counts notes per finding and exposes noteCount (#1920)", async () => {
     mockGetUserTriage.mockResolvedValue(triage());
     stubCounts(1);
-    prismaMock.finding.findMany.mockResolvedValue([
-      row("with-notes", { _count: { notes: 4 } }),
-    ]);
+    prismaMock.finding.findMany.mockResolvedValue([row("with-notes", { _count: { notes: 4 } })]);
 
     const result = await getUserFindings();
     expect(result.findings[0].noteCount).toBe(4);

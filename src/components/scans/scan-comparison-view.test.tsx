@@ -144,9 +144,15 @@ describe("ScanComparisonView Component (#1923)", () => {
   it("renders clear not-comparable alert when scan is failed or partial", () => {
     const notComparableResult: ScanComparisonResult = {
       isComparable: false,
-      incomparableReason: "Target scan is a partial scan (some files were skipped) and cannot be compared.",
+      incomparableReason:
+        "Target scan is a partial scan (some files were skipped) and cannot be compared.",
       baseScan: { id: "scan-1", headSha: "sha111", createdAt: "2026-11-22T09:00:00Z" },
-      targetScan: { id: "scan-2", headSha: "sha222", createdAt: "2026-11-22T10:00:00Z", isPartial: true },
+      targetScan: {
+        id: "scan-2",
+        headSha: "sha222",
+        createdAt: "2026-11-22T10:00:00Z",
+        isPartial: true,
+      },
       summary: {
         newCount: 0,
         fixedCount: 0,
@@ -156,9 +162,24 @@ describe("ScanComparisonView Component (#1923)", () => {
         unchangedSeverityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
       },
       groups: {
-        new: { status: "NEW", count: 0, severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 }, findings: [] },
-        fixed: { status: "FIXED", count: 0, severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 }, findings: [] },
-        unchanged: { status: "UNCHANGED", count: 0, severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 }, findings: [] },
+        new: {
+          status: "NEW",
+          count: 0,
+          severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+          findings: [],
+        },
+        fixed: {
+          status: "FIXED",
+          count: 0,
+          severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+          findings: [],
+        },
+        unchanged: {
+          status: "UNCHANGED",
+          count: 0,
+          severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+          findings: [],
+        },
       },
     };
 
@@ -184,13 +205,7 @@ describe("ScanComparisonView Component (#1923)", () => {
       json: async () => mockComparableResult,
     } as any);
 
-    render(
-      <ScanComparisonView
-        pullRequestId="pr-1"
-        initialComparison={null}
-        scans={mockScans}
-      />,
-    );
+    render(<ScanComparisonView pullRequestId="pr-1" initialComparison={null} scans={mockScans} />);
 
     const baseSelect = screen.getByLabelText(/Base Scan/i);
     fireEvent.change(baseSelect, { target: { value: "scan-2" } });

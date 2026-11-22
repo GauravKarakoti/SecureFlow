@@ -4,17 +4,17 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'helm/**'
-      - '.github/workflows/helm-chart.yml'
-      - '.github/ct.yaml'
-      - 'scripts/test-helm-chart.sh'
+      - "helm/**"
+      - ".github/workflows/helm-chart.yml"
+      - ".github/ct.yaml"
+      - "scripts/test-helm-chart.sh"
   push:
     branches: [main]
     paths:
-      - 'helm/**'
-      - '.github/workflows/helm-chart.yml'
-      - '.github/ct.yaml'
-      - 'scripts/test-helm-chart.sh'
+      - "helm/**"
+      - ".github/workflows/helm-chart.yml"
+      - ".github/ct.yaml"
+      - "scripts/test-helm-chart.sh"
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           check-latest: false
 
       - name: Set up chart-testing

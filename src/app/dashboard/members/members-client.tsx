@@ -56,11 +56,7 @@ interface MembersClientProps {
   currentUserId: string;
 }
 
-export default function MembersClient({
-  members,
-  canManage,
-  currentUserId,
-}: MembersClientProps) {
+export default function MembersClient({ members, canManage, currentUserId }: MembersClientProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -74,10 +70,8 @@ export default function MembersClient({
     { userId: string; newRole: RoleName }
   >(members, (currentMembers, update) =>
     currentMembers.map((m) =>
-      m.id === update.userId
-        ? { ...m, role: update.newRole as any, roles: [update.newRole] }
-        : m
-    )
+      m.id === update.userId ? { ...m, role: update.newRole as any, roles: [update.newRole] } : m,
+    ),
   );
 
   const filtered = useMemo(() => {
@@ -232,7 +226,7 @@ export default function MembersClient({
                           <Badge
                             variant="outline"
                             className={`flex items-center gap-1 font-mono text-xs font-semibold ${roleBadgeClass(
-                              member.role
+                              member.role,
                             )}`}
                           >
                             <RoleIcon role={member.role} />
@@ -255,7 +249,9 @@ export default function MembersClient({
                       <td className="px-4 py-3 text-right">
                         {canManage ? (
                           <div className="inline-flex items-center gap-2 justify-end">
-                            {isUpdating && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                            {isUpdating && (
+                              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            )}
                             <select
                               aria-label={`Role for ${member.name || member.email || member.id}`}
                               value={member.role}
@@ -326,7 +322,7 @@ export default function MembersClient({
                   <Badge
                     variant="outline"
                     className={`flex items-center gap-1 font-mono text-xs font-semibold ${roleBadgeClass(
-                      member.role
+                      member.role,
                     )}`}
                   >
                     <RoleIcon role={member.role} />
@@ -359,9 +355,7 @@ export default function MembersClient({
                         aria-label={`Role for ${member.name || member.email || member.id}`}
                         value={member.role}
                         disabled={disableRoleSelect}
-                        onChange={(e) =>
-                          handleRoleChange(member.id, e.target.value as RoleName)
-                        }
+                        onChange={(e) => handleRoleChange(member.id, e.target.value as RoleName)}
                         className="h-10 min-h-[44px] px-2.5 py-1 text-xs font-mono rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
                       >
                         {ROLE_OPTIONS.map((r) => (

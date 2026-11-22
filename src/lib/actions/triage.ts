@@ -81,7 +81,8 @@ export async function setFindingStatus(
     return { ok: false, error: "Invalid status" };
   }
 
-  const isDismissing = status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED";
+  const isDismissing =
+    status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED";
   const requiredAction = isDismissing ? "findings:dismiss" : "findings:restore";
   if (!can(session.user, repositoryId, requiredAction)) {
     return { ok: false, error: "Permission denied: your role does not allow triaging findings" };
@@ -232,9 +233,7 @@ export async function setFindingStatuses(
   }
 
   const isDismissing =
-    input.status === "DISMISSED" ||
-    input.status === "FALSE_POSITIVE" ||
-    input.status === "IGNORED";
+    input.status === "DISMISSED" || input.status === "FALSE_POSITIVE" || input.status === "IGNORED";
   const requiredAction = isDismissing ? "findings:dismiss" : "findings:restore";
   if (!can(session.user, null, requiredAction)) {
     return {

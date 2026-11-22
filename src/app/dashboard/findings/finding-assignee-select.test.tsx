@@ -45,11 +45,7 @@ describe("FindingAssigneeSelect Component (#1921)", () => {
 
   it("renders unassigned state by default", () => {
     render(
-      <FindingAssigneeSelect
-        repositoryId="repo-1"
-        fingerprint="fp-123"
-        currentAssignee={null}
-      />
+      <FindingAssigneeSelect repositoryId="repo-1" fingerprint="fp-123" currentAssignee={null} />,
     );
 
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
@@ -67,7 +63,7 @@ describe("FindingAssigneeSelect Component (#1921)", () => {
           codename: "alice-sec",
           image: null,
         }}
-      />
+      />,
     );
 
     expect(screen.getByText("Alice Reviewer")).toBeInTheDocument();
@@ -75,11 +71,7 @@ describe("FindingAssigneeSelect Component (#1921)", () => {
 
   it("loads assignable users and assigns finding", async () => {
     render(
-      <FindingAssigneeSelect
-        repositoryId="repo-1"
-        fingerprint="fp-123"
-        currentAssignee={null}
-      />
+      <FindingAssigneeSelect repositoryId="repo-1" fingerprint="fp-123" currentAssignee={null} />,
     );
 
     const trigger = screen.getByTestId("assignee-select-trigger");

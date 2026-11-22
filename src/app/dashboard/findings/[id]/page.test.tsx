@@ -192,9 +192,7 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
   });
 
   it("renders FindingNotesThread with the finding ID (#1920)", async () => {
-    findingNoteFindManyMock.mockResolvedValue([
-      { id: "note-1", text: "Important context" },
-    ]);
+    findingNoteFindManyMock.mockResolvedValue([{ id: "note-1", text: "Important context" }]);
 
     await renderPage();
 

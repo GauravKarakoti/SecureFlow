@@ -143,7 +143,7 @@ describe("assignee actions (#1921)", () => {
     it("throws error if caller does not have access to repository", async () => {
       mockSession = { user: { id: "user-other" } };
       await expect(getAssignableUsers("repo-1")).rejects.toThrow(
-        "Repository not found or access denied"
+        "Repository not found or access denied",
       );
     });
   });
@@ -168,7 +168,7 @@ describe("assignee actions (#1921)", () => {
             },
           },
           update: { assigneeId: "user-admin" },
-        })
+        }),
       );
 
       expect(mockAuditCreate).toHaveBeenCalledWith(
@@ -181,7 +181,7 @@ describe("assignee actions (#1921)", () => {
               fingerprint: "fp-test-1",
             }),
           }),
-        })
+        }),
       );
     });
 
@@ -210,7 +210,7 @@ describe("assignee actions (#1921)", () => {
       expect(mockTriageUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
           update: { assigneeId: null },
-        })
+        }),
       );
 
       expect(mockAuditCreate).toHaveBeenCalledWith(
@@ -219,7 +219,7 @@ describe("assignee actions (#1921)", () => {
             action: "FINDING_ASSIGN",
             decision: "UNASSIGNED",
           }),
-        })
+        }),
       );
     });
 
@@ -262,7 +262,7 @@ describe("assignee actions (#1921)", () => {
         data: { assigneeId: null },
       });
       expect(mockTriageUpdate).not.toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: "triage-2" } })
+        expect.objectContaining({ where: { id: "triage-2" } }),
       );
 
       expect(mockAuditCreate).toHaveBeenCalledWith(
@@ -275,7 +275,7 @@ describe("assignee actions (#1921)", () => {
               previousAssigneeId: "user-other",
             }),
           }),
-        })
+        }),
       );
     });
 

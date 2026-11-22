@@ -21,12 +21,7 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ default: prismaMock }));
 
-import {
-  getFindingNotes,
-  addFindingNote,
-  deleteFindingNote,
-  MAX_NOTE_LENGTH,
-} from "./notes";
+import { getFindingNotes, addFindingNote, deleteFindingNote, MAX_NOTE_LENGTH } from "./notes";
 
 describe("Finding Notes Server Actions (#1920)", () => {
   const mockRepo = { id: "repo-1", userId: "user-1", fullName: "org/repo" };

@@ -118,8 +118,8 @@ describe("Suppression rule expiry controls", () => {
     await user.click(screen.getByRole("button", { name: "Renew Rule" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Refresh this rule and try again.");
     expect(date).toHaveValue("2099-07-01");
-    await user.click(screen.getByRole("button", { name: "Renew Rule" }));
 
+    await user.click(screen.getByRole("button", { name: "Renew Rule" }));
     expect(await screen.findByRole("status")).toHaveTextContent("renewed");
     expect(screen.getByText("0 expired")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Expired test rule" })).toBeInTheDocument();

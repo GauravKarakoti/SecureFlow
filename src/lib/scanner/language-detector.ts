@@ -115,7 +115,9 @@ function extractShebangLanguage(contentOrPatch: string): string | undefined {
   if (!contentOrPatch) return undefined;
 
   // Search first 500 characters or lines for shebang (including diff '+' prefix)
-  const shebangMatch = contentOrPatch.match(/(?:^|\n)\+?#!\s*(?:[^\n\r]+?\/)?([a-zA-Z0-9._-]+)(?:\s+([^\n\r]+))?(?:\r?\n|$)/);
+  const shebangMatch = contentOrPatch.match(
+    /(?:^|\n)\+?#!\s*(?:[^\n\r]+?\/)?([a-zA-Z0-9._-]+)(?:\s+([^\n\r]+))?(?:\r?\n|$)/,
+  );
   if (!shebangMatch) return undefined;
 
   let binary = shebangMatch[1]?.toLowerCase() || "";
@@ -139,7 +141,11 @@ function extractShebangLanguage(contentOrPatch: string): string | undefined {
 /**
  * Cheap framework detection by inspecting content/patch imports, annotations, or manifests.
  */
-function detectFramework(language: string, filename: string, contentOrPatch: string): string | undefined {
+function detectFramework(
+  language: string,
+  filename: string,
+  contentOrPatch: string,
+): string | undefined {
   if (!contentOrPatch) return undefined;
 
   const lowerContent = contentOrPatch.toLowerCase();
@@ -147,7 +153,8 @@ function detectFramework(language: string, filename: string, contentOrPatch: str
 
   // JSON package manifest check
   if (lowerFilename.endsWith("package.json")) {
-    if (lowerContent.includes('"@nestjs/core"') || lowerContent.includes('"@nestjs/common"')) return "nestjs";
+    if (lowerContent.includes('"@nestjs/core"') || lowerContent.includes('"@nestjs/common"'))
+      return "nestjs";
     if (lowerContent.includes('"next"')) return "next.js";
     if (lowerContent.includes('"express"')) return "express";
     if (lowerContent.includes('"react"')) return "react";
@@ -198,32 +205,20 @@ function detectFramework(language: string, filename: string, contentOrPatch: str
     ) {
       return "fastify";
     }
-    if (
-      lowerContent.includes('from "vue"') ||
-      lowerContent.includes("from 'vue'")
-    ) {
+    if (lowerContent.includes('from "vue"') || lowerContent.includes("from 'vue'")) {
       return "vue";
     }
   }
 
   // Python frameworks
   if (language === "python") {
-    if (
-      lowerContent.includes("from fastapi") ||
-      lowerContent.includes("import fastapi")
-    ) {
+    if (lowerContent.includes("from fastapi") || lowerContent.includes("import fastapi")) {
       return "fastapi";
     }
-    if (
-      lowerContent.includes("from django") ||
-      lowerContent.includes("import django")
-    ) {
+    if (lowerContent.includes("from django") || lowerContent.includes("import django")) {
       return "django";
     }
-    if (
-      lowerContent.includes("from flask") ||
-      lowerContent.includes("import flask")
-    ) {
+    if (lowerContent.includes("from flask") || lowerContent.includes("import flask")) {
       return "flask";
     }
   }

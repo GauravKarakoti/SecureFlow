@@ -1625,6 +1625,24 @@ paths:
         "404":
           description: Job not found
 
+  /api/scans/compare:
+    get:
+      summary: Compares scan
+      description: |
+        Compares scans
+      operationId: compareScans
+      tags:
+        - Scan
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Scan Result
+        "401":
+          description: Not signed in
+        "404":
+          description: Scan not found
+
   /api/cli/scan:
     post:
       summary: AI scan for the SecureFlow CLI

@@ -253,7 +253,11 @@ function SingleTriageControls({
       {isDismissal && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Dismissal Expiry</label>
-          <Select value={expirySelection} onValueChange={setExpirySelection} disabled={!canTriage || isPending}>
+          <Select
+            value={expirySelection}
+            onValueChange={setExpirySelection}
+            disabled={!canTriage || isPending}
+          >
             <SelectTrigger className="min-h-[44px] text-sm" data-testid="triage-expiry-select">
               <SelectValue placeholder="Select expiry period" />
             </SelectTrigger>
@@ -326,7 +330,9 @@ export function BulkTriageBar({ targets, onDone }: BulkTriageBarProps) {
   const { toast } = useToast();
   const router = useRouter();
   const { data: session } = useSession();
-  const canTriage = session?.user ? can(session.user, targets[0]?.repositoryId || null, "findings:dismiss") : true;
+  const canTriage = session?.user
+    ? can(session.user, targets[0]?.repositoryId || null, "findings:dismiss")
+    : true;
   const [isPending, startTransition] = useTransition();
   const [nowMs] = useState(() => Date.now());
   const [note, setNote] = useState("");

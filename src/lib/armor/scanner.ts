@@ -14,11 +14,7 @@ import { shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
-import {
-  type ConfidenceLevel,
-  normalizeConfidence,
-  DEFAULT_CONFIDENCE,
-} from "@/lib/confidence";
+import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 
 export type ScanFinding = {
   type: string;
@@ -605,7 +601,8 @@ export class ArmorIQScanner {
       detectedFileMap.set(file.filename, detectedContext);
       const contextHeader = `[File Context: Language=${detectedContext.language}${detectedContext.framework ? `, Framework=${detectedContext.framework}` : ""}]`;
       const wrapperOverhead =
-        `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>\n${contextHeader}\n\n</file>\n\n`.length;
+        `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>\n${contextHeader}\n\n</file>\n\n`
+          .length;
       const maxContentSize = MAX_COMBINED_LENGTH - wrapperOverhead;
 
       let fileContent = maskedLines;
@@ -865,9 +862,17 @@ CRITICAL RULES:
                 signatureVersion: dynFp.signatureVersion,
                 matchedSignatures: dynFp.matchedSignatures.map((s) => s.id),
                 isZeroDay: dynFp.isZeroDayDetected,
-                language: (detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).language,
-                ...((detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).framework
-                  ? { framework: (detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)).framework }
+                language: (
+                  detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)
+                ).language,
+                ...((detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet))
+                  .framework
+                  ? {
+                      framework: (
+                        detectedFileMap.get(fileLoc) ||
+                        detectFileLanguage(fileLoc, normalizedSnippet)
+                      ).framework,
+                    }
                   : {}),
               };
             });

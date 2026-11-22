@@ -35,10 +35,7 @@ export interface AssignFindingResult {
  *    - The user is the owner/installer of the repository (repo.userId === userId).
  *    - OR the user holds an administrative role in the system.
  */
-export async function checkUserRepoAccess(
-  userId: string,
-  repositoryId: string,
-): Promise<boolean> {
+export async function checkUserRepoAccess(userId: string, repositoryId: string): Promise<boolean> {
   if (!userId || !repositoryId) return false;
 
   const repo = await prisma.repository.findUnique({

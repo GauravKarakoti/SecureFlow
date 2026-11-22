@@ -125,14 +125,10 @@ describe("Member Management & Role Actions (#1922)", () => {
     it("rejects non-admin callers (VIEWER or TRIAGER) with PermissionDeniedError", async () => {
       authMock.mockResolvedValueOnce({ user: { id: "u-viewer", roles: ["VIEWER"] } });
 
-      await expect(updateMemberRole("u-target", "TRIAGER")).rejects.toThrow(
-        PermissionDeniedError,
-      );
+      await expect(updateMemberRole("u-target", "TRIAGER")).rejects.toThrow(PermissionDeniedError);
 
       authMock.mockResolvedValueOnce({ user: { id: "u-triager", roles: ["TRIAGER"] } });
-      await expect(updateMemberRole("u-target", "VIEWER")).rejects.toThrow(
-        PermissionDeniedError,
-      );
+      await expect(updateMemberRole("u-target", "VIEWER")).rejects.toThrow(PermissionDeniedError);
     });
 
     it("allows ADMIN to update member roles and records audit log", async () => {

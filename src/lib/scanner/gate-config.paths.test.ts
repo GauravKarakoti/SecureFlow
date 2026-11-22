@@ -98,7 +98,13 @@ describe("gate config path rules (#1557)", () => {
     it("leaves a config without paths exactly as before", () => {
       const config = parseSecureFlowConfig('{"gate":{"blockOn":"HIGH"}}');
 
-      expect(config).toEqual({ blockOn: "HIGH", reviewOn: "MEDIUM", overrides: [] });
+      expect(config).toEqual({
+        blockOn: "HIGH",
+        reviewOn: "MEDIUM",
+        filterBlocking: false,
+        minCommentConfidence: "MEDIUM",
+        overrides: [],
+      });
       expect("paths" in config).toBe(false);
     });
   });

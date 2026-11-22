@@ -44,10 +44,7 @@ async function requireSession(): Promise<AuthUser> {
 /**
  * Checks whether the given user has access to the finding via repository ownership or ADMIN role.
  */
-async function getFindingWithRepoAccess(
-  findingId: string,
-  user: AuthUser,
-) {
+async function getFindingWithRepoAccess(findingId: string, user: AuthUser) {
   const finding = await prisma.finding.findUnique({
     where: { id: findingId },
     include: {
@@ -184,9 +181,7 @@ export async function addFindingNote(
  * Delete a reviewer note. Only the note's author or an administrator may delete it.
  * Records the deletion in the audit log.
  */
-export async function deleteFindingNote(
-  noteId: string,
-): Promise<{ ok: boolean; error?: string }> {
+export async function deleteFindingNote(noteId: string): Promise<{ ok: boolean; error?: string }> {
   const user = await requireSession();
 
   const note = await prisma.findingNote.findUnique({

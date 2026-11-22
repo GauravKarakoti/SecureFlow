@@ -133,9 +133,7 @@ describe("Permission Matrix and can() helper (#1922)", () => {
       expect(() => assertCan("VIEWER", "inst-1", "findings:dismiss")).toThrow(
         PermissionDeniedError,
       );
-      expect(() => assertCan("TRIAGER", "inst-1", "policies:edit")).toThrow(
-        PermissionDeniedError,
-      );
+      expect(() => assertCan("TRIAGER", "inst-1", "policies:edit")).toThrow(PermissionDeniedError);
     });
   });
 });

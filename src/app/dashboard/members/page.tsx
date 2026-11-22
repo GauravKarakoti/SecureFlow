@@ -88,11 +88,7 @@ export default async function MembersPage() {
         </div>
       </div>
 
-      <MembersClient
-        members={members}
-        canManage={canManage}
-        currentUserId={currentUserId}
-      />
+      <MembersClient members={members} canManage={canManage} currentUserId={currentUserId} />
     </div>
   );
 }

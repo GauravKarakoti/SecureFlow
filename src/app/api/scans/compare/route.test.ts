@@ -220,7 +220,12 @@ describe("GET /api/scans/compare (#1923)", () => {
       createdAt: new Date("2026-11-20T10:00:00Z"),
       riskScore: 10,
       findings: [f1],
-      pullRequest: { id: "pr-1", prNumber: 7, title: "PR", repository: { fullName: "acme/api", userId: "user-123" } },
+      pullRequest: {
+        id: "pr-1",
+        prNumber: 7,
+        title: "PR",
+        repository: { fullName: "acme/api", userId: "user-123" },
+      },
     };
 
     const targetScan = {
@@ -230,12 +235,15 @@ describe("GET /api/scans/compare (#1923)", () => {
       createdAt: new Date("2026-11-21T10:00:00Z"),
       riskScore: 0,
       findings: [],
-      pullRequest: { id: "pr-1", prNumber: 7, title: "PR", repository: { fullName: "acme/api", userId: "user-123" } },
+      pullRequest: {
+        id: "pr-1",
+        prNumber: 7,
+        title: "PR",
+        repository: { fullName: "acme/api", userId: "user-123" },
+      },
     };
 
-    scanResultFindUniqueMock
-      .mockResolvedValueOnce(baseScan)
-      .mockResolvedValueOnce(targetScan);
+    scanResultFindUniqueMock.mockResolvedValueOnce(baseScan).mockResolvedValueOnce(targetScan);
 
     const res = await GET(makeRequest("/api/scans/compare?baseScanId=scan-a&targetScanId=scan-b"));
     expect(res.status).toBe(200);

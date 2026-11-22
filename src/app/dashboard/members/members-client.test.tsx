@@ -63,13 +63,7 @@ describe("MembersClient Component (#1922)", () => {
   });
 
   it("renders the members list on both desktop and mobile viewports", () => {
-    render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={true}
-        currentUserId="user-admin"
-      />
-    );
+    render(<MembersClient members={SAMPLE_MEMBERS} canManage={true} currentUserId="user-admin" />);
 
     expect(screen.getAllByText("Admin Alice").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Triager Bob").length).toBeGreaterThan(0);
@@ -77,13 +71,7 @@ describe("MembersClient Component (#1922)", () => {
   });
 
   it("filters members by search query", () => {
-    render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={true}
-        currentUserId="user-admin"
-      />
-    );
+    render(<MembersClient members={SAMPLE_MEMBERS} canManage={true} currentUserId="user-admin" />);
 
     const searchInput = screen.getByTestId("members-search-input");
     fireEvent.change(searchInput, { target: { value: "bob" } });
@@ -94,13 +82,7 @@ describe("MembersClient Component (#1922)", () => {
   });
 
   it("filters members by role dropdown", () => {
-    render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={true}
-        currentUserId="user-admin"
-      />
-    );
+    render(<MembersClient members={SAMPLE_MEMBERS} canManage={true} currentUserId="user-admin" />);
 
     const roleFilter = screen.getByTestId("members-role-filter");
     fireEvent.change(roleFilter, { target: { value: "VIEWER" } });
@@ -111,13 +93,7 @@ describe("MembersClient Component (#1922)", () => {
   });
 
   it("allows admin to change member role and calls updateMemberRole", async () => {
-    render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={true}
-        currentUserId="user-admin"
-      />
-    );
+    render(<MembersClient members={SAMPLE_MEMBERS} canManage={true} currentUserId="user-admin" />);
 
     const select = screen.getByTestId("select-role-user-triager");
     fireEvent.change(select, { target: { value: "VIEWER" } });
@@ -127,19 +103,13 @@ describe("MembersClient Component (#1922)", () => {
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
           title: "Role updated",
-        })
+        }),
       );
     });
   });
 
   it("disables role selection for self-admin to prevent self-demotion in UI", () => {
-    render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={true}
-        currentUserId="user-admin"
-      />
-    );
+    render(<MembersClient members={SAMPLE_MEMBERS} canManage={true} currentUserId="user-admin" />);
 
     const adminSelect = screen.getByTestId("select-role-user-admin");
     expect(adminSelect).toBeDisabled();
@@ -147,11 +117,7 @@ describe("MembersClient Component (#1922)", () => {
 
   it("renders read-only view and hides role select controls when canManage is false", () => {
     render(
-      <MembersClient
-        members={SAMPLE_MEMBERS}
-        canManage={false}
-        currentUserId="user-viewer"
-      />
+      <MembersClient members={SAMPLE_MEMBERS} canManage={false} currentUserId="user-viewer" />,
     );
 
     expect(screen.queryByTestId("select-role-user-triager")).not.toBeInTheDocument();
