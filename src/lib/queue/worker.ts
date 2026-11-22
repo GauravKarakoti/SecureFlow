@@ -30,7 +30,12 @@ import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
-import { renderScanReportSummary, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/scan-report";
+import {
+  renderScanReportSummary,
+  renderScanReportWithBaseOwners,
+  SECUREFLOW_COMMENT_MARKER,
+  type ScanReportFinding,
+} from "@/lib/github/scan-report";
 import { upsertSecureFlowComment } from "@/lib/github/sticky-comment";
 import {
   buildSarifDocument,
@@ -1115,7 +1120,7 @@ export async function runPullRequestScan({
       // Findings with a diff-anchored line become inline review comments; the
       // rest fall back into the summary body so nothing is ever lost.
       const inlineComments: { path: string; line: number; body: string }[] = [];
-      const summaryFindings: any[] = [];
+      const summaryFindings: ScanReportFinding[] = [];
 
       enrichedFindings.forEach((f: any) => {
         const line = anchorLine(f);
@@ -1138,19 +1143,18 @@ export async function runPullRequestScan({
         }
       });
 
-      const renderSummary = (findingsToRender: any[]) =>
-        renderScanReportSummary({
-          findings: findingsToRender,
-          totalFindings: enrichedFindings.length,
-          inlineCount: inlineComments.length,
-          coverageNotice,
-          suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
-          rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
-          previouslyDismissedCount: suppressedFindings.length,
-          ruleSuppressedCount: ruleSuppressedFindings.length,
-          commitSha: pullRequest.head?.sha,
-          expiredIgnoreRules: scanResult.expiredIgnoreRules,
-        });
+      const summaryInput = (findings: ScanReportFinding[]) => ({
+        findings,
+        totalFindings: enrichedFindings.length,
+        inlineCount: inlineComments.length,
+        coverageNotice,
+        suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
+        rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
+        previouslyDismissedCount: suppressedFindings.length,
+        ruleSuppressedCount: ruleSuppressedFindings.length,
+        commitSha: pullRequest.head?.sha,
+        expiredIgnoreRules: scanResult.expiredIgnoreRules,
+      });
 
       // Try to post the anchored findings as an inline review. If that fails
       // (e.g. a line slipped past the guard), fall back to a summary comment
@@ -1164,7 +1168,7 @@ export async function runPullRequestScan({
             pull_number: pullRequest.number,
             commit_id: pullRequest.head?.sha,
             event: "COMMENT",
-            body: renderSummary(summaryFindings),
+            body: renderScanReportSummary(summaryInput(summaryFindings)),
             comments: inlineComments,
           });
           inlinePosted = true;
@@ -1181,9 +1185,16 @@ export async function runPullRequestScan({
         repo: repository.name,
         issueNumber: pullRequest.number,
         commentId: pendingComment.data.id,
-        // When inline posting succeeded, the pending comment only needs the
-        // non-anchored findings; otherwise it carries the full report.
-        body: renderSummary(inlinePosted ? summaryFindings : enrichedFindings),
+        body: await renderScanReportWithBaseOwners(
+          octokit,
+          {
+            owner: repository.owner.login,
+            repo: repository.name,
+            baseRef: pullRequest.base?.sha || pullRequest.base?.ref,
+          },
+          summaryInput(inlinePosted ? summaryFindings : enrichedFindings),
+          inlinePosted ? inlineComments.map((comment) => comment.path) : [],
+        ),
       });
 
       if (userId) {
