@@ -23,6 +23,7 @@ import CodeContextViewer from "@/components/findings/code-context-viewer";
 import RemediationGuidanceCard from "@/components/findings/remediation-guidance-card";
 import ShareFindingButton from "@/components/findings/share-finding-button";
 import FindingActions from "./finding-actions";
+import FindingAssigneeSelect from "../finding-assignee-select";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
@@ -69,6 +70,17 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
       repositoryId_fingerprint: {
         repositoryId: repo.id,
         fingerprint: finding.fingerprint,
+      },
+    },
+    include: {
+      assignee: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          codename: true,
+          image: true,
+        },
       },
     },
   });
@@ -213,6 +225,24 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
             initialTriageStatus={(triage?.status as TriageStatus) ?? "OPEN"}
             initialNote={triage?.note ?? ""}
           />
+
+          {/* Finding Assignee Card / Action (#1921) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-white/10 bg-white/[0.02] gap-3">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                Assignee
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Assign this finding to a team member with repository access.
+              </p>
+            </div>
+            <FindingAssigneeSelect
+              repositoryId={repo.id}
+              fingerprint={finding.fingerprint}
+              currentAssignee={triage?.assignee}
+              variant="detail"
+            />
+          </div>
 
           {/* Side-by-Side Vulnerable Code & Remediation Review */}
           <div className="space-y-4">

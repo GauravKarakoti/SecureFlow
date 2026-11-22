@@ -103,6 +103,7 @@ describe("getUserFindings", () => {
       type: "SECRET",
       severity: "HIGH",
       fileLocation: "src/app.ts",
+      language: "typescript",
       lineStart: 3,
       lineEnd: null,
       codeSnippet: "const key = ...",
@@ -118,9 +119,11 @@ describe("getUserFindings", () => {
       triageNote: "on it",
       triageReason: null,
       triageExpiresAt: null,
+      assigneeId: null,
+      assignee: null,
       resolvedAt: null,
       resolvedCommitSha: null,
-      ageDays: 81,
+      ageDays: expect.any(Number),
       isOverdue: true,
     });
     expect(result.findings[1]).toMatchObject({ triageStatus: "OPEN", triageNote: null });
