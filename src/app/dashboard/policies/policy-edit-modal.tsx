@@ -1,17 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Edit3,
-  Loader2,
-  Sparkles,
-  AlertCircle,
-  CheckCircle2,
-  AlertTriangle,
-  Minus,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+import { Edit3, Loader2, Sparkles, AlertCircle, TrendingDown, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,9 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { editPolicy } from "./actions";
 import { useToast } from "@/hooks/use-toast";
-import { POLICY_SEVERITIES } from "@/lib/policies/versioning";
 import type { PolicyPreviewImpactResult } from "@/lib/policies/preview-impact";
-import { PREVIEW_SEVERITIES } from "@/lib/policies/preview-impact";
+
+const SEVERITY_ROWS = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as const;
 
 interface PolicyEditModalProps {
   policyId: string;
@@ -305,7 +295,7 @@ export function PolicyEditModal({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5 font-mono">
-                          {PREVIEW_SEVERITIES.map((sev) => {
+                          {SEVERITY_ROWS.map((sev) => {
                             const row = previewResult.severityComparison[sev];
                             if (
                               row.unchanged === 0 &&

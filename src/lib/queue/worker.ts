@@ -66,7 +66,7 @@ import {
   buildFindingCreatedPayload,
 } from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
-import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import {
   extractPrNumberFromMergeGroup,
   fetchMergeGroupFiles,

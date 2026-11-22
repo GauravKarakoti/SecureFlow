@@ -302,7 +302,7 @@ export function formatTuiScanSummary(
 }
 
 import type { InitConfigResult } from "../init-config.js";
-import type { GateLevel } from "../contracts/config-schema.js";
+import type { GateLevel } from "../contracts/index.js";
 import { initConfigFiles } from "../init-config.js";
 
 export interface InitHookResult {

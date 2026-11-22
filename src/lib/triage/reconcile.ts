@@ -5,7 +5,7 @@ import { SCAN_CHECK_NAME } from "@/lib/scanner/check-run";
 import { checkRunConclusion } from "@/lib/scanner/scan-persistence";
 import { DEFAULT_GATE_CONFIG, type GateConfig } from "@/lib/scanner/gate-config";
 import { normalizePolicyDecisionEnum, normalizePrStatusEnum } from "@/lib/finding-taxonomy";
-import { activeSuppressionWhere } from "./expiry";
+import { activeSuppressionWhere } from "./expiry-server";
 import { triagedVerdict, type StoredTriageFinding } from "./verdict";
 
 export interface TriageReconcileResult {

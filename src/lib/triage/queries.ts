@@ -1,7 +1,8 @@
 import prisma from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
-import { SUPPRESSED_STATUSES, isSuppressedStatus, type TriageStatus } from "./statuses";
-import { isSuppressionActive, activeSuppressionWhere } from "./expiry";
+import { SUPPRESSED_STATUSES, type TriageStatus } from "./statuses";
+import { isSuppressionActive } from "./expiry";
+import { activeSuppressionWhere } from "./expiry-server";
 
 /**
  * Triage lookups for the dashboard (#689, #1503).

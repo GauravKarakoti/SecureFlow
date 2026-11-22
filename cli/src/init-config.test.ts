@@ -10,7 +10,7 @@ import {
   validateConfigFiles,
   promptConfigQuestions,
 } from "./init-config.js";
-import { validateSecureFlowJson, validateSecureFlowIgnore } from "./contracts/config-schema.js";
+import { validateSecureFlowJson, validateSecureFlowIgnore } from "./contracts/index.js";
 
 describe("init-config", () => {
   let tempDir: string;
