@@ -97,6 +97,46 @@
           "items": {
             "$ref": "#/definitions/PolicyScopeRule"
           }
+        },
+        "includeDefaults": {
+          "type": "boolean",
+          "description": "Whether to apply built-in default ignore patterns (lockfiles, minified files, vendor/, etc.). Defaults to true."
+        },
+        "forceInclude": {
+          "type": "array",
+          "description": "List of glob patterns to force include in scanning, overriding default ignore rules.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "includeDefaults": {
+      "type": "boolean",
+      "description": "Whether to apply built-in default ignore patterns (lockfiles, minified files, vendor/, etc.). Defaults to true."
+    },
+    "forceInclude": {
+      "type": "array",
+      "description": "List of glob patterns to force include in scanning, overriding default ignore rules.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignore": {
+      "type": "object",
+      "description": "Ignore settings and overrides.",
+      "additionalProperties": false,
+      "properties": {
+        "includeDefaults": {
+          "type": "boolean",
+          "description": "Whether to apply built-in default ignore patterns."
+        },
+        "forceInclude": {
+          "type": "array",
+          "description": "List of glob patterns to force include in scanning.",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

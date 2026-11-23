@@ -1154,6 +1154,7 @@ export async function runPullRequestScan({
         ruleSuppressedCount: ruleSuppressedFindings.length,
         commitSha: pullRequest.head?.sha,
         expiredIgnoreRules: scanResult.expiredIgnoreRules,
+        defaultSkippedCount: scanResult.defaultSkippedCount,
       });
 
       // Try to post the anchored findings as an inline review. If that fails
@@ -1237,11 +1238,20 @@ export async function runPullRequestScan({
               .join("\n")
           : "";
 
+      const cleanDefaultNotice =
+        scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+          ? `\n\nℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+          : "";
+
       const emptyBody = formatZeroScanComment(zeroReason ?? "no changed files", {
         commitSha: pullRequest.head?.sha,
         cleanDismissedNotice,
         cleanRuleNotice,
         cleanExpiredNotice,
+        defaultSkippedNotice:
+          scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+            ? `ℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+            : undefined,
         coverageNotice: coverageNotice || undefined,
       });
 
@@ -1276,6 +1286,11 @@ export async function runPullRequestScan({
               .join("\n")
           : "";
 
+      const cleanDefaultNotice =
+        scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+          ? `\n\nℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+          : "";
+
       const cleanBody =
         `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
         (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
@@ -1283,6 +1298,7 @@ export async function runPullRequestScan({
         cleanDismissedNotice +
         cleanRuleNotice +
         cleanExpiredNotice +
+        cleanDefaultNotice +
         // A clean result on a partial scan must say so — this is exactly the
         // case where silent truncation was most misleading.
         (coverageNotice ? `\n\n${coverageNotice}` : "");

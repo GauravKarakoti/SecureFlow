@@ -151,7 +151,7 @@ export function undiffedFiles(files: readonly PullRequestFile[]): string[] {
       (file) =>
         file.status !== "removed" &&
         (typeof file.patch !== "string" || file.patch === "") &&
-        ignoreReasonFor(file.filename) === null,
+        (ignoreReasonFor(file.filename) === null || ignoreReasonFor(file.filename) === "default"),
     )
     .map((file) => file.filename);
 }

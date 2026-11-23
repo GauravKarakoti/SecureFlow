@@ -54,6 +54,8 @@ export interface GateConfig {
   minCommentConfidence?: ConfidenceLevel;
   minBlockingConfidence?: ConfidenceLevel;
   filterBlocking?: boolean;
+  includeDefaults?: boolean;
+  forceInclude?: string[];
 }
 
 export interface SecureFlowConfig {
@@ -62,6 +64,12 @@ export interface SecureFlowConfig {
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
   filterBlocking?: boolean;
+  includeDefaults?: boolean;
+  forceInclude?: string[];
+  ignore?: {
+    includeDefaults?: boolean;
+    forceInclude?: string[];
+  };
 }
 
 /** Default gate thresholds when no config exists or on bad configuration. */
@@ -117,6 +125,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     (gate.minCommentConfidence ?? DEFAULT_GATE_CONFIG.minCommentConfidence) ===
     DEFAULT_GATE_CONFIG.minCommentConfidence;
   const sameFilterBlocking = (gate.filterBlocking ?? false) === false;
+  // #1983: default ignore pattern overrides
+  const sameIncludeDefaults = gate.includeDefaults === undefined || gate.includeDefaults === true;
+  const noForceInclude = !gate.forceInclude || gate.forceInclude.length === 0;
   return (
     sameBlock &&
     sameReview &&
@@ -124,7 +135,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     noPaths &&
     noScopes &&
     sameConfidence &&
-    sameFilterBlocking
+    sameFilterBlocking &&
+    sameIncludeDefaults &&
+    noForceInclude
   );
 }
 
@@ -356,6 +369,40 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     gateObj.filterBlocking;
   const filterBlocking = typeof rawFilterBlocking === "boolean" ? rawFilterBlocking : false;
 
+  // #1983: parse default ignore pattern overrides (includeDefaults, forceInclude)
+  const rawIgnoreObj =
+    root.ignore && typeof root.ignore === "object" && !Array.isArray(root.ignore)
+      ? (root.ignore as Record<string, unknown>)
+      : undefined;
+
+  const rawScannerObj =
+    root.scanner && typeof root.scanner === "object" && !Array.isArray(root.scanner)
+      ? (root.scanner as Record<string, unknown>)
+      : undefined;
+
+  const rawIncludeDefaults =
+    root.includeDefaults ??
+    gateObj.includeDefaults ??
+    rawIgnoreObj?.includeDefaults ??
+    rawScannerObj?.includeDefaults;
+
+  const includeDefaults = typeof rawIncludeDefaults === "boolean" ? rawIncludeDefaults : undefined;
+
+  const rawForceInclude =
+    root.forceInclude ??
+    gateObj.forceInclude ??
+    rawIgnoreObj?.forceInclude ??
+    rawScannerObj?.forceInclude;
+
+  const forceInclude: string[] = [];
+  if (Array.isArray(rawForceInclude)) {
+    for (const item of rawForceInclude) {
+      if (typeof item === "string" && item.trim()) {
+        forceInclude.push(item.trim());
+      }
+    }
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -364,6 +411,8 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(policyScopes.length > 0 ? { policyScopes } : {}),
     minCommentConfidence,
     filterBlocking,
+    ...(includeDefaults !== undefined ? { includeDefaults } : {}),
+    ...(forceInclude.length > 0 ? { forceInclude } : {}),
   };
 }
 

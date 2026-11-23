@@ -294,4 +294,30 @@ describe("renderScanReportSummary", () => {
       "🛡️ **4** finding(s) were suppressed by installation suppression rule(s).",
     );
   });
+
+  it("renders default skipped file count when files were skipped by default patterns (#1983)", () => {
+    const bodySingle = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 1,
+    });
+    expect(bodySingle).toContain("ℹ️ **1 file** skipped by default ignore patterns.");
+
+    const bodyMultiple = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 5,
+    });
+    expect(bodyMultiple).toContain("ℹ️ **5 files** skipped by default ignore patterns.");
+
+    const bodyZero = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 0,
+    });
+    expect(bodyZero).not.toContain("skipped by default ignore patterns");
+  });
 });

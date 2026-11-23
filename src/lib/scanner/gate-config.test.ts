@@ -378,4 +378,53 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(result).toBe("PASS");
     });
   });
+
+  describe("default ignore pattern overrides (#1983)", () => {
+    it("parses includeDefaults and forceInclude at root level", () => {
+      const json = JSON.stringify({
+        includeDefaults: false,
+        forceInclude: ["vendor/**", "dist/custom.js"],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["vendor/**", "dist/custom.js"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("parses includeDefaults and forceInclude within gate block", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "CRITICAL",
+          reviewOn: "MEDIUM",
+          includeDefaults: false,
+          forceInclude: ["*.min.js"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["*.min.js"]);
+    });
+
+    it("parses includeDefaults and forceInclude within ignore block", () => {
+      const json = JSON.stringify({
+        ignore: {
+          includeDefaults: false,
+          forceInclude: ["client/openapi/**"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["client/openapi/**"]);
+    });
+
+    it("treats default config as default gate when no overrides exist", () => {
+      const config = parseSecureFlowConfig("{}");
+      expect(config.includeDefaults).toBeUndefined();
+      expect(config.forceInclude).toBeUndefined();
+      expect(isDefaultGate(config)).toBe(true);
+    });
+  });
 });

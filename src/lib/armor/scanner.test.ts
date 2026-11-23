@@ -500,6 +500,102 @@ another_placeholder
     // AbortError handler was unreachable dead code.
     expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
   });
+
+  describe("default ignore patterns in scanPullRequest (#1983)", () => {
+    it("excludes default-ignored files from LLM scanning and counts them in lastDefaultSkippedCount", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        { filename: "package-lock.json", patch: '+ "version": "1.0.0"' },
+        { filename: "vendor/lib.js", patch: "+ const x = 1;" },
+        { filename: "src/index.ts", patch: "+ const y = 2;" },
+      ];
+
+      await scannerInstance.scanPullRequest(files, []);
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("src/index.ts");
+      expect(promptContent).not.toContain("package-lock.json");
+      expect(promptContent).not.toContain("vendor/lib.js");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(2);
+      expect(scannerInstance.lastDefaultSkippedFiles).toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedFiles).toContain("vendor/lib.js");
+    });
+
+    it("runs deterministic secret pre-scan on files skipped from LLM scanning", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        {
+          filename: "package-lock.json",
+          patch: '+ "token": "ghp_111111111111111111111111111111111111"',
+        },
+        { filename: "src/index.ts", patch: "+ const y = 2;" },
+      ];
+
+      const findings = await scannerInstance.scanPullRequest(files, []);
+
+      // package-lock.json was skipped from LLM prompt
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).not.toContain("package-lock.json");
+
+      // But deterministic pre-scan found the secret in package-lock.json!
+      const secretFinding = findings.find((f) => f.fileLocation === "package-lock.json");
+      expect(secretFinding).toBeDefined();
+      expect(secretFinding?.type).toBe("Secret");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(1);
+    });
+
+    it("never skips default-ignored files if they are the only files changed and contain secret-like strings", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      // Only one file changed in the PR: package-lock.json containing a real secret
+      const files = [
+        {
+          filename: "package-lock.json",
+          patch: '+ "apiKey": "AKIA99XM2PLKD93HTRWN"',
+        },
+      ];
+
+      const findings = await scannerInstance.scanPullRequest(files, []);
+
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(0);
+      expect(scannerInstance.lastAnalyzedFiles).toContain("package-lock.json");
+      expect(findings.length).toBeGreaterThan(0);
+      expect(findings[0].fileLocation).toBe("package-lock.json");
+    });
+
+    it("allows repositories to disable defaults with includeDefaults: false", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [{ filename: "package-lock.json", patch: '+ "test": true' }];
+
+      await scannerInstance.scanPullRequest(files, [], [], [], "test-repo", {
+        includeDefaults: false,
+      });
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(0);
+    });
+
+    it("allows repositories to force-include files with forceInclude", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        { filename: "vendor/auth.js", patch: "+ const x = 1;" },
+        { filename: "package-lock.json", patch: '+ "test": true' },
+      ];
+
+      await scannerInstance.scanPullRequest(files, [], [], [], "test-repo", {
+        forceInclude: ["vendor/**"],
+      });
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("vendor/auth.js");
+      expect(promptContent).not.toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(1);
+    });
+  });
 });
 
 // ─── Model selection ─────────────────────────────────────────────────────────

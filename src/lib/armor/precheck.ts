@@ -17,8 +17,7 @@ import {
 } from "./secret-detector";
 import { parseUnifiedPatch, addedLines } from "./diff";
 import { computeDynamicFingerprint } from "./fingerprint";
-import { ignoreReasonFor } from "./ignore-rules";
-import { compileIgnorePatterns } from "./scanner";
+import { ignoreReasonFor, compileIgnorePatterns } from "./ignore-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import type { Severity } from "@/lib/severity";
 import type { FileChange, ScanFinding } from "./scanner";
@@ -101,9 +100,11 @@ export function precheckFilePatch(
 ): ScanFinding[] {
   const { customPlaceholders = [], customIgnores = [], repositoryId = "default-repo" } = options;
 
-  // Respect existing non-executable / ignore filters
+  // Respect custom ignores from .secureflowignore, but continue running
+  // deterministic pre-scan on files skipped from LLM scanning by default patterns (#1983).
   const compiledIgnores = compileIgnorePatterns(customIgnores);
-  if (ignoreReasonFor(filename, compiledIgnores)) {
+  const forCustom = filename.replace(/\\/g, "/");
+  if (compiledIgnores.some((pattern) => pattern.test(forCustom))) {
     return [];
   }
 

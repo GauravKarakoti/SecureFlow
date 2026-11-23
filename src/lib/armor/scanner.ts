@@ -10,7 +10,6 @@ import {
 import { normalizeFindingTypeLabel } from "@/lib/finding-taxonomy";
 import { normalizeSeverity, type Severity } from "@/lib/severity";
 import { parseUnifiedPatch, renderNumberedLines } from "./diff";
-import { shouldIgnorePath } from "./ignore-rules";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
@@ -163,7 +162,15 @@ import {
   IGNORED_EXTENSIONS,
   IGNORED_DIRECTORIES,
   IGNORED_BASENAMES,
+  DEFAULT_LOCKFILES,
+  DEFAULT_IGNORE_PATTERNS,
+  DEFAULT_IGNORE_DIRECTORIES,
+  isDefaultIgnored,
+  isForceIncluded,
+  isSkippedByDefault,
+  resolveDefaultSkippedFiles,
   ignoreReasonFor,
+  shouldIgnorePath,
   parseExpiryDateUtc,
   parseIgnoreRuleLine,
   parseSecureFlowIgnore,
@@ -171,13 +178,22 @@ import {
   type ExpiredIgnoreRule,
   type SecureFlowIgnoreConfig,
   type ParseSecureFlowIgnoreOptions,
+  type IgnoreCheckOptions,
 } from "./ignore-rules";
 
 export {
   IGNORED_EXTENSIONS,
   IGNORED_DIRECTORIES,
   IGNORED_BASENAMES,
+  DEFAULT_LOCKFILES,
+  DEFAULT_IGNORE_PATTERNS,
+  DEFAULT_IGNORE_DIRECTORIES,
+  isDefaultIgnored,
+  isForceIncluded,
+  isSkippedByDefault,
+  resolveDefaultSkippedFiles,
   ignoreReasonFor,
+  shouldIgnorePath,
   parseExpiryDateUtc,
   parseIgnoreRuleLine,
   parseSecureFlowIgnore,
@@ -185,6 +201,7 @@ export {
   type ExpiredIgnoreRule,
   type SecureFlowIgnoreConfig,
   type ParseSecureFlowIgnoreOptions,
+  type IgnoreCheckOptions,
 };
 
 /**
@@ -469,6 +486,8 @@ export class ArmorIQScanner {
   public lastSuppressionResult: InlineSuppressionResult | null = null;
   public lastSkippedFiles: SkippedFile[] = [];
   public lastAnalyzedFiles: string[] = [];
+  public lastDefaultSkippedCount: number = 0;
+  public lastDefaultSkippedFiles: string[] = [];
 
   async scanPullRequest(
     files: FileChange[],
@@ -476,6 +495,7 @@ export class ArmorIQScanner {
     customIgnores: string[] = [],
     customPlaceholders: string[] = [],
     repositoryId: string = "default-repo",
+    ignoreOptions?: IgnoreCheckOptions,
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
     const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
@@ -520,11 +540,30 @@ export class ArmorIQScanner {
     }
 
     let deadlineHit = false;
+    // Deterministic secret pre-scan always runs across all files, even those skipped
+    // from LLM scanning by default ignore patterns (#1983).
     const deterministicFindings = runDeterministicPrecheck(files, {
       customPlaceholders: combinedPlaceholders,
       customIgnores: combinedIgnores,
       repositoryId,
     });
+
+    const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
+
+    const { skippedByDefault, skippedCount, exemptSecretFiles } = resolveDefaultSkippedFiles(
+      files,
+      combinedIgnores,
+      {
+        includeDefaults: ignoreOptions?.includeDefaults,
+        forceInclude: Array.isArray(ignoreOptions?.forceInclude)
+          ? (ignoreOptions?.forceInclude as string[])
+          : undefined,
+        hasDeterministicSecrets: (file) => deterministicFilesWithSecrets.has(file.filename),
+      },
+    );
+
+    this.lastDefaultSkippedCount = skippedCount;
+    this.lastDefaultSkippedFiles = Array.from(skippedByDefault);
 
     for (const file of files) {
       if (deadlineExceeded()) {
@@ -536,14 +575,19 @@ export class ArmorIQScanner {
         break;
       }
 
-      // The reason is logged alongside the filename. A file that is skipped is
-      // a file the scan never read, and the pull request still gets a clean
-      // report — so when a skip is wrong, the log line naming the rule that
-      // fired is the only thing that makes it findable.
-      const ignoreReason = ignoreReasonFor(file.filename, compiledCustomIgnores);
-      if (ignoreReason) {
-        console.log(`🛡️ Skipping ignored file (${ignoreReason}): ${file.filename}`);
+      // 1. Files skipped by default ignore patterns
+      if (skippedByDefault.has(file.filename)) {
+        console.log(`🛡️ Skipping default-ignored file: ${file.filename}`);
         continue;
+      }
+
+      // 2. Custom or non-executable ignores
+      if (!exemptSecretFiles.has(file.filename)) {
+        const ignoreReason = ignoreReasonFor(file.filename, compiledCustomIgnores, ignoreOptions);
+        if (ignoreReason) {
+          console.log(`🛡️ Skipping ignored file (${ignoreReason}): ${file.filename}`);
+          continue;
+        }
       }
 
       if (!file.patch || file.patch.trim() === "") {
