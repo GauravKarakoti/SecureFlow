@@ -28,6 +28,7 @@ import {
   resolveDefaultSkippedFiles,
 } from "@/lib/armor/ignore-rules";
 import { runDeterministicPrecheck } from "@/lib/armor/precheck";
+import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -544,6 +545,20 @@ export async function processScanJob(
     await setCachedScan(cacheKey, allFindings).catch((err) => {
       console.warn("[ScanEngine] Failed to save findings to scan cache:", err);
     });
+  }
+
+  // Ensure deterministic dependency security checks are present (#2003)
+  const dependencyRuleFindings = runDependencySecurityRules(fileChanges, { repositoryId });
+  for (const df of dependencyRuleFindings) {
+    const alreadyExists = allFindings.some(
+      (f) =>
+        f.fileLocation === df.fileLocation &&
+        f.lineStart === df.lineStart &&
+        f.matchedSignatures?.some((s) => df.matchedSignatures?.includes(s)),
+    );
+    if (!alreadyExists) {
+      allFindings.push(df);
+    }
   }
 
   // --- Phase 3: Enrich findings with AI explanations ---

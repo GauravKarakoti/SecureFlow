@@ -1,0 +1,9 @@
+{
+  "name": "sample-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodashs": "^4.17.21",
+    "cross-envv": "^7.0.3"
+  }
+}

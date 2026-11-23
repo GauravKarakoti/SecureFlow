@@ -12,6 +12,7 @@ import { normalizeSeverity, type Severity } from "@/lib/severity";
 import { parseUnifiedPatch, renderNumberedLines } from "./diff";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
+import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import { resolveScanTimeoutBudgetMs, resolveScanRequestTimeoutMs } from "@/lib/scanner/gate-config";
@@ -553,6 +554,10 @@ export class ArmorIQScanner {
       repositoryId,
     });
 
+    // Deterministic dependency security checks for manifests (#2003).
+    const dependencyFindings = runDependencySecurityRules(files, { repositoryId });
+    const allDeterministicFindings = [...deterministicFindings, ...dependencyFindings];
+
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
 
     const { skippedByDefault, skippedCount, exemptSecretFiles } = resolveDefaultSkippedFiles(
@@ -1064,7 +1069,7 @@ CRITICAL RULES:
       );
     }
 
-    const combinedFindings = mergePrecheckWithLlmFindings(deterministicFindings, allFindings);
+    const combinedFindings = mergePrecheckWithLlmFindings(allDeterministicFindings, allFindings);
     const suppressionResult = applyInlineSuppression(combinedFindings, files);
     this.lastSuppressionResult = suppressionResult;
     this.lastSkippedFiles = skippedFiles;
@@ -1076,4 +1081,9 @@ CRITICAL RULES:
 
 export { detectSecretsInFiles, mergeFindings } from "./secret-detector";
 export { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
+export {
+  runDependencySecurityRules,
+  scanDependencyManifest,
+  isDependencyManifest,
+} from "@/lib/rules/dependency-rules";
 export const scanner = new ArmorIQScanner();

