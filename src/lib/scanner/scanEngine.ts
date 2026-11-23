@@ -32,6 +32,7 @@ import {
   resolveDefaultSkippedFiles,
 } from "@/lib/armor/ignore-rules";
 import { runDeterministicPrecheck } from "@/lib/armor/precheck";
+import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
@@ -104,16 +105,7 @@ export interface ScanJobResult {
   scannedFiles: number;
   vulnerabilitiesFound: number;
   riskScore: number;
-  /**
-   * The stored `PolicyDecision` member, not the scanner's phrasing.
-   *
-   * `workerPool` writes this straight into `ScanJob.policyDecision`, so the
-   * conversion belongs here rather than at that call site — returning
-   * `'REVIEW REQUIRED'` from a field typed `string` is what made every non-PASS
-   * scan fail its completion update (#747).
-   */
   policyDecision: "PASS" | "REVIEW" | "BLOCK";
-  /** The scanner's verdict as `iq.evaluateFindings` phrased it, for logs and copy. */
   verdict: string;
   findings: EnrichedScanFinding[];
   skippedFiles?: Array<{ filename: string; reason: string }>;
@@ -137,14 +129,6 @@ export interface ScanProgress {
 
 type ProgressCallback = (progress: ScanProgress) => void;
 
-/**
- * A chunk of the pull request could not be scanned.
- *
- * `scanner.scanPullRequest` throws once its own retries are exhausted precisely so a scan
- * the LLM never completed cannot be reported as clean (6452440). Swallowing that error
- * here and carrying on turned an unavailable analysis engine back into a `PASS` check
- * run with zero findings, for the webhook worker as well as the queued path.
- */
 export class ScanIncompleteError extends Error {
   constructor(
     readonly failedFiles: readonly string[],
@@ -156,49 +140,12 @@ export class ScanIncompleteError extends Error {
   }
 }
 
-/**
- * Which of the engine's side effects to run.
- *
- * `src/lib/queue/worker.ts` calls `processScanJob` for the scanning and then
- * does its own reporting and persistence: it posts a check run, updates the
- * pending pull request comment with inline review annotations, writes the
- * `AuditLog` row and creates the `ScanResult`. Every one of those is also a
- * phase of this function.
- *
- * That duplication has been invisible so far only because both of the engine's
- * writes failed: the check run and comment were posted twice, and the
- * persistence phase threw on a column name (#747) and was swallowed. Fixing the
- * persistence would have turned a latent duplicate into two `ScanResult` rows
- * per webhook scan, so the caller now says which half of the work it wants.
- *
- * Both default to `true`, which is what the queued path (`/api/findings` →
- * `workerPool`) needs — it has no other reporting of its own.
- */
 export interface ProcessScanJobOptions {
-  /** Post the GitHub check run and pull request comment. */
   report?: boolean;
-  /** Write the `PullRequest`, `ScanResult`, `Finding` and `AuditLog` rows. */
   persist?: boolean;
-  /**
-   * Request an AI explanation for each active finding.
-   *
-   * The webhook worker explains the findings itself (and masks the output) before it
-   * posts them, so enriching here as well paid for every explanation twice and threw
-   * the first copy away.
-   */
   enrich?: boolean;
 }
 
-/**
- * Process a scan job from the queue.
- *
- * This is the main entry point for background scan processing. It:
- * 1. Fetches PR files from GitHub
- * 2. Scans files in chunks with progress reporting
- * 3. Enriches findings with AI explanations
- * 4. Posts results to GitHub (PR comment/check)
- * 5. Persists results to the database
- */
 export async function processScanJob(
   data: ScanJobData,
   onProgress: ProgressCallback = () => {},
@@ -226,7 +173,6 @@ export async function processScanJob(
   log.info(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
   console.log(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
 
-  // --- Phase 1: Fetch files from GitHub ---
   onProgress({
     phase: "starting",
     scannedFiles: 0,
@@ -241,17 +187,8 @@ export async function processScanJob(
     privateKey,
     ...(customOctokit ? { Octokit: customOctokit } : {}),
   });
-  // Narrowed rather than asserted: `installationId` is `number | string` because
-  // the route accepts either and BullMQ round-trips job data through JSON.
   const octokit = await appClient.getInstallationOctokit(parseInstallationId(installationId));
 
-  // Ignore rules decide what the scan does not read, so they are taken from the
-  // pull request's base branch and never from its head: the head is the author's
-  // own branch, and a pull request that adds a `.secureflowignore` containing
-  // `**` would otherwise skip every file in it. See `./ignore-config`.
-  //
-  // `initialCustomIgnores` / `initialCustomPlaceholders` are server-supplied
-  // (never request fields) and are kept as an addition to the repository's own.
   let repositoryGateConfig: GateConfig = { ...DEFAULT_GATE_CONFIG };
   let repositoryIgnoreConfig: SecureFlowIgnoreConfig = {
     ignoredPaths: [],
@@ -276,7 +213,6 @@ export async function processScanJob(
       baseRef,
     });
   } catch (err) {
-    // Scanning without ignore rules is the safe direction: it can only cover more.
     log.warn(`[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`, {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -299,7 +235,6 @@ export async function processScanJob(
   ];
   const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
-  // If no file changes provided, fetch from GitHub
   let fileChanges = initialFileChanges;
   if (
     (!fileChanges || fileChanges.length === 0) &&
@@ -321,7 +256,6 @@ export async function processScanJob(
   log.info(`[ScanEngine] Scanning ${totalFiles} files`);
   console.log(`[ScanEngine] Scanning ${totalFiles} files`);
 
-  // --- Scan Cache Check (Deduplicate synchronize / force-push events) ---
   let policyVersion = "1.0.0";
   if (userId) {
     try {
@@ -391,7 +325,6 @@ export async function processScanJob(
       progress: 80,
     });
   } else {
-    // --- Phase 2: Scan files in chunks ---
     onProgress({
       phase: "scanning",
       scannedFiles: 0,
@@ -406,7 +339,6 @@ export async function processScanJob(
     const scanStartedAt = Date.now();
     budgetExceeded = false;
 
-    // Group files by their applicable policy scope (#1868)
     const fileGroups = groupFilesByPolicyScope(
       fileChanges,
       activePolicies as any[],
@@ -469,7 +401,6 @@ export async function processScanJob(
           if (scanner.lastAnalyzedFiles && scanner.lastAnalyzedFiles.length > 0) {
             allAnalyzedFiles.push(...scanner.lastAnalyzedFiles);
           } else if (scanner.lastAnalyzedFiles === undefined) {
-            // Scanner mock fallback for tests
             const scannableChunkFiles = chunk
               .filter(
                 (f) =>
@@ -513,9 +444,6 @@ export async function processScanJob(
             error: err instanceof Error ? err.message : String(err),
           });
           console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
-          // Fail the scan rather than continue: findings from the other chunks would be
-          // evaluated as if these files were clean, and a PR whose risky file sat in this
-          // chunk would pass.
           throw new ScanIncompleteError(
             chunk.map((file) => file.filename),
             err,
@@ -534,23 +462,34 @@ export async function processScanJob(
           progress,
         });
 
-        // Update database progress
         await updateScanJobProgress(scanJobId, {
           scannedFiles,
           vulnerabilitiesFound: vulnCount,
         }).catch(() => {});
 
-        // Yield to event loop between chunks
         if (scannedFiles < totalFiles) {
           await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
         }
       }
     }
 
-    // Persist raw findings in scan cache for subsequent synchronize events
     await setCachedScan(cacheKey, allFindings).catch((err) => {
       console.warn("[ScanEngine] Failed to save findings to scan cache:", err);
     });
+  }
+
+  // Ensure deterministic dependency security checks are present (#2003)
+  const dependencyRuleFindings = runDependencySecurityRules(fileChanges, { repositoryId });
+  for (const df of dependencyRuleFindings) {
+    const alreadyExists = allFindings.some(
+      (f) =>
+        f.fileLocation === df.fileLocation &&
+        f.lineStart === df.lineStart &&
+        f.matchedSignatures?.some((s) => df.matchedSignatures?.includes(s)),
+    );
+    if (!alreadyExists) {
+      allFindings.push(df);
+    }
   }
 
   // Ensure deterministic workflow security rules are present (#2002)
@@ -567,7 +506,6 @@ export async function processScanJob(
     }
   }
 
-  // --- Phase 3: Enrich findings with AI explanations ---
   onProgress({
     phase: "enriching",
     scannedFiles: totalFiles,
@@ -576,8 +514,6 @@ export async function processScanJob(
     progress: 90,
   });
 
-  // Compute fingerprints. `EnrichedScanFinding` declares the field; `ScanFinding`
-  // does not, which is what made this assignment a type error (#747).
   allFindings.forEach((f) => {
     f.fingerprint = computeFingerprint(repositoryId, f.fileLocation, f.type, f.codeSnippet);
   });
@@ -591,7 +527,6 @@ export async function processScanJob(
     });
   }
 
-  // Check for suppressed (dismissed) findings
   const suppressedFingerprints = new Set<string>();
   if (repositoryId) {
     const dismissed = await prisma.findingTriage.findMany({
@@ -608,7 +543,6 @@ export async function processScanJob(
     (f) => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint),
   );
 
-  // Apply installation-wide suppression rules after repository fingerprint dismissals (#1891)
   let activeFindings = nonDismissedFindings;
   let ruleSuppressedFindings: EnrichedScanFinding[] = [];
 
@@ -641,7 +575,6 @@ export async function processScanJob(
     });
   }
 
-  // Enrich active findings with AI explanations in batches to prevent rate-limit storms (thundering herd)
   const enrichedFindings: EnrichedScanFinding[] = [];
 
   for (let i = 0; i < activeFindings.length; i += AI_ENRICHMENT_CONCURRENCY) {
@@ -682,7 +615,6 @@ export async function processScanJob(
   const zeroScanReason =
     analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
 
-  // --- Phase 5: Post to GitHub ---
   onProgress({
     phase: "posting",
     scannedFiles: totalFiles,
@@ -696,7 +628,6 @@ export async function processScanJob(
       const { owner, repo } = splitRepositoryFullName(repositoryFullName);
       const gateSummary = formatGateSummaryLine(repositoryGateConfig);
 
-      // Create check run
       const checkNoticeParts: string[] = [];
       if (gateSummary) checkNoticeParts.push(gateSummary);
       if (allSkippedFiles.length > 0) {
@@ -723,11 +654,9 @@ export async function processScanJob(
         conclusion: isPartialScan ? "neutral" : undefined,
       });
 
-      // Post PR comment if there are findings, skipped files, or expired ignore rules
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
       const previouslyDismissedCount = allFindings.length - nonDismissedFindings.length;
 
-      // #1924: Filter findings for PR comment display by minimum confidence threshold
       const minConfidence = repositoryGateConfig.minCommentConfidence ?? "MEDIUM";
       const visibleFindings = enrichedFindings.filter((f) =>
         isConfidenceAtLeast(f.confidence, minConfidence),
@@ -828,11 +757,9 @@ export async function processScanJob(
         error: err instanceof Error ? err.message : String(err),
       });
       console.error(`[ScanEngine] Failed to post to GitHub:`, err);
-      // Don't throw — the scan results are still valid even if posting fails
     }
   }
 
-  // --- Phase 6: Persist to database ---
   let persistenceError: string | null = null;
 
   if (persist && repositoryId) {
@@ -845,8 +772,6 @@ export async function processScanJob(
         prNumber,
       });
 
-      // Suppressed findings are still stored, so a reversed triage decision does
-      // not lose its history, but they are excluded from the score.
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
       );
@@ -877,7 +802,6 @@ export async function processScanJob(
         }),
       });
 
-      // Persist scan input for policy backtesting and impact preview (#1892)
       if (
         (prisma as any).storedScanInput &&
         typeof (prisma as any).storedScanInput.create === "function" &&
@@ -904,7 +828,6 @@ export async function processScanJob(
           });
       }
 
-      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
       await autoResolveFixedFindings({
         repositoryId,
         pullRequestId: dbPr.id,
@@ -920,7 +843,6 @@ export async function processScanJob(
         });
       });
 
-      // Audit log
       if (userId) {
         await prisma.auditLog.create({
           data: sanitizeAuditLogInput({
@@ -951,9 +873,7 @@ export async function processScanJob(
     }
   }
 
-  // --- Phase 7: Real-time alerts (Slack & Teams) ---
   if (userId && enrichedFindings.length > 0) {
-    // 1. High-severity Slack alert for findings
     try {
       const owner = await prisma.user.findUnique({
         where: { id: userId },
@@ -972,7 +892,6 @@ export async function processScanJob(
       console.error(`[ScanEngine] Slack notification step failed:`, err);
     }
 
-    // 2. BLOCKED scan multi-channel notification (Slack & Teams)
     const isBlockedDecision = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
 
     if (isBlockedDecision) {
@@ -996,7 +915,6 @@ export async function processScanJob(
     }
   }
 
-  // --- Done ---
   onProgress({
     phase: "completed",
     scannedFiles: totalFiles,

