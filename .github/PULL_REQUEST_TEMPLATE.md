@@ -42,6 +42,18 @@
 
 closes #<!-- XXX -->
 
+## Threat Model & Security Checklist
+
+When modifying security-sensitive areas, consult [docs/threat-model.md](docs/threat-model.md) and update it if this PR:
+
+- [ ] Alters ingress routes, API endpoints, webhook signature verification, or rate limits
+- [ ] Changes background queues, worker locks, retry semantics, or concurrency boundaries
+- [ ] Touches secret pre-screening, redaction masking, or prompt construction for LLM providers
+- [ ] Changes `.secureflow.json`, `.secureflowignore`, or base-branch trust anchors
+- [ ] Modifies outbound webhook dispatch, DNS pinning, IP blocklists, or SSRF defenses
+- [ ] Affects tenant isolation, repository authorization, API scopes, RBAC, or audit logs
+- [ ] If applicable, `docs/threat-model.md` has been updated with new mitigations or residual risks
+
 ## Checklist
 
 - [ ] My code follows the project's style guidelines
