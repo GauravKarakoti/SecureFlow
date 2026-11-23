@@ -7,7 +7,13 @@ import {
   postScanSkippedCheckRun,
 } from "../scanner/check-run";
 import { getZeroScanReason, formatZeroScanComment } from "@/lib/scanner/zero-scan";
-import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
+import {
+  registerInFlightScan,
+  unregisterInFlightScan,
+  getInFlightScans,
+  type ActiveScan,
+} from "./in-flight-scans";
+import { resolveInstallationConcurrencyLimit } from "./fair-scheduler";
 import { z } from "zod";
 import { redis } from "./redis";
 import { webhookQueue, webhookDLQ, WebhookJobData } from "./webhookQueue";
@@ -458,6 +464,9 @@ const PR_SCAN_LOCK_RENEW_MS = 20_000;
 /** How long a job that lost the race for a PR waits before trying again. */
 const PR_SCAN_LOCK_RETRY_DELAY_MS = 15_000;
 
+/** How long a job waits when its installation reached its concurrency limit (#1980). */
+export const INSTALLATION_CONCURRENCY_RETRY_DELAY_MS = 5_000;
+
 export interface RunPullRequestScanParams {
   job: Job<WebhookJobData>;
   payload: any;
@@ -491,6 +500,22 @@ export async function runPullRequestScan({
 }: RunPullRequestScanParams): Promise<{ dbRepoId?: string; dbPrId?: string }> {
   let dbRepoId: string | undefined;
   let dbPrId: string | undefined;
+
+  // Enforce per-installation concurrency limit (#1980)
+  const installationId = installation?.id ? String(installation.id) : undefined;
+  if (installationId) {
+    const limit = resolveInstallationConcurrencyLimit();
+    const activeForInst = (typeof getInFlightScans === "function" ? getInFlightScans() : []).filter(
+      (s) => String(s?.installationId) === installationId,
+    ).length;
+    if (activeForInst >= limit) {
+      log.warn(
+        `[Worker] Installation ${installationId} reached concurrency limit of ${limit} (active: ${activeForInst}). Delaying job...`,
+      );
+      await job.moveToDelayed(Date.now() + INSTALLATION_CONCURRENCY_RETRY_DELAY_MS, job.token);
+      throw new DelayedError();
+    }
+  }
 
   const lockKey = `pr-scan:${repository.full_name}:${pullRequest.number}`;
   const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
