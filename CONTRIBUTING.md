@@ -6,6 +6,7 @@
 [![Contributors](https://img.shields.io/github/contributors/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/graphs/contributors)
 [![GitHub issues](https://img.shields.io/github/issues/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/pulls)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/GauravKarakoti/SecureFlow)
 
 </div>
 
@@ -26,6 +27,7 @@
 - [💻 Prerequisites & 2-Minute Quickstart](#-prerequisites--2-minute-quickstart)
   - [System Prerequisites](#system-prerequisites)
   - [Quickstart: Clone, Install & Run Tests](#quickstart-clone-install--run-tests)
+  - [One-Click Cloud & Container Setup (Dev Containers & GitHub Codespaces)](#one-click-cloud--container-setup-dev-containers--github-codespaces)
 - [⚡ Running the Project](#-running-the-project)
   - [1. Running & Testing the CLI (`secureflow`)](#1-running--testing-the-cli-secureflow)
   - [2. Running the Mission Control Dashboard](#2-running-the-mission-control-dashboard)
@@ -194,6 +196,25 @@ npm test
 
 > 💡 **Why `npm test` works out of the box**:  
 > The test runner automatically sets `GROQ_API_KEY=test-key` and uses mock adapters for the database, GitHub App, and Redis. You do **not** need to sign up for Groq, GitHub Developer accounts, or run a local database just to run tests or work on features!
+
+### One-Click Cloud & Container Setup (Dev Containers & GitHub Codespaces)
+
+SecureFlow provides a fully automated **Dev Container** setup that works out-of-the-box in GitHub Codespaces and VS Code Remote - Containers. It starts Node.js 22, PostgreSQL 16, and Redis services using Docker Compose, automatically installs dependencies, configures local environment defaults, and runs migrations.
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/GauravKarakoti/SecureFlow)
+
+#### Option 1: GitHub Codespaces (One-Click in Your Browser)
+
+1. Click the **Open in GitHub Codespaces** badge above (or navigate to your fork on GitHub and click **Code > Codespaces > Create codespace on main**).
+2. The devcontainer automatically boots and runs `postCreateCommand` (`npm ci`, safe local `.env` creation, and Prisma migrations).
+3. Once loaded, run `npm test` or `npm run dev` to start developing immediately.
+
+#### Option 2: VS Code Dev Containers (Local Docker)
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) in VS Code.
+2. Clone your fork and open the `SecureFlow` folder in VS Code.
+3. When prompted with **Reopen in Container**, click it (or press `F1` / `Ctrl+Shift+P` and choose **Dev Containers: Reopen in Container**).
+4. The devcontainer boots the `app`, PostgreSQL, and Redis containers, forwards ports `9002` (web dashboard), `5432` (PostgreSQL), and `6379` (Redis), and preinstalls ESLint, Prettier, Prisma, and Playwright extensions.
 
 ---
 

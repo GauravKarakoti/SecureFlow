@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
+    volumes:
+      - ..:/workspaces/SecureFlow:cached
+    command: sleep infinity
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://secureflow:secureflow@db:5432/secureflow?schema=public
+      DATABASE_POOL_URL: postgresql://secureflow:secureflow@db:5432/secureflow?schema=public
+      REDIS_URL: redis://redis:6379
+      GROQ_API_KEY: test-key
+      AUTH_SECRET: devcontainer-insecure-auth-secret-for-local-dev-only-32bytes
+      AUTH_URL: http://localhost:9002
+      NEXT_PUBLIC_APP_URL: http://localhost:9002
+      NEXT_PUBLIC_MOCK_AUTH: "true"
+      ALLOW_MOCK_AUTH: "true"
+      PORT: 9002
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: secureflow
+      POSTGRES_PASSWORD: secureflow
+      POSTGRES_DB: secureflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secureflow -d secureflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
