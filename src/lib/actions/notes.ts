@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { notifyMentionedUsers } from "@/lib/actions/notifications";
 
 export interface FindingNoteAuthor {
   id: string;
@@ -170,6 +171,20 @@ export async function addFindingNote(
       },
     }),
   });
+
+  // Notify any @mentioned repository members (#1979)
+  try {
+    await notifyMentionedUsers({
+      text: trimmed,
+      findingId,
+      repositoryId: access.repo.id,
+      authorId: user.id,
+      authorName: note.author?.name || note.author?.codename || note.author?.email,
+      repoFullName: access.repo.fullName,
+    });
+  } catch (notifErr) {
+    console.error("Failed to notify mentioned users:", notifErr);
+  }
 
   revalidatePath(`/dashboard/findings/${findingId}`);
   revalidatePath("/dashboard/findings");

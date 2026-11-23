@@ -30,6 +30,11 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: mockTriageUpdateMany,
     },
     auditLog: { create: mockAuditCreate },
+    finding: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    notification: { create: vi.fn().mockResolvedValue(null) },
   },
 }));
 

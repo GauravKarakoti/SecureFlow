@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { hasAdminRole } from "@/lib/admin/role-guard";
+import { notifyFindingAssignment } from "@/lib/actions/notifications";
 
 export interface AssignableUser {
   id: string;
@@ -213,6 +214,37 @@ export async function assignFinding(input: AssignFindingInput): Promise<AssignFi
     });
   } catch (err) {
     console.error("Failed to create audit log for assignment:", err);
+  }
+
+  // Trigger in-app notification for the assignee (#1979)
+  if (assigneeId) {
+    try {
+      const repo = await prisma.repository.findUnique({
+        where: { id: repositoryId },
+        select: { fullName: true },
+      });
+      const finding =
+        typeof prisma.finding?.findFirst === "function"
+          ? await prisma.finding.findFirst({
+              where: {
+                fingerprint,
+                scanResult: { pullRequest: { repositoryId } },
+              },
+              select: { id: true },
+            })
+          : null;
+      await notifyFindingAssignment({
+        assigneeId,
+        actorId,
+        actorName: (session.user as any)?.name || (session.user as any)?.email,
+        repositoryId,
+        repoFullName: repo?.fullName,
+        fingerprint,
+        findingId: finding?.id,
+      });
+    } catch (notifErr) {
+      console.error("Failed to create assignment notification:", notifErr);
+    }
   }
 
   revalidatePath("/dashboard/findings");

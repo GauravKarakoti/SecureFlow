@@ -28,6 +28,7 @@ BigInt.prototype.toJSON = function (this: bigint): string {
 
 const mockTriageStore = new Map<string, any>();
 const mockFindingStore = new Map<string, any>();
+const mockNotificationStore = new Map<string, any>();
 
 function createMockPrismaClient() {
   const mockFn = async (model: string, method: string, args: any[]) => {
@@ -69,6 +70,69 @@ function createMockPrismaClient() {
           note: v.note || null,
           expiresAt: v.expiresAt || null,
         }));
+      }
+    }
+    if (model === "notification") {
+      if (method === "create") {
+        const data = args[0]?.data || {};
+        const id = data.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const record = { id, createdAt: new Date(), updatedAt: new Date(), readAt: null, ...data };
+        mockNotificationStore.set(id, record);
+        return record;
+      }
+      if (method === "findUnique" || method === "findFirst") {
+        const id = args[0]?.where?.id;
+        if (id && mockNotificationStore.has(id)) {
+          return mockNotificationStore.get(id);
+        }
+        return null;
+      }
+      if (method === "findMany") {
+        const userId = args[0]?.where?.userId;
+        const unreadOnly = args[0]?.where?.readAt === null;
+        let list = Array.from(mockNotificationStore.values());
+        if (userId) list = list.filter((n) => n.userId === userId);
+        if (unreadOnly) list = list.filter((n) => n.readAt === null);
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const skip = args[0]?.skip || 0;
+        const take = args[0]?.take || list.length;
+        return list.slice(skip, skip + take);
+      }
+      if (method === "count") {
+        const userId = args[0]?.where?.userId;
+        const unreadOnly = args[0]?.where?.readAt === null;
+        let list = Array.from(mockNotificationStore.values());
+        if (userId) list = list.filter((n) => n.userId === userId);
+        if (unreadOnly) list = list.filter((n) => n.readAt === null);
+        return list.length;
+      }
+      if (method === "update") {
+        const id = args[0]?.where?.id;
+        const data = args[0]?.data || {};
+        if (id && mockNotificationStore.has(id)) {
+          const current = mockNotificationStore.get(id);
+          const updated = { ...current, ...data, updatedAt: new Date() };
+          mockNotificationStore.set(id, updated);
+          return updated;
+        }
+        return null;
+      }
+      if (method === "updateMany") {
+        const userId = args[0]?.where?.userId;
+        const data = args[0]?.data || {};
+        let count = 0;
+        for (const [id, notif] of mockNotificationStore.entries()) {
+          if (!userId || notif.userId === userId) {
+            mockNotificationStore.set(id, { ...notif, ...data, updatedAt: new Date() });
+            count++;
+          }
+        }
+        return { count };
+      }
+      if (method === "delete") {
+        const id = args[0]?.where?.id;
+        if (id) mockNotificationStore.delete(id);
+        return { id };
       }
     }
     if (model === "user") {
