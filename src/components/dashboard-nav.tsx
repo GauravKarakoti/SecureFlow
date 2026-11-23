@@ -21,16 +21,19 @@ import {
   Mail,
   FolderGit2,
   Users,
+  Bell,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CyberTextReveal } from "@/components/cyber-text-reveal";
 import { CyberAvatarReveal } from "@/components/cyber-avatar-reveal";
 import { getVersionInfo } from "@/lib/version";
+import { NotificationsDropdown } from "@/components/notifications-dropdown";
 
 // Themed Navigation Items
 const NAV_ITEMS = [
   { name: "Mission Control", href: "/dashboard", icon: LayoutDashboard },
   { name: "Breach Attempts", href: "/dashboard/findings", icon: ShieldAlert },
+  { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Repositories", href: "/dashboard/repositories", icon: FolderGit2 },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Defense Strategy", href: "/dashboard/policies", icon: Lock },
@@ -228,6 +231,9 @@ export function DashboardHeader({
 
       {/* ── Right: theme toggle + avatar + logout ─────────────── */}
       <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+        {/* Notifications Dropdown (#1979) */}
+        <NotificationsDropdown />
+
         {/* ThemeToggle is the leftmost item of this action cluster */}
         <ThemeToggle />
 

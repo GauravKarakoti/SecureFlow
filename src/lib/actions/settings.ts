@@ -839,3 +839,9 @@ export async function testOutboundWebhook(webhookId: string): Promise<{
   revalidatePath("/dashboard/settings");
   return outcome;
 }
+
+export {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreferencesDto,
+} from "@/lib/actions/notifications";

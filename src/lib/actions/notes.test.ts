@@ -17,6 +17,8 @@ const prismaMock = vi.hoisted(() => ({
   finding: { findUnique: vi.fn() },
   findingNote: { findMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
   auditLog: { create: mockAuditLogCreate },
+  user: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null) },
+  notification: { create: vi.fn().mockResolvedValue(null) },
 }));
 
 vi.mock("@/lib/prisma", () => ({ default: prismaMock }));

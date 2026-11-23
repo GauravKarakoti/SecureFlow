@@ -101,6 +101,14 @@ model User {
   digests      SecurityDigest[]
   findingNotes FindingNote[]
 
+  /**
+   * In-app notification preferences (#1979). Enabled by default.
+   */
+  notifyOnAssignment      Boolean        @default(true)
+  notifyOnMention         Boolean        @default(true)
+  notifyOnDismissalExpiry Boolean        @default(true)
+  notifications           Notification[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -337,6 +345,30 @@ model FindingNote {
 
   @@index([findingId, createdAt])
   @@index([authorId])
+}
+
+enum NotificationType {
+  FINDING_ASSIGNED
+  MENTION
+  DISMISSAL_EXPIRING
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  link      String?
+  findingId String?
+  scanId    String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model RemediationPatch {

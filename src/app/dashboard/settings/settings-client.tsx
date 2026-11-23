@@ -15,8 +15,10 @@ import {
   updateRepositoryPublicBadge,
   updateRepositoryCodeScanning,
   updateWeeklyDigestPreference,
+  updateNotificationPreferences,
   type RepoBadgeSetting,
   type ApiTokenItem,
+  type NotificationPreferencesDto,
 } from "@/lib/actions/settings";
 import {
   Save,
@@ -28,6 +30,7 @@ import {
   AlertTriangle,
   Copy,
   Mail,
+  Bell,
 } from "lucide-react";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
 import ApiTokensCard from "@/components/settings/api-tokens-card";
@@ -46,6 +49,11 @@ export default function SettingsClient({
   initialApiTokens = [],
   initialOutboundWebhooks = [],
   initialWeeklyDigestEnabled = true,
+  initialNotificationPreferences = {
+    notifyOnAssignment: true,
+    notifyOnMention: true,
+    notifyOnDismissalExpiry: true,
+  },
 }: {
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
@@ -54,7 +62,32 @@ export default function SettingsClient({
   initialApiTokens?: ApiTokenItem[];
   initialOutboundWebhooks?: OutboundWebhookView[];
   initialWeeklyDigestEnabled?: boolean;
+  initialNotificationPreferences?: NotificationPreferencesDto;
 }) {
+  // --- In-app notification preferences state (#1979) ---
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferencesDto>(
+    initialNotificationPreferences,
+  );
+  const [isNotifPending, startNotifTransition] = useTransition();
+
+  const handleNotifPrefToggle = (key: keyof NotificationPreferencesDto, checked: boolean) => {
+    setNotifPrefs((prev) => ({ ...prev, [key]: checked }));
+    startNotifTransition(async () => {
+      try {
+        const res = await updateNotificationPreferences({ [key]: checked });
+        if (res.ok) {
+          toast.success("Notification preferences updated.");
+        } else {
+          toast.error(res.error || "Failed to update notification preferences.");
+          setNotifPrefs((prev) => ({ ...prev, [key]: !checked }));
+        }
+      } catch (e: any) {
+        toast.error(e.message || "Failed to update notification preferences.");
+        setNotifPrefs((prev) => ({ ...prev, [key]: !checked }));
+      }
+    });
+  };
+
   // --- Slack state ---
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl || "");
   const [isPending, startTransition] = useTransition();
@@ -416,6 +449,72 @@ export default function SettingsClient({
               onCheckedChange={handleDigestToggle}
               disabled={isDigestPending}
               aria-label="Enable weekly security digest"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── In-App Notifications Preferences (#1979) ── */}
+      <Card className="glass-card">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-500/10 rounded-lg">
+              <Bell className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <CardTitle>In-App Notifications</CardTitle>
+              <CardDescription>
+                Choose which activities trigger notifications in your dashboard header and
+                notification center.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Finding Assignments</p>
+              <p className="text-xs text-muted-foreground">
+                Notify me when a security finding is assigned to me.
+              </p>
+            </div>
+            <Switch
+              checked={notifPrefs.notifyOnAssignment}
+              onCheckedChange={(checked) => handleNotifPrefToggle("notifyOnAssignment", checked)}
+              disabled={isNotifPending}
+              aria-label="Notify on finding assignments"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Reviewer Note @Mentions</p>
+              <p className="text-xs text-muted-foreground">
+                Notify me when someone mentions me (@username) in a reviewer note.
+              </p>
+            </div>
+            <Switch
+              checked={notifPrefs.notifyOnMention}
+              onCheckedChange={(checked) => handleNotifPrefToggle("notifyOnMention", checked)}
+              disabled={isNotifPending}
+              aria-label="Notify on reviewer note mentions"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Dismissal Expirations</p>
+              <p className="text-xs text-muted-foreground">
+                Notify me when a finding dismissal I created is approaching its expiration date.
+              </p>
+            </div>
+            <Switch
+              checked={notifPrefs.notifyOnDismissalExpiry}
+              onCheckedChange={(checked) =>
+                handleNotifPrefToggle("notifyOnDismissalExpiry", checked)
+              }
+              disabled={isNotifPending}
+              aria-label="Notify on dismissal expirations"
             />
           </div>
         </CardContent>
