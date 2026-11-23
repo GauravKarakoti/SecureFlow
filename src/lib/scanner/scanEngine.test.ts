@@ -167,6 +167,11 @@ describe("processScanJob chunk failures", () => {
         body: expect.stringContaining("Scanned commit: `abc123`"),
       }),
     );
+    expect(mocks.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringMatching(/Scan time: `.+`/),
+      }),
+    );
   });
 
   describe("ignore configuration", () => {
@@ -211,8 +216,6 @@ describe("processScanJob chunk failures", () => {
     });
 
     it("is not switched off by a .secureflowignore the pull request adds on its own branch", async () => {
-      // Nothing on the base branch; the head commit (`abc123`) adds a file that
-      // ignores everything. Only a read at the head would ever see it.
       mocks.getContent.mockImplementation(async ({ ref }: { ref: string }) => {
         if (ref === "main") throw notFound();
         return { data: { content: base64("**\n[placeholders]\nAKIA") } };
@@ -261,7 +264,6 @@ describe("processScanJob chunk failures", () => {
       expect(result.scannedFiles).toBe(0);
       expect(result.zeroScanReason).toBe("no changed files");
 
-      // Verify check run was created with neutral conclusion and emptyReason
       expect(mocks.checksCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           conclusion: "neutral",
@@ -272,7 +274,6 @@ describe("processScanJob chunk failures", () => {
         }),
       );
 
-      // Verify PR comment was posted with Nothing to scan and NO success wording
       expect(mocks.createComment).toHaveBeenCalledTimes(1);
       const commentBody = mocks.createComment.mock.calls[0][0].body;
       expect(commentBody).toContain("Nothing to scan: no changed files.");
@@ -357,7 +358,6 @@ describe("processScanJob chunk failures", () => {
     const base64 = (text: string) => Buffer.from(text).toString("base64");
 
     it("hides findings below repository threshold and states the hidden count in PR comment", async () => {
-      // Mock .secureflow.json from base branch with minCommentConfidence: "HIGH"
       mocks.getContent.mockImplementation(({ path }: { path: string }) => {
         if (path === ".secureflow.json") {
           return Promise.resolve({
@@ -408,21 +408,14 @@ describe("processScanJob chunk failures", () => {
       expect(mocks.createComment).toHaveBeenCalledTimes(1);
       const commentBody = mocks.createComment.mock.calls[0][0].body;
 
-      // Overall count reports total detected
       expect(commentBody).toContain("Detected **2** potential issues");
-
-      // Comment mentions hidden count and threshold
       expect(commentBody).toContain("1 lower-confidence finding");
       expect(commentBody).toContain("below the `HIGH` confidence threshold was hidden");
-
-      // Visible findings list includes HIGH finding, but NOT LOW finding
       expect(commentBody).toContain("High confidence production leak");
       expect(commentBody).toContain("`src/prod.ts`");
       expect(commentBody).toContain("**Confidence:** HIGH");
       expect(commentBody).not.toContain("Low confidence test mock");
       expect(commentBody).not.toContain("`tests/mock.ts`");
-
-      // Result still contains all findings for dashboard visibility and persistence
       expect(result.findings).toHaveLength(2);
     });
 
@@ -474,7 +467,6 @@ describe("processScanJob chunk failures", () => {
 
       const commentBody = mocks.createComment.mock.calls[0][0].body;
 
-      // No findings hidden
       expect(commentBody).not.toContain("lower-confidence finding");
       expect(commentBody).toContain("High confidence issue");
       expect(commentBody).toContain("`src/prod.ts`");
@@ -584,6 +576,71 @@ describe("processScanJob chunk failures", () => {
         f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
       );
       expect(typoFinding).toBeUndefined();
+    });
+  });
+
+  describe("deterministic workflow security checks (#2002)", () => {
+    it("reports workflow rule findings in PR comment with correct severity, rule ID and one-line fix", async () => {
+      const workflowFiles = [
+        {
+          filename: ".github/workflows/ci.yml",
+          patch: `+name: CI\n+on:\n+  issues:\n+    types: [opened]\n+permissions:\n+  issues: read\n+jobs:\n+  test:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - run: echo "\${{ github.event.issue.title }}"\n`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2002 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: workflowFiles } as ScanJobData,
+        undefined,
+        {
+          report: true,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      expect(result.findings.length).toBeGreaterThan(0);
+      const scriptInjFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("WORKFLOW_SCRIPT_INJECTION"),
+      );
+      expect(scriptInjFinding).toBeDefined();
+      expect(scriptInjFinding?.severity).toBe("HIGH");
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("WORKFLOW_SCRIPT_INJECTION");
+      expect(commentBody).toContain("`.github/workflows/ci.yml`");
+      expect(commentBody).toContain("Fix:");
+    });
+
+    it("does not run workflow rules on files outside .github/workflows/", async () => {
+      const otherFiles = [
+        {
+          filename: "scripts/deploy.yml",
+          patch: `+name: Deploy\n+on: push\n+permissions: write-all\n+jobs:\n+  deploy:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: otherFiles } as ScanJobData,
+        undefined,
+        {
+          report: true,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      const workflowFindings = result.findings.filter((f) =>
+        f.matchedSignatures?.some((s) => s.startsWith("WORKFLOW_")),
+      );
+      expect(workflowFindings.length).toBe(0);
     });
   });
 });

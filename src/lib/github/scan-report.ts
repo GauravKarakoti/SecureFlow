@@ -5,9 +5,9 @@ import {
   type CodeOwnersBase,
   type CodeOwnersClient,
 } from "./codeowners";
-import { SECUREFLOW_COMMENT_MARKER } from "./sticky-comment";
+import { SECUREFLOW_COMMENT_MARKER, formatScanMetadata } from "./sticky-comment";
 
-export { SECUREFLOW_COMMENT_MARKER };
+export { SECUREFLOW_COMMENT_MARKER, formatScanMetadata };
 
 /**
  * The summary comment the webhook worker posts on a pull request.
@@ -84,6 +84,8 @@ export interface ScanReportSummaryInput {
   ruleSuppressedCount?: number;
   /** Scanned commit SHA to show in the report. */
   commitSha?: string | null;
+  /** Scan timestamp to show in the report. */
+  scanTime?: string | Date | null;
   /** Ignore rules (.secureflowignore) that have expired. */
   expiredIgnoreRules?: readonly ExpiredIgnoreRuleReport[];
   /** Policy scopes applied to changed files (#1868). */
@@ -165,6 +167,7 @@ export function renderScanReportSummary({
   previouslyDismissedCount = 0,
   ruleSuppressedCount = 0,
   commitSha,
+  scanTime,
   expiredIgnoreRules = [],
   appliedPolicyScopes = [],
   defaultSkippedCount = 0,
@@ -173,9 +176,7 @@ export function renderScanReportSummary({
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
 
-  if (commitSha) {
-    body += `Scanned commit: \`${commitSha}\`\n\n`;
-  }
+  body += formatScanMetadata({ commitSha, scanTime });
 
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
 
