@@ -559,6 +559,131 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/findings/{id}/issue:
+    get:
+      operationId: getFindingIssue
+      summary: Get finding issue
+      description: >
+        Returns issue from a finding
+      tags:
+        - Findings
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Issue from Finding
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  type:
+                    type: string
+                  severity:
+                    type: string
+                    enum: [CRITICAL, HIGH, MEDIUM, LOW, INFO]
+                  fileLocation:
+                    type: string
+                  lineStart:
+                    type: integer
+                    nullable: true
+                  lineEnd:
+                    type: integer
+                    nullable: true
+                  codeSnippet:
+                    type: string
+                    nullable: true
+                  explanation:
+                    type: string
+                    nullable: true
+                  remediation:
+                    type: string
+                    nullable: true
+                  promptInjectionSuspected:
+                    type: boolean
+                  fingerprint:
+                    type: string
+                  complianceTags:
+                    type: array
+                    items:
+                      type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Finding not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: Generate issue from finding
+      description: |
+        Creates Github Issue from finding
+      operationId: createIssueForFinding
+      security:
+        - sessionAuth: []
+      tags:
+        - Findings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Finding ID (CUID)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Issue generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - patch
+                  - explanation
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  explanation:
+                    type: string
+                    description: Issue from Finding
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Finding not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Patch generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/findings/bulk-remediate:
     post:
       summary: Generate remediation patches for multiple findings
