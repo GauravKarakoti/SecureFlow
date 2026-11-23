@@ -482,4 +482,69 @@ describe("processScanJob chunk failures", () => {
       expect(commentBody).toContain("`tests/mock.ts`");
     });
   });
+
+  describe("deterministic workflow security checks (#2002)", () => {
+    it("reports workflow rule findings in PR comment with correct severity, rule ID and one-line fix", async () => {
+      const workflowFiles = [
+        {
+          filename: ".github/workflows/ci.yml",
+          patch: `+name: CI\n+on:\n+  issues:\n+    types: [opened]\n+permissions:\n+  issues: read\n+jobs:\n+  test:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - run: echo "\${{ github.event.issue.title }}"\n`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2002 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: workflowFiles } as ScanJobData,
+        undefined,
+        {
+          report: true,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      expect(result.findings.length).toBeGreaterThan(0);
+      const scriptInjFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("WORKFLOW_SCRIPT_INJECTION"),
+      );
+      expect(scriptInjFinding).toBeDefined();
+      expect(scriptInjFinding?.severity).toBe("HIGH");
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("WORKFLOW_SCRIPT_INJECTION");
+      expect(commentBody).toContain("`.github/workflows/ci.yml`");
+      expect(commentBody).toContain("Fix:");
+    });
+
+    it("does not run workflow rules on files outside .github/workflows/", async () => {
+      const otherFiles = [
+        {
+          filename: "scripts/deploy.yml",
+          patch: `+name: Deploy\n+on: push\n+permissions: write-all\n+jobs:\n+  deploy:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: otherFiles } as ScanJobData,
+        undefined,
+        {
+          report: true,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      const workflowFindings = result.findings.filter((f) =>
+        f.matchedSignatures?.some((s) => s.startsWith("WORKFLOW_")),
+      );
+      expect(workflowFindings.length).toBe(0);
+    });
+  });
 });

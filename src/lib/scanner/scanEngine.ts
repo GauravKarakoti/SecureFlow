@@ -28,6 +28,7 @@ import {
   resolveDefaultSkippedFiles,
 } from "@/lib/armor/ignore-rules";
 import { runDeterministicPrecheck } from "@/lib/armor/precheck";
+import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -544,6 +545,20 @@ export async function processScanJob(
     await setCachedScan(cacheKey, allFindings).catch((err) => {
       console.warn("[ScanEngine] Failed to save findings to scan cache:", err);
     });
+  }
+
+  // Ensure deterministic workflow security rules are present (#2002)
+  const workflowRuleFindings = runWorkflowSecurityRules(fileChanges, { repositoryId });
+  for (const wf of workflowRuleFindings) {
+    const alreadyExists = allFindings.some(
+      (f) =>
+        f.fileLocation === wf.fileLocation &&
+        f.lineStart === wf.lineStart &&
+        f.matchedSignatures?.some((s) => wf.matchedSignatures?.includes(s)),
+    );
+    if (!alreadyExists) {
+      allFindings.push(wf);
+    }
   }
 
   // --- Phase 3: Enrich findings with AI explanations ---
