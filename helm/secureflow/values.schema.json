@@ -8,7 +8,8 @@
       "type": "object",
       "properties": {
         "imageRegistry": {
-          "type": "string"
+          "type": "string",
+          "description": "Global Docker image registry prefix."
         },
         "imagePullSecrets": {
           "type": "array",
@@ -23,20 +24,23 @@
           }
         }
       },
-      "description": "Settings shared by chart components."
+      "description": "Global settings shared across chart components.",
+      "additionalProperties": false
     },
     "app": {
       "type": "object",
       "properties": {
         "replicaCount": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Number of desired web application pod replicas."
         },
         "image": {
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image repository for the web application."
             },
             "pullPolicy": {
               "type": "string",
@@ -44,12 +48,20 @@
                 "Always",
                 "IfNotPresent",
                 "Never"
-              ]
+              ],
+              "description": "Kubernetes image pull policy (Always, IfNotPresent, Never)."
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image tag. Defaults to the chart appVersion when empty."
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag"
+          ],
+          "description": "Container image settings for the Next.js web application."
         },
         "service": {
           "type": "object",
@@ -61,14 +73,22 @@
                 "NodePort",
                 "LoadBalancer",
                 "ExternalName"
-              ]
+              ],
+              "description": "Kubernetes Service type."
             },
             "port": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 65535
+              "maximum": 65535,
+              "description": "Port exposed by the application Service."
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "port"
+          ],
+          "description": "Service configuration for the Next.js web application."
         },
         "env": {
           "type": "object",
@@ -117,7 +137,12 @@
               "minimum": 1,
               "maximum": 100
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "description": "Horizontal Pod Autoscaler (HPA) settings for web pods."
         },
         "livenessProbe": {
           "type": "object",
@@ -145,7 +170,8 @@
             "failureThreshold": {
               "type": "integer"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "readinessProbe": {
           "type": "object",
@@ -173,7 +199,8 @@
             "failureThreshold": {
               "type": "integer"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "startupProbe": {
           "type": "object",
@@ -198,7 +225,8 @@
             "failureThreshold": {
               "type": "integer"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "podSecurityContext": {
           "type": "object",
@@ -215,7 +243,9 @@
             "fsGroup": {
               "type": "integer"
             }
-          }
+          },
+          "additionalProperties": false,
+          "description": "Pod security context applied to application pods."
         },
         "securityContext": {
           "type": "object",
@@ -237,7 +267,9 @@
             "readOnlyRootFilesystem": {
               "type": "boolean"
             }
-          }
+          },
+          "additionalProperties": false,
+          "description": "Container security context applied to application containers."
         },
         "podDisruptionBudget": {
           "type": "object",
@@ -257,7 +289,9 @@
                 "string"
               ]
             }
-          }
+          },
+          "additionalProperties": false,
+          "description": "Pod Disruption Budget for application pods."
         },
         "nodeSelector": {
           "type": "object",
@@ -343,10 +377,14 @@
           "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
-      "description": "Next.js web application deployment.",
+      "description": "Next.js web application deployment configuration.",
       "required": [
+        "replicaCount",
+        "image",
+        "service",
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "serviceMonitor": {
       "type": "object",
@@ -401,7 +439,11 @@
           }
         }
       },
-      "description": "Prometheus Operator ServiceMonitor settings."
+      "description": "Prometheus Operator ServiceMonitor resource configuration.",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
     },
     "grafanaDashboard": {
       "type": "object",
@@ -420,7 +462,11 @@
           }
         }
       },
-      "description": "Grafana Dashboard ConfigMap settings (#1784)."
+      "description": "Grafana Dashboard ConfigMap deployment settings (#1784).",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
     },
     "worker": {
       "type": "object",
@@ -430,13 +476,15 @@
         },
         "replicaCount": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Number of desired worker pod replicas."
         },
         "image": {
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image repository for the scanning workers."
             },
             "pullPolicy": {
               "type": "string",
@@ -444,12 +492,20 @@
                 "Always",
                 "IfNotPresent",
                 "Never"
-              ]
+              ],
+              "description": "Kubernetes image pull policy (Always, IfNotPresent, Never)."
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image tag. Defaults to the chart appVersion when empty."
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag"
+          ],
+          "description": "Container image settings for the background scanning workers."
         },
         "command": {
           "type": "array",
@@ -478,7 +534,8 @@
               "minimum": 1,
               "maximum": 65535
             }
-          }
+          },
+          "additionalProperties": false
         },
         "resources": {
           "$ref": "#/definitions/workloadResources"
@@ -528,9 +585,14 @@
                     "AverageValue"
                   ]
                 }
-              }
+              },
+              "additionalProperties": false
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ]
         },
         "localInference": {
           "type": "object",
@@ -574,7 +636,11 @@
                 }
               }
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ]
         },
         "podDisruptionBudget": {
           "type": "object",
@@ -594,7 +660,8 @@
                 "string"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "livenessProbe": {
           "type": "object",
@@ -655,7 +722,8 @@
             "fsGroup": {
               "type": "integer"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "securityContext": {
           "type": "object",
@@ -677,7 +745,8 @@
             "readOnlyRootFilesystem": {
               "type": "boolean"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "nodeSelector": {
           "type": "object",
@@ -804,10 +873,13 @@
           "description": "Container lifecycle hooks such as preStop to allow network drain (#1894)."
         }
       },
-      "description": "Background scanning worker deployment.",
+      "description": "Background queue scanning worker deployment configuration.",
       "required": [
+        "replicaCount",
+        "image",
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "migration": {
       "type": "object",
@@ -819,7 +891,8 @@
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image repository for database migrations."
             },
             "pullPolicy": {
               "type": "string",
@@ -830,9 +903,16 @@
               ]
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image tag for database migrations."
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag"
+          ],
+          "description": "Container image for the database migration Job."
         },
         "command": {
           "type": "array",
@@ -848,10 +928,13 @@
           "$ref": "#/definitions/workloadResources"
         }
       },
-      "description": "Database migration hook job.",
+      "description": "Database migration Helm hook Job configuration.",
       "required": [
+        "enabled",
+        "image",
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "retention": {
       "type": "object",
@@ -860,7 +943,8 @@
           "type": "boolean"
         },
         "schedule": {
-          "type": "string"
+          "type": "string",
+          "description": "Cron schedule string for the retention job (e.g. 0 2 * * *)."
         },
         "successfulJobsHistoryLimit": {
           "type": "integer",
@@ -874,7 +958,8 @@
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image repository for data retention."
             },
             "pullPolicy": {
               "type": "string",
@@ -885,9 +970,16 @@
               ]
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Container image tag for data retention."
             }
-          }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag"
+          ],
+          "description": "Container image for the data retention CronJob."
         },
         "command": {
           "type": "array",
@@ -899,10 +991,14 @@
           "$ref": "#/definitions/workloadResources"
         }
       },
-      "description": "Scheduled data retention job.",
+      "description": "Data retention scheduled CronJob configuration.",
       "required": [
+        "enabled",
+        "schedule",
+        "image",
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "ingress": {
       "type": "object",
@@ -946,10 +1042,20 @@
                         "ImplementationSpecific"
                       ]
                     }
-                  }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "pathType"
+                  ]
                 }
               }
-            }
+            },
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "paths"
+            ]
           }
         },
         "tls": {
@@ -966,20 +1072,31 @@
                   "type": "string"
                 }
               }
-            }
+            },
+            "additionalProperties": false,
+            "required": [
+              "secretName",
+              "hosts"
+            ]
           }
         }
       },
-      "description": "Ingress hosts, paths, and TLS settings."
+      "description": "Kubernetes Ingress resource configuration for routing external traffic.",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
     },
     "config": {
       "type": "object",
       "properties": {
         "authUrl": {
-          "type": "string"
+          "type": "string",
+          "description": "Public base URL of the SecureFlow deployment for Auth.js callbacks."
         },
         "nextPublicAppUrl": {
-          "type": "string"
+          "type": "string",
+          "description": "Frontend base URL exposed to browsers."
         },
         "groqModel": {
           "type": "string"
@@ -1046,48 +1163,70 @@
         },
         "logLevel": {
           "type": "string",
-          "description": "Application logging level."
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "http",
+            "verbose",
+            "debug",
+            "silly"
+          ],
+          "description": "Application logging verbosity level."
         }
       },
-      "description": "Non-sensitive application configuration."
+      "description": "Non-sensitive application environment variables and tuning parameters.",
+      "additionalProperties": false
     },
     "secrets": {
       "type": "object",
       "properties": {
         "existingSecret": {
           "type": "string",
-          "description": "Name of an existing Secret containing application credentials."
+          "description": "Name of a pre-existing Kubernetes Secret containing credentials. Required if not providing authSecret or using external/sealed secrets."
         },
         "authSecret": {
           "type": "string",
-          "description": "Authentication secret; required by the template when no existing, external, or sealed Secret is used."
+          "description": "NextAuth authentication secret key. Required when existingSecret, externalSecrets, or sealedSecrets are not used."
         },
         "groqApiKey": {
-          "type": "string"
+          "type": "string",
+          "description": "API key for Groq LLM inference service."
         },
         "githubAppId": {
           "type": [
             "string",
             "integer"
-          ]
+          ],
+          "description": "GitHub Application ID."
         },
         "githubWebhookSecret": {
-          "type": "string"
+          "type": "string",
+          "description": "Shared secret for verifying incoming GitHub webhooks."
         },
         "githubPrivateKey": {
-          "type": "string"
+          "type": "string",
+          "description": "Private key for GitHub App authentication (PEM format)."
         },
         "githubClientId": {
-          "type": "string"
+          "type": "string",
+          "description": "OAuth Client ID for GitHub App."
         },
         "githubClientSecret": {
-          "type": "string"
+          "type": "string",
+          "description": "OAuth Client Secret for GitHub App."
         },
         "armoriqApiKey": {
-          "type": "string"
+          "type": "string",
+          "description": "API key for ArmorIQ security verification."
         }
       },
-      "description": "Credentials or an existing Kubernetes Secret name."
+      "description": "Application credentials and secret sources (existing Secret or inline plaintext).",
+      "additionalProperties": false,
+      "required": [
+        "existingSecret",
+        "authSecret"
+      ]
     },
     "externalSecrets": {
       "type": "object",
@@ -1118,7 +1257,8 @@
                 "ClusterSecretStore"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "target": {
           "type": "object",
@@ -1132,7 +1272,8 @@
                 "None"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "data": {
           "type": "array",
@@ -1155,9 +1296,11 @@
                   "version": {
                     "type": "string"
                   }
-                }
+                },
+                "additionalProperties": false
               }
-            }
+            },
+            "additionalProperties": false
           }
         },
         "dataFrom": {
@@ -1184,7 +1327,11 @@
           }
         }
       },
-      "description": "External Secrets Operator integration."
+      "description": "External Secrets Operator (ESO) integration for Vault, AWS Secrets Manager, etc.",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
     },
     "sealedSecrets": {
       "type": "object",
@@ -1207,7 +1354,11 @@
           }
         }
       },
-      "description": "Bitnami Sealed Secrets integration."
+      "description": "Bitnami Sealed Secrets integration for GitOps-managed encrypted secrets.",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
     },
     "postgresql": {
       "type": "object",
@@ -1232,7 +1383,8 @@
                 "Never"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "auth": {
           "type": "object",
@@ -1246,7 +1398,8 @@
             "database": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "persistence": {
           "type": "object",
@@ -1260,7 +1413,8 @@
             "storageClass": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "resources": {
           "$ref": "#/definitions/workloadResources"
@@ -1283,7 +1437,8 @@
                 "string"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "external": {
           "type": "object",
@@ -1317,13 +1472,15 @@
             "existingSecretKey": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
-      "description": "In-cluster PostgreSQL or an external database.",
+      "description": "In-cluster PostgreSQL StatefulSet or connection settings for external database.",
       "required": [
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "redis": {
       "type": "object",
@@ -1348,7 +1505,8 @@
                 "Never"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "auth": {
           "type": "object",
@@ -1359,7 +1517,8 @@
             "password": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "persistence": {
           "type": "object",
@@ -1373,7 +1532,8 @@
             "storageClass": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         },
         "resources": {
           "$ref": "#/definitions/workloadResources"
@@ -1396,7 +1556,8 @@
                 "string"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         },
         "external": {
           "type": "object",
@@ -1410,13 +1571,15 @@
             "existingSecretKey": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
-      "description": "In-cluster Redis or an external Redis service.",
+      "description": "In-cluster Redis StatefulSet or connection settings for external Redis.",
       "required": [
         "resources"
-      ]
+      ],
+      "additionalProperties": false
     },
     "serviceAccount": {
       "type": "object",
@@ -1435,7 +1598,11 @@
           "type": "string"
         }
       },
-      "description": "Kubernetes ServiceAccount settings."
+      "description": "Kubernetes ServiceAccount configuration.",
+      "additionalProperties": false,
+      "required": [
+        "create"
+      ]
     },
     "resourceQuota": {
       "type": "object",
@@ -1509,7 +1676,8 @@
           }
         }
       },
-      "description": "Namespace ResourceQuota settings."
+      "description": "Namespace ResourceQuota settings.",
+      "additionalProperties": false
     },
     "limitRange": {
       "type": "object",
@@ -1621,7 +1789,8 @@
           }
         }
       },
-      "description": "Namespace LimitRange settings."
+      "description": "Namespace LimitRange settings.",
+      "additionalProperties": false
     },
     "networkPolicy": {
       "type": "object",
@@ -1743,7 +1912,8 @@
           }
         }
       },
-      "description": "Kubernetes NetworkPolicy settings to enforce least-privilege pod-to-pod communication."
+      "description": "Kubernetes NetworkPolicy settings to enforce least-privilege pod-to-pod communication.",
+      "additionalProperties": false
     },
     "nameOverride": {
       "type": "string",
@@ -1757,10 +1927,15 @@
       "type": "object",
       "properties": {
         "portName": {
-          "type": "string"
+          "type": "string",
+          "description": "Named port on the application Service exposed for Prometheus scraping."
         }
       },
-      "description": "Port name of the application Service, used by the optional ServiceMonitor."
+      "description": "Port name of the application Service, selected by the optional ServiceMonitor.",
+      "additionalProperties": false,
+      "required": [
+        "portName"
+      ]
     }
   },
   "definitions": {
@@ -1942,5 +2117,17 @@
         ]
       }
     }
+  ],
+  "additionalProperties": false,
+  "": "https://json-schema.org/draft-07/schema#",
+  "required": [
+    "global",
+    "app",
+    "service",
+    "worker",
+    "migration",
+    "retention",
+    "config",
+    "secrets"
   ]
 }

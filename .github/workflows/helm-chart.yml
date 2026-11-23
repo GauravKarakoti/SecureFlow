@@ -55,6 +55,18 @@ jobs:
         run: |
           helm lint helm/secureflow --set secrets.authSecret=local-test-only
 
+      - name: Helm schema validation (negative test with invalid values file)
+        run: |
+          echo "Verifying helm lint rejects invalid values schema..."
+          schema_output="$(helm lint helm/secureflow -f helm/secureflow/tests/invalid-values.yaml 2>&1 || true)"
+          if echo "$schema_output" | grep -q -E "additional properties|got string, want integer|maximum:|value must be one of|minimum:"; then
+            echo "✅ Helm schema correctly rejected invalid values file."
+          else
+            echo "❌ Helm schema failed to reject invalid values file!" >&2
+            echo "$schema_output" >&2
+            exit 1
+          fi
+
       - name: Chart-testing lint (ct lint)
         run: |
           ct lint --config .github/ct.yaml --charts helm/secureflow
