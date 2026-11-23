@@ -45,6 +45,7 @@ const FINDING_SELECT = {
   promptInjectionSuspected: true,
   fingerprint: true,
   complianceTags: true,
+  issueUrl: true,
   createdAt: true,
   remediationPatch: {
     select: {

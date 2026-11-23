@@ -81,6 +81,8 @@ export interface FindingRow {
   isOverdue: boolean;
   /** Number of reviewer discussion notes on this finding (#1920). */
   noteCount: number;
+  /** Linked GitHub issue URL created from this finding (#1987). */
+  issueUrl?: string | null;
 }
 
 export interface FindingsStats {
@@ -308,6 +310,7 @@ export async function getUserFindings(
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
       noteCount: finding._count?.notes ?? 0,
+      issueUrl: finding.issueUrl ?? null,
     };
   });
 
