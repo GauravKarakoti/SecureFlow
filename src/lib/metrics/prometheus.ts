@@ -46,5 +46,19 @@ export function formatPrometheusMetrics(metrics: DetailedLandingMetrics): string
     "",
   ];
 
+  if (
+    metrics.queueDepthPerInstallation &&
+    Object.keys(metrics.queueDepthPerInstallation).length > 0
+  ) {
+    lines.push(
+      "# HELP secureflow_queue_depth_per_installation Current waiting queue depth per installation",
+      "# TYPE secureflow_queue_depth_per_installation gauge",
+    );
+    for (const [instId, depth] of Object.entries(metrics.queueDepthPerInstallation)) {
+      lines.push(`secureflow_queue_depth_per_installation{installation="${instId}"} ${depth}`);
+    }
+    lines.push("");
+  }
+
   return lines.join("\n");
 }

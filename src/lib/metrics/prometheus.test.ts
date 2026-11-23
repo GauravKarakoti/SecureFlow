@@ -52,4 +52,20 @@ describe("formatPrometheusMetrics (#1784)", () => {
 
     expect(output).toContain("secureflow_database_live 0");
   });
+
+  it("formats queue depth per installation when present (#1980)", () => {
+    const metricsWithQueue: DetailedLandingMetrics = {
+      ...sampleMetrics,
+      queueDepthPerInstallation: {
+        "12345": 4,
+        "67890": 1,
+      },
+    };
+    const output = formatPrometheusMetrics(metricsWithQueue);
+
+    expect(output).toContain("# HELP secureflow_queue_depth_per_installation");
+    expect(output).toContain("# TYPE secureflow_queue_depth_per_installation gauge");
+    expect(output).toContain('secureflow_queue_depth_per_installation{installation="12345"} 4');
+    expect(output).toContain('secureflow_queue_depth_per_installation{installation="67890"} 1');
+  });
 });

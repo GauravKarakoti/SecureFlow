@@ -30,6 +30,7 @@ vi.mock("./lock", () => ({
 vi.mock("./in-flight-scans", () => ({
   registerInFlightScan: vi.fn(),
   unregisterInFlightScan: vi.fn(),
+  getInFlightScans: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../scanner/check-run", () => ({

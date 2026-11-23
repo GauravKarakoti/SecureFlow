@@ -2,6 +2,11 @@
 
 import prisma from "@/lib/prisma";
 import { webhookQueue, webhookDLQ, addWebhookJob } from "@/lib/queue/webhookQueue";
+import {
+  fairQueueScheduler,
+  resolveInstallationConcurrencyLimit,
+} from "@/lib/queue/fair-scheduler";
+import { getInFlightScans } from "@/lib/queue/in-flight-scans";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
@@ -194,13 +199,18 @@ async function deleteOne(job: DlqJobLike): Promise<DlqJobResult> {
   }
 }
 
-export async function getQueueMetrics(): Promise<{
+export interface QueueMetrics {
   waiting: number;
   active: number;
   completed: number;
   failed: number;
   delayed: number;
-}> {
+  queueDepthPerInstallation?: Record<string, number>;
+  activePerInstallation?: Record<string, number>;
+  installationConcurrencyLimit?: number;
+}
+
+export async function getQueueMetrics(): Promise<QueueMetrics> {
   await requireAdmin();
 
   if (isMockMode()) {
@@ -210,6 +220,15 @@ export async function getQueueMetrics(): Promise<{
       completed: 15,
       failed: 0,
       delayed: 0,
+      queueDepthPerInstallation: {
+        "12345678": 2,
+        "87654321": 0,
+      },
+      activePerInstallation: {
+        "12345678": 1,
+        "87654321": 0,
+      },
+      installationConcurrencyLimit: resolveInstallationConcurrencyLimit(),
     };
   }
 
@@ -222,12 +241,43 @@ export async function getQueueMetrics(): Promise<{
   );
   const dlqCounts = await webhookDLQ.getJobCounts("waiting");
 
+  // Per-installation metrics (#1980)
+  const queueDepthPerInstallation: Record<string, number> = {
+    ...fairQueueScheduler.getQueueDepthPerInstallation(),
+  };
+  const activePerInstallation: Record<string, number> = {
+    ...fairQueueScheduler.getActivePerInstallation(),
+  };
+
+  try {
+    const waitingJobs = (await webhookQueue.getJobs(["waiting"], 0, DLQ_READ_LIMIT)) || [];
+    for (const job of waitingJobs) {
+      const instId = (job.data as any)?.payload?.installation?.id;
+      if (instId) {
+        const key = String(instId);
+        queueDepthPerInstallation[key] = (queueDepthPerInstallation[key] || 0) + 1;
+      }
+    }
+  } catch (err) {
+    console.error("[Queue] Failed to get waiting jobs per installation:", err);
+  }
+
+  for (const scan of getInFlightScans()) {
+    if (scan.installationId) {
+      const key = String(scan.installationId);
+      activePerInstallation[key] = (activePerInstallation[key] || 0) + 1;
+    }
+  }
+
   return {
     waiting: counts.waiting || 0,
     active: counts.active || 0,
     completed: counts.completed || 0,
     failed: dlqCounts.waiting || 0,
     delayed: counts.delayed || 0,
+    queueDepthPerInstallation,
+    activePerInstallation,
+    installationConcurrencyLimit: resolveInstallationConcurrencyLimit(),
   };
 }
 

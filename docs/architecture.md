@@ -381,6 +381,13 @@ flowchart TD
 4. **Auto-Retry Worker**: `dlqAutoRetryWorker` inspects dead jobs and re-enqueues them using exponential backoff up to configured limits.
 5. **AI Circuit Breaker**: `CircuitBreaker` (`src/ai/resilience.ts`) tracks consecutive errors across worker replicas via `RedisCircuitBreakerStateStore`. When tripped (`OPEN`), requests immediately route to fallback models (`SCAN_FALLBACK_MODELS`) or preserve deterministic pre-check findings.
 6. **Distributed Lock Expiry**: Locks use short leases (60s) with active renewal heartbeats (20s). If a worker pod crashes, the lock automatically expires to avoid permanently stalling scans on that PR.
+7. **Queue Fairness & Per-Installation Concurrency (#1980)**:
+   - **Problem**: When a single installation opens many PRs at once (e.g. bulk Renovate/Dependabot upgrades or monorepo releases), its jobs can monopolize all worker slots, starving small PRs from other installations.
+   - **Fair Scheduling**: `FairQueueScheduler` (`src/lib/queue/fair-scheduler.ts`) schedules waiting jobs in a round-robin rotation across active installations instead of strict FIFO.
+   - **Per-Installation Concurrency Limit**: Capped by default to 2 concurrent running jobs per installation (configurable via `SCAN_INSTALLATION_CONCURRENCY_LIMIT` or `INSTALLATION_CONCURRENCY_LIMIT`). Excess jobs wait in their installation queue or yield via BullMQ `moveToDelayed`.
+   - **PR Ordering & Locking**: Scans for the same pull request (`${repo}#${pr}`) never run in parallel and are strictly processed in FIFO order.
+   - **DLQ and Retry Interaction**: Failed scans release their installation concurrency slot immediately. If retried, they re-enter the queue with backoff while maintaining head-of-line priority for that PR. Once max attempts are exhausted, the job routes to the DLQ (`webhookDLQ`), freeing capacity for subsequent jobs.
+   - **Observability**: Real-time queue depths per installation are exposed via `/api/metrics/landing` (`secureflow_queue_depth_per_installation{installation="<id>"}`) and visualized in the Admin Queue Monitor (`/admin/queue`).
 
 ---
 
@@ -526,6 +533,7 @@ erDiagram
 | **Webhook Security**       | `src/lib/github/webhook-verification.ts`                      | HMAC SHA-256 validation with zero-downtime secret rotation        |
 | **Deduplication**          | `src/lib/github/webhook-dedup.ts`                             | Atomic Redis delivery ID deduplication with 24h TTL               |
 | **Queue Definitions**      | `src/lib/queue/webhookQueue.ts`                               | BullMQ `github-webhooks` and `github-webhooks-dlq` setup          |
+| **Fair Queue Scheduler**   | `src/lib/queue/fair-scheduler.ts`                             | Round-robin scheduler & per-installation concurrency limits       |
 | **Queue Worker**           | `src/lib/queue/worker.ts`                                     | Core background job consumer, distributed lock, scan dispatcher   |
 | **Distributed Locks**      | `src/lib/queue/lock.ts`                                       | Redis distributed lock primitives and heartbeat renewal           |
 | **Deterministic Precheck** | `src/lib/armor/precheck.ts`                                   | High-speed regex and entropy secret scanner                       |
