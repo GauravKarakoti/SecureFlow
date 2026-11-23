@@ -22,10 +22,14 @@ vi.mock("./check-run", () => ({
   postScanCheckRun: mocks.postScanCheckRun,
 }));
 
-vi.mock("@/lib/github/sticky-comment", () => ({
-  upsertSecureFlowComment: mocks.upsertSecureFlowComment,
-  SECUREFLOW_COMMENT_MARKER: "<!-- secureflow -->",
-}));
+vi.mock("@/lib/github/sticky-comment", async () => {
+  const actual = await vi.importActual<any>("@/lib/github/sticky-comment");
+  return {
+    ...actual,
+    upsertSecureFlowComment: mocks.upsertSecureFlowComment,
+    SECUREFLOW_COMMENT_MARKER: "<!-- secureflow -->",
+  };
+});
 
 vi.mock("@/lib/github/app-auth", () => ({
   getGitHubAppCredentials: () => ({ appId: "1", privateKey: "k" }),

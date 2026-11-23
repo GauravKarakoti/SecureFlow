@@ -3,7 +3,9 @@ import {
   SECUREFLOW_COMMENT_MARKER,
   ensureSecureFlowMarker,
   findSecureFlowComment,
+  formatScanMetadata,
   isNotFoundError,
+  isSecureFlowComment,
   upsertSecureFlowComment,
 } from "./sticky-comment";
 
@@ -28,6 +30,61 @@ describe("isNotFoundError", () => {
     expect(isNotFoundError(null)).toBe(false);
     expect(isNotFoundError(undefined)).toBe(false);
     expect(isNotFoundError("error")).toBe(false);
+  });
+});
+
+describe("isSecureFlowComment", () => {
+  it("returns true for comments containing the default marker", () => {
+    expect(isSecureFlowComment(`${SECUREFLOW_COMMENT_MARKER}\n\nReport body`)).toBe(true);
+  });
+
+  it("returns true for comments containing alternative secureflow markers", () => {
+    expect(isSecureFlowComment("<!-- secureflow:pr-comment -->\n\nReport")).toBe(true);
+    expect(isSecureFlowComment("<!-- secureflow-ai-security-report -->\n\nReport")).toBe(true);
+  });
+
+  it("returns false for non-secureflow comments or non-strings", () => {
+    expect(isSecureFlowComment("LGTM, good work!")).toBe(false);
+    expect(isSecureFlowComment(null)).toBe(false);
+    expect(isSecureFlowComment(undefined)).toBe(false);
+    expect(isSecureFlowComment("")).toBe(false);
+  });
+});
+
+describe("formatScanMetadata", () => {
+  it("formats both commit SHA and scan time as ISO string", () => {
+    const meta = formatScanMetadata({
+      commitSha: "abc1234",
+      scanTime: "2026-11-22T10:00:00.000Z",
+    });
+    expect(meta).toBe(
+      "Scanned commit: `abc1234`\nScan time: `2026-11-22T10:00:00.000Z`\n\n",
+    );
+  });
+
+  it("formats scan time when passed as a Date object", () => {
+    const d = new Date("2026-11-22T12:30:00.000Z");
+    const meta = formatScanMetadata({
+      commitSha: "def5678",
+      scanTime: d,
+    });
+    expect(meta).toBe(
+      "Scanned commit: `def5678`\nScan time: `2026-11-22T12:30:00.000Z`\n\n",
+    );
+  });
+
+  it("formats only commit SHA when scan time is omitted", () => {
+    const meta = formatScanMetadata({ commitSha: "abc1234" });
+    expect(meta).toBe("Scanned commit: `abc1234`\n\n");
+  });
+
+  it("formats only scan time when commit SHA is omitted", () => {
+    const meta = formatScanMetadata({ scanTime: "2026-11-22T10:00:00.000Z" });
+    expect(meta).toBe("Scan time: `2026-11-22T10:00:00.000Z`\n\n");
+  });
+
+  it("returns empty string when neither is provided", () => {
+    expect(formatScanMetadata({})).toBe("");
   });
 });
 
@@ -360,7 +417,7 @@ describe("upsertSecureFlowComment", () => {
   });
 
   describe("Three pushes to one PR leave a single comment that shows the latest result", () => {
-    it("maintains a single comment across three pushes and displays latest commit SHA", async () => {
+    it("maintains a single comment across three pushes and displays latest commit SHA and scan time", async () => {
       // In-memory store representing GitHub's PR comment list
       const store: Array<{ id: number; body: string }> = [];
       let nextId = 1;
@@ -391,12 +448,13 @@ describe("upsertSecureFlowComment", () => {
 
       // --- Push 1: initial commit sha111111 ---
       const push1Sha = "1111111111111111111111111111111111111111";
+      const push1Time = "2026-11-22T10:00:00.000Z";
       // Worker posts pending scan
       const push1Pending = await upsertSecureFlowComment(mockOctokit, {
         owner: "acme",
         repo: "app",
         issueNumber: 42,
-        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push1Sha}\`\n\nEvaluating 3 files...`,
+        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push1Sha}\`\nScan time: \`${push1Time}\`\n\nEvaluating 3 files...`,
       });
       expect(push1Pending.action).toBe("created");
       expect(store).toHaveLength(1);
@@ -407,21 +465,23 @@ describe("upsertSecureFlowComment", () => {
         repo: "app",
         issueNumber: 42,
         commentId: push1Pending.data.id,
-        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push1Sha}\`\n\n⚠️ Detected **2** potential issues.`,
+        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push1Sha}\`\nScan time: \`${push1Time}\`\n\n⚠️ Detected **2** potential issues.`,
       });
       expect(push1Done.action).toBe("updated");
       expect(store).toHaveLength(1);
       expect(store[0].body).toContain(`Scanned commit: \`${push1Sha}\``);
+      expect(store[0].body).toContain(`Scan time: \`${push1Time}\``);
       expect(store[0].body).toContain("Detected **2** potential issues");
 
       // --- Push 2: commit sha222222 ---
       const push2Sha = "2222222222222222222222222222222222222222";
+      const push2Time = "2026-11-22T11:00:00.000Z";
       // Worker posts pending scan (finds existing comment)
       const push2Pending = await upsertSecureFlowComment(mockOctokit, {
         owner: "acme",
         repo: "app",
         issueNumber: 42,
-        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push2Sha}\`\n\nEvaluating 4 files...`,
+        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push2Sha}\`\nScan time: \`${push2Time}\`\n\nEvaluating 4 files...`,
       });
       expect(push2Pending.action).toBe("updated");
       expect(store).toHaveLength(1);
@@ -432,21 +492,23 @@ describe("upsertSecureFlowComment", () => {
         repo: "app",
         issueNumber: 42,
         commentId: push2Pending.data.id,
-        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push2Sha}\`\n\n⚠️ Detected **1** potential issues.`,
+        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push2Sha}\`\nScan time: \`${push2Time}\`\n\n⚠️ Detected **1** potential issues.`,
       });
       expect(push2Done.action).toBe("updated");
       expect(store).toHaveLength(1);
       expect(store[0].body).toContain(`Scanned commit: \`${push2Sha}\``);
+      expect(store[0].body).toContain(`Scan time: \`${push2Time}\``);
       expect(store[0].body).toContain("Detected **1** potential issues");
 
       // --- Push 3: commit sha333333 ---
       const push3Sha = "3333333333333333333333333333333333333333";
+      const push3Time = "2026-11-22T12:00:00.000Z";
       // Worker posts pending scan (finds existing comment)
       const push3Pending = await upsertSecureFlowComment(mockOctokit, {
         owner: "acme",
         repo: "app",
         issueNumber: 42,
-        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push3Sha}\`\n\nEvaluating 5 files...`,
+        body: `### ⏳ SecureFlow AI Security Scan\n\nScanned commit: \`${push3Sha}\`\nScan time: \`${push3Time}\`\n\nEvaluating 5 files...`,
       });
       expect(push3Pending.action).toBe("updated");
       expect(store).toHaveLength(1);
@@ -457,7 +519,7 @@ describe("upsertSecureFlowComment", () => {
         repo: "app",
         issueNumber: 42,
         commentId: push3Pending.data.id,
-        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push3Sha}\`\n\n✅ Scan completed successfully. No vulnerabilities found in the **5** analyzed files.`,
+        body: `### 🛡️ SecureFlow AI Security Report\n\nScanned commit: \`${push3Sha}\`\nScan time: \`${push3Time}\`\n\n✅ Scan completed successfully. No vulnerabilities found in the **5** analyzed files.`,
       });
       expect(push3Done.action).toBe("updated");
 
@@ -466,9 +528,12 @@ describe("upsertSecureFlowComment", () => {
       expect(store[0].id).toBe(1); // Same comment ID reused throughout
       expect(store[0].body).toContain(SECUREFLOW_COMMENT_MARKER);
       expect(store[0].body).toContain(`Scanned commit: \`${push3Sha}\``);
+      expect(store[0].body).toContain(`Scan time: \`${push3Time}\``);
       expect(store[0].body).toContain("Scan completed successfully");
       expect(store[0].body).not.toContain(push1Sha);
       expect(store[0].body).not.toContain(push2Sha);
+      expect(store[0].body).not.toContain(push1Time);
+      expect(store[0].body).not.toContain(push2Time);
 
       // createComment called only once at the beginning
       expect(mockOctokit.rest.issues.createComment).toHaveBeenCalledTimes(1);

@@ -170,9 +170,9 @@ describe("processScanJob timeout budget and partial results (#1981)", () => {
 
     // Remaining 2 files from chunk 2 are in skippedFiles
     expect(result.skippedFiles).toHaveLength(2);
-    expect(result.skippedFiles[0].filename).toBe("src/file-10.ts");
-    expect(result.skippedFiles[0].reason).toContain("Scan time budget of 120s exceeded");
-    expect(result.skippedFiles[1].filename).toBe("src/file-11.ts");
+    expect(result.skippedFiles![0].filename).toBe("src/file-10.ts");
+    expect(result.skippedFiles![0].reason).toContain("Scan time budget of 120s exceeded");
+    expect(result.skippedFiles![1].filename).toBe("src/file-11.ts");
 
     expect(result.isPartial).toBe(true);
     expect(result.timedOut).toBe(true);
@@ -233,8 +233,8 @@ describe("processScanJob timeout budget and partial results (#1981)", () => {
     expect(result.isPartial).toBe(true);
     expect(result.timedOut).toBe(true);
     expect(result.skippedFiles).toHaveLength(2);
-    expect(result.skippedFiles[0].filename).toBe("src/file-10.ts");
-    expect(result.skippedFiles[0].reason).toContain("Scan timeout budget of 120s exceeded");
+    expect(result.skippedFiles![0].filename).toBe("src/file-10.ts");
+    expect(result.skippedFiles![0].reason).toContain("Scan timeout budget of 120s exceeded");
 
     // Check run completed with neutral
     expect(mocks.checksCreate).toHaveBeenCalledTimes(1);

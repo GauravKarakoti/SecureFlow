@@ -187,9 +187,8 @@ describe("OpenTelemetry Tracing Module", () => {
 
     beforeEach(() => {
       memoryExporter = new InMemorySpanExporter();
-      provider = new BasicTracerProvider({
-        spanProcessors: [new SimpleSpanProcessor(memoryExporter)],
-      });
+      provider = new BasicTracerProvider();
+      provider.addSpanProcessor(new SimpleSpanProcessor(memoryExporter));
       trace.setGlobalTracerProvider(provider);
 
       contextManager = new AsyncLocalStorageContextManager();

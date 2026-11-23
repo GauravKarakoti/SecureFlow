@@ -17,7 +17,11 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
-import { upsertSecureFlowComment, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/sticky-comment";
+import {
+  upsertSecureFlowComment,
+  SECUREFLOW_COMMENT_MARKER,
+  formatScanMetadata,
+} from "@/lib/github/sticky-comment";
 import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
@@ -119,6 +123,8 @@ export interface ScanJobResult {
   analyzedFiles?: string[];
   zeroScanReason?: ZeroScanReason;
   defaultSkippedCount?: number;
+  isPartial?: boolean;
+  timedOut?: boolean;
 }
 
 export interface ScanProgress {
@@ -736,9 +742,15 @@ export async function processScanJob(
         analyzedFilesCount === 0 ||
         defaultSkippedCount > 0
       ) {
+        const scanTime = new Date().toISOString();
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
-        if (headSha) {
-          body += `Scanned commit: \`${headSha}\`\n\n`;
+        if (typeof formatScanMetadata === "function") {
+          body += formatScanMetadata({ commitSha: headSha, scanTime });
+        } else {
+          if (headSha) {
+            body += `Scanned commit: \`${headSha}\`\n`;
+          }
+          body += `Scan time: \`${scanTime}\`\n\n`;
         }
         if (enrichedFindings.length > 0) {
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
