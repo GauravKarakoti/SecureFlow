@@ -22,7 +22,12 @@ import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
 import { getZeroScanReason, type ZeroScanReason } from "./zero-scan";
-import { compileIgnorePatterns, ignoreReasonFor } from "@/lib/armor/ignore-rules";
+import {
+  compileIgnorePatterns,
+  ignoreReasonFor,
+  resolveDefaultSkippedFiles,
+} from "@/lib/armor/ignore-rules";
+import { runDeterministicPrecheck } from "@/lib/armor/precheck";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -110,6 +115,7 @@ export interface ScanJobResult {
   appliedPolicyScopes?: AppliedScopeSummary[];
   analyzedFiles?: string[];
   zeroScanReason?: ZeroScanReason;
+  defaultSkippedCount?: number;
 }
 
 export interface ScanProgress {
@@ -331,6 +337,28 @@ export async function processScanJob(
   let allAnalyzedFiles: string[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
 
+  const ignoreOptions = {
+    includeDefaults: repositoryGateConfig.includeDefaults,
+    forceInclude: repositoryGateConfig.forceInclude,
+  };
+
+  const precheckFindings = runDeterministicPrecheck(fileChanges, {
+    customPlaceholders,
+    customIgnores,
+    repositoryId,
+  });
+  const precheckFilesWithSecrets = new Set(precheckFindings.map((f) => f.fileLocation));
+
+  const {
+    skippedByDefault,
+    skippedCount: defaultSkippedCount,
+    exemptSecretFiles,
+  } = resolveDefaultSkippedFiles(fileChanges, customIgnores, {
+    includeDefaults: repositoryGateConfig.includeDefaults,
+    forceInclude: repositoryGateConfig.forceInclude,
+    hasDeterministicSecrets: (file) => precheckFilesWithSecrets.has(file.filename),
+  });
+
   const appliedPolicyScopes = collectAppliedScopes(fileChanges, repositoryGateConfig.policyScopes);
 
   const cachedFindings = await getCachedScan(cacheKey);
@@ -376,12 +404,25 @@ export async function processScanJob(
         const chunk = group.files.slice(i, i + CHUNK_SIZE);
 
         try {
-          const chunkFindings = await scanner.scanPullRequest(
-            chunk,
-            group.policies as any[],
-            customIgnores,
-            customPlaceholders,
-          );
+          const hasCustomIgnoreOptions =
+            repositoryGateConfig.includeDefaults !== undefined ||
+            (repositoryGateConfig.forceInclude && repositoryGateConfig.forceInclude.length > 0);
+
+          const chunkFindings = hasCustomIgnoreOptions
+            ? await scanner.scanPullRequest(
+                chunk,
+                group.policies as any[],
+                customIgnores,
+                customPlaceholders,
+                repositoryId || "default-repo",
+                ignoreOptions,
+              )
+            : await scanner.scanPullRequest(
+                chunk,
+                group.policies as any[],
+                customIgnores,
+                customPlaceholders,
+              );
           allFindings.push(...chunkFindings);
           if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
             allSkippedFiles.push(...scanner.lastSkippedFiles);
@@ -391,7 +432,12 @@ export async function processScanJob(
           } else if (scanner.lastAnalyzedFiles === undefined) {
             // Scanner mock fallback for tests
             const scannableChunkFiles = chunk
-              .filter((f) => ignoreReasonFor(f.filename, compiledCustomIgnores) === null)
+              .filter(
+                (f) =>
+                  !skippedByDefault.has(f.filename) &&
+                  (exemptSecretFiles.has(f.filename) ||
+                    ignoreReasonFor(f.filename, compiledCustomIgnores, ignoreOptions) === null),
+              )
               .map((f) => f.filename);
             allAnalyzedFiles.push(...scannableChunkFiles);
           }
@@ -607,7 +653,8 @@ export async function processScanJob(
         allSkippedFiles.length > 0 ||
         expiredRules.length > 0 ||
         ruleSuppressedFindings.length > 0 ||
-        analyzedFilesCount === 0
+        analyzedFilesCount === 0 ||
+        defaultSkippedCount > 0
       ) {
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
         if (headSha) {
@@ -619,6 +666,10 @@ export async function processScanJob(
           body += `⚪ Nothing to scan: ${zeroScanReason}.\n\n`;
         } else {
           body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
+        }
+
+        if (defaultSkippedCount > 0) {
+          body += `ℹ️ **${defaultSkippedCount} file${defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.\n\n`;
         }
 
         if (hiddenByConfidenceCount > 0) {
@@ -880,5 +931,6 @@ export async function processScanJob(
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
     appliedPolicyScopes,
     zeroScanReason,
+    defaultSkippedCount,
   };
 }

@@ -171,6 +171,38 @@ When a file matches multiple scopes, they are evaluated in definition order:
 - **Graceful degradation**: Invalid globs, non-string policy names, or unknown policy names are logged as warnings and ignored without failing or interrupting the scan.
 - **PR comment reporting**: Applied policy scopes and the count of files scanned under each scope are shown in the PR comment summary under `📁 Policy Scopes Applied`.
 
+## Default Ignore Patterns & Overrides (`includeDefaults`, `forceInclude`)
+
+Generated and vendored files produce large diffs without useful LLM findings, waste AI tokens, trigger false positives, and slow down scans. SecureFlow applies a built-in default ignore list before scanning:
+
+- **Common package manager lockfiles**: `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`, `bun.lock`, `Cargo.lock`, `Gemfile.lock`, `composer.lock`, `poetry.lock`, `Pipfile.lock`, `flake.lock`.
+- **Minified bundles**: `*.min.js`, `*.min.css` (and `.min.mjs`, `.min.cjs`).
+- **Source maps**: `*.map`.
+- **Build and vendored directories**: `dist/`, `build/`, `vendor/`, `node_modules/`, `__snapshots__/`.
+- **Generated Protobuf**: `*_pb2.py`, `*_pb2_grpc.py`, `*.pb.go`, `*.pb.cc`, `*.pb.h`, `*pb_test.go`, `proto/gen/`, `google/protobuf/`.
+- **Generated OpenAPI client directories**: `client/openapi/`, `generated/openapi/`, `openapi/generated/`, `generated/`.
+
+### Overriding and Disabling Defaults in `.secureflow.json`
+
+Repositories can configure ignore defaults at the root level or in the `gate` / `ignore` block:
+
+```json
+{
+  "includeDefaults": true,
+  "forceInclude": ["vendor/critical-library/**", "client/openapi/custom-patch.ts"]
+}
+```
+
+- **`includeDefaults`**: (Optional, boolean, default `true`). Set to `false` to completely disable built-in default ignore patterns.
+- **`forceInclude`**: (Optional, string array). Array of glob patterns to force include in scanning, overriding default ignore rules.
+- **`.secureflowignore` compatibility**: Explicit repository `.secureflowignore` rules continue working as before and take precedence.
+
+### Deterministic Secret Pre-Scan & Safety Guarantees
+
+- **Deterministic pre-scan runs on skipped files**: Fast regex and entropy-based secret detection continues to run on files excluded from LLM scanning (e.g. lockfiles and vendored bundles). If an active production secret is added, it is flagged.
+- **Single changed file protection**: Files matching default ignore patterns are **never skipped** if they are the only files changed in the pull request and contain secret-like strings matching the deterministic secret pre-scan.
+- **Transparent PR reporting**: The pull request summary comment displays how many files were skipped by defaults (e.g., `ℹ️ **3 files** skipped by default ignore patterns`), ensuring no changes are silently dropped.
+
 ## CLI Initialization and Validation (`secureflow --init` & `secureflow validate`)
 
 To simplify repository setup and avoid manual syntax mistakes, use the SecureFlow CLI:

@@ -1,5 +1,5 @@
 /**
- * Which files the scanner is allowed to look at (#704).
+ * Which files the scanner is allowed to look at (#704, #1983).
  *
  * This decides what gets read, so it fails in a direction that matters: a file
  * wrongly ignored is a file the AI never sees, and the pull request still
@@ -30,6 +30,59 @@
  * tested directly — which is why the near-miss cases below now have coverage
  * where the original had only true-positives.
  */
+
+/**
+ * Common package manager lockfiles ignored by default (#1983).
+ */
+export const DEFAULT_LOCKFILES = [
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lockb",
+  "bun.lock",
+  "Cargo.lock",
+  "Gemfile.lock",
+  "composer.lock",
+  "poetry.lock",
+  "Pipfile.lock",
+  "flake.lock",
+] as const;
+
+/**
+ * Built-in default ignore patterns (#1983).
+ *
+ * Applied before LLM scanning: common lockfiles, *.min.js, *.min.css, *.map,
+ * dist/, build/, vendor/, node_modules/, __snapshots__/, generated protobuf
+ * and OpenAPI client folders.
+ */
+export const DEFAULT_IGNORE_PATTERNS = [
+  // Common lockfiles
+  ...DEFAULT_LOCKFILES,
+  // Minified bundles & source maps
+  "*.min.js",
+  "*.min.css",
+  "*.map",
+  // Directories
+  "dist/",
+  "build/",
+  "vendor/",
+  "node_modules/",
+  "__snapshots__/",
+  // Generated protobuf
+  "*_pb2.py",
+  "*_pb2_grpc.py",
+  "*.pb.go",
+  "*.pb.cc",
+  "*.pb.h",
+  "*pb_test.go",
+  "proto/gen/",
+  "google/protobuf/",
+  // OpenAPI client folders
+  "client/openapi/",
+  "generated/openapi/",
+  "openapi/generated/",
+  "generated/",
+] as const;
 
 /**
  * Non-executable text, assets, metadata and dependency manifests.
@@ -142,8 +195,128 @@ export function hasIgnoredBasename(normalizedPath: string): boolean {
   return IGNORED_BASENAMES.some((name) => basename === name);
 }
 
+/**
+ * Directories ignored by built-in default patterns (#1983).
+ */
+export const DEFAULT_IGNORE_DIRECTORIES = [
+  "dist/",
+  "build/",
+  "vendor/",
+  "node_modules/",
+  "__snapshots__/",
+  ".next/",
+  "prisma/migrations/",
+  "proto/gen/",
+  "google/protobuf/",
+  "client/openapi/",
+  "generated/openapi/",
+  "openapi/generated/",
+  "generated/",
+] as const;
+
+/**
+ * Checks whether a normalised path matches any built-in default ignore pattern (#1983).
+ */
+export function isDefaultIgnored(normalizedPath: string): boolean {
+  const normalized = normalizeScanPath(normalizedPath);
+  const basename = basenameOf(normalized);
+
+  // 1. Common lockfiles
+  if (DEFAULT_LOCKFILES.some((lockfile) => basename === lockfile)) {
+    return true;
+  }
+  if (
+    normalized.endsWith("lock.json") ||
+    normalized.endsWith(".lock") ||
+    normalized.endsWith("lock.yaml")
+  ) {
+    return true;
+  }
+
+  // 2. Minified bundles & source maps
+  if (
+    normalized.endsWith(".min.js") ||
+    normalized.endsWith(".min.css") ||
+    normalized.endsWith(".min.mjs") ||
+    normalized.endsWith(".min.cjs") ||
+    normalized.endsWith(".map")
+  ) {
+    return true;
+  }
+
+  // 3. Build, vendor, generated, protobuf, and openapi directories
+  if (DEFAULT_IGNORE_DIRECTORIES.some((dir) => isUnderIgnoredDirectory(normalized, dir))) {
+    return true;
+  }
+
+  // 4. Generated protobuf files
+  if (
+    basename.endsWith("_pb2.py") ||
+    basename.endsWith("_pb2_grpc.py") ||
+    basename.endsWith(".pb.go") ||
+    basename.endsWith(".pb.cc") ||
+    basename.endsWith(".pb.h") ||
+    basename.endsWith("pb_test.go")
+  ) {
+    return true;
+  }
+
+  // 5. Basenames from IGNORED_BASENAMES
+  if (hasIgnoredBasename(normalized)) {
+    return true;
+  }
+
+  // 6. Non-executable assets / doc extensions
+  if (hasIgnoredExtension(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Options controlling ignore evaluation. */
+export interface IgnoreCheckOptions {
+  includeDefaults?: boolean;
+  forceInclude?: string[] | RegExp[];
+}
+
+/**
+ * Checks whether a filename matches any pattern in forceInclude list.
+ */
+export function isForceIncluded(
+  filename: string,
+  forceIncludePatterns: string[] | RegExp[] = [],
+): boolean {
+  if (!forceIncludePatterns || forceIncludePatterns.length === 0) return false;
+  const compiled =
+    typeof forceIncludePatterns[0] === "string"
+      ? compileIgnorePatterns(forceIncludePatterns as string[])
+      : (forceIncludePatterns as RegExp[]);
+  const normalized = filename.replace(/\\/g, "/");
+  return compiled.some((pattern) => pattern.test(normalized));
+}
+
 /** Why a file was skipped, for the log line the scanner prints. */
-export type IgnoreReason = "directory" | "extension" | "config-file" | "custom" | null;
+export type IgnoreReason = "directory" | "extension" | "config-file" | "custom" | "default" | null;
+
+/**
+ * Checks whether a file is skipped specifically due to default ignore patterns.
+ */
+export function isSkippedByDefault(
+  filename: string,
+  customIgnores: RegExp[] = [],
+  options?: IgnoreCheckOptions,
+): boolean {
+  if (options?.includeDefaults === false) return false;
+  if (isForceIncluded(filename, options?.forceInclude)) return false;
+
+  const forCustom = filename.replace(/\\/g, "/");
+  if (customIgnores.some((pattern) => pattern.test(forCustom))) {
+    return false; // Skipped by custom ignore, not by defaults
+  }
+
+  return isDefaultIgnored(filename);
+}
 
 /**
  * Decide whether `filename` should be skipped, and say why.
@@ -157,11 +330,33 @@ export type IgnoreReason = "directory" | "extension" | "config-file" | "custom" 
  * That behaviour is deliberately unchanged: those patterns are written by the
  * repository's own maintainers, and they are glob-anchored already.
  */
-export function ignoreReasonFor(filename: string, customIgnores: RegExp[] = []): IgnoreReason {
+export function ignoreReasonFor(
+  filename: string,
+  customIgnores: RegExp[] = [],
+  options?: IgnoreCheckOptions,
+): IgnoreReason {
   if (typeof filename !== "string" || filename.trim() === "") return null;
+
+  // Custom .secureflowignore rules always take top precedence and work as before
+  const forCustom = filename.replace(/\\/g, "/");
+  if (customIgnores.some((pattern) => pattern.test(forCustom))) {
+    return "custom";
+  }
+
+  const includeDefaults = options?.includeDefaults ?? true;
+  const forceIncluded = isForceIncluded(filename, options?.forceInclude);
+
+  if (forceIncluded) {
+    return null;
+  }
+
+  if (!includeDefaults) {
+    return null;
+  }
 
   const normalized = normalizeScanPath(filename);
 
+  // Preserve backwards-compatible specific reasons
   if (IGNORED_DIRECTORIES.some((rule) => isUnderIgnoredDirectory(normalized, rule))) {
     return "directory";
   }
@@ -177,17 +372,83 @@ export function ignoreReasonFor(filename: string, customIgnores: RegExp[] = []):
     return "config-file";
   }
 
-  const forCustom = filename.replace(/\\/g, "/");
-  if (customIgnores.some((pattern) => pattern.test(forCustom))) {
-    return "custom";
+  // Check additional built-in default ignore patterns (vendor, snapshots, protobuf, openapi, minified)
+  if (isDefaultIgnored(normalized)) {
+    return "default";
   }
 
   return null;
 }
 
 /** Whether the scanner should skip `filename`. */
-export function shouldIgnorePath(filename: string, customIgnores: RegExp[] = []): boolean {
-  return ignoreReasonFor(filename, customIgnores) !== null;
+export function shouldIgnorePath(
+  filename: string,
+  customIgnores: RegExp[] = [],
+  options?: IgnoreCheckOptions,
+): boolean {
+  return ignoreReasonFor(filename, customIgnores, options) !== null;
+}
+
+export interface FileWithPatch {
+  filename: string;
+  patch?: string;
+  status?: string;
+}
+
+/**
+ * Determines which files should be skipped by default ignore patterns,
+ * taking into account config overrides (includeDefaults, forceInclude),
+ * custom ignores, and the exception:
+ * "Never skip files because of defaults if they are the only files changed
+ * and contain secret-like strings that match the deterministic secret pre-scan."
+ */
+export function resolveDefaultSkippedFiles<T extends FileWithPatch>(
+  files: T[],
+  customIgnores: string[] = [],
+  options: {
+    includeDefaults?: boolean;
+    forceInclude?: string[];
+    hasDeterministicSecrets?: (file: T) => boolean;
+  } = {},
+): {
+  skippedByDefault: Set<string>;
+  skippedCount: number;
+  exemptSecretFiles: Set<string>;
+} {
+  const skippedByDefault = new Set<string>();
+  const exemptSecretFiles = new Set<string>();
+
+  if (options.includeDefaults === false) {
+    return { skippedByDefault, skippedCount: 0, exemptSecretFiles };
+  }
+
+  const compiledCustom = compileIgnorePatterns(customIgnores);
+  const nonRemoved = files.filter((f) => f.status !== "removed");
+
+  const defaultIgnoredCandidates = nonRemoved.filter((f) =>
+    isSkippedByDefault(f.filename, compiledCustom, options),
+  );
+
+  // Check the critical condition:
+  // "Never skip files because of defaults if they are the only files changed
+  // and contain secret-like strings that match the deterministic secret pre-scan."
+  const areOnlyFilesChanged =
+    defaultIgnoredCandidates.length === nonRemoved.length && nonRemoved.length > 0;
+
+  for (const file of defaultIgnoredCandidates) {
+    if (areOnlyFilesChanged && options.hasDeterministicSecrets?.(file)) {
+      // Do not skip because of defaults!
+      exemptSecretFiles.add(file.filename);
+      continue;
+    }
+    skippedByDefault.add(file.filename);
+  }
+
+  return {
+    skippedByDefault,
+    skippedCount: skippedByDefault.size,
+    exemptSecretFiles,
+  };
 }
 
 export interface IgnoreRuleEntry {

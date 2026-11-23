@@ -88,6 +88,8 @@ export interface ScanReportSummaryInput {
   expiredIgnoreRules?: readonly ExpiredIgnoreRuleReport[];
   /** Policy scopes applied to changed files (#1868). */
   appliedPolicyScopes?: readonly AppliedPolicyScopeReport[];
+  /** Number of files skipped by built-in default ignore patterns (#1983). */
+  defaultSkippedCount?: number;
   ownership?: {
     byPath: ReadonlyMap<string, readonly string[]>;
     inlinePaths: readonly string[];
@@ -165,6 +167,7 @@ export function renderScanReportSummary({
   commitSha,
   expiredIgnoreRules = [],
   appliedPolicyScopes = [],
+  defaultSkippedCount = 0,
   ownership,
 }: ScanReportSummaryInput): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
@@ -175,6 +178,10 @@ export function renderScanReportSummary({
   }
 
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
+
+  if (defaultSkippedCount > 0) {
+    body += `ℹ️ **${defaultSkippedCount} file${defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.\n\n`;
+  }
 
   if (appliedPolicyScopes && appliedPolicyScopes.length > 0) {
     body += `### 📁 Policy Scopes Applied (${appliedPolicyScopes.length})\n\n`;

@@ -41,7 +41,12 @@ export function getZeroScanReason(
       unsupportedCount++;
     } else if (reason === "extension") {
       unsupportedCount++;
-    } else if (reason === "directory" || reason === "custom" || reason === "config-file") {
+    } else if (
+      reason === "directory" ||
+      reason === "custom" ||
+      reason === "config-file" ||
+      reason === "default"
+    ) {
       pathIgnoredCount++;
     } else {
       unsupportedCount++;
@@ -67,6 +72,7 @@ export function formatZeroScanComment(
     cleanRuleNotice?: string;
     cleanExpiredNotice?: string;
     coverageNotice?: string;
+    defaultSkippedNotice?: string;
   } = {},
 ): string {
   return (
@@ -76,6 +82,7 @@ export function formatZeroScanComment(
     (options.cleanDismissedNotice || "") +
     (options.cleanRuleNotice || "") +
     (options.cleanExpiredNotice || "") +
+    (options.defaultSkippedNotice ? `\n\n${options.defaultSkippedNotice}` : "") +
     (options.coverageNotice ? `\n\n${options.coverageNotice}` : "")
   );
 }
