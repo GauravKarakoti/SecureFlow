@@ -2213,6 +2213,95 @@ paths:
         "500":
           description: Metrics could not be loaded
 
+  /api/emergency-intake:
+    post:
+      summary: Multimodal emergency intake
+      description: |
+        Accepts unstructured, chaotic emergency inputs — garbled traffic/weather
+        logs (text), voice notes (audio), and photos of incident reports (image) —
+        and returns a strict, structured LifeSavingAction JSON payload. Prompts Groq
+        to parse the inputs, verifies context against the Threat Intelligence MCP
+        Server, and validates the output against a strict Zod schema.
+      operationId: postEmergencyIntake
+      tags:
+        - Emergency
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Garbled traffic/weather logs or incident description
+                  maxLength: 10000
+                audio:
+                  type: string
+                  format: binary
+                  description: Voice note (wav/mp3/m4a/ogg/webm)
+                image:
+                  type: string
+                  format: binary
+                  description: Photo of incident report (jpeg/png/webp/gif)
+      responses:
+        "200":
+          description: Validated LifeSavingAction
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - action
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  action:
+                    type: object
+                    required:
+                      - action
+                      - target
+                      - confidence
+                    properties:
+                      action:
+                        type: string
+                        enum: [LOCKDOWN, EVACUATE, ISOLATE, CREDENTIAL_REVOCATION, NETWORK_ISOLATION, POLICY_ENFORCEMENT, MONITOR, ALERT]
+                        example: LOCKDOWN
+                      target:
+                        type: string
+                        example: Hospital_DB
+                      confidence:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                        example: 0.99
+                      rationale:
+                        type: string
+                        maxLength: 1000
+                      sourceInputs:
+                        type: array
+                        items:
+                          type: string
+                          enum: [text, audio, image]
+                      metadata:
+                        type: object
+        "400":
+          description: Bad Request — missing or invalid input
+        "401":
+          description: Not signed in
+        "413":
+          description: Payload too large
+        "415":
+          description: Unsupported media type
+        "429":
+          description: Rate limit exceeded
+        "502":
+          description: Emergency intake pipeline failed
+
   /api/heist-transmission:
     get:
       summary: Stream a heist transmission
