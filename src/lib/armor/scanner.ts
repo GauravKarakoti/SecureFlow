@@ -14,6 +14,7 @@ import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
+import { resolveScanTimeoutBudgetMs, resolveScanRequestTimeoutMs } from "@/lib/scanner/gate-config";
 
 export type ScanFinding = {
   type: string;
@@ -496,9 +497,13 @@ export class ArmorIQScanner {
     customPlaceholders: string[] = [],
     repositoryId: string = "default-repo",
     ignoreOptions?: IgnoreCheckOptions,
+    timeoutOptions?: { timeoutBudgetMs?: number; requestTimeoutMs?: number },
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
-    const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
+    const effectiveTotalScanMs = timeoutOptions?.timeoutBudgetMs ?? resolveScanTimeoutBudgetMs();
+    const effectiveRequestTimeoutMs =
+      timeoutOptions?.requestTimeoutMs ?? resolveScanRequestTimeoutMs();
+    const deadlineExceeded = () => Date.now() - scanStartedAt > effectiveTotalScanMs;
 
     let currentBatch = "";
     let currentBatchFiles: string[] = [];
@@ -569,7 +574,7 @@ export class ArmorIQScanner {
       if (deadlineExceeded()) {
         deadlineHit = true;
         console.warn(
-          `⏱️ Scan deadline (${MAX_TOTAL_SCAN_MS / 1000}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
+          `⏱️ Scan deadline (${Math.round(effectiveTotalScanMs / 1000)}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
         );
         skippedFiles.push({ filename: file.filename, reason: "deadline" });
         break;
@@ -742,7 +747,7 @@ Format:
             );
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), SCAN_REQUEST_TIMEOUT_MS);
+            const timeoutId = setTimeout(() => controller.abort(), effectiveRequestTimeoutMs);
 
             const chatCompletionPromise = groq.chat.completions.create(
               {
@@ -769,7 +774,7 @@ CRITICAL RULES:
                 temperature: 0.1,
                 max_tokens: 3000,
               },
-              { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
+              { timeout: effectiveRequestTimeoutMs, signal: controller.signal },
             );
 
             let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -778,10 +783,10 @@ CRITICAL RULES:
                 () =>
                   reject(
                     new ScannerTimeoutError(
-                      `LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`,
+                      `LLM scan timed out after ${effectiveRequestTimeoutMs / 1000} seconds`,
                     ),
                   ),
-                SCAN_REQUEST_TIMEOUT_MS,
+                effectiveRequestTimeoutMs,
               );
             });
 
@@ -949,7 +954,7 @@ CRITICAL RULES:
 
             if (error instanceof ScannerTimeoutError || errObj?.name === "AbortError") {
               throw new ScannerTimeoutError(
-                `LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`,
+                `LLM scan timed out after ${effectiveRequestTimeoutMs / 1000} seconds`,
               );
             }
             if (errObj?.status === 429) {
@@ -965,7 +970,7 @@ CRITICAL RULES:
               const requestedWait = retryAfterHeader
                 ? parseInt(retryAfterHeader, 10) * 1000
                 : (4 - retries) * 25000;
-              const remainingBudget = MAX_TOTAL_SCAN_MS - (Date.now() - scanStartedAt);
+              const remainingBudget = effectiveTotalScanMs - (Date.now() - scanStartedAt);
               const waitTime = Math.max(
                 0,
                 Math.min(requestedWait, MAX_RETRY_WAIT_MS, remainingBudget),
@@ -992,7 +997,7 @@ CRITICAL RULES:
               errObj?.name === "APIConnectionTimeoutError"
             ) {
               console.warn(
-                `⏱️ LLM request exceeded ${SCAN_REQUEST_TIMEOUT_MS / 1000}s timeout. Retrying... (${retries} attempts left)`,
+                `⏱️ LLM request exceeded ${effectiveRequestTimeoutMs / 1000}s timeout. Retrying... (${retries} attempts left)`,
               );
               retries--;
               if (deadlineExceeded()) {
@@ -1055,7 +1060,7 @@ CRITICAL RULES:
 
     if (deadlineHit) {
       console.warn(
-        `⚠️ scanPullRequest() returned partial results: ${allFindings.length} finding(s) from a scan that hit its ${MAX_TOTAL_SCAN_MS / 1000}s deadline.`,
+        `⚠️ scanPullRequest() returned partial results: ${allFindings.length} finding(s) from a scan that hit its ${effectiveTotalScanMs / 1000}s deadline.`,
       );
     }
 

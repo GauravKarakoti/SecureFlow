@@ -9,7 +9,7 @@
  *    const result = await processScanJob(jobData, onProgress);
  */
 
-import { scanner } from "@/lib/armor/scanner";
+import { scanner, ScannerTimeoutError } from "@/lib/armor/scanner";
 import { iq } from "@/lib/armor/iq";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
@@ -56,6 +56,8 @@ import {
   formatGateSummaryLine,
   DEFAULT_GATE_CONFIG,
   type GateConfig,
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
 } from "./gate-config";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
@@ -336,6 +338,7 @@ export async function processScanJob(
   let allFindings: EnrichedScanFinding[] = [];
   let allAnalyzedFiles: string[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+  let budgetExceeded = false;
 
   const ignoreOptions = {
     includeDefaults: repositoryGateConfig.includeDefaults,
@@ -391,6 +394,10 @@ export async function processScanJob(
     });
 
     let scannedFiles = 0;
+    const timeoutBudgetMs = resolveScanTimeoutBudgetMs(repositoryGateConfig);
+    const requestTimeoutMs = resolveScanRequestTimeoutMs(repositoryGateConfig);
+    const scanStartedAt = Date.now();
+    budgetExceeded = false;
 
     // Group files by their applicable policy scope (#1868)
     const fileGroups = groupFilesByPolicyScope(
@@ -403,26 +410,51 @@ export async function processScanJob(
       for (let i = 0; i < group.files.length; i += CHUNK_SIZE) {
         const chunk = group.files.slice(i, i + CHUNK_SIZE);
 
+        if (budgetExceeded || Date.now() - scanStartedAt >= timeoutBudgetMs) {
+          budgetExceeded = true;
+          for (const f of chunk) {
+            allSkippedFiles.push({
+              filename: f.filename,
+              reason: `Scan time budget of ${Math.round(timeoutBudgetMs / 1000)}s exceeded`,
+            });
+          }
+          continue;
+        }
+
         try {
           const hasCustomIgnoreOptions =
             repositoryGateConfig.includeDefaults !== undefined ||
             (repositoryGateConfig.forceInclude && repositoryGateConfig.forceInclude.length > 0);
 
-          const chunkFindings = hasCustomIgnoreOptions
-            ? await scanner.scanPullRequest(
-                chunk,
-                group.policies as any[],
-                customIgnores,
-                customPlaceholders,
-                repositoryId || "default-repo",
-                ignoreOptions,
-              )
-            : await scanner.scanPullRequest(
-                chunk,
-                group.policies as any[],
-                customIgnores,
-                customPlaceholders,
-              );
+          const hasCustomTimeouts =
+            repositoryGateConfig.timeoutBudget !== undefined ||
+            repositoryGateConfig.timeoutBudgetSeconds !== undefined ||
+            repositoryGateConfig.requestTimeout !== undefined ||
+            repositoryGateConfig.requestTimeoutSeconds !== undefined;
+
+          const remainingBudgetMs = Math.max(0, timeoutBudgetMs - (Date.now() - scanStartedAt));
+          const timeoutOptions = {
+            timeoutBudgetMs: remainingBudgetMs,
+            requestTimeoutMs,
+          };
+
+          const chunkFindings =
+            hasCustomIgnoreOptions || hasCustomTimeouts
+              ? await scanner.scanPullRequest(
+                  chunk,
+                  group.policies as any[],
+                  customIgnores,
+                  customPlaceholders,
+                  repositoryId || "default-repo",
+                  ignoreOptions,
+                  timeoutOptions,
+                )
+              : await scanner.scanPullRequest(
+                  chunk,
+                  group.policies as any[],
+                  customIgnores,
+                  customPlaceholders,
+                );
           allFindings.push(...chunkFindings);
           if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
             allSkippedFiles.push(...scanner.lastSkippedFiles);
@@ -442,6 +474,34 @@ export async function processScanJob(
             allAnalyzedFiles.push(...scannableChunkFiles);
           }
         } catch (err) {
+          const isTimeout =
+            err instanceof ScannerTimeoutError ||
+            (err instanceof Error &&
+              (err.name === "ScannerTimeoutError" ||
+                /timed out|timeout|deadline/i.test(err.message))) ||
+            Date.now() - scanStartedAt >= timeoutBudgetMs;
+
+          if (isTimeout) {
+            budgetExceeded = true;
+            log.warn(
+              `[ScanEngine] Scan timeout budget exceeded for chunk ${i}-${i + chunk.length}:`,
+              {
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+            console.warn(
+              `[ScanEngine] Scan timeout budget exceeded for chunk ${i}-${i + chunk.length}:`,
+              err,
+            );
+            for (const f of chunk) {
+              allSkippedFiles.push({
+                filename: f.filename,
+                reason: `Scan timeout budget of ${Math.round(timeoutBudgetMs / 1000)}s exceeded`,
+              });
+            }
+            continue;
+          }
+
           log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
             error: err instanceof Error ? err.message : String(err),
           });
@@ -625,6 +685,8 @@ export async function processScanJob(
       }
       const checkNotice = checkNoticeParts.length > 0 ? checkNoticeParts.join("\n\n") : undefined;
 
+      const isPartialScan = budgetExceeded || allSkippedFiles.length > 0;
+
       await postScanCheckRun(octokit as any, {
         owner,
         repo,
@@ -635,6 +697,9 @@ export async function processScanJob(
         emptyReason: analyzedFilesCount === 0 ? zeroScanReason : undefined,
         notice: checkNotice,
         findings: enrichedFindings,
+        isPartial: isPartialScan,
+        unscannedFiles: allSkippedFiles,
+        conclusion: isPartialScan ? "neutral" : undefined,
       });
 
       // Post PR comment if there are findings, skipped files, or expired ignore rules
@@ -764,11 +829,21 @@ export async function processScanJob(
         ...ruleSuppressedFindings,
       ];
 
+      const isPartialScan = budgetExceeded || allSkippedFiles.length > 0;
+      const scanGateConfig = isPartialScan
+        ? {
+            ...repositoryGateConfig,
+            isPartialScan: true,
+            isPartial: true,
+            skippedFiles: allSkippedFiles.map((f) => f.filename),
+          }
+        : repositoryGateConfig;
+
       await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
           headSha,
-          gateConfig: repositoryGateConfig,
+          gateConfig: scanGateConfig,
           decision,
           scoredFindings: activeFindings,
           findingsToPersist,
@@ -803,7 +878,6 @@ export async function processScanJob(
       }
 
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
-      const isPartialScan = allSkippedFiles.length > 0;
       await autoResolveFixedFindings({
         repositoryId,
         pullRequestId: dbPr.id,
@@ -927,6 +1001,8 @@ export async function processScanJob(
     verdict: decision,
     findings: enrichedFindings,
     skippedFiles: allSkippedFiles,
+    isPartial: budgetExceeded || allSkippedFiles.length > 0,
+    timedOut: budgetExceeded,
     reusedFromCache,
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
     appliedPolicyScopes,

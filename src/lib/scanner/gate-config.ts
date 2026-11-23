@@ -1,13 +1,13 @@
 /**
  * Configuration for the server-side PR policy gate.
  *
- * maintainers can configure the gate with `.secureflowjson` at the repository root,
+ * Maintainers can configure the gate with `.secureflow.json` at the repository root,
  * read from the PR's base branch (never from the head branch).
  *
  * Implements Issue #1491 & #1470.
  */
 
-import { parseSeverity, type Severity } from "@/lib/severity";
+import { parseSeverity } from "@/lib/severity";
 import { stripJsonComments } from "secureflow-cli/contracts";
 import type { IgnoreConfigClient } from "./ignore-config";
 import { resolveBaseRef } from "./ignore-config";
@@ -21,6 +21,74 @@ import {
 export { type PolicyScopeRule };
 
 export const SECUREFLOW_CONFIG_FILE = ".secureflow.json";
+
+/** Default scan timeout budget in seconds (#1981). */
+export const DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS = 120;
+
+/** Default scan request timeout in seconds (#1981). */
+export const DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS = 60;
+
+/**
+ * Resolves the total scan timeout budget in milliseconds from configuration or environment (#1981).
+ * Default is 120 seconds (120,000 ms).
+ */
+export function resolveScanTimeoutBudgetMs(
+  configured?:
+    | number
+    | string
+    | {
+        timeoutBudget?: number;
+        timeoutBudgetSeconds?: number;
+        scanner?: { timeoutBudget?: number; timeoutBudgetSeconds?: number };
+      }
+    | null,
+): number {
+  let raw: unknown = configured;
+  if (configured && typeof configured === "object") {
+    raw =
+      configured.timeoutBudget ??
+      configured.timeoutBudgetSeconds ??
+      configured.scanner?.timeoutBudget ??
+      configured.scanner?.timeoutBudgetSeconds;
+  }
+  const val =
+    typeof raw === "number"
+      ? raw
+      : (raw ?? process.env.SCAN_TIMEOUT_BUDGET_SECONDS)?.toString().trim();
+  const n = val ? Number(val) : NaN;
+  return Number.isInteger(n) && n > 0 ? n * 1000 : DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS * 1000;
+}
+
+/**
+ * Resolves the per-request LLM timeout in milliseconds from configuration or environment (#1981).
+ * Default is 60 seconds (60,000 ms).
+ */
+export function resolveScanRequestTimeoutMs(
+  configured?:
+    | number
+    | string
+    | {
+        requestTimeout?: number;
+        requestTimeoutSeconds?: number;
+        scanner?: { requestTimeout?: number; requestTimeoutSeconds?: number };
+      }
+    | null,
+): number {
+  let raw: unknown = configured;
+  if (configured && typeof configured === "object") {
+    raw =
+      configured.requestTimeout ??
+      configured.requestTimeoutSeconds ??
+      configured.scanner?.requestTimeout ??
+      configured.scanner?.requestTimeoutSeconds;
+  }
+  const val =
+    typeof raw === "number"
+      ? raw
+      : (raw ?? process.env.SCAN_REQUEST_TIMEOUT_SECONDS)?.toString().trim();
+  const n = val ? Number(val) : NaN;
+  return Number.isInteger(n) && n > 0 ? n * 1000 : DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS * 1000;
+}
 
 /** Gate threshold level including NONE (which turns that gate level off). */
 export type GateLevel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE";
@@ -56,6 +124,10 @@ export interface GateConfig {
   filterBlocking?: boolean;
   includeDefaults?: boolean;
   forceInclude?: string[];
+  timeoutBudget?: number;
+  timeoutBudgetSeconds?: number;
+  requestTimeout?: number;
+  requestTimeoutSeconds?: number;
   skipDrafts?: boolean;
   skipAuthors?: string[];
 }
@@ -68,6 +140,16 @@ export interface SecureFlowConfig {
   filterBlocking?: boolean;
   includeDefaults?: boolean;
   forceInclude?: string[];
+  timeoutBudget?: number;
+  timeoutBudgetSeconds?: number;
+  requestTimeout?: number;
+  requestTimeoutSeconds?: number;
+  scanner?: {
+    timeoutBudget?: number;
+    timeoutBudgetSeconds?: number;
+    requestTimeout?: number;
+    requestTimeoutSeconds?: number;
+  };
   skipDrafts?: boolean;
   skipAuthors?: string[];
   ignore?: {
@@ -84,8 +166,6 @@ export const DEFAULT_GATE_CONFIG: Readonly<GateConfig> = {
   minCommentConfidence: DEFAULT_MIN_COMMENT_CONFIDENCE,
   filterBlocking: false,
 };
-
-const GATE_LEVEL_VALUES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"] as const;
 
 /** Helper to parse a GateLevel string case-insensitively. */
 export function parseGateLevel(value: unknown): GateLevel | null {
@@ -132,9 +212,21 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   // #1983: default ignore pattern overrides
   const sameIncludeDefaults = gate.includeDefaults === undefined || gate.includeDefaults === true;
   const noForceInclude = !gate.forceInclude || gate.forceInclude.length === 0;
+  // #1981: timeout settings check
+  const sameTimeoutBudget =
+    (gate.timeoutBudget === undefined ||
+      gate.timeoutBudget === DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS) &&
+    (gate.timeoutBudgetSeconds === undefined ||
+      gate.timeoutBudgetSeconds === DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS);
+  const sameRequestTimeout =
+    (gate.requestTimeout === undefined ||
+      gate.requestTimeout === DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS) &&
+    (gate.requestTimeoutSeconds === undefined ||
+      gate.requestTimeoutSeconds === DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS);
   // #1982: skipDrafts and skipAuthors checks
   const sameSkipDrafts = gate.skipDrafts === undefined || gate.skipDrafts === false;
   const noSkipAuthors = !gate.skipAuthors || gate.skipAuthors.length === 0;
+
   return (
     sameBlock &&
     sameReview &&
@@ -145,6 +237,8 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameFilterBlocking &&
     sameIncludeDefaults &&
     noForceInclude &&
+    sameTimeoutBudget &&
+    sameRequestTimeout &&
     sameSkipDrafts &&
     noSkipAuthors
   );
@@ -412,6 +506,53 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #1981: parse timeoutBudget and requestTimeout from root, scanner, or gate
+  const rawTimeoutBudget =
+    root.timeoutBudget ??
+    root.timeoutBudgetSeconds ??
+    rawScannerObj?.timeoutBudget ??
+    rawScannerObj?.timeoutBudgetSeconds ??
+    gateObj.timeoutBudget ??
+    gateObj.timeoutBudgetSeconds;
+
+  let timeoutBudget: number | undefined = undefined;
+  if (rawTimeoutBudget !== undefined && rawTimeoutBudget !== null) {
+    const num =
+      typeof rawTimeoutBudget === "number"
+        ? rawTimeoutBudget
+        : Number(String(rawTimeoutBudget).trim());
+    if (Number.isInteger(num) && num > 0) {
+      timeoutBudget = num;
+    } else {
+      console.warn(
+        `[GateConfig] Invalid timeoutBudget value '${String(rawTimeoutBudget)}' (expected positive integer in seconds); ignoring.`,
+      );
+    }
+  }
+
+  const rawRequestTimeout =
+    root.requestTimeout ??
+    root.requestTimeoutSeconds ??
+    rawScannerObj?.requestTimeout ??
+    rawScannerObj?.requestTimeoutSeconds ??
+    gateObj.requestTimeout ??
+    gateObj.requestTimeoutSeconds;
+
+  let requestTimeout: number | undefined = undefined;
+  if (rawRequestTimeout !== undefined && rawRequestTimeout !== null) {
+    const num =
+      typeof rawRequestTimeout === "number"
+        ? rawRequestTimeout
+        : Number(String(rawRequestTimeout).trim());
+    if (Number.isInteger(num) && num > 0) {
+      requestTimeout = num;
+    } else {
+      console.warn(
+        `[GateConfig] Invalid requestTimeout value '${String(rawRequestTimeout)}' (expected positive integer in seconds); ignoring.`,
+      );
+    }
+  }
+
   // #1982: parse skipDrafts and skipAuthors from root or gateObj
   const rawSkipDrafts = root.skipDrafts ?? gateObj.skipDrafts;
   let skipDrafts: boolean | undefined = undefined;
@@ -459,6 +600,10 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     filterBlocking,
     ...(includeDefaults !== undefined ? { includeDefaults } : {}),
     ...(forceInclude.length > 0 ? { forceInclude } : {}),
+    ...(timeoutBudget !== undefined ? { timeoutBudget, timeoutBudgetSeconds: timeoutBudget } : {}),
+    ...(requestTimeout !== undefined
+      ? { requestTimeout, requestTimeoutSeconds: requestTimeout }
+      : {}),
     ...(skipDrafts !== undefined ? { skipDrafts } : {}),
     ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
   };

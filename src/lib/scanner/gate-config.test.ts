@@ -8,6 +8,10 @@ import {
   isAuthorSkipped,
   DEFAULT_GATE_CONFIG,
   SECUREFLOW_CONFIG_FILE,
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
+  DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS,
+  DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS,
 } from "./gate-config";
 import { ArmorIQPolicyEngine } from "@/lib/armor/iq";
 import type { ScanFinding } from "@/lib/armor/scanner";
@@ -426,6 +430,54 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(config.includeDefaults).toBeUndefined();
       expect(config.forceInclude).toBeUndefined();
       expect(isDefaultGate(config)).toBe(true);
+    });
+
+    it("parses timeoutBudget and requestTimeout from gate section (#1981)", () => {
+      const json = JSON.stringify({
+        gate: {
+          timeoutBudget: 90,
+          requestTimeout: 45,
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBe(90);
+      expect(config.requestTimeout).toBe(45);
+      expect(isDefaultGate(config)).toBe(false);
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(90_000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(45_000);
+    });
+
+    it("parses timeout aliases and scanner block (#1981)", () => {
+      const json = JSON.stringify({
+        scanner: {
+          timeoutBudgetSeconds: 150,
+          requestTimeoutSeconds: 30,
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBe(150);
+      expect(config.requestTimeout).toBe(30);
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(150_000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(30_000);
+    });
+
+    it("ignores invalid timeout values (<= 0 or non-number) and uses defaults (#1981)", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        gate: {
+          timeoutBudget: -10,
+          requestTimeout: "fast",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBeUndefined();
+      expect(config.requestTimeout).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("positive integer"));
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS * 1000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS * 1000);
     });
   });
 

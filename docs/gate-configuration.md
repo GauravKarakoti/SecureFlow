@@ -203,6 +203,48 @@ Repositories can configure ignore defaults at the root level or in the `gate` / 
 - **Single changed file protection**: Files matching default ignore patterns are **never skipped** if they are the only files changed in the pull request and contain secret-like strings matching the deterministic secret pre-scan.
 - **Transparent PR reporting**: The pull request summary comment displays how many files were skipped by defaults (e.g., `ℹ️ **3 files** skipped by default ignore patterns`), ensuring no changes are silently dropped.
 
+## Scan Time Budget and Partial Results
+
+A slow LLM response or a very large PR could otherwise keep a scan in progress indefinitely and return zero findings if it fails. SecureFlow supports a configurable scan time budget and per-request timeout:
+
+```json
+{
+  "gate": {
+    "timeoutBudget": 120,
+    "requestTimeout": 60
+  }
+}
+```
+
+Or at the top-level of `.secureflow.json`:
+
+```json
+{
+  "timeoutBudget": 120,
+  "requestTimeout": 60
+}
+```
+
+### Configuration Options
+
+- **`timeoutBudget` / `timeoutBudgetSeconds`**: Total scan time budget in seconds (default: `120`). When this budget is reached, SecureFlow stops starting new chunks, preserves findings from completed chunks, and completes the check run as `neutral` with policy decision `PARTIAL`.
+- **`requestTimeout` / `requestTimeoutSeconds`**: Per-request LLM timeout in seconds (default: `60`).
+
+### Environment Variables
+
+Defaults can also be configured across the deployment via environment variables:
+
+- **`SCAN_TIMEOUT_BUDGET_SECONDS`**: Deployment-wide default scan time budget (seconds, default: `120`).
+- **`SCAN_REQUEST_TIMEOUT_SECONDS`**: Deployment-wide default per-request LLM timeout (seconds, default: `60`).
+
+### Partial Scan Behavior & Safety Guarantees
+
+- **Preserves Completed Findings**: Findings from chunks that completed before the timeout are preserved and reported.
+- **Visible Unscanned Files List**: The check run summary and details clearly list every unscanned file and the reason it was skipped (`scan timeout budget of ...s exceeded`).
+- **Check Run Conclusion**: The GitHub check run concludes with `neutral` and title `Policy Decision: PARTIAL (<count> issues in <count> analyzed files)`.
+- **Never Auto-Resolves Missing Findings**: Scans marked partial are flagged with `isPartialScan: true`. Automated finding resolution and scan comparison logic never treat missing findings as resolved or fixed during a partial scan.
+- **Full Scans Unaffected**: When all files are scanned within the time budget, the scan behaves exactly as before.
+
 ## Skipping Draft Pull Requests and Automated Bot PRs (`skipDrafts` & `skipAuthors`)
 
 Draft PRs and automated PRs (dependency bots, release bots) can consume LLM quota and generate noise before work is ready for review. You can configure automatic early skips in `.secureflow.json`:

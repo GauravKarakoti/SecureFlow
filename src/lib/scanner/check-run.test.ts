@@ -497,6 +497,30 @@ describe("Batching annotations (Checks API limit of 50 per call)", () => {
     expect(o.rest.checks.update).not.toHaveBeenCalled();
   });
 
+  it("handles partial scan check run with neutral conclusion and unscanned files list (#1981)", async () => {
+    const o = mk();
+    await postScanCheckRun(o, {
+      ...base,
+      decision: "BLOCKED",
+      findingsCount: 2,
+      fileCount: 5,
+      isPartial: true,
+      unscannedFiles: [
+        { filename: "src/slow.ts", reason: "scan timeout budget of 120s exceeded" },
+        { filename: "src/large.ts", reason: "oversized" },
+      ],
+    });
+
+    expect(o.rest.checks.create).toHaveBeenCalledTimes(1);
+    const callArg = o.rest.checks.create.mock.calls[0][0];
+    expect(callArg.conclusion).toBe("neutral");
+    expect(callArg.output.title).toBe("Policy Decision: PARTIAL (2 issues in 5 analyzed files)");
+    expect(callArg.output.summary).toContain("Partial Scan — Unscanned Files (2)");
+    expect(callArg.output.summary).toContain("`src/slow.ts`: scan timeout budget of 120s exceeded");
+    expect(callArg.output.summary).toContain("`src/large.ts`: oversized");
+  });
+});
+
   describe("postScanSkippedCheckRun (#1982)", () => {
     it("creates a neutral check run with reason for skipped PR", async () => {
       const o = mk();
@@ -547,4 +571,3 @@ describe("Batching annotations (Checks API limit of 50 per call)", () => {
       expect(o.rest.checks.create).not.toHaveBeenCalled();
     });
   });
-});
