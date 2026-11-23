@@ -245,6 +245,22 @@ Defaults can also be configured across the deployment via environment variables:
 - **Never Auto-Resolves Missing Findings**: Scans marked partial are flagged with `isPartialScan: true`. Automated finding resolution and scan comparison logic never treat missing findings as resolved or fixed during a partial scan.
 - **Full Scans Unaffected**: When all files are scanned within the time budget, the scan behaves exactly as before.
 
+## Skipping Draft Pull Requests and Automated Bot PRs (`skipDrafts` & `skipAuthors`)
+
+Draft PRs and automated PRs (dependency bots, release bots) can consume LLM quota and generate noise before work is ready for review. You can configure automatic early skips in `.secureflow.json`:
+
+```json
+{
+  "skipDrafts": true,
+  "skipAuthors": ["dependabot[bot]", "renovate[bot]", "*bot*", "release-*"]
+}
+```
+
+- **`skipDrafts`**: (Optional, boolean, default `false`). When `true`, pull requests in draft mode are skipped early from scanning. When the pull request is marked ready for review (`ready_for_review`), SecureFlow automatically triggers a full scan.
+- **`skipAuthors`**: (Optional, string array). A list of exact login names (case-insensitive) or wildcard patterns (e.g. `dependabot[bot]`, `*bot*`, `release-*`). Pull requests authored by matching accounts are skipped early.
+- **Early feedback**: When a scan is skipped, SecureFlow posts a short neutral check run (or comment) on the pull request stating why the scan was skipped, and records the event in webhook delivery diagnostics (`DRAFT_PR` or `AUTHOR_SKIPPED`).
+- **Base-branch authority**: Settings are read strictly from the target repository's **base branch** (`.secureflow.json`). If the file cannot be read or contains invalid values, SecureFlow logs a warning and safely falls back without skipping.
+
 ## CLI Initialization and Validation (`secureflow --init` & `secureflow validate`)
 
 To simplify repository setup and avoid manual syntax mistakes, use the SecureFlow CLI:

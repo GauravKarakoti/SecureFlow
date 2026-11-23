@@ -354,3 +354,46 @@ export async function postScanCancelledCheckRun(
     output,
   });
 }
+
+/**
+ * Posts or updates a neutral check run when a PR scan is skipped early (#1982).
+ * e.g. for draft PRs or excluded bot authors configured in .secureflow.json.
+ */
+export async function postScanSkippedCheckRun(
+  octokit: ChecksClient,
+  p: {
+    owner: string;
+    repo: string;
+    headSha: string;
+    reason: string;
+    checkRunId?: number;
+  },
+) {
+  const output = {
+    title: "SecureFlow — Scan Skipped",
+    summary: p.reason,
+  };
+
+  if (p.checkRunId && typeof octokit.rest.checks.update === "function") {
+    return octokit.rest.checks.update({
+      owner: p.owner,
+      repo: p.repo,
+      check_run_id: p.checkRunId,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion: "neutral",
+      output,
+    });
+  }
+
+  return octokit.rest.checks.create({
+    owner: p.owner,
+    repo: p.repo,
+    name: SCAN_CHECK_NAME,
+    head_sha: p.headSha,
+    status: "completed",
+    conclusion: "neutral",
+    output,
+  });
+}

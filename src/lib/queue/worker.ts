@@ -4,6 +4,7 @@ import {
   postScanCheckRun,
   postScanErrorCheckRun,
   postScanCancelledCheckRun,
+  postScanSkippedCheckRun,
 } from "../scanner/check-run";
 import { getZeroScanReason, formatZeroScanComment } from "@/lib/scanner/zero-scan";
 import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
@@ -20,6 +21,7 @@ import { iq } from "@/lib/armor/iq";
 import {
   loadTrustedGateConfig,
   formatGateSummaryLine,
+  isAuthorSkipped,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
@@ -633,6 +635,93 @@ export async function runPullRequestScan({
       return { dbRepoId: dbRepo.id };
     }
 
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const appClient = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
+    const octokit = await appClient.getInstallationOctokit(installation.id);
+
+    // Load base-branch gate configuration early to check skipDrafts and skipAuthors (#1982)
+    const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+      owner: repository.owner.login,
+      repo: repository.name,
+      prNumber: pullRequest.number,
+      baseRef: pullRequest.base?.ref,
+    });
+
+    const isDraft = pullRequest?.draft === true;
+    const authorLogin = pullRequest?.user?.login;
+    const isDraftSkipped = isDraft && gateConfig.skipDrafts === true;
+    const isSkippedAuthor = isAuthorSkipped(authorLogin, gateConfig.skipAuthors);
+
+    if (isDraftSkipped || isSkippedAuthor) {
+      const skipReason = isDraftSkipped
+        ? "Pull request is a draft and skipDrafts is enabled in repository configuration."
+        : `Author @${authorLogin} is excluded from security scanning by skipAuthors in repository configuration.`;
+      const reasonCode = isDraftSkipped
+        ? WEBHOOK_REASON_CODES.DRAFT_PR
+        : WEBHOOK_REASON_CODES.AUTHOR_SKIPPED;
+
+      log.info(
+        `[Worker] PR #${sanitize(pullRequest.number)} on ${sanitize(repository.full_name)} skipped: ${skipReason}`,
+      );
+
+      try {
+        await postScanSkippedCheckRun(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          reason: skipReason,
+          checkRunId: inFlightScan.checkRunId,
+        });
+      } catch (checkErr) {
+        log.warn(`[Worker] Failed to post skipped check run:`, checkErr);
+        try {
+          await upsertSecureFlowComment(octokit, {
+            owner: repository.owner.login,
+            repo: repository.name,
+            issueNumber: pullRequest.number,
+            body: `⚪ **SecureFlow — Scan Skipped**\n\n${skipReason}`,
+          });
+        } catch (commentErr) {
+          log.warn(`[Worker] Failed to post skipped comment:`, commentErr);
+        }
+      }
+
+      if (deliveryId) {
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: event || "pull_request",
+          action: action ?? null,
+          repository: repository.full_name,
+          outcome: "ignored",
+          reasonCode,
+          error: skipReason,
+        });
+      }
+
+      return { dbRepoId: dbRepo?.id };
+    }
+
+    if (shouldScanPullRequestManifests(event, action)) {
+      // Never throws (it logs and returns), so a manifest problem cannot
+      // fail the code scan below. SBOM jobs are keyed by head SHA and file,
+      // so a retry of this delivery does not enqueue them twice.
+      await handlePullRequestSynchronize(
+        {
+          ...payload,
+          number: pullRequest.number,
+          pull_request: pullRequest,
+          repository,
+          installation,
+        },
+        deliveryId ?? undefined,
+        correlationId,
+      );
+    }
+
     const userId = dbRepo?.userId;
 
     // Use Redis-cached policy list to avoid two Prisma queries per scan.
@@ -660,14 +749,6 @@ export async function runPullRequestScan({
         }),
       });
     }
-
-    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
-    const appClient = new App({
-      appId,
-      privateKey,
-      ...(customOctokit ? { Octokit: customOctokit } : {}),
-    });
-    const octokit = await appClient.getInstallationOctokit(installation.id);
 
     // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
     // call left every file past the 30th unscanned while still reporting a
@@ -992,14 +1073,7 @@ export async function runPullRequestScan({
       ...ruleSuppressedFindings,
     ];
 
-    // Load base-branch gate configuration
-    const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      prNumber: pullRequest.number,
-      baseRef: pullRequest.base?.ref,
-    });
-
+    // Base-branch gate configuration was loaded early during PR filtering
     const decision = iq.evaluateFindings(activeFindings, gateConfig);
 
     if (userId) {
@@ -1831,23 +1905,6 @@ export const worker = new Worker<WebhookJobData>(
         }
       } else {
         assertPullRequestContext(payload as any);
-        if (pull_request?.draft === true) {
-          log.info(
-            `[Worker] PR #${sanitize(pull_request.number)} on ${sanitize(repository?.full_name)} is a draft; skipping scan.`,
-          );
-          if (deliveryId) {
-            await recordWebhookDelivery({
-              deliveryId,
-              eventType: event || "pull_request",
-              action: action ?? null,
-              repository: repository?.full_name ?? null,
-              outcome: "ignored",
-              reasonCode: WEBHOOK_REASON_CODES.DRAFT_PR,
-              error: "Draft pull request skipped",
-            });
-          }
-          return;
-        }
         const resultIds = await runPullRequestScan({
           job,
           payload,

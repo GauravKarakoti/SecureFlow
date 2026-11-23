@@ -5,6 +5,7 @@ import {
   isDefaultGate,
   loadTrustedGateConfig,
   loadBaseGateConfig,
+  isAuthorSkipped,
   DEFAULT_GATE_CONFIG,
   SECUREFLOW_CONFIG_FILE,
   resolveScanTimeoutBudgetMs,
@@ -477,6 +478,117 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("positive integer"));
       expect(resolveScanTimeoutBudgetMs(config)).toBe(DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS * 1000);
       expect(resolveScanRequestTimeoutMs(config)).toBe(DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS * 1000);
+    });
+  });
+
+  describe("skipDrafts and skipAuthors (#1982)", () => {
+    it("parses skipDrafts and skipAuthors at root level", () => {
+      const json = JSON.stringify({
+        skipDrafts: true,
+        skipAuthors: ["dependabot[bot]", "renovate[bot]", "*bot*"],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(true);
+      expect(config.skipAuthors).toEqual(["dependabot[bot]", "renovate[bot]", "*bot*"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("parses skipDrafts and skipAuthors within gate block", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "CRITICAL",
+          reviewOn: "MEDIUM",
+          skipDrafts: true,
+          skipAuthors: ["release-bot"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(true);
+      expect(config.skipAuthors).toEqual(["release-bot"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("safely ignores non-boolean skipDrafts with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipDrafts: "yes",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown skipDrafts value"));
+    });
+
+    it("safely ignores non-array skipAuthors with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipAuthors: "dependabot[bot]",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipAuthors).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid skipAuthors value"));
+    });
+
+    it("filters out invalid entries in skipAuthors with warnings", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipAuthors: ["dependabot[bot]", 123, null, "  "],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipAuthors).toEqual(["dependabot[bot]"]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid skipAuthors entry"));
+    });
+
+    it("considers false skipDrafts and empty skipAuthors as default gate", () => {
+      const json = JSON.stringify({
+        skipDrafts: false,
+        skipAuthors: [],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(false);
+      expect(config.skipAuthors).toBeUndefined();
+      expect(isDefaultGate(config)).toBe(true);
+    });
+  });
+
+  describe("isAuthorSkipped matching helper (#1982)", () => {
+    it("returns false for null, undefined, or empty author/patterns", () => {
+      expect(isAuthorSkipped(null, ["dependabot[bot]"])).toBe(false);
+      expect(isAuthorSkipped(undefined, ["dependabot[bot]"])).toBe(false);
+      expect(isAuthorSkipped("alice", null)).toBe(false);
+      expect(isAuthorSkipped("alice", undefined)).toBe(false);
+      expect(isAuthorSkipped("alice", [])).toBe(false);
+    });
+
+    it("matches exact logins case-insensitively", () => {
+      const patterns = ["dependabot[bot]", "Renovate[bot]"];
+      expect(isAuthorSkipped("dependabot[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("DEPENDABOT[BOT]", patterns)).toBe(true);
+      expect(isAuthorSkipped("renovate[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("RENOVATE[BOT]", patterns)).toBe(true);
+      expect(isAuthorSkipped("alice", patterns)).toBe(false);
+    });
+
+    it("matches wildcard glob patterns", () => {
+      const patterns = ["*bot*", "release-*", "app-?.service"];
+      expect(isAuthorSkipped("github-actions[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("my-custom-bot", patterns)).toBe(true);
+      expect(isAuthorSkipped("release-v1.0", patterns)).toBe(true);
+      expect(isAuthorSkipped("app-1.service", patterns)).toBe(true);
+      expect(isAuthorSkipped("developer-bob", patterns)).toBe(false);
+    });
+
+    it("safely handles patterns with regex special characters", () => {
+      const patterns = ["bot+service", "user(special)", "corp[team]"];
+      expect(isAuthorSkipped("bot+service", patterns)).toBe(true);
+      expect(isAuthorSkipped("user(special)", patterns)).toBe(true);
+      expect(isAuthorSkipped("corp[team]", patterns)).toBe(true);
+      expect(isAuthorSkipped("botservice", patterns)).toBe(false);
     });
   });
 });

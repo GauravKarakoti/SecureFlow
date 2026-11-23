@@ -3,6 +3,7 @@ import {
   postScanCheckRun,
   postScanErrorCheckRun,
   postScanCancelledCheckRun,
+  postScanSkippedCheckRun,
   SCAN_CHECK_NAME,
   mapSeverityToAnnotationLevel,
   findingToAnnotation,
@@ -519,3 +520,54 @@ describe("Batching annotations (Checks API limit of 50 per call)", () => {
     expect(callArg.output.summary).toContain("`src/large.ts`: oversized");
   });
 });
+
+  describe("postScanSkippedCheckRun (#1982)", () => {
+    it("creates a neutral check run with reason for skipped PR", async () => {
+      const o = mk();
+      await postScanSkippedCheckRun(o as any, {
+        owner: "acme",
+        repo: "repo",
+        headSha: "head123",
+        reason: "Pull request is a draft and skipDrafts is enabled.",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        name: SCAN_CHECK_NAME,
+        head_sha: "head123",
+        status: "completed",
+        conclusion: "neutral",
+        output: {
+          title: "SecureFlow — Scan Skipped",
+          summary: "Pull request is a draft and skipDrafts is enabled.",
+        },
+      });
+    });
+
+    it("updates existing check run when checkRunId is provided", async () => {
+      const o = mk();
+      await postScanSkippedCheckRun(o as any, {
+        owner: "acme",
+        repo: "repo",
+        headSha: "head123",
+        reason: "Author @dependabot[bot] is excluded by skipAuthors.",
+        checkRunId: 888,
+      });
+
+      expect(o.rest.checks.update).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        check_run_id: 888,
+        name: SCAN_CHECK_NAME,
+        head_sha: "head123",
+        status: "completed",
+        conclusion: "neutral",
+        output: {
+          title: "SecureFlow — Scan Skipped",
+          summary: "Author @dependabot[bot] is excluded by skipAuthors.",
+        },
+      });
+      expect(o.rest.checks.create).not.toHaveBeenCalled();
+    });
+  });
