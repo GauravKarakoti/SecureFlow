@@ -108,6 +108,26 @@
           "items": {
             "type": "string"
           }
+        },
+        "timeoutBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total scan time budget in seconds before stopping with partial results (default: 120)."
+        },
+        "timeoutBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for timeoutBudget in seconds (default: 120)."
+        },
+        "requestTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-request LLM timeout in seconds (default: 60)."
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for requestTimeout in seconds (default: 60)."
         }
       }
     },
@@ -145,6 +165,53 @@
       "description": "Path-scoped policy rules (enable/disable specific policies for paths in monorepos).",
       "items": {
         "$ref": "#/definitions/PolicyScopeRule"
+      }
+    },
+    "timeoutBudget": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total scan time budget in seconds before stopping with partial results (default: 120)."
+    },
+    "timeoutBudgetSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Alias for timeoutBudget in seconds (default: 120)."
+    },
+    "requestTimeout": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-request LLM timeout in seconds (default: 60)."
+    },
+    "requestTimeoutSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Alias for requestTimeout in seconds (default: 60)."
+    },
+    "scanner": {
+      "type": "object",
+      "description": "Scanner settings including scan budget and timeouts.",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total scan time budget in seconds (default: 120)."
+        },
+        "timeoutBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for timeoutBudget in seconds (default: 120)."
+        },
+        "requestTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-request LLM timeout in seconds (default: 60)."
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for requestTimeout in seconds (default: 60)."
+        }
       }
     }
   },

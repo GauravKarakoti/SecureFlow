@@ -42,6 +42,8 @@ export interface ScanCheckParams {
   findings?: readonly unknown[] | null;
   checkRunId?: number;
   emptyReason?: string;
+  isPartial?: boolean;
+  unscannedFiles?: Array<{ filename: string; reason: string }> | string[];
   conclusion?: "success" | "action_required" | "failure" | "neutral" | "skipped";
 }
 
@@ -176,23 +178,40 @@ export function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
 
 export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams) {
   const isZeroScan = p.fileCount === 0 || !!p.emptyReason;
+  const isPartial = p.isPartial === true;
   const emptyReason = p.emptyReason || "no changed files";
 
   const annotations = buildCheckAnnotations(p.findings);
   const batches = chunkArray(annotations, ANNOTATION_BATCH_SIZE);
   const firstBatch = batches[0];
 
-  const summary = isZeroScan
+  let summary = isZeroScan
     ? `Nothing to scan: ${emptyReason}.` + (p.notice ? `\n\n${p.notice}` : "")
     : `SecureFlow detected ${p.findingsCount} potential security issues across ${p.fileCount} analyzed file(s).` +
       (p.notice ? `\n\n${p.notice}` : "");
+
+  if (isPartial && p.unscannedFiles && p.unscannedFiles.length > 0) {
+    summary += `\n\n### ⚠️ Partial Scan — Unscanned Files (${p.unscannedFiles.length})\n`;
+    summary += `The scan time budget was reached or files were skipped. The following file(s) were not scanned:\n`;
+    for (const f of p.unscannedFiles) {
+      const name = typeof f === "string" ? f : f.filename;
+      const reason = typeof f === "string" ? "scan timeout budget exceeded" : f.reason;
+      summary += `- \`${name}\`: ${reason}\n`;
+    }
+  }
+
+  const outputTitle = isPartial
+    ? `Policy Decision: PARTIAL (${p.findingsCount} issues in ${p.fileCount} analyzed files)`
+    : isZeroScan
+      ? "Nothing to scan"
+      : `Policy Decision: ${String(p.decision)}`;
 
   const output: {
     title: string;
     summary: string;
     annotations?: CheckAnnotation[];
   } = {
-    title: isZeroScan ? "Nothing to scan" : `Policy Decision: ${String(p.decision)}`,
+    title: outputTitle,
     summary,
   };
 
@@ -200,7 +219,8 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
     output.annotations = firstBatch;
   }
 
-  const conclusion = p.conclusion ?? (isZeroScan ? "neutral" : checkRunConclusion(p.decision));
+  const conclusion =
+    p.conclusion ?? (isZeroScan || isPartial ? "neutral" : checkRunConclusion(p.decision));
 
   let result: unknown;
   let checkRunId = p.checkRunId;

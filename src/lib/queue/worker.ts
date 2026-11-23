@@ -1034,6 +1034,19 @@ export async function runPullRequestScan({
         ? getZeroScanReason(pullRequestFilesResult.files, scanJobData.customIgnores)
         : undefined);
 
+    const workerSkippedFiles = [
+      ...((scanResult.skippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
+        []),
+      ...((scanner.lastSkippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
+        []),
+    ];
+    const isPartialScan =
+      Boolean(coverageNotice) ||
+      Boolean((scanResult as any).isPartial) ||
+      Boolean((scanResult as any).timedOut) ||
+      workerSkippedFiles.length > 0;
+    const unscannedFilesList = workerSkippedFiles.length > 0 ? workerSkippedFiles : undefined;
+
     await withSpan(
       "check_run.update",
       async (span) => {
@@ -1056,6 +1069,9 @@ export async function runPullRequestScan({
           notice: combinedNotice,
           findings: enrichedFindings,
           checkRunId,
+          isPartial: isPartialScan,
+          unscannedFiles: unscannedFilesList,
+          conclusion: isPartialScan ? "neutral" : undefined,
         });
         const returnedRunId = (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
         if (returnedRunId && typeof returnedRunId === "number") {
@@ -1361,11 +1377,22 @@ export async function runPullRequestScan({
           span.setAttribute("secureflow.risk_score", riskScore);
           span.setAttribute("secureflow.policy_decision", normalizePolicyDecisionEnum(decision));
 
+          const scanGateConfig = isPartialScan
+            ? {
+                ...gateConfig,
+                isPartialScan: true,
+                isPartial: true,
+                skippedFiles: workerSkippedFiles.map((f: any) =>
+                  typeof f === "string" ? f : f.filename,
+                ),
+              }
+            : gateConfig;
+
           return await prisma.scanResult.create({
             data: {
               pullRequestId: dbPr.id,
               headSha: pullRequest.head?.sha,
-              gateConfig,
+              gateConfig: scanGateConfig,
               riskScore,
               policyDecision: normalizePolicyDecisionEnum(decision),
               findings: {
@@ -1392,9 +1419,6 @@ export async function runPullRequestScan({
       );
 
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
-      const isPartialScan =
-        Boolean(coverageNotice) ||
-        Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
       await autoResolveFixedFindings({
         repositoryId: (dbRepo?.id || repository.id).toString(),
         pullRequestId: dbPr.id,

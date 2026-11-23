@@ -252,5 +252,36 @@ describe("autoResolveFixedFindings (#1869)", () => {
       expect(result.resolvedCount).toBe(0);
       expect(mockDb.findingTriage.upsert).not.toHaveBeenCalled();
     });
+
+    it("never auto-resolves findings when isPartialScan is true (#1981)", async () => {
+      mockDb.scanResult.findMany.mockResolvedValue([
+        {
+          id: "scan-prev",
+          createdAt: new Date("2026-11-18T10:00:00Z"),
+          findings: [
+            {
+              fingerprint: "fp-fixed",
+              fileLocation: "src/file-1.ts",
+              createdAt: new Date("2026-11-18T10:00:00Z"),
+            },
+          ],
+        },
+      ]);
+
+      mockDb.findingTriage.findMany.mockResolvedValue([]);
+
+      const result = await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId,
+        headSha,
+        currentFindings: [],
+        fileChanges: [{ filename: "src/file-1.ts" }],
+        isPartialScan: true,
+        db: mockDb,
+      });
+
+      expect(result.resolvedCount).toBe(0);
+      expect(mockDb.findingTriage.upsert).not.toHaveBeenCalled();
+    });
   });
 });
