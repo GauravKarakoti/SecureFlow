@@ -26,6 +26,10 @@ describe("classifyPullRequestAction", () => {
     expect(classifyPullRequestAction(action)).toBe("scan");
   });
 
+  it("scans when pull request is marked ready for review (#1982)", () => {
+    expect(classifyPullRequestAction("ready_for_review")).toBe("scan");
+  });
+
   it.each([...METADATA_ONLY_ACTIONS])("records metadata only on %s", (action) => {
     expect(classifyPullRequestAction(action)).toBe("metadata");
   });

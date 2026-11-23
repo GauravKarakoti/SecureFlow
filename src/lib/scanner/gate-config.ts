@@ -56,6 +56,8 @@ export interface GateConfig {
   filterBlocking?: boolean;
   includeDefaults?: boolean;
   forceInclude?: string[];
+  skipDrafts?: boolean;
+  skipAuthors?: string[];
 }
 
 export interface SecureFlowConfig {
@@ -66,6 +68,8 @@ export interface SecureFlowConfig {
   filterBlocking?: boolean;
   includeDefaults?: boolean;
   forceInclude?: string[];
+  skipDrafts?: boolean;
+  skipAuthors?: string[];
   ignore?: {
     includeDefaults?: boolean;
     forceInclude?: string[];
@@ -128,6 +132,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   // #1983: default ignore pattern overrides
   const sameIncludeDefaults = gate.includeDefaults === undefined || gate.includeDefaults === true;
   const noForceInclude = !gate.forceInclude || gate.forceInclude.length === 0;
+  // #1982: skipDrafts and skipAuthors checks
+  const sameSkipDrafts = gate.skipDrafts === undefined || gate.skipDrafts === false;
+  const noSkipAuthors = !gate.skipAuthors || gate.skipAuthors.length === 0;
   return (
     sameBlock &&
     sameReview &&
@@ -137,7 +144,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameConfidence &&
     sameFilterBlocking &&
     sameIncludeDefaults &&
-    noForceInclude
+    noForceInclude &&
+    sameSkipDrafts &&
+    noSkipAuthors
   );
 }
 
@@ -403,6 +412,43 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #1982: parse skipDrafts and skipAuthors from root or gateObj
+  const rawSkipDrafts = root.skipDrafts ?? gateObj.skipDrafts;
+  let skipDrafts: boolean | undefined = undefined;
+  if (rawSkipDrafts !== undefined) {
+    if (typeof rawSkipDrafts === "boolean") {
+      skipDrafts = rawSkipDrafts;
+    } else {
+      console.warn(
+        `[GateConfig] Unknown skipDrafts value '${String(rawSkipDrafts)}' (expected boolean); ignoring.`,
+      );
+    }
+  }
+
+  const rawSkipAuthors = root.skipAuthors ?? gateObj.skipAuthors;
+  let skipAuthors: string[] | undefined = undefined;
+  if (rawSkipAuthors !== undefined) {
+    if (Array.isArray(rawSkipAuthors)) {
+      const parsedAuthors: string[] = [];
+      for (const item of rawSkipAuthors) {
+        if (typeof item === "string" && item.trim()) {
+          parsedAuthors.push(item.trim());
+        } else if (item !== undefined && item !== null) {
+          console.warn(
+            `[GateConfig] Invalid skipAuthors entry '${String(item)}' (expected string); ignoring.`,
+          );
+        }
+      }
+      if (parsedAuthors.length > 0) {
+        skipAuthors = parsedAuthors;
+      }
+    } else {
+      console.warn(
+        `[GateConfig] Invalid skipAuthors value '${String(rawSkipAuthors)}' (expected array of strings); ignoring.`,
+      );
+    }
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -413,7 +459,51 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     filterBlocking,
     ...(includeDefaults !== undefined ? { includeDefaults } : {}),
     ...(forceInclude.length > 0 ? { forceInclude } : {}),
+    ...(skipDrafts !== undefined ? { skipDrafts } : {}),
+    ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
   };
+}
+
+/**
+ * Checks whether an author login matches the configured skipAuthors patterns (#1982).
+ * Supports exact case-insensitive login matching and wildcard/glob patterns (e.g. 'dependabot[bot]', '*bot*').
+ */
+export function isAuthorSkipped(
+  authorLogin?: string | null,
+  skipAuthors?: string[] | null,
+): boolean {
+  if (!authorLogin || !skipAuthors || !Array.isArray(skipAuthors) || skipAuthors.length === 0) {
+    return false;
+  }
+
+  const cleanAuthor = authorLogin.trim().toLowerCase();
+  if (!cleanAuthor) return false;
+
+  for (const pattern of skipAuthors) {
+    if (typeof pattern !== "string") continue;
+    const cleanPattern = pattern.trim().toLowerCase();
+    if (!cleanPattern) continue;
+
+    if (cleanPattern.includes("*") || cleanPattern.includes("?")) {
+      const regexStr =
+        "^" +
+        cleanPattern
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*/g, ".*")
+          .replace(/\?/g, ".") +
+        "$";
+      try {
+        const regex = new RegExp(regexStr, "i");
+        if (regex.test(cleanAuthor)) return true;
+      } catch {
+        if (cleanAuthor === cleanPattern) return true;
+      }
+    } else {
+      if (cleanAuthor === cleanPattern) return true;
+    }
+  }
+
+  return false;
 }
 
 /**

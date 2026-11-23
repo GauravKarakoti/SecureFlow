@@ -108,7 +108,29 @@
           "items": {
             "type": "string"
           }
+        },
+        "skipDrafts": {
+          "type": "boolean",
+          "description": "Whether to skip security scans for draft pull requests until marked ready for review."
+        },
+        "skipAuthors": {
+          "type": "array",
+          "description": "List of pull request author logins or glob patterns (e.g. 'dependabot[bot]', '*bot*') to skip scanning.",
+          "items": {
+            "type": "string"
+          }
         }
+      }
+    },
+    "skipDrafts": {
+      "type": "boolean",
+      "description": "Whether to skip security scans for draft pull requests until marked ready for review."
+    },
+    "skipAuthors": {
+      "type": "array",
+      "description": "List of pull request author logins or glob patterns (e.g. 'dependabot[bot]', '*bot*') to skip scanning.",
+      "items": {
+        "type": "string"
       }
     },
     "includeDefaults": {
