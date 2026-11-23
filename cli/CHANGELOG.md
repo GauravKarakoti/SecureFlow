@@ -1,5 +1,37 @@
 # secureflow-cli
 
+## 3.12.0
+
+### Minor Changes
+
+- 0fba786: Show CODEOWNERS attribution for active pull request findings using the base revision.
+- 493232f: ci(release): sign container images with cosign and attach SBOM and provenance attestations (#1926)
+- e52c1f7: feat(findings): create a GitHub issue from a finding with a redacted, pre-filled description (#1987)
+- ce86d37: feat(triage): assign findings to a team member and add an 'Assigned to me' filter (#1921)
+- 6dceb03: feat(triage): add reviewer notes (comment thread) to a finding (#1920)
+- 6d57ec2: feat(triage): [NSoC_2026] finding triage dismissal, stable fingerprinting, and scan-time suppression (#1702)
+
+  - Validate triage dismissal action with required category (`FALSE_POSITIVE`, `ACCEPTED_RISK`, `WONT_FIX`) and min 5 characters reason.
+  - Enforce deterministic content fingerprinting ignoring line numbers to maintain suppression across line shifts.
+  - Suppress dismissed findings in scan pipeline, preventing PR check blocks and excluding them from risk scores.
+  - Display suppressed findings count in PR comment report.
+  - Include end-to-end integration test coverage for all #1702 acceptance criteria.
+
+- 62aaa6d: feat(scanner): handle zero analyzed files in PR scan with neutral check run and descriptive message
+- 0180f10: feat(auth): add read-only Viewer and Triager roles for installation members (#1922)
+- 6b077c4: feat(scans): compare two scans of the same pull request to show what is new, fixed or unchanged (#1923)
+- c647920: feat(scanner): per-finding confidence score and configurable threshold for PR comment (#1924)
+- ae063ad: feat(scanner): detect the language and framework of each changed file and pass it as scan context (#1925)
+- fa10c3d: feat(config): [NSoC_2026] add schema.json for .secureflow.json validation (#1917)
+- e850dc3: feat(webhook): add a webhook delivery diagnostics page showing recent events and why they were ignored (#1928)
+
+### Patch Changes
+
+- 5c2896a: Add devcontainer and Codespaces configuration with Docker Compose for one-click contributor setup (#1985).
+- 94c2041: Add Helm values.schema.json validation and negative CI tests to reject invalid chart configurations (#1984).
+- 2a63bea: Separate expired suppression rules from active rules in the admin console and require explicit renewal with a future expiry before editing them.
+- 7f034f5: test(helm): add helm-unittest and chart-testing checks for the Helm chart in CI (#1927)
+
 ## 3.11.0
 
 ### Minor Changes
