@@ -636,6 +636,7 @@ For more in-depth details about the architecture, developer API, and security pr
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.
 - **[API Reference](./docs/api.md)**: Provides exhaustive details on HTTP endpoints, authentication, rate limits, error formats, and system types.
+- **[Threat Model & STRIDE Analysis](./docs/threat-model.md)**: Comprehensive threat modeling across webhook ingestion, BullMQ worker queues, static scanning, LLM providers, PostgreSQL audit ledgers, and outbound dispatchers, detailing mitigations, trust boundaries, and residual risks.
 - **[AI Security & Prompt Injection Defense](./docs/security/prompt-injection.md)**: Documents the threat vector, policy isolation boundaries, pre-filtering layers, and UI indicators used to protect against LLM prompt injection attacks.
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
