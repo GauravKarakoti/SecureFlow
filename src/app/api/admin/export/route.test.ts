@@ -1,16 +1,18 @@
 /**
  * Tests for the audit-log export's range and keyset helpers (#592).
  *
- * The handler itself needs a session, a rate limiter and a database, so what is
- * tested here are the pure pieces it is built from: how a range is resolved,
- * and whether the keyset clause is actually stable. The paging behaviour is
- * covered in `src/lib/utils/csv-stream.test.ts`.
+ * Coverage includes range and keyset helpers, plus the handler's admin-only
+ * download boundary. Paging behaviour is covered in `src/lib/utils/csv-stream.test.ts`.
  */
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { NextRequest } from "next/server";
+import prisma from "@/lib/prisma";
 
-vi.mock("@/auth", () => ({ auth: vi.fn(async () => null) }));
+const authMock = vi.hoisted(() => vi.fn());
+vi.mock("@/auth", () => ({ auth: authMock }));
 
 import {
+  GET,
   AUDIT_LOG_EXPORT_COLUMNS,
   DEFAULT_EXPORT_WINDOW_DAYS,
   EXPORT_BATCH_SIZE,
@@ -26,6 +28,57 @@ import {
 
 const params = (query: string) => new URLSearchParams(query);
 const NOW = new Date("2026-08-20T12:00:00.000Z");
+
+describe("GET /api/admin/export authorization", () => {
+  const findRows = vi.mocked(prisma.auditLog.findMany);
+  const request = () => new NextRequest("http://localhost:3000/api/admin/export?from=2026-08-20");
+
+  beforeEach(() => {
+    authMock.mockReset();
+    findRows.mockClear();
+  });
+
+  it.each([null, { user: { id: "user-1", roles: ["USER"] } }])(
+    "rejects %j before querying audit rows",
+    async (session) => {
+      authMock.mockResolvedValue(session);
+
+      const response = await GET(request());
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get("content-disposition")).toBeNull();
+      expect(findRows).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns an audit CSV to an admin", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", roles: ["ADMIN"] } });
+    findRows.mockResolvedValueOnce([
+      {
+        id: "audit-1",
+        userId: "user-1",
+        action: "CHECK_COMPLETE",
+        resource: "example",
+        decision: "allow",
+        metadata: null,
+        timestamp: NOW,
+        previousHash: null,
+        entryHash: null,
+      },
+    ]);
+
+    const response = await GET(request());
+    const csv = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    expect(csv).toContain(AUDIT_LOG_EXPORT_COLUMNS.join(","));
+    expect(csv).toContain("audit-1,user-1,CHECK_COMPLETE,example,allow");
+    expect(findRows).toHaveBeenCalledOnce();
+  });
+});
 
 describe("parseDateParam", () => {
   it("returns undefined for an absent or empty value", () => {
