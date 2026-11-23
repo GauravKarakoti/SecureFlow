@@ -229,7 +229,7 @@ describe("cli/src/git", () => {
       expect(refExists("origin/main")).toBe(true);
       expect(execFileSyncMock).toHaveBeenCalledWith(
         "git",
-        ["rev-parse", "--verify", "origin/main"],
+        ["rev-parse", "--verify", "--end-of-options", "origin/main^{tree}"],
         expect.any(Object),
       );
     });

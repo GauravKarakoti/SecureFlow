@@ -60,10 +60,10 @@ export function isGitRepository(cwd?: string): boolean {
   }
 }
 
-/** Check whether a given git reference (branch, tag, or commit) resolves. */
+/** Check whether the reference has a tree available for diffing. */
 export function refExists(ref: string, cwd?: string): boolean {
   try {
-    git(["rev-parse", "--verify", ref], cwd);
+    git(["rev-parse", "--verify", "--end-of-options", `${ref}^{tree}`], cwd);
     return true;
   } catch {
     return false;
