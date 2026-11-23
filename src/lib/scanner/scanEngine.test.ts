@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   explain: vi.fn(),
   getContent: vi.fn(),
   pullsGet: vi.fn(),
+  createReview: vi.fn(),
 }));
 
 vi.mock("@/lib/armor/scanner", async (importOriginal) => {
@@ -56,7 +57,7 @@ vi.mock("octokit", () => ({
             listComments: mocks.listComments,
           },
           repos: { getContent: mocks.getContent },
-          pulls: { get: mocks.pullsGet },
+          pulls: { get: mocks.pullsGet, createReview: mocks.createReview },
         },
       };
     }
@@ -641,6 +642,114 @@ describe("processScanJob chunk failures", () => {
         f.matchedSignatures?.some((s) => s.startsWith("WORKFLOW_")),
       );
       expect(workflowFindings.length).toBe(0);
+    });
+  });
+
+  describe("GitHub suggested changes integration (#2005)", () => {
+    it("posts inline review comments with suggestion blocks when opt-in is enabled in .secureflow.json", async () => {
+      const files = [
+        {
+          filename: "src/db.ts",
+          patch:
+            "@@ -1,5 +1,5 @@\n const a = 1;\n+const query = `SELECT * FROM users WHERE id = ${id}`;\n const c = 3;\n",
+        },
+      ];
+
+      mocks.getContent.mockImplementation(async ({ path: filePath }: { path: string }) => {
+        if (filePath === ".secureflow.json") {
+          return {
+            data: {
+              content: Buffer.from(
+                JSON.stringify({
+                  suggestions: {
+                    enabled: true,
+                    limit: 3,
+                  },
+                }),
+              ).toString("base64"),
+            },
+          };
+        }
+        return { data: {} };
+      });
+
+      mocks.explain.mockResolvedValue({
+        explanation: "SQL query uses direct string interpolation.",
+        remediationSuggestions:
+          "```suggestion\nconst query = 'SELECT * FROM users WHERE id = $1';\n```",
+        promptInjectionSuspected: false,
+      });
+
+      mocks.scanPullRequest.mockResolvedValue([
+        {
+          type: "Vulnerability",
+          severity: "HIGH",
+          description: "SQL Injection",
+          fileLocation: "src/db.ts",
+          lineStart: 2,
+          codeSnippet: "const query = `SELECT * FROM users WHERE id = ${id}`;",
+          remediation: "```suggestion\nconst query = 'SELECT * FROM users WHERE id = $1';\n```",
+        },
+      ]);
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 100 } });
+      mocks.createReview.mockResolvedValue({ data: { id: 200 } });
+
+      await processScanJob({ ...jobData, fileChanges: files } as ScanJobData, undefined, {
+        report: true,
+        persist: false,
+        enrich: true,
+      });
+
+      expect(mocks.createReview).toHaveBeenCalledTimes(1);
+      const call = mocks.createReview.mock.calls[0][0];
+      expect(call.owner).toBe("acme");
+      expect(call.repo).toBe("api");
+      expect(call.pull_number).toBe(7);
+      expect(call.comments.length).toBe(1);
+      expect(call.comments[0].path).toBe("src/db.ts");
+      expect(call.comments[0].line).toBe(2);
+      expect(call.comments[0].body).toContain(
+        "```suggestion\nconst query = 'SELECT * FROM users WHERE id = $1';\n```",
+      );
+    });
+
+    it("does not post suggestion blocks when repository has not opted in", async () => {
+      const files = [
+        {
+          filename: "src/db.ts",
+          patch:
+            "@@ -1,5 +1,5 @@\n const a = 1;\n+const query = `SELECT * FROM users WHERE id = ${id}`;\n const c = 3;\n",
+        },
+      ];
+
+      // No .secureflow.json or suggestions disabled
+      mocks.getContent.mockResolvedValue({ data: {} });
+      mocks.scanPullRequest.mockResolvedValue([
+        {
+          type: "Vulnerability",
+          severity: "HIGH",
+          description: "SQL Injection",
+          fileLocation: "src/db.ts",
+          lineStart: 2,
+          codeSnippet: "const query = `SELECT * FROM users WHERE id = ${id}`;",
+          remediation: "```suggestion\nconst query = 'SELECT * FROM users WHERE id = $1';\n```",
+        },
+      ]);
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 101 } });
+      mocks.createReview.mockReset();
+
+      await processScanJob({ ...jobData, fileChanges: files } as ScanJobData, undefined, {
+        report: true,
+        persist: false,
+        enrich: true,
+      });
+
+      // Suggestions not enabled -> createReview is not called
+      expect(mocks.createReview).not.toHaveBeenCalled();
     });
   });
 });
