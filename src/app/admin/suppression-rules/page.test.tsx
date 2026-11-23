@@ -99,10 +99,15 @@ describe("Suppression rule expiry controls", () => {
 
   it("shows expired rules separately and keeps renewal errors and retry inside the dialog", async () => {
     const user = userEvent.setup();
-    const renewedRule = { ...expiredRule, expiresAt: new Date("2099-07-01") };
+    const renewedRule: SuppressionRuleWithStats = {
+      ...expiredRule,
+      expiresAt: new Date("2099-07-01T00:00:00.000Z"),
+    };
+
     vi.mocked(renewSuppressionRuleAction)
       .mockResolvedValueOnce({ error: "Refresh this rule and try again." })
       .mockResolvedValueOnce(renewedRule);
+
     render(<SuppressionRulesClient initialRules={[expiredRule]} repositories={[]} />);
 
     expect(screen.getByText("Expired", { exact: true })).toBeInTheDocument();
@@ -110,16 +115,23 @@ describe("Suppression rule expiry controls", () => {
     expect(
       screen.queryByRole("button", { name: "Edit Expired test rule" }),
     ).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Renew Expired test rule" }));
     expect(screen.getByRole("dialog", { name: "Renew Suppression Rule" })).toBeInTheDocument();
+
     const date = screen.getByLabelText("New expiry date (UTC)");
     expect(date).toBeRequired();
+    await user.clear(date);
     await user.type(date, "2099-07-01");
-    await user.click(screen.getByRole("button", { name: "Renew Rule" }));
+
+    const submitButton = screen.getByRole("button", { name: "Renew Rule" });
+    await user.click(submitButton);
+
     expect(await screen.findByRole("alert")).toHaveTextContent("Refresh this rule and try again.");
     expect(date).toHaveValue("2099-07-01");
 
     await user.click(screen.getByRole("button", { name: "Renew Rule" }));
+
     expect(await screen.findByRole("status")).toHaveTextContent("renewed");
     expect(screen.getByText("0 expired")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Expired test rule" })).toBeInTheDocument();

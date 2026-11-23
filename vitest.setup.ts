@@ -71,8 +71,8 @@ vi.mock("next-auth", () => ({
   useSession: vi.fn(() => ({ data: null, status: "unauthenticated" })),
 }));
 
-// Stub next-auth/react for client components using hooks.
 vi.mock("next-auth/react", () => ({
+  default: vi.fn(),
   useSession: vi.fn(() => ({ data: null, status: "unauthenticated" })),
   signOut: vi.fn(),
   signIn: vi.fn(),
