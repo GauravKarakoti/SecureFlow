@@ -14,6 +14,7 @@ import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import { resolveScanTimeoutBudgetMs, resolveScanRequestTimeoutMs } from "@/lib/scanner/gate-config";
@@ -398,10 +399,13 @@ export class ArmorIQScanner {
     const dependencyFindings = runDependencySecurityRules(files, { repositoryId });
     // Deterministic workflow security rules for files under .github/workflows/ (#2002).
     const workflowFindings = runWorkflowSecurityRules(files, { repositoryId });
+    // Deterministic infrastructure-as-code rules for Dockerfile, Kubernetes, Terraform (#2004).
+    const iacFindings = runIacSecurityRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
       ...workflowFindings,
+      ...iacFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -915,4 +919,5 @@ export {
   scanWorkflowFile,
   isWorkflowFile,
 } from "@/lib/rules/workflow-rules";
+export { runIacSecurityRules, scanIacFile, isIacFile, IAC_RULE_IDS } from "@/lib/rules/iac-rules";
 export const scanner = new ArmorIQScanner();

@@ -643,4 +643,139 @@ describe("processScanJob chunk failures", () => {
       expect(workflowFindings.length).toBe(0);
     });
   });
+
+  describe("deterministic infrastructure-as-code security checks (#2004)", () => {
+    it("reports IaC misconfigurations in Dockerfile and Terraform with line numbers and one-line fix", async () => {
+      const iacFiles = [
+        {
+          filename: "Dockerfile",
+          patch: `+FROM node:20-alpine\n+WORKDIR /app\n+COPY . .\n+USER root\n+CMD ["node", "app.js"]\n`,
+        },
+        {
+          filename: "infra/network.tf",
+          patch: `+resource "aws_security_group" "open" {\n+  ingress {\n+    from_port = 80\n+    to_port = 80\n+    protocol = "tcp"\n+    cidr_blocks = ["0.0.0.0/0"]\n+  }\n+}\n`,
+        },
+      ];
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2004 } });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: iacFiles } as ScanJobData,
+        undefined,
+        {
+          report: true,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      const rootFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("IAC_DOCKERFILE_USER_ROOT"),
+      );
+      expect(rootFinding).toBeDefined();
+      expect(rootFinding?.severity).toBe("HIGH");
+      expect(rootFinding?.type).toBe("Misconfig");
+      expect(rootFinding?.lineStart).toBe(4);
+      expect(rootFinding?.codeSnippet).toBe("USER root");
+
+      const ingressFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("IAC_TF_OPEN_INGRESS"),
+      );
+      expect(ingressFinding).toBeDefined();
+      expect(ingressFinding?.severity).toBe("HIGH");
+      expect(ingressFinding?.lineStart).toBe(6);
+
+      const commentBody = mocks.createComment.mock.calls[0][0].body;
+      expect(commentBody).toContain("IAC_DOCKERFILE_USER_ROOT");
+      expect(commentBody).toContain("`Dockerfile`");
+      expect(commentBody).toContain("IAC_TF_OPEN_INGRESS");
+      expect(commentBody).toContain("`infra/network.tf`");
+    });
+
+    it("deduplicates LLM findings that match deterministic IaC findings by fingerprint", async () => {
+      const iacFiles = [
+        {
+          filename: "Dockerfile",
+          patch: `+FROM alpine:3.19\n+USER root\n`,
+        },
+      ];
+
+      // LLM returns a duplicate finding for the same line and location
+      mocks.scanPullRequest.mockResolvedValue([
+        {
+          type: "Misconfig",
+          severity: "HIGH",
+          description: "LLM detected root user",
+          fileLocation: "Dockerfile",
+          lineStart: 2,
+          lineEnd: 2,
+          codeSnippet: "USER root",
+        },
+      ]);
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.createComment.mockResolvedValue({ data: { id: 2005 } });
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: iacFiles } as ScanJobData,
+        undefined,
+        {
+          report: false,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      // Must have exactly 1 finding for Dockerfile line 2, not 2
+      const dockerFindings = result.findings.filter((f) => f.fileLocation === "Dockerfile");
+      expect(dockerFindings.length).toBe(1);
+      expect(dockerFindings[0].matchedSignatures).toContain("IAC_DOCKERFILE_USER_ROOT");
+    });
+
+    it("respects disabled rules in repository gate configuration", async () => {
+      const iacFiles = [
+        {
+          filename: "Dockerfile",
+          patch: `+FROM node:20-alpine\n+USER root\n`,
+        },
+      ];
+
+      // Base branch .secureflow.json disables IAC_DOCKERFILE_USER_ROOT
+      mocks.getContent.mockImplementation(async ({ path: filePath }: { path: string }) => {
+        if (filePath === ".secureflow.json") {
+          return {
+            data: {
+              content: Buffer.from(
+                JSON.stringify({
+                  rules: {
+                    disabled: ["IAC_DOCKERFILE_USER_ROOT"],
+                  },
+                }),
+              ).toString("base64"),
+            },
+          };
+        }
+        return { data: {} };
+      });
+
+      mocks.listComments.mockResolvedValue({ data: [] });
+      mocks.scanPullRequest.mockResolvedValue([]);
+
+      const result = await processScanJob(
+        { ...jobData, fileChanges: iacFiles } as ScanJobData,
+        undefined,
+        {
+          report: false,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      const rootFinding = result.findings.find((f) =>
+        f.matchedSignatures?.includes("IAC_DOCKERFILE_USER_ROOT"),
+      );
+      expect(rootFinding).toBeUndefined();
+    });
+  });
 });
