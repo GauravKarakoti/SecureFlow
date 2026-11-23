@@ -20,6 +20,19 @@ for monitor in false true; do
     --set serviceMonitor.enabled="$monitor" > /dev/null
 done
 
+# Schema validation negative test (#1984)
+invalid_values_file="$chart_dir/tests/invalid-values.yaml"
+if [ -f "$invalid_values_file" ]; then
+  echo "Testing schema validation rejection on invalid values file..."
+  schema_output="$("$helm_bin" lint "$chart_dir" -f "$invalid_values_file" 2>&1 || true)"
+  if grep -q -E "additional properties|got string, want integer|maximum:|value must be one of|minimum:" <<< "$schema_output"; then
+    echo "Helm schema correctly rejected invalid values file."
+  else
+    echo "Helm schema failed to reject invalid values file!" >&2
+    exit 1
+  fi
+fi
+
 # One Service for the app, which also carries the ServiceMonitor wiring (#1143, #1467).
 app_service="$("$helm_bin" template check "$chart_dir" \
   --show-only templates/app-service.yaml \
