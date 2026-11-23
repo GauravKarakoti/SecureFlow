@@ -17,6 +17,7 @@ describe("Permission Matrix and can() helper (#1922)", () => {
     "findings:notes",
     "findings:assign",
     "findings:remediate",
+    "findings:create_issue",
     "findings:delete",
     "analytics:read",
     "reports:read",
@@ -50,6 +51,7 @@ describe("Permission Matrix and can() helper (#1922)", () => {
       expect(can(viewer, "inst-1", "findings:restore")).toBe(false);
       expect(can(viewer, "inst-1", "findings:notes")).toBe(false);
       expect(can(viewer, "inst-1", "findings:assign")).toBe(false);
+      expect(can(viewer, "inst-1", "findings:create_issue")).toBe(false);
       expect(can(viewer, "inst-1", "policies:edit")).toBe(false);
       expect(can(viewer, "inst-1", "policies:toggle")).toBe(false);
       expect(can(viewer, "inst-1", "suppression_rules:manage")).toBe(false);
@@ -73,6 +75,7 @@ describe("Permission Matrix and can() helper (#1922)", () => {
       expect(can(triager, "inst-1", "findings:notes")).toBe(true);
       expect(can(triager, "inst-1", "findings:assign")).toBe(true);
       expect(can(triager, "inst-1", "findings:remediate")).toBe(true);
+      expect(can(triager, "inst-1", "findings:create_issue")).toBe(true);
 
       // Forbidden admin actions
       expect(can(triager, "inst-1", "policies:edit")).toBe(false);

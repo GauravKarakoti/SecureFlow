@@ -18,6 +18,7 @@ export type PermissionAction =
   | "findings:notes"
   | "findings:assign"
   | "findings:remediate"
+  | "findings:create_issue"
   | "findings:delete"
   | "analytics:read"
   | "reports:read"
@@ -62,6 +63,7 @@ export const ROLE_PERMISSIONS: Record<InstallationRole, ReadonlySet<PermissionAc
     "findings:notes",
     "findings:assign",
     "findings:remediate",
+    "findings:create_issue",
   ]),
   ADMIN: new Set<PermissionAction>([
     "findings:read",
@@ -70,6 +72,7 @@ export const ROLE_PERMISSIONS: Record<InstallationRole, ReadonlySet<PermissionAc
     "findings:notes",
     "findings:assign",
     "findings:remediate",
+    "findings:create_issue",
     "findings:delete",
     "analytics:read",
     "reports:read",
@@ -94,6 +97,7 @@ export const ROLE_PERMISSIONS: Record<InstallationRole, ReadonlySet<PermissionAc
     "findings:notes",
     "findings:assign",
     "findings:remediate",
+    "findings:create_issue",
     "findings:delete",
     "analytics:read",
     "reports:read",

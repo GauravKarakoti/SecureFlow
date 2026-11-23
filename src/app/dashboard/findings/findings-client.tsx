@@ -18,7 +18,9 @@ import {
   X,
   MessageSquare,
   UserCheck,
+  GitPullRequest,
 } from "lucide-react";
+import CreateIssueDialog from "@/components/findings/create-issue-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -601,6 +603,17 @@ export default function FindingsClient({
                                   <span>{finding.noteCount}</span>
                                 </Badge>
                               )}
+                              {finding.issueUrl && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-purple-500/30 bg-purple-500/10 text-purple-300 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
+                                  title={`GitHub Issue: ${finding.issueUrl}`}
+                                  data-testid="finding-table-issue-badge"
+                                >
+                                  <GitPullRequest className="w-3 h-3 text-purple-400" />
+                                  <span>Issue #{finding.issueUrl.split("/").pop()}</span>
+                                </Badge>
+                              )}
                             </div>
 
                             {/* Age column on desktop */}
@@ -662,6 +675,19 @@ export default function FindingsClient({
                             </div>
                           </div>
                         </AccordionTrigger>
+                        <div className="hidden sm:flex items-center gap-1.5 shrink-0 pr-2">
+                          <CreateIssueDialog
+                            findingId={finding.id}
+                            existingIssueUrl={finding.issueUrl}
+                            onIssueCreated={(url) => {
+                              setDisplayedFindings((prev) =>
+                                prev.map((f) =>
+                                  f.id === finding.id ? { ...f, issueUrl: url } : f,
+                                ),
+                              );
+                            }}
+                          />
+                        </div>
                         {finding.repositoryId && finding.fingerprint && (
                           <div className="hidden lg:block shrink-0 pr-2">
                             <FindingAssigneeSelect
@@ -730,6 +756,26 @@ export default function FindingsClient({
                                   currentReason={finding.triageReason as DismissalReason | null}
                                   currentExpiresAt={finding.triageExpiresAt}
                                 />
+                                <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-2">
+                                  <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                    <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />{" "}
+                                    GitHub Issue Tracking
+                                  </h4>
+                                  <div className="pt-1">
+                                    <CreateIssueDialog
+                                      findingId={finding.id}
+                                      existingIssueUrl={finding.issueUrl}
+                                      onIssueCreated={(url) => {
+                                        setDisplayedFindings((prev) =>
+                                          prev.map((f) =>
+                                            f.id === finding.id ? { ...f, issueUrl: url } : f,
+                                          ),
+                                        );
+                                      }}
+                                      variant="detail"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             )}
                           </div>

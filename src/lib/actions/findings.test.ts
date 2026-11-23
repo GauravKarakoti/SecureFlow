@@ -126,6 +126,7 @@ describe("getUserFindings", () => {
       ageDays: expect.any(Number),
       isOverdue: true,
       noteCount: 0,
+      issueUrl: null,
     });
     expect(result.findings[1]).toMatchObject({
       triageStatus: "OPEN",

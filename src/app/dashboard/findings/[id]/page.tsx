@@ -11,7 +11,10 @@ import {
   History,
   Clock,
   FileCode,
+  GitPullRequest,
+  ExternalLink,
 } from "lucide-react";
+import CreateIssueDialog from "@/components/findings/create-issue-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,6 +154,11 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
           Back to Findings
         </Link>
         <div className="flex items-center gap-2">
+          <CreateIssueDialog
+            findingId={finding.id}
+            existingIssueUrl={finding.issueUrl}
+            variant="detail"
+          />
           <ShareFindingButton findingId={finding.id} />
           <Link href={`/dashboard/pull-requests/${finding.scanResult.pullRequestId}`}>
             <Button size="sm" variant="outline" className="gap-2">
@@ -196,6 +204,20 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                       ? `Resolved by commit ${triage.resolvedCommitSha.slice(0, 7)}`
                       : "Resolved"}
                   </Badge>
+                )}
+                {finding.issueUrl && (
+                  <a
+                    href={finding.issueUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="border border-purple-500/30 bg-purple-500/10 text-purple-300 font-mono text-xs gap-1 inline-flex items-center px-2.5 py-0.5 rounded-full hover:bg-purple-500/20 transition-colors"
+                    title={`GitHub Issue: ${finding.issueUrl}`}
+                    data-testid="finding-detail-issue-badge"
+                  >
+                    <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Issue #{finding.issueUrl.split("/").pop()}</span>
+                    <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+                  </a>
                 )}
               </div>
               <div className="text-xs font-mono text-muted-foreground flex flex-wrap items-center gap-2">
