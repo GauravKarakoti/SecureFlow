@@ -44,7 +44,7 @@ import {
   SECUREFLOW_COMMENT_MARKER,
   type ScanReportFinding,
 } from "@/lib/github/scan-report";
-import { upsertSecureFlowComment } from "@/lib/github/sticky-comment";
+import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -915,9 +915,10 @@ export async function runPullRequestScan({
       commentableLines.set(file.filename, getCommentableLines(file.patch));
     }
 
+    const scanTime = new Date().toISOString();
     const pendingBody =
       `${SECUREFLOW_COMMENT_MARKER}\n### ⏳ SecureFlow AI Security Scan\n\n` +
-      (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
+      formatScanMetadata({ commitSha: pullRequest.head?.sha, scanTime }) +
       `Evaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...` +
       (coverageNotice ? `\n\n${coverageNotice}` : "");
 
@@ -1258,6 +1259,7 @@ export async function runPullRequestScan({
         }
       });
 
+      const scanTime = new Date().toISOString();
       const summaryInput = (findings: ScanReportFinding[]) => ({
         findings,
         totalFindings: enrichedFindings.length,
@@ -1268,6 +1270,7 @@ export async function runPullRequestScan({
         previouslyDismissedCount: suppressedFindings.length,
         ruleSuppressedCount: ruleSuppressedFindings.length,
         commitSha: pullRequest.head?.sha,
+        scanTime,
         expiredIgnoreRules: scanResult.expiredIgnoreRules,
         defaultSkippedCount: scanResult.defaultSkippedCount,
       });
@@ -1408,7 +1411,7 @@ export async function runPullRequestScan({
 
       const cleanBody =
         `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
-        (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
+        formatScanMetadata({ commitSha: pullRequest.head?.sha, scanTime }) +
         `✅ Scan completed successfully. No vulnerabilities found in the **${analyzedFilesCount}** analyzed files.` +
         cleanDismissedNotice +
         cleanRuleNotice +

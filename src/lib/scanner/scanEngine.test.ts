@@ -167,6 +167,11 @@ describe("processScanJob chunk failures", () => {
         body: expect.stringContaining("Scanned commit: `abc123`"),
       }),
     );
+    expect(mocks.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringMatching(/Scan time: `.+`/),
+      }),
+    );
   });
 
   describe("ignore configuration", () => {

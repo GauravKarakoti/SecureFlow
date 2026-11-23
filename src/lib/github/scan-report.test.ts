@@ -141,6 +141,45 @@ describe("renderScanReportSummary", () => {
     expect(body).toContain("Scanned commit: `abc1234567890abcdef`");
   });
 
+  it("includes scan time when provided as string", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      scanTime: "2026-11-22T10:00:00.000Z",
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scan time: `2026-11-22T10:00:00.000Z`");
+  });
+
+  it("includes scan time when provided as Date", () => {
+    const d = new Date("2026-11-22T14:30:00.000Z");
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      scanTime: d,
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scan time: `2026-11-22T14:30:00.000Z`");
+  });
+
+  it("includes both scanned commit SHA and scan time when both provided", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      commitSha: "sha777",
+      scanTime: "2026-11-22T16:00:00.000Z",
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scanned commit: `sha777`");
+    expect(body).toContain("Scan time: `2026-11-22T16:00:00.000Z`");
+  });
+
   it("omits the scanned commit line when commitSha is not provided", () => {
     const body = renderScanReportSummary({
       findings: [finding()],
@@ -149,6 +188,7 @@ describe("renderScanReportSummary", () => {
     });
 
     expect(body).not.toContain("Scanned commit:");
+    expect(body).not.toContain("Scan time:");
   });
 
   it("keeps a multi-paragraph explanation inside its blockquote", () => {

@@ -8,7 +8,7 @@
  * - When an existing comment is found, it is updated in-place.
  * - When no comment exists, a new one is created.
  * - If an existing comment was deleted (e.g. update returns 404), a new comment is created.
- * - The scanned commit SHA is displayed in the comment body.
+ * - The scanned commit SHA and scan time are displayed in the comment body.
  */
 
 export const SECUREFLOW_COMMENT_MARKER = "<!-- secureflow-report -->";
@@ -91,12 +91,37 @@ export function isNotFoundError(error: unknown): boolean {
   return false;
 }
 
+/** Check whether a comment body contains the SecureFlow hidden marker. */
+export function isSecureFlowComment(body: string | null | undefined): boolean {
+  if (typeof body !== "string") {
+    return false;
+  }
+  return body.includes(SECUREFLOW_COMMENT_MARKER) || body.includes("<!-- secureflow");
+}
+
 /** Ensure the comment body contains the hidden marker. */
 export function ensureSecureFlowMarker(body: string): string {
-  if (body.includes(SECUREFLOW_COMMENT_MARKER)) {
+  if (isSecureFlowComment(body)) {
     return body;
   }
   return `${SECUREFLOW_COMMENT_MARKER}\n\n${body}`;
+}
+
+/** Formats the commit SHA and scan time metadata lines for comment bodies. */
+export function formatScanMetadata(params: {
+  commitSha?: string | null;
+  scanTime?: string | Date | null;
+}): string {
+  const lines: string[] = [];
+  if (params.commitSha) {
+    lines.push(`Scanned commit: \`${params.commitSha}\``);
+  }
+  if (params.scanTime) {
+    const formatted =
+      params.scanTime instanceof Date ? params.scanTime.toISOString() : params.scanTime;
+    lines.push(`Scan time: \`${formatted}\``);
+  }
+  return lines.length > 0 ? `${lines.join("\n")}\n\n` : "";
 }
 
 /**
@@ -131,9 +156,7 @@ export async function findSecureFlowComment(
       break;
     }
 
-    const found = comments.find(
-      (c) => typeof c.body === "string" && c.body.includes(SECUREFLOW_COMMENT_MARKER),
-    );
+    const found = comments.find((c) => isSecureFlowComment(c.body));
     if (found) {
       return found;
     }
