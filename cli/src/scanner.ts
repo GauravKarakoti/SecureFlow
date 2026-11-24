@@ -45,6 +45,7 @@ import {
   type CompiledCustomRule,
   type CustomRuleConfig,
 } from "./custom-rules.js";
+import { shouldRunAstAnalysis, scanFileWithAst } from "./ast-analyzer.js";
 
 export {
   scanFileWithCustomRules,
@@ -53,6 +54,8 @@ export {
   loadCustomRulesFromConfig,
   type CompiledCustomRule,
   type CustomRuleConfig,
+  shouldRunAstAnalysis,
+  scanFileWithAst,
   calculateShannonEntropy,
   isBenignSecretCandidate,
   hasHighEntropy,
@@ -410,6 +413,19 @@ export function scanFile(
       options.customRules,
     );
     rawViolations.push(...customViolations);
+  }
+
+  // AST Semantic Taint Analysis (#2062)
+  if (shouldRunAstAnalysis(path)) {
+    const astViolations = scanFileWithAst(path, content);
+    for (const av of astViolations) {
+      const alreadyFlagged = rawViolations.some(
+        (rv) => rv.line === av.line && rv.text.trim() === av.text.trim(),
+      );
+      if (!alreadyFlagged) {
+        rawViolations.push(av);
+      }
+    }
   }
 
   const { activeViolations, suppressedViolations } = applyInlineSuppressions(
