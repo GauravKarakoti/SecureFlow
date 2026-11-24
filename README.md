@@ -613,15 +613,18 @@ SecureFlow ships with pre-built policy templates that are seeded into the databa
 
 ## 📊 Architecture
 
-The architecture follows a modern Next.js full-stack approach with real-time GitHub integration:
+SecureFlow links local developer workflows, automated CI/CD pipelines, and pull request audits with a centralized Mission Control dashboard:
 
-- **Frontend**: Next.js App Router with Tailwind CSS for the Mission Control dashboard
-- **Backend**: API routes handle authentication, webhooks, and business logic
-- AI Layer: Groq SDK processes code diffs through GPT-OSS-20B model — The Professor's brain
-- **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
-- **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
+- **CLI (`cli/`)**: Standalone developer scanner and git pre-commit hook (`.husky/pre-commit`) providing local secret checking, scan caching, and `--fail-on` quality gates.
+- **GitHub Action (`.github/workflows/`)**: Automated CI security analysis via `npx secureflow-cli`, exporting SARIF code scanning reports to GitHub Security.
+- **Backend Ingestion & Workers**: Event-driven webhook handler (`/api/webhooks/github`), Redis delivery deduplication, BullMQ fair queue scheduling, and distributed workers.
+- **Scanning & Rules Engine**: High-speed deterministic rules for secrets, workflows (`.github/workflows/*.yml`), package dependencies, and IaC manifests.
+- **AI Inference Layer**: Groq, Ollama, vLLM, or OpenAI-compatible models producing contextual findings, explanations, and verified remediation diffs via Genkit.
+- **Policy Engine (`IQEngine`)**: Evaluates base-branch gate policies (`.secureflow.yml`) and suppresses dismissed triage findings.
+- **Mission Control Dashboard (`src/app/dashboard/`)**: Next.js App Router command center for repository monitoring, findings triage, policy management, and audit logs.
+- **Database**: PostgreSQL with Prisma ORM for persistent scan telemetry and cryptographic audit ledgers.
 
-> 📐 For the complete system architecture, interactive Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and data models, see **[Architecture & Pipeline Specification](./docs/architecture.md)**.
+> 📐 For the complete architecture, interactive Mermaid diagrams of data flow from scan to dashboard, and step-by-step contributor guides on adding rules, AI providers, and dashboard pages, see the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ---
 
@@ -629,7 +632,7 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
-- **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
+- **[Architecture & Contributor Guide](./docs/architecture.md)**: Comprehensive architectural blueprint explaining how the CLI, GitHub Action, Dashboard, and AI layer connect, complete Mermaid data flow diagrams from scan to dashboard, and contributor extension guides for adding rules, AI providers, and dashboard pages.
 - **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
 - **[Database Backup, Restore & Verification Guide](./docs/database-backup-restore.md)**: Procedures for compressed PostgreSQL dumps (`pg_dump`), safe restores with non-empty database safety guards, ephemeral database verification, Linux `cron`, and Kubernetes `CronJob` scheduling.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
@@ -662,7 +665,7 @@ The badge reflects the latest scan: **passing** (green), **review required** (ye
 
 Every good heist needs a crew! Contributions are welcome from developers of all skill levels.
 
-For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**. To understand how the CLI, GitHub Action, Dashboard, and AI layer connect, explore the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ### 🎯 Issue Difficulty Labels
 
