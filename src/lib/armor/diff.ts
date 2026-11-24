@@ -33,6 +33,89 @@
  */
 export type DiffLineKind = "added" | "context";
 
+export interface FileRename {
+  from: string;
+  to: string;
+}
+
+export interface DiffMetadata {
+  renamedFiles: FileRename[];
+  deletedFiles: string[];
+}
+
+/**
+ * Extracts file rename and deletion metadata from unified git diff headers (#2052).
+ * Supports standard git diff, rename from/to directives, and deleted file modes.
+ */
+export function extractDiffFileMetadata(patch: string): DiffMetadata {
+  const renamedFiles: FileRename[] = [];
+  const deletedFiles: string[] = [];
+  if (!patch) return { renamedFiles, deletedFiles };
+
+  const lines = patch.split(/\r?\n/);
+  let currentOldFile: string | null = null;
+  let currentRenameFrom: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // diff --git a/path/A b/path/B
+    const diffMatch = trimmed.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (diffMatch) {
+      currentOldFile = diffMatch[1] ?? null;
+      currentRenameFrom = null;
+      continue;
+    }
+
+    // --- a/path/A
+    const fileHeaderMatch = trimmed.match(/^---\s+(?:a\/)?(.+)$/);
+    if (fileHeaderMatch && fileHeaderMatch[1] && fileHeaderMatch[1] !== "/dev/null") {
+      currentOldFile = fileHeaderMatch[1].trim();
+    }
+
+    // rename from <path>
+    const renameFromMatch = trimmed.match(/^rename from (.+)$/);
+    if (renameFromMatch && renameFromMatch[1]) {
+      currentRenameFrom = renameFromMatch[1].trim().replace(/^a\//, "");
+      continue;
+    }
+
+    // rename to <path>
+    const renameToMatch = trimmed.match(/^rename to (.+)$/);
+    if (renameToMatch && renameToMatch[1] && currentRenameFrom) {
+      renamedFiles.push({
+        from: currentRenameFrom,
+        to: renameToMatch[1].trim().replace(/^b\//, ""),
+      });
+      currentRenameFrom = null;
+      continue;
+    }
+
+    // deleted file mode 100644 or deleted file
+    if (trimmed.startsWith("deleted file mode") || trimmed === "deleted file") {
+      if (currentOldFile) {
+        const cleanOld = currentOldFile.replace(/^a\//, "").trim();
+        if (!deletedFiles.includes(cleanOld)) {
+          deletedFiles.push(cleanOld);
+        }
+      }
+      continue;
+    }
+
+    // +++ /dev/null
+    if (trimmed === "+++ /dev/null" || trimmed.startsWith("+++ /dev/null")) {
+      if (currentOldFile) {
+        const cleanOld = currentOldFile.replace(/^a\//, "").trim();
+        if (!deletedFiles.includes(cleanOld)) {
+          deletedFiles.push(cleanOld);
+        }
+      }
+    }
+  }
+
+  return { renamedFiles, deletedFiles };
+}
+
 export interface DiffLine {
   /** Line number in the file as it will exist after the pull request merges. */
   number: number;

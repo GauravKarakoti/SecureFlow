@@ -252,5 +252,110 @@ describe("autoResolveFixedFindings (#1869)", () => {
       expect(result.resolvedCount).toBe(0);
       expect(mockDb.findingTriage.upsert).not.toHaveBeenCalled();
     });
+
+    it("auto-resolves findings when file is renamed and flaw is removed in new file (#2052)", async () => {
+      mockDb.scanResult.findMany.mockResolvedValue([
+        {
+          id: "scan-prev",
+          createdAt: new Date("2026-11-18T10:00:00Z"),
+          findings: [
+            {
+              fingerprint: "fp-in-old-file",
+              fileLocation: "src/old-auth.ts",
+              createdAt: new Date("2026-11-18T10:00:00Z"),
+            },
+          ],
+        },
+      ]);
+
+      mockDb.findingTriage.findMany.mockResolvedValue([]);
+
+      // File was renamed from src/old-auth.ts to src/new-auth.ts and scanned cleanly
+      const result = await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId,
+        headSha,
+        currentFindings: [],
+        fileChanges: [
+          {
+            filename: "src/new-auth.ts",
+            status: "renamed",
+            previous_filename: "src/old-auth.ts",
+          },
+        ],
+        userId: "user-1",
+        db: mockDb,
+      });
+
+      expect(result.resolvedCount).toBe(1);
+      expect(result.renamedResolvedCount).toBe(1);
+      expect(result.resolvedFingerprints).toEqual(["fp-in-old-file"]);
+      expect(mockDb.findingTriage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId,
+              fingerprint: "fp-in-old-file",
+            },
+          },
+          create: expect.objectContaining({
+            status: "RESOLVED",
+            note: expect.stringContaining("Resolved: file renamed to src/new-auth.ts"),
+          }),
+        }),
+      );
+    });
+
+    it("auto-resolves findings when file is deleted (#2052)", async () => {
+      mockDb.scanResult.findMany.mockResolvedValue([
+        {
+          id: "scan-prev",
+          createdAt: new Date("2026-11-18T10:00:00Z"),
+          findings: [
+            {
+              fingerprint: "fp-in-deleted-file",
+              fileLocation: "src/legacy-module.ts",
+              createdAt: new Date("2026-11-18T10:00:00Z"),
+            },
+          ],
+        },
+      ]);
+
+      mockDb.findingTriage.findMany.mockResolvedValue([]);
+
+      // File was deleted
+      const result = await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId,
+        headSha,
+        currentFindings: [],
+        fileChanges: [
+          {
+            filename: "src/legacy-module.ts",
+            status: "removed",
+          },
+        ],
+        userId: "user-1",
+        db: mockDb,
+      });
+
+      expect(result.resolvedCount).toBe(1);
+      expect(result.deletedResolvedCount).toBe(1);
+      expect(result.resolvedFingerprints).toEqual(["fp-in-deleted-file"]);
+      expect(mockDb.findingTriage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId,
+              fingerprint: "fp-in-deleted-file",
+            },
+          },
+          create: expect.objectContaining({
+            status: "RESOLVED",
+            note: expect.stringContaining("Resolved: file deleted by commit"),
+          }),
+        }),
+      );
+    });
   });
 });
