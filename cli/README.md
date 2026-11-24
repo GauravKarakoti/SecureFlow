@@ -27,6 +27,7 @@ The SecureFlow CLI intercepts code vulnerabilities and exposed secrets right at 
   - [Connecting to Cursor / Windsurf / Claude Desktop](#connecting-to-cursor--windsurf--claude-desktop)
   - [Available MCP Tools](#available-mcp-tools)
 - [⚙️ Configuration (`.secureflowignore`)](#️-configuration-secureflowignore)
+- [🛠️ Custom Security Rules (`.secureflow.json`)](#️-custom-security-rules-secureflowjson)
 - [🔄 CI/CD Pipeline Integration](#-cicd-pipeline-integration)
 - [🎨 Terminal Color Support & NO_COLOR](#-terminal-color-support--no_color)
 - [📄 License](#-license)
@@ -148,6 +149,7 @@ Commands:
 | `--voice`              | `-v`      | `false`             | Play an audio debrief of findings in your terminal upon completion                                                          |
 | `--local`              |           | `false`             | Skip cloud AI upload and run fully local pattern analysis                                                                   |
 | `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                                                       |
+| `--config <path>`      | `-c`      | `.secureflow.json`  | Custom path to `.secureflow.json` configuration file                                                                        |
 | `--ignore-file <path>` |           | `.secureflowignore` | Custom path to ignore configuration file                                                                                    |
 | `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                                                        |
 | `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                                          |
@@ -367,6 +369,59 @@ mock-token-*
 test_api_key_dummy
 EXAMPLE_SECRET
 ```
+
+---
+
+## 🛠️ Custom Security Rules (`.secureflow.json`)
+
+Teams can define project-specific security rules in `.secureflow.json` to detect internal token formats, banned APIs, or proprietary coding patterns that generic scanners miss.
+
+```json
+{
+  "rules": [
+    {
+      "id": "internal-auth-token",
+      "pattern": "SEC_AUTH_[A-Za-z0-9]{32}",
+      "globs": ["**/*.ts", "**/*.js"],
+      "severity": "CRITICAL",
+      "message": "Internal authentication token detected in source code"
+    },
+    {
+      "id": "banned-eval-api",
+      "pattern": "\\beval\\s*\\(",
+      "globs": ["src/**/*.js"],
+      "severity": "HIGH",
+      "message": "Direct invocation of eval() is strictly prohibited"
+    }
+  ]
+}
+```
+
+### Rule Properties
+
+| Property    | Type       | Required | Description                                                         |
+| :---------- | :--------- | :------- | :------------------------------------------------------------------ |
+| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores) |
+| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                            |
+| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)       |
+| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`    |
+| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                     |
+| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms)|
+
+### ReDoS & Catastrophic Backtracking Protection
+
+To safeguard scans against catastrophic regex backtracking (Regular Expression Denial of Service - ReDoS):
+- **Sandboxed Execution**: Custom regex evaluations run in a dedicated, timeout-enforced Node.js VM context (`timeoutMs`, default 100ms per file).
+- **Graceful Abortion**: If a regex evaluation exceeds the timeout limit, the pattern is aborted with a clean warning rather than hanging the scan.
+- **Input Bounds**: Lines longer than 20,000 characters and files exceeding 512 KB are safely bounded to prevent excessive memory overhead.
+
+### Labeled Findings & Quality Gates
+
+Findings generated from custom rules are clearly labeled across all exporters:
+- **Terminal Output**: Prefix labeled as `🚨 [SecureFlow] [Custom Rule: <id>] <message>`
+- **SARIF**: Exported with rule identifier `CUSTOM-<id>`, level mapped according to severity, and custom metadata tags
+- **Markdown / HTML / CSV**: Labeled with `[Custom Rule: <id>]`
+- **Quality Gates**: Custom rule severities are evaluated directly against your `--fail-on` threshold.
 
 ---
 

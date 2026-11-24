@@ -627,6 +627,7 @@ export function getCacheStats(customDir?: string, cwd?: string): CacheStatsRepor
 
 export interface ScanFileWithCacheOptions {
   customIgnores?: RegExp[] | undefined;
+  customRules?: import("./custom-rules.js").CompiledCustomRule[] | undefined;
   cacheDir?: string | undefined;
   rulesetVersion?: string | undefined;
   noCache?: boolean | undefined;
@@ -678,7 +679,7 @@ export function scanFileWithCache(
   }
 
   // Cache miss or --no-cache: analyze file
-  const result = scanFile(filePath, content, options.customIgnores);
+  const result = scanFile(filePath, content, options.customIgnores, options.customRules);
 
   if (!options.noCache) {
     setCacheEntry({

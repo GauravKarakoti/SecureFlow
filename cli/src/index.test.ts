@@ -31,6 +31,7 @@ const m = vi.hoisted(() => ({
   parseOutputFormat: vi.fn(),
   parseOutputPath: vi.fn(),
   parseIgnoreFilePath: vi.fn(),
+  parseConfigFilePath: vi.fn(),
   parseVoiceArg: vi.fn(),
   parseColorArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
@@ -113,6 +114,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseOutputFormat: m.parseOutputFormat,
   parseOutputPath: m.parseOutputPath,
   parseIgnoreFilePath: m.parseIgnoreFilePath,
+  parseConfigFilePath: m.parseConfigFilePath,
   parseVoiceArg: m.parseVoiceArg,
   parseSinceArg: m.parseSinceArg,
   parseColorArg: m.parseColorArg,
@@ -200,6 +202,7 @@ beforeEach(() => {
   m.parseOutputFormat.mockReturnValue("text");
   m.parseOutputPath.mockReturnValue(null);
   m.parseIgnoreFilePath.mockReturnValue(undefined);
+  m.parseConfigFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
   m.parseSinceArg.mockReturnValue(undefined);
   m.parseNoCacheArg.mockReturnValue(false);

@@ -86,9 +86,9 @@ Posts detailed security reports directly on your PRs with collapsible remediatio
 
 Sets Pass/Review Required/Blocked status on PR commits for clear CI/CD integration.
 
-### 🎯 Custom Policies
+### 🎯 Custom Policies & Project Rules
 
-Create, toggle, and manage security policies per user or organization — write your own rules for the plan.
+Create, toggle, and manage security policies per user or organization through the dashboard. Teams can also configure project-specific regex rules in `.secureflow.json` (with ReDoS backtracking protection) to catch internal tokens and banned APIs.
 
 ### 🚫 Smart Exclusions
 
@@ -712,7 +712,10 @@ git commit -m "docs: description of documentation change"
 SecureFlow uses AI to detect hardcoded secrets and sensitive data in your code. It's designed to catch API keys, passwords, tokens, and other credentials that might accidentally be committed to your repository.
 
 **Can I customize the scanning rules?**
-Yes! You can create, toggle, and manage custom policies through the dashboard. This allows you to enforce organization-specific security rules.
+Yes! You can create, toggle, and manage custom policies through the dashboard. You can also define custom regex rules directly in `.secureflow.json` (e.g. for internal token formats or banned APIs) with built-in ReDoS backtracking protection.
+
+**Can I define custom rules for internal tokens or banned APIs?**
+Yes! In `.secureflow.json`, define rules with an `id`, `pattern`, `globs`, `severity`, and `message`. Evaluations are sandboxed with timeouts to prevent regex backtracking hangs, and findings are labeled with `[Custom Rule: <id>]`.
 
 **Is my data sent to external services?**
 Your code diffs are sent to Groq's LLM service for analysis. We do not store your code or share it with third parties. The service is compliant with data protection standards.

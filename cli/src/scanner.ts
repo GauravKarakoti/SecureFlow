@@ -27,6 +27,23 @@ import {
   getEffectiveIgnorePatterns,
   type SecureFlowIgnoreConfig,
 } from "./ignore.js";
+import {
+  scanFileWithCustomRules,
+  scanContentWithCustomRule,
+  validateCustomRules,
+  loadCustomRulesFromConfig,
+  type CompiledCustomRule,
+  type CustomRuleConfig,
+} from "./custom-rules.js";
+
+export {
+  scanFileWithCustomRules,
+  scanContentWithCustomRule,
+  validateCustomRules,
+  loadCustomRulesFromConfig,
+  type CompiledCustomRule,
+  type CustomRuleConfig,
+};
 
 export {
   calculateShannonEntropy,
@@ -72,15 +89,17 @@ export const VALID_SEVERITIES: ReadonlySet<Severity> = new Set([
   "LOW",
 ]);
 
-/** One flagged call site. */
+/** One flagged call site or rule violation. */
 export interface Violation {
-  /** 1-based line of the `console.*` call. */
+  /** 1-based line of the `console.*` call or custom rule match. */
   line: number;
   /** The source line as written, for the report. */
   text: string;
-  /** Which indicator matched, so the message can say why. */
+  /** Which indicator or rule matched, so the message can say why. */
   reason: string;
   severity?: Severity;
+  ruleId?: string;
+  custom?: boolean;
 }
 
 /** Console methods that put their arguments somewhere durable. */
@@ -435,8 +454,13 @@ export interface FileScanResult {
   skipped?: string;
 }
 
-/** Scan one staged blob. */
-export function scanFile(path: string, content: string, customIgnores?: RegExp[]): FileScanResult {
+/** Scan one staged blob, optionally evaluating user-defined custom rules. */
+export function scanFile(
+  path: string,
+  content: string,
+  customIgnores?: RegExp[],
+  customRules?: CompiledCustomRule[],
+): FileScanResult {
   const effectiveIgnores = customIgnores ?? compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
   if (effectiveIgnores && shouldIgnorePath(path, effectiveIgnores)) {
     return { path, violations: [], skipped: "matched .secureflowignore" };
@@ -450,7 +474,13 @@ export function scanFile(path: string, content: string, customIgnores?: RegExp[]
     return { path, violations: [], skipped: "binary content" };
   }
 
-  return { path, violations: findSecretLogging(content) };
+  const violations = findSecretLogging(content);
+  if (customRules && customRules.length > 0) {
+    const { violations: customViolations } = scanFileWithCustomRules(path, content, customRules);
+    violations.push(...customViolations);
+  }
+
+  return { path, violations };
 }
 
 export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
@@ -478,9 +508,15 @@ export function formatScanResults(
     let text = "";
     for (const r of results) {
       for (const v of r.violations) {
-        text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
-        text += `   -> ${v.text}\n`;
-        text += `   why: ${v.reason} passed to a console call\n`;
+        if (v.custom || (v.ruleId && v.ruleId !== "console-secret-logging")) {
+          text += `🚨 [SecureFlow] [Custom Rule: ${v.ruleId || "custom"}] Violation detected in ${r.path}:${v.line}\n`;
+          text += `   -> ${v.text}\n`;
+          text += `   why: ${v.reason}\n`;
+        } else {
+          text += `🚨 [SecureFlow] Secret logging detected in ${r.path}:${v.line}\n`;
+          text += `   -> ${v.text}\n`;
+          text += `   why: ${v.reason} passed to a console call\n`;
+        }
       }
     }
     return text;
@@ -588,7 +624,8 @@ export function describeFailThreshold(failOnThreshold: FailOnSeverity | null): s
 /**
  * Determines whether a scan should return non-zero exit code based on the failOnThreshold.
  *
- * Local secret logging violations are treated as HIGH severity (rank 3).
+ * Local secret logging violations default to HIGH severity (rank 3), while custom rule
+ * violations are evaluated at their specifically configured severity.
  *
  * `NONE` is advisory mode: findings are still reported, but nothing blocks the
  * commit. It is deliberately handled before the rank comparison, because its
@@ -596,25 +633,39 @@ export function describeFailThreshold(failOnThreshold: FailOnSeverity | null): s
  * finding clear the bar.
  */
 export function shouldFailScan(
-  localViolationCount: number,
+  localViolationCount: number | Array<{ severity?: string }>,
   aiFindings: { severity: string }[],
   failOnThreshold: FailOnSeverity | null = null,
+  allLocalViolations?: Array<{ severity?: string }>,
 ): boolean {
   if (failOnThreshold === "NONE") return false;
 
+  const localList: Array<{ severity?: string }> =
+    allLocalViolations ??
+    (Array.isArray(localViolationCount)
+      ? localViolationCount
+      : Array(localViolationCount).fill({ severity: "HIGH" }));
+
   if (failOnThreshold === null) {
+    const localHighOrCritical = localList.filter((v) => {
+      const sev = (v.severity || "HIGH").toUpperCase();
+      return sev === "HIGH" || sev === "CRITICAL";
+    }).length;
     const aiHighOrCritical = aiFindings.filter((f) => {
       const sev = f.severity?.toUpperCase();
       return sev === "HIGH" || sev === "CRITICAL";
     }).length;
-    return localViolationCount > 0 || aiHighOrCritical > 0;
+    return localHighOrCritical > 0 || aiHighOrCritical > 0;
   }
 
   const thresholdRank = SEVERITY_RANK[failOnThreshold];
 
-  // Local secret-logging violations are treated as HIGH severity (rank 3)
-  if (localViolationCount > 0 && SEVERITY_RANK["HIGH"] >= thresholdRank) {
-    return true;
+  for (const violation of localList) {
+    const sev = ((violation.severity || "HIGH").toUpperCase() as FailOnSeverity) || "HIGH";
+    const rank = SEVERITY_RANK[sev] ?? 1;
+    if (rank >= thresholdRank) {
+      return true;
+    }
   }
 
   for (const finding of aiFindings) {
@@ -636,16 +687,37 @@ export interface SeverityCounts {
 }
 
 /**
- * Counts total findings by severity across both local violations (HIGH) and AI findings.
+ * Counts total findings by severity across local violations (evaluated at their configured
+ * severity or defaulting to HIGH) and AI findings.
  */
 export function countFindingsBySeverity(
-  localViolationCount: number,
+  localViolationCount: number | Array<{ severity?: string }>,
   aiFindings: { severity?: string }[] = [],
+  allLocalViolations?: Array<{ severity?: string }>,
 ): SeverityCounts {
   let critical = 0;
-  let high = localViolationCount;
+  let high = 0;
   let medium = 0;
   let low = 0;
+
+  const localList: Array<{ severity?: string }> =
+    allLocalViolations ??
+    (Array.isArray(localViolationCount)
+      ? localViolationCount
+      : Array(localViolationCount).fill({ severity: "HIGH" }));
+
+  for (const v of localList) {
+    const sev = (v.severity || "HIGH").toUpperCase();
+    if (sev === "CRITICAL") {
+      critical++;
+    } else if (sev === "HIGH") {
+      high++;
+    } else if (sev === "MEDIUM") {
+      medium++;
+    } else if (sev === "LOW") {
+      low++;
+    }
+  }
 
   for (const f of aiFindings) {
     const sev = (f.severity || "LOW").toUpperCase();
