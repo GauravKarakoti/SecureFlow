@@ -11,7 +11,8 @@
 #   1. deps       — install npm dependencies with build caching
 #   2. builder    — prisma generate & next build with DOCKER_BUILD=true
 #   3. prisma-cli — isolated Prisma CLI installation for startup migrations
-#   4. runner     — minimal non-root execution container
+#   4. migrator   — one-shot job that applies DB migrations
+#   5. runner     — minimal non-root execution container
 # ============================================================================
 
 
@@ -91,7 +92,7 @@ RUN apk update && apk upgrade --no-cache
 WORKDIR /opt/prisma-cli
 RUN --mount=type=cache,target=/root/.npm npm init -y \
  && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
-      dotenv@16.6.1 prisma@7.10.0
+      dotenv@16.6.1 prisma@7.10.1
 
 # 4. migrator: one-shot job that applies DB migrations (not shipped in runner)
 FROM prisma-cli AS migrator
@@ -108,7 +109,7 @@ CMD ["node", "/opt/prisma-cli/node_modules/prisma/build/index.js", "migrate", "d
 
 
 # ----------------------------------------------------------------------------
-# 4. runner — minimal runtime image
+# 5. runner — minimal runtime image
 # ----------------------------------------------------------------------------
 FROM node:22-alpine@sha256:d2166de198f26e17e5a442f537754dd616ab069c47cc57b889310a717e0abbf9 AS runner
 RUN apk update && apk upgrade --no-cache
@@ -163,5 +164,5 @@ EXPOSE 9002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q --spider http://127.0.0.1:9002/api/health || exit 1
 
-# entrypoint.sh runs `prisma migrate deploy` then `exec node server.js`.
+# entrypoint.sh resolves secrets and executes node server.js.
 ENTRYPOINT ["./entrypoint.sh"]
