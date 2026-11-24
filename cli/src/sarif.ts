@@ -92,6 +92,7 @@ export interface SarifResult {
   partialFingerprints?: Record<string, string>;
   fixes?: SarifFix[];
   suppressions?: SarifSuppression[];
+  baselineState?: "new" | "existing" | "absent" | "updated" | undefined;
   properties?: Record<string, unknown>;
 }
 
@@ -469,6 +470,15 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
               });
             }
           }
+
+          // Baseline state validation (SARIF v2.1.0 §3.27.24 / #2060)
+          if (res.baselineState !== undefined) {
+            if (!["new", "existing", "absent", "updated"].includes(res.baselineState as string)) {
+              errors.push(
+                `${resPath}.baselineState must be one of: 'new', 'existing', 'absent', 'updated'`,
+              );
+            }
+          }
         });
       }
     });
@@ -698,6 +708,7 @@ export function generateSarifReport(
               ],
             }
           : {}),
+        ...(violation.baselineState ? { baselineState: violation.baselineState } : {}),
         properties: {
           reason: violation.reason,
           severity: violation.severity || "HIGH",

@@ -64,7 +64,16 @@ import {
   parseIgnoreSuppressionsArg,
   parseTargetDirectoryArg,
   parseStagedArg,
+  parseBaselineArg,
 } from "./lib/output-args.js";
+import {
+  DEFAULT_BASELINE_FILENAME,
+  loadBaseline,
+  saveBaseline,
+  createBaselineFromResults,
+  updateBaselineWithResults,
+  filterResultsWithBaseline,
+} from "./baseline.js";
 import { discoverWorkspaceFiles } from "./workspace.js";
 import {
   getCacheEntry,
@@ -179,8 +188,11 @@ Commands:
   cache-clear            Clear the local scan cache directory (.secureflow/cache)
   cache-prune            Prune expired (TTL) and excess (max size) entries from cache
   cache-stats            Display diagnostic storage statistics and telemetry for scan cache
+  baseline create [file] Create or overwrite a findings baseline file (.secureflow-baseline.json) (#2060)
+  baseline update [file] Update baseline with current scan results (removes fixed, records new) (#2060)
 
 Options:
+  --baseline [file]      Path to baseline file to suppress legacy findings (default: .secureflow-baseline.json)
   --staged               Scan only the staged diff (blocks commits on secrets at configured severity)
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
   --validate [file]      Validate configuration files against schema
@@ -663,6 +675,76 @@ async function main(): Promise<number> {
     }
   }
 
+  if (process.argv[2] === "baseline") {
+    const action = process.argv[3];
+    if (action === "--help" || action === "-h" || !action) {
+      console.log(`
+SecureFlow CLI - Findings Baseline Management (#2060)
+
+Usage:
+  secureflow baseline create [path]
+  secureflow baseline update [path]
+
+Description:
+  Manage findings baseline files (.secureflow-baseline.json) to suppress legacy
+  violations and only block commits on newly introduced security issues.
+`);
+      return 0;
+    }
+
+    let targetBaselinePath = DEFAULT_BASELINE_FILENAME;
+    if (process.argv[4] && !process.argv[4].startsWith("-")) {
+      targetBaselinePath = process.argv[4];
+    }
+
+    if (action === "create" || action === "update") {
+      const repoRoot = getRepoRoot();
+      const files = discoverWorkspaceFiles(".", { workspaceRoot: repoRoot });
+      const customIgnores = compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
+      const scanResults: FileScanResult[] = [];
+
+      for (const file of files) {
+        const resolved = repoRoot ? path.resolve(repoRoot, file) : file;
+        try {
+          if (fs.existsSync(resolved)) {
+            const content = fs.readFileSync(resolved, "utf-8");
+            const result = scanFile(file, content, customIgnores);
+            if (result.violations.length > 0) {
+              scanResults.push(result);
+            }
+          }
+        } catch {
+          // ignore unreadable
+        }
+      }
+
+      if (action === "create") {
+        const baseline = createBaselineFromResults(scanResults);
+        const saved = saveBaseline(baseline, targetBaselinePath, repoRoot);
+        console.log(
+          `✅ [SecureFlow] Created baseline file at ${saved} (${baseline.violations.length} violation(s) recorded).`,
+        );
+        return 0;
+      } else {
+        const existing = loadBaseline(targetBaselinePath, repoRoot);
+        const { updatedBaseline, addedCount, removedCount } = updateBaselineWithResults(
+          existing,
+          scanResults,
+        );
+        const saved = saveBaseline(updatedBaseline, targetBaselinePath, repoRoot);
+        console.log(
+          `✅ [SecureFlow] Updated baseline file at ${saved} (+${addedCount} added, -${removedCount} removed, ${updatedBaseline.violations.length} total).`,
+        );
+        return 0;
+      }
+    } else {
+      console.error(
+        `❌ [SecureFlow] Unknown baseline action "${action}". Expected "create" or "update".`,
+      );
+      return 1;
+    }
+  }
+
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;
@@ -702,6 +784,7 @@ async function main(): Promise<number> {
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
   const targetDir = parseTargetDirectoryArg(process.argv);
+  const baselinePathArg = parseBaselineArg(process.argv);
   const repoInGit = isGitRepository();
   const isSinceMode = sinceRef !== undefined;
   const isStagedMode = parseStagedArg(process.argv);
@@ -713,6 +796,14 @@ async function main(): Promise<number> {
   }
 
   const repoRoot = getRepoRoot();
+  const loadedBaseline =
+    baselinePathArg !== undefined ? loadBaseline(baselinePathArg, repoRoot) : null;
+  if (baselinePathArg !== undefined && !loadedBaseline && VERBOSE) {
+    console.warn(
+      `⚠️  [SecureFlow] Baseline file "${baselinePathArg}" not found. No findings suppressed.`,
+    );
+  }
+  let baselineSuppressedCount = 0;
   const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
   const customIgnores = compileIgnorePatterns([
     ...DEFAULT_IGNORE_PATTERNS,
@@ -833,8 +924,14 @@ async function main(): Promise<number> {
             result.violations = result.violations.filter((v) => diffLines.has(v.line));
           }
         }
-        fileResults.push(result);
-        if (result.skipped) {
+        let effectiveResult = result;
+        if (loadedBaseline) {
+          const filtered = filterResultsWithBaseline([result], loadedBaseline);
+          effectiveResult = filtered.results[0]!;
+          baselineSuppressedCount += filtered.suppressedCount;
+        }
+        fileResults.push(effectiveResult);
+        if (effectiveResult.skipped) {
           skippedCount++;
         }
         if (cached.aiFindings && cached.aiFindings.length > 0) {
@@ -845,58 +942,72 @@ async function main(): Promise<number> {
         if (format === "text") {
           if (VERBOSE) {
             progress.clear();
-            if (result.skipped) {
-              reportSkipped(result);
+            if (effectiveResult.skipped) {
+              reportSkipped(effectiveResult);
             } else {
               reportFileTiming(filePath, elapsedMs, true);
             }
           }
-          if (result.violations.length > 0) {
+          if (effectiveResult.violations.length > 0) {
             progress.clear();
-            reportViolations(result);
+            reportViolations(effectiveResult);
           }
         }
-        violationCount += result.violations.length;
+        violationCount += effectiveResult.violations.length;
       } else {
         analyzedCount++;
-        const result = scanFile(filePath, content, customIgnores, {
+        const rawResult = scanFile(filePath, content, customIgnores, {
           ...(ignoreSuppressions ? { ignoreSuppressions } : {}),
           ...(customRules.length > 0 ? { customRules } : {}),
         });
         if (isStagedMode) {
           const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
           if (diffLines && diffLines.size > 0) {
-            result.violations = result.violations.filter((v) => diffLines.has(v.line));
+            rawResult.violations = rawResult.violations.filter((v) => diffLines.has(v.line));
           }
         }
         const elapsedMs = performance.now() - startFileTime;
-        fileResults.push(result);
-        if (result.skipped) {
+        newlyAnalyzed.push({ filePath, content, result: rawResult });
+
+        let effectiveResult = rawResult;
+        if (loadedBaseline) {
+          const filtered = filterResultsWithBaseline([rawResult], loadedBaseline);
+          effectiveResult = filtered.results[0]!;
+          baselineSuppressedCount += filtered.suppressedCount;
+        }
+
+        fileResults.push(effectiveResult);
+        if (effectiveResult.skipped) {
           skippedCount++;
         }
-        newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {
           if (VERBOSE) {
             progress.clear();
-            if (result.skipped) {
-              reportSkipped(result);
+            if (effectiveResult.skipped) {
+              reportSkipped(effectiveResult);
             } else {
               reportFileTiming(filePath, elapsedMs, false);
             }
           }
-          if (result.violations.length > 0) {
+          if (effectiveResult.violations.length > 0) {
             progress.clear();
-            reportViolations(result);
+            reportViolations(effectiveResult);
           }
         }
-        violationCount += result.violations.length;
+        violationCount += effectiveResult.violations.length;
 
-        if (!result.skipped) {
+        if (!effectiveResult.skipped) {
           stagedForAi.push({ path: filePath, content });
         }
       }
     }
     progress.done();
+  }
+
+  if (!QUIET && baselineSuppressedCount > 0) {
+    console.log(
+      `ℹ️  [SecureFlow] Baseline suppressed ${baselineSuppressedCount} legacy violation(s) from ${baselinePathArg}.`,
+    );
   }
 
   const filteredResults = severityFilter
