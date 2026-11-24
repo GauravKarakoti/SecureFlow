@@ -64,7 +64,9 @@ import {
   type GateConfig,
   resolveScanTimeoutBudgetMs,
   resolveScanRequestTimeoutMs,
+  resolveVerifyCritical,
 } from "./gate-config";
+import { verifyCriticalFindings } from "./critical-verification";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
   getActiveSuppressionRules,
@@ -610,7 +612,27 @@ export async function processScanJob(
     enrichedFindings.push(...batchResults);
   }
 
-  const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
+  // #2007: Run verification pass for CRITICAL findings before evaluating gate
+  if (
+    repositoryGateConfig.verifyCritical ||
+    repositoryGateConfig.verifyCriticalFindings ||
+    resolveVerifyCritical(repositoryGateConfig)
+  ) {
+    await verifyCriticalFindings(enrichedFindings, {
+      gateConfig: repositoryGateConfig,
+      fileChanges,
+      policies: (activePolicies as any[]) || [],
+    });
+    for (let j = 0; j < activeFindings.length; j++) {
+      if (enrichedFindings[j]) {
+        activeFindings[j].verificationStatus = enrichedFindings[j].verificationStatus;
+        activeFindings[j].verificationReason = enrichedFindings[j].verificationReason;
+        activeFindings[j].verificationRawResponse = enrichedFindings[j].verificationRawResponse;
+      }
+    }
+  }
+
+  const decision = iq.evaluateFindings(enrichedFindings, repositoryGateConfig);
   const analyzedFilesCount = reusedFromCache ? totalFiles : allAnalyzedFiles.length;
   const zeroScanReason =
     analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
@@ -733,6 +755,11 @@ export async function processScanJob(
           const findingId = (f as any).id;
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
+          if (f.verificationStatus === "UNVERIFIED") {
+            body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
+          } else if (f.verificationStatus === "CONFIRMED") {
+            body += `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
           }
           if (f.confidence) {
             const reasonSuffix = f.confidenceReason ? ` — ${f.confidenceReason}` : "";

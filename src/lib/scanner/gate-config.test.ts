@@ -12,6 +12,10 @@ import {
   resolveScanRequestTimeoutMs,
   DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS,
   DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS,
+  resolveVerifyCritical,
+  resolveMaxVerificationCalls,
+  DEFAULT_MAX_VERIFICATION_CALLS,
+  MAX_VERIFICATION_CALLS_LIMIT,
 } from "./gate-config";
 import { ArmorIQPolicyEngine } from "@/lib/armor/iq";
 import type { ScanFinding } from "@/lib/armor/scanner";
@@ -589,6 +593,86 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       expect(isAuthorSkipped("user(special)", patterns)).toBe(true);
       expect(isAuthorSkipped("corp[team]", patterns)).toBe(true);
       expect(isAuthorSkipped("botservice", patterns)).toBe(false);
+    });
+  });
+
+  describe("verifyCritical configuration (#2007)", () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("resolves default verifyCritical (false) when unconfigured", () => {
+      expect(resolveVerifyCritical()).toBe(false);
+      expect(resolveVerifyCritical(null)).toBe(false);
+      expect(resolveVerifyCritical({})).toBe(false);
+    });
+
+    it("resolves verifyCritical from environment variable", () => {
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "true");
+      expect(resolveVerifyCritical()).toBe(true);
+
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "false");
+      expect(resolveVerifyCritical()).toBe(false);
+    });
+
+    it("resolves verifyCritical from object config", () => {
+      expect(resolveVerifyCritical({ verifyCritical: true })).toBe(true);
+      expect(resolveVerifyCritical({ verifyCriticalFindings: true })).toBe(true);
+      expect(resolveVerifyCritical({ gate: { verifyCritical: true } })).toBe(true);
+      expect(resolveVerifyCritical({ scanner: { verifyCritical: true } })).toBe(true);
+    });
+
+    it("resolves default maxVerificationCalls (5) when unconfigured", () => {
+      expect(resolveMaxVerificationCalls()).toBe(DEFAULT_MAX_VERIFICATION_CALLS);
+      expect(resolveMaxVerificationCalls(null)).toBe(5);
+      expect(resolveMaxVerificationCalls({})).toBe(5);
+    });
+
+    it("resolves maxVerificationCalls from environment variable", () => {
+      vi.stubEnv("MAX_VERIFICATION_CALLS", "8");
+      expect(resolveMaxVerificationCalls()).toBe(8);
+    });
+
+    it("resolves valid configured integer value", () => {
+      expect(resolveMaxVerificationCalls(3)).toBe(3);
+      expect(resolveMaxVerificationCalls("7")).toBe(7);
+      expect(resolveMaxVerificationCalls({ maxVerificationCalls: 10 })).toBe(10);
+      expect(resolveMaxVerificationCalls({ gate: { maxVerificationCalls: 4 } })).toBe(4);
+    });
+
+    it("caps values at MAX_VERIFICATION_CALLS_LIMIT (20)", () => {
+      expect(resolveMaxVerificationCalls(25)).toBe(MAX_VERIFICATION_CALLS_LIMIT);
+      expect(resolveMaxVerificationCalls(100)).toBe(20);
+    });
+
+    it("falls back to default (5) on invalid input with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      expect(resolveMaxVerificationCalls("invalid")).toBe(5);
+      expect(resolveMaxVerificationCalls(-3)).toBe(5);
+      expect(resolveMaxVerificationCalls(0)).toBe(5);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Invalid maxVerificationCalls value"),
+      );
+    });
+
+    it("parses verifyCritical and maxVerificationCalls from .secureflow.json", () => {
+      const json = JSON.stringify({
+        verifyCritical: true,
+        maxVerificationCalls: 7,
+      });
+      const parsed = parseSecureFlowConfig(json);
+      expect(parsed.verifyCritical).toBe(true);
+      expect(parsed.maxVerificationCalls).toBe(7);
+      expect(isDefaultGate(parsed)).toBe(false);
+    });
+
+    it("formats gate summary line with critical verification notice", () => {
+      const summary = formatGateSummaryLine({
+        blockOn: "CRITICAL",
+        reviewOn: "HIGH",
+        verifyCritical: true,
+      });
+      expect(summary).toContain("critical verification on");
     });
   });
 });

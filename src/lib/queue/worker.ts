@@ -1246,6 +1246,11 @@ export async function runPullRequestScan({
             line,
             body:
               `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
+              (f.verificationStatus === "UNVERIFIED"
+                ? `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                : f.verificationStatus === "CONFIRMED"
+                  ? `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                  : "") +
               // Layer 4: surface injection warning on the individual inline comment when flagged.
               (f.promptInjectionSuspected
                 ? `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`

@@ -28,8 +28,10 @@ vi.mock("@/lib/armor/scanner", async (importOriginal) => {
 });
 vi.mock("@/lib/armor/iq", () => ({
   iq: {
-    evaluateFindings: (findings: Array<{ severity: string }>) =>
-      findings.some((f) => f.severity === "CRITICAL") ? "BLOCKED" : "PASS",
+    evaluateFindings: (findings: Array<{ severity: string; verificationStatus?: string }>) =>
+      findings.some((f) => f.severity === "CRITICAL" && f.verificationStatus !== "UNVERIFIED")
+        ? "BLOCKED"
+        : "PASS",
   },
 }));
 vi.mock("@/ai/flows/developer-receives-ai-security-explanations", () => ({
@@ -641,6 +643,52 @@ describe("processScanJob chunk failures", () => {
         f.matchedSignatures?.some((s) => s.startsWith("WORKFLOW_")),
       );
       expect(workflowFindings.length).toBe(0);
+    });
+  });
+
+  describe("CRITICAL finding verification pass (#2007)", () => {
+    it("runs verification when verifyCritical is opted in and marks rejected findings UNVERIFIED without blocking", async () => {
+      mocks.getContent.mockImplementation(async ({ path }: { path: string }) => {
+        if (path === ".secureflow.json") {
+          return {
+            data: {
+              content: Buffer.from(JSON.stringify({ gate: { verifyCritical: true } })).toString(
+                "base64",
+              ),
+            },
+          };
+        }
+        return { data: { content: "" } };
+      });
+
+      mocks.scanPullRequest.mockResolvedValue([
+        {
+          type: "Vulnerability",
+          severity: "CRITICAL",
+          description: "Mock false positive",
+          fileLocation: "src/test.ts",
+          codeSnippet: "eval(test)",
+          verificationStatus: "UNVERIFIED",
+          verificationReason: "Test fixture mock",
+        },
+      ]);
+
+      const result = await processScanJob(
+        {
+          ...jobData,
+          fileChanges: [{ filename: "src/test.ts", patch: "+eval(test)" }],
+        } as ScanJobData,
+        undefined,
+        {
+          report: false,
+          persist: false,
+          enrich: false,
+        },
+      );
+
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].verificationStatus).toBe("UNVERIFIED");
+      expect(result.policyDecision).toBe("PASS");
     });
   });
 });

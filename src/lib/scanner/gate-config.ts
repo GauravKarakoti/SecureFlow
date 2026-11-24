@@ -28,6 +28,52 @@ export const DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS = 120;
 /** Default scan request timeout in seconds (#1981). */
 export const DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS = 60;
 
+/** Default maximum number of verification calls per scan (#2007). */
+export const DEFAULT_MAX_VERIFICATION_CALLS = 5;
+
+/** Hard upper limit on verification calls per scan (#2007). */
+export const MAX_VERIFICATION_CALLS_LIMIT = 20;
+
+/** Resolves whether critical finding verification is enabled (#2007). */
+export function resolveVerifyCritical(configured?: unknown): boolean {
+  if (configured && typeof configured === "object") {
+    const obj = configured as Record<string, unknown>;
+    const val =
+      obj.verifyCritical ??
+      obj.verifyCriticalFindings ??
+      (obj.gate as Record<string, unknown> | undefined)?.verifyCritical ??
+      (obj.gate as Record<string, unknown> | undefined)?.verifyCriticalFindings ??
+      (obj.scanner as Record<string, unknown> | undefined)?.verifyCritical ??
+      (obj.scanner as Record<string, unknown> | undefined)?.verifyCriticalFindings;
+    if (typeof val === "boolean") return val;
+  }
+  return process.env.VERIFY_CRITICAL_FINDINGS === "true";
+}
+
+/** Resolves maximum verification calls allowed per scan (#2007). */
+export function resolveMaxVerificationCalls(configured?: unknown): number {
+  let raw: unknown = configured;
+  if (configured && typeof configured === "object") {
+    const obj = configured as Record<string, unknown>;
+    raw =
+      obj.maxVerificationCalls ??
+      (obj.gate as Record<string, unknown> | undefined)?.maxVerificationCalls ??
+      (obj.scanner as Record<string, unknown> | undefined)?.maxVerificationCalls;
+  }
+  const val = raw ?? process.env.MAX_VERIFICATION_CALLS;
+  if (val === undefined || val === null || val === "") {
+    return DEFAULT_MAX_VERIFICATION_CALLS;
+  }
+  const n = typeof val === "number" ? val : Number(val);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    console.warn(
+      `[GateConfig] Invalid maxVerificationCalls value '${String(val)}'; using default ${DEFAULT_MAX_VERIFICATION_CALLS}.`,
+    );
+    return DEFAULT_MAX_VERIFICATION_CALLS;
+  }
+  return Math.min(n, MAX_VERIFICATION_CALLS_LIMIT);
+}
+
 /**
  * Resolves the total scan timeout budget in milliseconds from configuration or environment (#1981).
  * Default is 120 seconds (120,000 ms).
@@ -130,6 +176,9 @@ export interface GateConfig {
   requestTimeoutSeconds?: number;
   skipDrafts?: boolean;
   skipAuthors?: string[];
+  verifyCritical?: boolean;
+  verifyCriticalFindings?: boolean;
+  maxVerificationCalls?: number;
 }
 
 export interface SecureFlowConfig {
@@ -149,9 +198,15 @@ export interface SecureFlowConfig {
     timeoutBudgetSeconds?: number;
     requestTimeout?: number;
     requestTimeoutSeconds?: number;
+    verifyCritical?: boolean;
+    verifyCriticalFindings?: boolean;
+    maxVerificationCalls?: number;
   };
   skipDrafts?: boolean;
   skipAuthors?: string[];
+  verifyCritical?: boolean;
+  verifyCriticalFindings?: boolean;
+  maxVerificationCalls?: number;
   ignore?: {
     includeDefaults?: boolean;
     forceInclude?: string[];
@@ -226,6 +281,13 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   // #1982: skipDrafts and skipAuthors checks
   const sameSkipDrafts = gate.skipDrafts === undefined || gate.skipDrafts === false;
   const noSkipAuthors = !gate.skipAuthors || gate.skipAuthors.length === 0;
+  // #2007: verifyCritical checks
+  const sameVerifyCritical =
+    (gate.verifyCritical === undefined || gate.verifyCritical === false) &&
+    (gate.verifyCriticalFindings === undefined || gate.verifyCriticalFindings === false);
+  const sameMaxVerificationCalls =
+    gate.maxVerificationCalls === undefined ||
+    gate.maxVerificationCalls === DEFAULT_MAX_VERIFICATION_CALLS;
 
   return (
     sameBlock &&
@@ -240,7 +302,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameTimeoutBudget &&
     sameRequestTimeout &&
     sameSkipDrafts &&
-    noSkipAuthors
+    noSkipAuthors &&
+    sameVerifyCritical &&
+    sameMaxVerificationCalls
   );
 }
 
@@ -262,6 +326,11 @@ export function formatGateSummaryLine(gate?: GateConfig | null): string | null {
     parts.push("review off");
   } else {
     parts.push(`review on ${gate.reviewOn}+`);
+  }
+
+  // #2007: tell the reader that critical verification is on.
+  if (gate.verifyCritical || gate.verifyCriticalFindings) {
+    parts.push("critical verification on");
   }
 
   // #1557: tell the reader that path rules are active.
@@ -590,6 +659,46 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2007: parse verifyCritical and maxVerificationCalls from root, scanner, or gateObj
+  const rawVerifyCritical =
+    root.verifyCritical ??
+    root.verifyCriticalFindings ??
+    rawScannerObj?.verifyCritical ??
+    rawScannerObj?.verifyCriticalFindings ??
+    gateObj.verifyCritical ??
+    gateObj.verifyCriticalFindings;
+
+  let verifyCritical: boolean | undefined = undefined;
+  if (rawVerifyCritical !== undefined) {
+    if (typeof rawVerifyCritical === "boolean") {
+      verifyCritical = rawVerifyCritical;
+    } else {
+      console.warn(
+        `[GateConfig] Unknown verifyCritical value '${String(rawVerifyCritical)}' (expected boolean); ignoring.`,
+      );
+    }
+  }
+
+  const rawMaxVerificationCalls =
+    root.maxVerificationCalls ??
+    rawScannerObj?.maxVerificationCalls ??
+    gateObj.maxVerificationCalls;
+
+  let maxVerificationCalls: number | undefined = undefined;
+  if (rawMaxVerificationCalls !== undefined && rawMaxVerificationCalls !== null) {
+    const num =
+      typeof rawMaxVerificationCalls === "number"
+        ? rawMaxVerificationCalls
+        : Number(String(rawMaxVerificationCalls).trim());
+    if (Number.isInteger(num) && num > 0) {
+      maxVerificationCalls = Math.min(num, MAX_VERIFICATION_CALLS_LIMIT);
+    } else {
+      console.warn(
+        `[GateConfig] Invalid maxVerificationCalls value '${String(rawMaxVerificationCalls)}' (expected positive integer); ignoring.`,
+      );
+    }
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -606,6 +715,10 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       : {}),
     ...(skipDrafts !== undefined ? { skipDrafts } : {}),
     ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
+    ...(verifyCritical !== undefined
+      ? { verifyCritical, verifyCriticalFindings: verifyCritical }
+      : {}),
+    ...(maxVerificationCalls !== undefined ? { maxVerificationCalls } : {}),
   };
 }
 
