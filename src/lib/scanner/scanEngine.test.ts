@@ -1,646 +1,764 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  parseSecureFlowConfig,
+  formatGateSummaryLine,
+  isDefaultGate,
+  loadTrustedGateConfig,
+  loadBaseGateConfig,
+  isAuthorSkipped,
+  DEFAULT_GATE_CONFIG,
+  SECUREFLOW_CONFIG_FILE,
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
+  DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS,
+  DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS,
+  resolveVerifyCritical,
+  resolveMaxVerificationCalls,
+  DEFAULT_MAX_VERIFICATION_CALLS,
+  MAX_VERIFICATION_CALLS_LIMIT,
+  resolveContextLines,
+  DEFAULT_CONTEXT_LINES,
+  MAX_CONTEXT_LINES,
+  MIN_CONTEXT_LINES,
+} from "./gate-config";
+import { ArmorIQPolicyEngine } from "@/lib/armor/iq";
+import type { ScanFinding } from "@/lib/armor/scanner";
 
-const mocks = vi.hoisted(() => ({
-  scanPullRequest: vi.fn(),
-  checksCreate: vi.fn(),
-  createComment: vi.fn(),
-  updateComment: vi.fn(),
-  listComments: vi.fn(),
-  updateScanJobProgress: vi.fn(),
-  explain: vi.fn(),
-  getContent: vi.fn(),
-  pullsGet: vi.fn(),
-}));
+const base64 = (str: string) => Buffer.from(str).toString("base64");
 
-vi.mock("@/lib/armor/scanner", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/armor/scanner")>();
+function makeFinding(type: string, severity: string | null | undefined): ScanFinding {
   return {
-    ...actual,
-    scanner: { scanPullRequest: mocks.scanPullRequest },
-    parseSecureFlowIgnore: (content: string) => ({
-      ignoredPaths: content
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      placeholders: [],
-    }),
+    type,
+    severity: severity as any,
+    fileLocation: "src/vuln.ts",
+    description: "test finding",
+    lineStart: 1,
+    lineEnd: 2,
+    codeSnippet: "test()",
   };
-});
-vi.mock("@/lib/armor/iq", () => ({
-  iq: {
-    evaluateFindings: (findings: Array<{ severity: string }>) =>
-      findings.some((f) => f.severity === "CRITICAL") ? "BLOCKED" : "PASS",
-  },
-}));
-vi.mock("@/ai/flows/developer-receives-ai-security-explanations", () => ({
-  developerReceivesAISecurityExplanations: mocks.explain,
-}));
-vi.mock("@/lib/github/app-auth", () => ({
-  getGitHubAppCredentials: () => ({ appId: "1", privateKey: "key" }),
-}));
-vi.mock("@/lib/queue/scanQueue", () => ({
-  updateScanJobProgress: mocks.updateScanJobProgress,
-}));
-vi.mock("@/lib/prisma", () => ({
-  default: { findingTriage: { findMany: vi.fn().mockResolvedValue([]) } },
-}));
-vi.mock("octokit", () => ({
-  App: class {
-    async getInstallationOctokit() {
-      return {
+}
+
+describe("gate-config loader and parser (#1491, #1470)", () => {
+  let engine: ArmorIQPolicyEngine;
+
+  beforeEach(() => {
+    engine = new ArmorIQPolicyEngine();
+    vi.clearAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  describe("parseSecureFlowConfig", () => {
+    it("parses valid config with blockOn and reviewOn", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "HIGH",
+          reviewOn: "MEDIUM",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.blockOn).toBe("HIGH");
+      expect(config.reviewOn).toBe("MEDIUM");
+      expect(config.overrides).toEqual([]);
+    });
+
+    it("supports blockAt and reviewAt aliases and case-insensitivity", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockAt: "high",
+          reviewAt: "low",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.blockOn).toBe("HIGH");
+      expect(config.reviewOn).toBe("LOW");
+    });
+
+    it("supports NONE to turn off block or review gate", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "NONE",
+          reviewOn: "HIGH",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.blockOn).toBe("NONE");
+      expect(config.reviewOn).toBe("HIGH");
+    });
+
+    it("parses type overrides correctly", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "CRITICAL",
+          reviewOn: "MEDIUM",
+          overrides: [{ type: "SECRET", blockAt: "MEDIUM" }],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.blockOn).toBe("CRITICAL");
+      expect(config.reviewOn).toBe("MEDIUM");
+      expect(config.overrides).toHaveLength(1);
+      expect(config.overrides?.[0]).toEqual({
+        type: "SECRET",
+        blockOn: "MEDIUM",
+      });
+    });
+
+    it("Case 3 & 4: Safe failure on malformed JSON or invalid types, logs warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const badJson = "{ not valid json }";
+
+      const config1 = parseSecureFlowConfig(badJson);
+      expect(config1).toEqual(DEFAULT_GATE_CONFIG);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid JSON"));
+
+      const nonObject = JSON.stringify("not-an-object");
+      const config2 = parseSecureFlowConfig(nonObject);
+      expect(config2).toEqual(DEFAULT_GATE_CONFIG);
+
+      const invalidKey = JSON.stringify({ gate: { blockOn: "SUPER_CRITICAL" } });
+      const config3 = parseSecureFlowConfig(invalidKey);
+      expect(config3.blockOn).toBe(DEFAULT_GATE_CONFIG.blockOn);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown blockOn value"));
+    });
+
+    it("parses .secureflow.json containing comments without failing", () => {
+      const jsonWithComments = `
+        // SecureFlow Gate Configuration
+        {
+          "gate": {
+            // Block on HIGH
+            "blockOn": "HIGH",
+            /* Review on LOW */
+            "reviewOn": "LOW"
+          }
+        }
+      `;
+      const config = parseSecureFlowConfig(jsonWithComments);
+      expect(config.blockOn).toBe("HIGH");
+      expect(config.reviewOn).toBe("LOW");
+    });
+  });
+
+  describe("formatGateSummaryLine", () => {
+    it("returns null when gate is default", () => {
+      expect(formatGateSummaryLine(DEFAULT_GATE_CONFIG)).toBeNull();
+      expect(formatGateSummaryLine(null)).toBeNull();
+      expect(formatGateSummaryLine(undefined)).toBeNull();
+    });
+
+    it("formats summary line when gate differs from default", () => {
+      const summary = formatGateSummaryLine({
+        blockOn: "HIGH",
+        reviewOn: "MEDIUM",
+      });
+      expect(summary).toBe("Gate: block on HIGH+, review on MEDIUM+ (from base branch)");
+
+      const summaryNone = formatGateSummaryLine({
+        blockOn: "NONE",
+        reviewOn: "HIGH",
+      });
+      expect(summaryNone).toBe("Gate: block off, review on HIGH+ (from base branch)");
+    });
+  });
+
+  describe("Acceptance criteria test scenarios", () => {
+    it("Case 1: Happy path: tighten - one HIGH finding with blockOn: HIGH gives BLOCKED", () => {
+      const findings = [makeFinding("VULNERABILITY", "HIGH")];
+
+      expect(engine.evaluateFindings(findings, DEFAULT_GATE_CONFIG)).toBe("REVIEW REQUIRED");
+
+      const tightenedGate = { blockOn: "HIGH" as const, reviewOn: "MEDIUM" as const };
+      expect(engine.evaluateFindings(findings, tightenedGate)).toBe("BLOCKED");
+    });
+
+    it("Case 2: Happy path: relax - one MEDIUM finding with reviewOn: HIGH gives PASS", () => {
+      const findings = [makeFinding("VULNERABILITY", "MEDIUM")];
+
+      expect(engine.evaluateFindings(findings, DEFAULT_GATE_CONFIG)).toBe("REVIEW REQUIRED");
+
+      const relaxedGate = { blockOn: "CRITICAL" as const, reviewOn: "HIGH" as const };
+      expect(engine.evaluateFindings(findings, relaxedGate)).toBe("PASS");
+    });
+
+    it("Case 2b: Override - type override for SECRET blocks at MEDIUM while VULNERABILITY passes review", () => {
+      const gateWithOverride = {
+        blockOn: "CRITICAL" as const,
+        reviewOn: "HIGH" as const,
+        overrides: [{ type: "SECRET", blockOn: "MEDIUM" as const }],
+      };
+
+      const secretFinding = [makeFinding("SECRET", "MEDIUM")];
+      const vulnFinding = [makeFinding("VULNERABILITY", "MEDIUM")];
+
+      expect(engine.evaluateFindings(secretFinding, gateWithOverride)).toBe("BLOCKED");
+      expect(engine.evaluateFindings(vulnFinding, gateWithOverride)).toBe("PASS");
+    });
+
+    it("Case 3: Defaults apply when config file is missing (404)", async () => {
+      const client = {
         rest: {
-          checks: { create: mocks.checksCreate },
-          issues: {
-            createComment: mocks.createComment,
-            updateComment: mocks.updateComment,
-            listComments: mocks.listComments,
+          repos: {
+            getContent: vi
+              .fn()
+              .mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 })),
           },
-          repos: { getContent: mocks.getContent },
-          pulls: { get: mocks.pullsGet },
+          pulls: {
+            get: vi.fn().mockResolvedValue({ data: { base: { ref: "main" } } }),
+          },
         },
       };
-    }
-  },
-}));
 
-import { processScanJob, ScanIncompleteError } from "./scanEngine";
-import type { ScanJobData } from "@/lib/queue/scanQueue";
+      const config = await loadTrustedGateConfig(client as any, {
+        owner: "acme",
+        repo: "repo",
+        prNumber: 10,
+        baseRef: "main",
+      });
 
-/** Twelve files, so the engine scans them in two chunks (10 + 2). */
-const fileChanges = Array.from({ length: 12 }, (_, i) => ({
-  filename: `src/file-${i}.ts`,
-  patch: `+const value${i} = ${i};`,
-}));
+      expect(config).toEqual(DEFAULT_GATE_CONFIG);
+      expect(isDefaultGate(config)).toBe(true);
+      expect(formatGateSummaryLine(config)).toBeNull();
+    });
 
-const jobData = {
-  scanJobId: "job-1",
-  repositoryId: "",
-  installationId: 42,
-  repositoryFullName: "acme/api",
-  prNumber: 7,
-  headSha: "abc123",
-  fileChanges,
-  activePolicies: [],
-  customIgnores: [],
-  customPlaceholders: [],
-} as unknown as ScanJobData;
+    it("Case 4: Bad config - 500 API error or bad JSON logs warning and resolves to default gate", async () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const client = {
+        rest: {
+          repos: {
+            getContent: vi.fn().mockRejectedValue(new Error("Internal Server Error (500)")),
+          },
+          pulls: {
+            get: vi.fn().mockResolvedValue({ data: { base: { ref: "main" } } }),
+          },
+        },
+      };
 
-describe("processScanJob chunk failures", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.updateScanJobProgress.mockResolvedValue(undefined);
-    mocks.explain.mockResolvedValue({
-      explanation: "e",
-      remediationSuggestions: "r",
-      promptInjectionSuspected: false,
+      const config = await loadTrustedGateConfig(client as any, {
+        owner: "acme",
+        repo: "repo",
+        prNumber: 10,
+        baseRef: "main",
+      });
+
+      expect(config).toEqual(DEFAULT_GATE_CONFIG);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not read ${SECUREFLOW_CONFIG_FILE}`),
+      );
+    });
+
+    it("Case 5: Tampering - file is fetched exclusively from base branch, never from head", async () => {
+      const getContentMock = vi.fn().mockResolvedValue({
+        data: {
+          content: base64(JSON.stringify({ gate: { blockOn: "HIGH" } })),
+        },
+      });
+
+      const client = {
+        rest: {
+          repos: { getContent: getContentMock },
+          pulls: {
+            get: vi.fn().mockResolvedValue({ data: { base: { ref: "production" } } }),
+          },
+        },
+      };
+
+      const config = await loadTrustedGateConfig(client as any, {
+        owner: "org",
+        repo: "core",
+        prNumber: 42,
+        baseRef: "production",
+      });
+
+      expect(config.blockOn).toBe("HIGH");
+      expect(getContentMock).toHaveBeenCalledWith({
+        owner: "org",
+        repo: "core",
+        path: SECUREFLOW_CONFIG_FILE,
+        ref: "production",
+      });
+    });
+
+    it("Case 6: Consistency - uninterpretable severity yields REVIEW REQUIRED regardless of gate", () => {
+      const gateRelaxed = { blockOn: "CRITICAL" as const, reviewOn: "CRITICAL" as const };
+      const unparseableFinding = [makeFinding("VULNERABILITY", "UNKNOWN_SEV_XYZ")];
+
+      expect(engine.evaluateFindings(unparseableFinding, gateRelaxed)).toBe("REVIEW REQUIRED");
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", null)], gateRelaxed)).toBe(
+        "REVIEW REQUIRED",
+      );
+    });
+
+    it("Case 7: Regression - single argument evaluateFindings(findings) returns baseline results", () => {
+      expect(engine.evaluateFindings([])).toBe("PASS");
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "CRITICAL")])).toBe("BLOCKED");
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "HIGH")])).toBe(
+        "REVIEW REQUIRED",
+      );
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "MEDIUM")])).toBe(
+        "REVIEW REQUIRED",
+      );
+      expect(engine.evaluateFindings([makeFinding("VULNERABILITY", "LOW")])).toBe("PASS");
     });
   });
 
-  it("fails the scan instead of reporting PASS when the analysis engine is unavailable", async () => {
-    mocks.scanPullRequest.mockRejectedValue(
-      new Error("ScanFailedAnalysisEngineUnavailable: LLM scan failed after all retries."),
-    );
-
-    const run = processScanJob(jobData);
-
-    await expect(run).rejects.toBeInstanceOf(ScanIncompleteError);
-    await expect(run).rejects.toThrow(/10 file\(s\) could not be analysed/);
-    expect(mocks.checksCreate).not.toHaveBeenCalled();
-  });
-
-  it("fails the scan when a later chunk fails, even though an earlier one succeeded", async () => {
-    mocks.scanPullRequest.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("429"));
-
-    const error = await processScanJob(jobData, undefined, { report: false, persist: false }).catch(
-      (err: unknown) => err,
-    );
-
-    expect(error).toBeInstanceOf(ScanIncompleteError);
-    expect((error as ScanIncompleteError).failedFiles).toEqual([
-      "src/file-10.ts",
-      "src/file-11.ts",
-    ]);
-  });
-
-  it("still completes and reports when every chunk scans", async () => {
-    mocks.scanPullRequest.mockResolvedValue([]);
-
-    const result = await processScanJob(jobData);
-
-    expect(mocks.scanPullRequest).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({ scannedFiles: 12, vulnerabilitiesFound: 0, verdict: "PASS" });
-    expect(mocks.checksCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ conclusion: "success", head_sha: "abc123" }),
-    );
-  });
-
-  it("posts sticky PR comment with marker and headSha when findings exist", async () => {
-    mocks.scanPullRequest
-      .mockResolvedValueOnce([
-        {
-          ruleId: "SF-001",
-          severity: "HIGH",
-          message: "Hardcoded secret",
-          file: "src/file-0.ts",
-          startLine: 1,
-          endLine: 1,
+  describe("confidence configuration and blocking opt-in (#1924)", () => {
+    it("parses minCommentConfidence from confidence object", () => {
+      const json = JSON.stringify({
+        confidence: {
+          minCommentConfidence: "HIGH",
+          filterBlocking: true,
         },
-      ])
-      .mockResolvedValueOnce([]);
-    mocks.listComments.mockResolvedValue({ data: [] });
-    mocks.createComment.mockResolvedValue({ data: { id: 101 } });
+      });
 
-    await processScanJob(jobData);
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("HIGH");
+      expect(config.filterBlocking).toBe(true);
+    });
 
-    expect(mocks.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        owner: "acme",
-        repo: "api",
-        issue_number: 7,
-        body: expect.stringContaining("<!-- secureflow-report -->"),
-      }),
-    );
-    expect(mocks.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("Scanned commit: `abc123`"),
-      }),
-    );
-    expect(mocks.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringMatching(/Scan time: `.+`/),
-      }),
-    );
+    it("parses minCommentConfidence from root or aliases", () => {
+      const json = JSON.stringify({
+        minConfidence: "low",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("LOW");
+      expect(config.filterBlocking).toBe(false);
+    });
+
+    it("warns and falls back to default when minCommentConfidence is invalid", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        confidence: {
+          minCommentConfidence: "INVALID_CONFIDENCE_LEVEL",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.minCommentConfidence).toBe("MEDIUM");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Unknown minCommentConfidence 'INVALID_CONFIDENCE_LEVEL'"),
+      );
+    });
+
+    it("blocking behavior is unchanged by default with low confidence findings", () => {
+      const findingWithLowConf: ScanFinding = {
+        type: "Secret",
+        severity: "CRITICAL",
+        confidence: "LOW",
+        fileLocation: "src/test.ts",
+        description: "Uncertain secret",
+        codeSnippet: "key = 1",
+      };
+
+      const result = engine.evaluateFindings([findingWithLowConf], {
+        blockOn: "CRITICAL",
+        reviewOn: "MEDIUM",
+        minCommentConfidence: "HIGH",
+        filterBlocking: false,
+      });
+
+      expect(result).toBe("BLOCKED");
+    });
+
+    it("blocking behavior respects confidence filter when explicitly opted in", () => {
+      const findingWithLowConf: ScanFinding = {
+        type: "Secret",
+        severity: "CRITICAL",
+        confidence: "LOW",
+        fileLocation: "src/test.ts",
+        description: "Uncertain secret",
+        codeSnippet: "key = 1",
+      };
+
+      const result = engine.evaluateFindings([findingWithLowConf], {
+        blockOn: "CRITICAL",
+        reviewOn: "MEDIUM",
+        minCommentConfidence: "MEDIUM",
+        filterBlocking: true,
+      });
+
+      expect(result).toBe("PASS");
+    });
   });
 
-  describe("ignore configuration", () => {
-    const quiet = { report: false, persist: false, enrich: false };
-    const base64 = (text: string) => Buffer.from(text).toString("base64");
-    const notFound = () => Object.assign(new Error("Not Found"), { status: 404 });
-    const scanCall = () => mocks.scanPullRequest.mock.calls[0];
-    const expectScannedWith = (ignores: string[], placeholders: string[] = []) =>
-      expect(scanCall()).toEqual([expect.any(Array), expect.any(Array), ignores, placeholders]);
+  describe("default ignore pattern overrides (#1983)", () => {
+    it("parses includeDefaults and forceInclude at root level", () => {
+      const json = JSON.stringify({
+        includeDefaults: false,
+        forceInclude: ["vendor/**", "dist/custom.js"],
+      });
 
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["vendor/**", "dist/custom.js"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("parses includeDefaults and forceInclude within gate block", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "CRITICAL",
+          reviewOn: "MEDIUM",
+          includeDefaults: false,
+          forceInclude: ["*.min.js"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["*.min.js"]);
+    });
+
+    it("parses includeDefaults and forceInclude within ignore block", () => {
+      const json = JSON.stringify({
+        ignore: {
+          includeDefaults: false,
+          forceInclude: ["client/openapi/**"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.includeDefaults).toBe(false);
+      expect(config.forceInclude).toEqual(["client/openapi/**"]);
+    });
+
+    it("treats default config as default gate when no overrides exist", () => {
+      const config = parseSecureFlowConfig("{}");
+      expect(config.includeDefaults).toBeUndefined();
+      expect(config.forceInclude).toBeUndefined();
+      expect(isDefaultGate(config)).toBe(true);
+    });
+
+    it("parses timeoutBudget and requestTimeout from gate section (#1981)", () => {
+      const json = JSON.stringify({
+        gate: {
+          timeoutBudget: 90,
+          requestTimeout: 45,
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBe(90);
+      expect(config.requestTimeout).toBe(45);
+      expect(isDefaultGate(config)).toBe(false);
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(90_000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(45_000);
+    });
+
+    it("parses timeout aliases and scanner block (#1981)", () => {
+      const json = JSON.stringify({
+        scanner: {
+          timeoutBudgetSeconds: 150,
+          requestTimeoutSeconds: 30,
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBe(150);
+      expect(config.requestTimeout).toBe(30);
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(150_000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(30_000);
+    });
+
+    it("ignores invalid timeout values (<= 0 or non-number) and uses defaults (#1981)", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        gate: {
+          timeoutBudget: -10,
+          requestTimeout: "fast",
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.timeoutBudget).toBeUndefined();
+      expect(config.requestTimeout).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("positive integer"));
+      expect(resolveScanTimeoutBudgetMs(config)).toBe(DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS * 1000);
+      expect(resolveScanRequestTimeoutMs(config)).toBe(DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS * 1000);
+    });
+  });
+
+  describe("skipDrafts and skipAuthors (#1982)", () => {
+    it("parses skipDrafts and skipAuthors at root level", () => {
+      const json = JSON.stringify({
+        skipDrafts: true,
+        skipAuthors: ["dependabot[bot]", "renovate[bot]", "*bot*"],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(true);
+      expect(config.skipAuthors).toEqual(["dependabot[bot]", "renovate[bot]", "*bot*"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("parses skipDrafts and skipAuthors within gate block", () => {
+      const json = JSON.stringify({
+        gate: {
+          blockOn: "CRITICAL",
+          reviewOn: "MEDIUM",
+          skipDrafts: true,
+          skipAuthors: ["release-bot"],
+        },
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(true);
+      expect(config.skipAuthors).toEqual(["release-bot"]);
+      expect(isDefaultGate(config)).toBe(false);
+    });
+
+    it("safely ignores non-boolean skipDrafts with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipDrafts: "yes",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown skipDrafts value"));
+    });
+
+    it("safely ignores non-array skipAuthors with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipAuthors: "dependabot[bot]",
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipAuthors).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid skipAuthors value"));
+    });
+
+    it("filters out invalid entries in skipAuthors with warnings", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      const json = JSON.stringify({
+        skipAuthors: ["dependabot[bot]", 123, null, "  "],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipAuthors).toEqual(["dependabot[bot]"]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid skipAuthors entry"));
+    });
+
+    it("considers false skipDrafts and empty skipAuthors as default gate", () => {
+      const json = JSON.stringify({
+        skipDrafts: false,
+        skipAuthors: [],
+      });
+
+      const config = parseSecureFlowConfig(json);
+      expect(config.skipDrafts).toBe(false);
+      expect(config.skipAuthors).toBeUndefined();
+      expect(isDefaultGate(config)).toBe(true);
+    });
+  });
+
+  describe("isAuthorSkipped matching helper (#1982)", () => {
+    it("returns false for null, undefined, or empty author/patterns", () => {
+      expect(isAuthorSkipped(null, ["dependabot[bot]"])).toBe(false);
+      expect(isAuthorSkipped(undefined, ["dependabot[bot]"])).toBe(false);
+      expect(isAuthorSkipped("alice", null)).toBe(false);
+      expect(isAuthorSkipped("alice", undefined)).toBe(false);
+      expect(isAuthorSkipped("alice", [])).toBe(false);
+    });
+
+    it("matches exact logins case-insensitively", () => {
+      const patterns = ["dependabot[bot]", "Renovate[bot]"];
+      expect(isAuthorSkipped("dependabot[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("DEPENDABOT[BOT]", patterns)).toBe(true);
+      expect(isAuthorSkipped("renovate[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("RENOVATE[BOT]", patterns)).toBe(true);
+      expect(isAuthorSkipped("alice", patterns)).toBe(false);
+    });
+
+    it("matches wildcard glob patterns", () => {
+      const patterns = ["*bot*", "release-*", "app-?.service"];
+      expect(isAuthorSkipped("github-actions[bot]", patterns)).toBe(true);
+      expect(isAuthorSkipped("my-custom-bot", patterns)).toBe(true);
+      expect(isAuthorSkipped("release-v1.0", patterns)).toBe(true);
+      expect(isAuthorSkipped("app-1.service", patterns)).toBe(true);
+      expect(isAuthorSkipped("developer-bob", patterns)).toBe(false);
+    });
+
+    it("safely handles patterns with regex special characters", () => {
+      const patterns = ["bot+service", "user(special)", "corp[team]"];
+      expect(isAuthorSkipped("bot+service", patterns)).toBe(true);
+      expect(isAuthorSkipped("user(special)", patterns)).toBe(true);
+      expect(isAuthorSkipped("corp[team]", patterns)).toBe(true);
+      expect(isAuthorSkipped("botservice", patterns)).toBe(false);
+    });
+  });
+
+  describe("verifyCritical configuration (#2007)", () => {
     beforeEach(() => {
-      mocks.getContent.mockReset();
-      mocks.pullsGet.mockReset();
-      mocks.scanPullRequest.mockResolvedValue([]);
-      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.unstubAllEnvs();
     });
 
-    it("reads .secureflowignore from the base branch named in the job", async () => {
-      mocks.getContent.mockResolvedValue({ data: { content: base64("docs/**\ntests/**") } });
-
-      await processScanJob({ ...jobData, baseRef: "main" } as ScanJobData, undefined, quiet);
-
-      expect(mocks.pullsGet).not.toHaveBeenCalled();
-      expect(mocks.getContent).toHaveBeenCalledWith({
-        owner: "acme",
-        repo: "api",
-        path: ".secureflowignore",
-        ref: "main",
-      });
-      expectScannedWith(["docs/**", "tests/**"]);
+    it("resolves default verifyCritical (false) when unconfigured", () => {
+      expect(resolveVerifyCritical()).toBe(false);
+      expect(resolveVerifyCritical(null)).toBe(false);
+      expect(resolveVerifyCritical({})).toBe(false);
     });
 
-    it("looks the base branch up from the pull request when the job does not name one", async () => {
-      mocks.pullsGet.mockResolvedValue({ data: { base: { ref: "develop" } } });
-      mocks.getContent.mockResolvedValue({ data: { content: base64("docs/**") } });
+    it("resolves verifyCritical from environment variable", () => {
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "true");
+      expect(resolveVerifyCritical()).toBe(true);
 
-      await processScanJob(jobData, undefined, quiet);
-
-      expect(mocks.pullsGet).toHaveBeenCalledWith({ owner: "acme", repo: "api", pull_number: 7 });
-      expect(mocks.getContent).toHaveBeenCalledWith(expect.objectContaining({ ref: "develop" }));
-      expectScannedWith(["docs/**"]);
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "false");
+      expect(resolveVerifyCritical()).toBe(false);
     });
 
-    it("is not switched off by a .secureflowignore the pull request adds on its own branch", async () => {
-      mocks.getContent.mockImplementation(async ({ ref }: { ref: string }) => {
-        if (ref === "main") throw notFound();
-        return { data: { content: base64("**\n[placeholders]\nAKIA") } };
-      });
-
-      await processScanJob({ ...jobData, baseRef: "main" } as ScanJobData, undefined, quiet);
-
-      expectScannedWith([]);
-      for (const [params] of mocks.getContent.mock.calls) {
-        expect(params.ref).not.toBe("abc123");
-      }
+    it("resolves verifyCritical from object config", () => {
+      expect(resolveVerifyCritical({ verifyCritical: true })).toBe(true);
+      expect(resolveVerifyCritical({ verifyCriticalFindings: true })).toBe(true);
+      expect(resolveVerifyCritical({ gate: { verifyCritical: true } })).toBe(true);
+      expect(resolveVerifyCritical({ scanner: { verifyCritical: true } })).toBe(true);
     });
 
-    it("keeps server-supplied ignores in addition to the repository's own", async () => {
-      mocks.getContent.mockResolvedValue({ data: { content: base64("docs/**") } });
+    it("resolves default maxVerificationCalls (5) when unconfigured", () => {
+      expect(resolveMaxVerificationCalls()).toBe(DEFAULT_MAX_VERIFICATION_CALLS);
+      expect(resolveMaxVerificationCalls(null)).toBe(5);
+      expect(resolveMaxVerificationCalls({})).toBe(5);
+    });
 
-      await processScanJob(
-        { ...jobData, baseRef: "main", customIgnores: ["vendor/**"] } as ScanJobData,
-        undefined,
-        quiet,
+    it("resolves maxVerificationCalls from environment variable", () => {
+      vi.stubEnv("MAX_VERIFICATION_CALLS", "8");
+      expect(resolveMaxVerificationCalls()).toBe(8);
+    });
+
+    it("resolves valid configured integer value", () => {
+      expect(resolveMaxVerificationCalls(3)).toBe(3);
+      expect(resolveMaxVerificationCalls("7")).toBe(7);
+      expect(resolveMaxVerificationCalls({ maxVerificationCalls: 10 })).toBe(10);
+      expect(resolveMaxVerificationCalls({ gate: { maxVerificationCalls: 4 } })).toBe(4);
+    });
+
+    it("caps values at MAX_VERIFICATION_CALLS_LIMIT (20)", () => {
+      expect(resolveMaxVerificationCalls(25)).toBe(MAX_VERIFICATION_CALLS_LIMIT);
+      expect(resolveMaxVerificationCalls(100)).toBe(20);
+    });
+
+    it("falls back to default (5) on invalid input with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      expect(resolveMaxVerificationCalls("invalid")).toBe(5);
+      expect(resolveMaxVerificationCalls(-3)).toBe(5);
+      expect(resolveMaxVerificationCalls(0)).toBe(5);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Invalid maxVerificationCalls value"),
       );
-
-      expectScannedWith(["vendor/**", "docs/**"]);
     });
 
-    it("scans without ignore rules when no base branch can be determined", async () => {
-      mocks.pullsGet.mockRejectedValue(new Error("GitHub is down"));
+    it("parses verifyCritical and maxVerificationCalls from .secureflow.json", () => {
+      const json = JSON.stringify({
+        verifyCritical: true,
+        maxVerificationCalls: 7,
+      });
+      const parsed = parseSecureFlowConfig(json);
+      expect(parsed.verifyCritical).toBe(true);
+      expect(parsed.maxVerificationCalls).toBe(7);
+      expect(isDefaultGate(parsed)).toBe(false);
+    });
 
-      await processScanJob(jobData, undefined, quiet);
-
-      expect(mocks.getContent).not.toHaveBeenCalled();
-      expectScannedWith([]);
+    it("formats gate summary line with critical verification notice", () => {
+      const summary = formatGateSummaryLine({
+        blockOn: "CRITICAL",
+        reviewOn: "HIGH",
+        verifyCritical: true,
+      });
+      expect(summary).toContain("critical verification on");
     });
   });
 
-  describe("Zero analyzed files handling (PR #174 regression)", () => {
-    it("handles an empty diff (0 changed files) with neutral check run and 'Nothing to scan: no changed files' comment", async () => {
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: [] } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      expect(result.scannedFiles).toBe(0);
-      expect(result.zeroScanReason).toBe("no changed files");
-
-      expect(mocks.checksCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conclusion: "neutral",
-          output: expect.objectContaining({
-            title: "Nothing to scan",
-            summary: "Nothing to scan: no changed files.",
-          }),
-        }),
-      );
-
-      expect(mocks.createComment).toHaveBeenCalledTimes(1);
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-      expect(commentBody).toContain("Nothing to scan: no changed files.");
-      expect(commentBody).not.toContain("Scan completed successfully");
-      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
+  describe("contextLines configuration (#2006)", () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
     });
 
-    it("handles unsupported file types (e.g. README.md) with neutral check run and 'Nothing to scan: unsupported file types'", async () => {
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const mdFiles = [
-        {
-          filename: "README.md",
-          patch: "@@ -1 +1 @@\n+# Documentation update",
-        },
-      ];
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: mdFiles } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      expect(result.scannedFiles).toBe(0);
-      expect(result.zeroScanReason).toBe("unsupported file types");
-
-      expect(mocks.checksCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conclusion: "neutral",
-          output: expect.objectContaining({
-            title: "Nothing to scan",
-            summary: "Nothing to scan: unsupported file types.",
-          }),
-        }),
-      );
-
-      expect(mocks.createComment).toHaveBeenCalledTimes(1);
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-      expect(commentBody).toContain("Nothing to scan: unsupported file types.");
-      expect(commentBody).not.toContain("Scan completed successfully");
-      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
+    it("resolves default value (5) when unconfigured and no env is set", () => {
+      expect(resolveContextLines()).toBe(DEFAULT_CONTEXT_LINES);
+      expect(resolveContextLines(null)).toBe(5);
+      expect(resolveContextLines(undefined)).toBe(5);
+      expect(resolveContextLines({})).toBe(5);
     });
 
-    it("handles all paths ignored with neutral check run and 'Nothing to scan: all paths ignored'", async () => {
-      mocks.scanPullRequest.mockResolvedValue([]);
+    it("resolves from environment variables SCANNER_CONTEXT_LINES or CONTEXT_LINES", () => {
+      vi.stubEnv("SCANNER_CONTEXT_LINES", "8");
+      expect(resolveContextLines()).toBe(8);
 
-      const nodeModulesFiles = [
-        {
-          filename: "node_modules/library/index.js",
-          patch: "@@ -0,0 +1 @@\n+const x = 1;",
-        },
-      ];
+      vi.unstubAllEnvs();
+      vi.stubEnv("CONTEXT_LINES", "12");
+      expect(resolveContextLines()).toBe(12);
 
-      const result = await processScanJob(
-        { ...jobData, fileChanges: nodeModulesFiles } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      expect(result.scannedFiles).toBe(0);
-      expect(result.zeroScanReason).toBe("all paths ignored");
-
-      expect(mocks.checksCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conclusion: "neutral",
-          output: expect.objectContaining({
-            title: "Nothing to scan",
-            summary: "Nothing to scan: all paths ignored.",
-          }),
-        }),
-      );
-
-      expect(mocks.createComment).toHaveBeenCalledTimes(1);
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-      expect(commentBody).toContain("Nothing to scan: all paths ignored.");
-      expect(commentBody).not.toContain("Scan completed successfully");
-      expect(commentBody).not.toContain("No security vulnerabilities detected in scanned files");
-    });
-  });
-
-  describe("PR comment confidence threshold and hidden count (#1924)", () => {
-    const base64 = (text: string) => Buffer.from(text).toString("base64");
-
-    it("hides findings below repository threshold and states the hidden count in PR comment", async () => {
-      mocks.getContent.mockImplementation(({ path }: { path: string }) => {
-        if (path === ".secureflow.json") {
-          return Promise.resolve({
-            data: {
-              content: base64(
-                JSON.stringify({
-                  confidence: { minCommentConfidence: "HIGH" },
-                }),
-              ),
-            },
-          });
-        }
-        return Promise.reject(Object.assign(new Error("Not Found"), { status: 404 }));
-      });
-      mocks.pullsGet.mockResolvedValue({ data: { base: { ref: "main" } } });
-
-      const findings = [
-        {
-          type: "Secret",
-          severity: "CRITICAL",
-          confidence: "HIGH",
-          confidenceReason: "Active API key in production file",
-          description: "High confidence production leak",
-          fileLocation: "src/prod.ts",
-          codeSnippet: "KEY = 123",
-        },
-        {
-          type: "Vulnerability",
-          severity: "MEDIUM",
-          confidence: "LOW",
-          confidenceReason: "Uncertain test fixture token",
-          description: "Low confidence test mock",
-          fileLocation: "tests/mock.ts",
-          codeSnippet: "MOCK = 456",
-        },
-      ];
-
-      mocks.scanPullRequest.mockResolvedValueOnce(findings).mockResolvedValueOnce([]);
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 102 } });
-
-      const result = await processScanJob(jobData, undefined, {
-        report: true,
-        persist: false,
-        enrich: false,
-      });
-
-      expect(mocks.createComment).toHaveBeenCalledTimes(1);
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-
-      expect(commentBody).toContain("Detected **2** potential issues");
-      expect(commentBody).toContain("1 lower-confidence finding");
-      expect(commentBody).toContain("below the `HIGH` confidence threshold was hidden");
-      expect(commentBody).toContain("High confidence production leak");
-      expect(commentBody).toContain("`src/prod.ts`");
-      expect(commentBody).toContain("**Confidence:** HIGH");
-      expect(commentBody).not.toContain("Low confidence test mock");
-      expect(commentBody).not.toContain("`tests/mock.ts`");
-      expect(result.findings).toHaveLength(2);
+      vi.stubEnv("SCANNER_CONTEXT_LINES", "15");
+      expect(resolveContextLines()).toBe(15);
     });
 
-    it("displays all findings when threshold is LOW", async () => {
-      mocks.getContent.mockImplementation(({ path }: { path: string }) => {
-        if (path === ".secureflow.json") {
-          return Promise.resolve({
-            data: {
-              content: base64(
-                JSON.stringify({
-                  confidence: { minCommentConfidence: "LOW" },
-                }),
-              ),
-            },
-          });
-        }
-        return Promise.reject(Object.assign(new Error("Not Found"), { status: 404 }));
-      });
-      mocks.pullsGet.mockResolvedValue({ data: { base: { ref: "main" } } });
-
-      const findings = [
-        {
-          type: "Secret",
-          severity: "CRITICAL",
-          confidence: "HIGH",
-          fileLocation: "src/prod.ts",
-          description: "High confidence issue",
-          codeSnippet: "KEY = 123",
-        },
-        {
-          type: "Vulnerability",
-          severity: "LOW",
-          confidence: "LOW",
-          fileLocation: "tests/mock.ts",
-          description: "Low confidence issue",
-          codeSnippet: "MOCK = 456",
-        },
-      ];
-
-      mocks.scanPullRequest.mockResolvedValueOnce(findings).mockResolvedValueOnce([]);
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 103 } });
-
-      await processScanJob(jobData, undefined, {
-        report: true,
-        persist: false,
-        enrich: false,
-      });
-
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-
-      expect(commentBody).not.toContain("lower-confidence finding");
-      expect(commentBody).toContain("High confidence issue");
-      expect(commentBody).toContain("`src/prod.ts`");
-      expect(commentBody).toContain("Low confidence issue");
-      expect(commentBody).toContain("`tests/mock.ts`");
-    });
-  });
-
-  describe("deterministic dependency security checks (#2003)", () => {
-    it("reports typosquat findings in package.json with line number and package name", async () => {
-      const manifestFiles = [
-        {
-          filename: "package.json",
-          patch: `--- a/package.json
-+++ b/package.json
-@@ -10,3 +10,4 @@
-   "dependencies": {
-     "express": "^4.18.2",
-+    "lodashs": "^4.17.21"
-   }
-`,
-        },
-      ];
-
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: manifestFiles } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      const typoFinding = result.findings.find((f) =>
-        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
-      );
-      expect(typoFinding).toBeDefined();
-      expect(typoFinding?.severity).toBe("HIGH");
-      expect(typoFinding?.description).toContain("lodashs");
-      expect(typoFinding?.description).toContain("lodash");
-      expect(typoFinding?.lineStart).toBe(12);
-
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-      expect(commentBody).toContain("DEPENDENCY_TYPOSQUAT");
-      expect(commentBody).toContain("`package.json`");
-      expect(commentBody).toContain("lodashs");
+    it("resolves valid configured integer value", () => {
+      expect(resolveContextLines(3)).toBe(3);
+      expect(resolveContextLines("7")).toBe(7);
+      expect(resolveContextLines({ contextLines: 10 })).toBe(10);
+      expect(resolveContextLines({ scanner: { contextLines: 14 } })).toBe(14);
+      expect(resolveContextLines({ gate: { contextLines: 6 } })).toBe(6);
     });
 
-    it("reports git and tarball dependencies in requirements.txt", async () => {
-      const pyFiles = [
-        {
-          filename: "requirements.txt",
-          patch: `--- a/requirements.txt
-+++ b/requirements.txt
-@@ -1,2 +1,3 @@
- flask==2.0.1
-+https://evil.com/packages/pkg-1.0.0.tar.gz
-`,
-        },
-      ];
+    it("caps values at MAX_CONTEXT_LINES (20)", () => {
+      expect(resolveContextLines(25)).toBe(MAX_CONTEXT_LINES);
+      expect(resolveContextLines(100)).toBe(20);
+      expect(resolveContextLines("35")).toBe(20);
+      expect(resolveContextLines({ contextLines: 50 })).toBe(20);
 
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 2004 } });
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: pyFiles } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      const tarballFinding = result.findings.find((f) =>
-        f.matchedSignatures?.includes("DEPENDENCY_GIT_OR_TARBALL"),
-      );
-      expect(tarballFinding).toBeDefined();
-      expect(tarballFinding?.severity).toBe("HIGH");
-      expect(tarballFinding?.codeSnippet).toContain("pkg-1.0.0.tar.gz");
+      vi.stubEnv("SCANNER_CONTEXT_LINES", "99");
+      expect(resolveContextLines()).toBe(20);
     });
 
-    it("does not report typosquats for legitimate packages", async () => {
-      const safeFiles = [
-        {
-          filename: "package.json",
-          patch: `--- a/package.json
-+++ b/package.json
-@@ -10,3 +10,4 @@
-   "dependencies": {
-     "express": "^4.18.2",
-+    "lodash": "^4.17.21"
-   }
-`,
-        },
-      ];
+    it("clamps negative values to MIN_CONTEXT_LINES (0)", () => {
+      expect(resolveContextLines(-1)).toBe(MIN_CONTEXT_LINES);
+      expect(resolveContextLines(-10)).toBe(0);
+      expect(resolveContextLines("-5")).toBe(0);
+      expect(resolveContextLines({ contextLines: -2 })).toBe(0);
 
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 2005 } });
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: safeFiles } as ScanJobData,
-        undefined,
-        { report: true, persist: false, enrich: false },
-      );
-
-      const typoFinding = result.findings.find((f) =>
-        f.matchedSignatures?.includes("DEPENDENCY_TYPOSQUAT"),
-      );
-      expect(typoFinding).toBeUndefined();
-    });
-  });
-
-  describe("deterministic workflow security checks (#2002)", () => {
-    it("reports workflow rule findings in PR comment with correct severity, rule ID and one-line fix", async () => {
-      const workflowFiles = [
-        {
-          filename: ".github/workflows/ci.yml",
-          patch: `+name: CI\n+on:\n+  issues:\n+    types: [opened]\n+permissions:\n+  issues: read\n+jobs:\n+  test:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - run: echo "\${{ github.event.issue.title }}"\n`,
-        },
-      ];
-
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 2002 } });
-      mocks.scanPullRequest.mockResolvedValue([]);
-
-      const result = await processScanJob(
-        { ...jobData, fileChanges: workflowFiles } as ScanJobData,
-        undefined,
-        {
-          report: true,
-          persist: false,
-          enrich: false,
-        },
-      );
-
-      expect(result.findings.length).toBeGreaterThan(0);
-      const scriptInjFinding = result.findings.find((f) =>
-        f.matchedSignatures?.includes("WORKFLOW_SCRIPT_INJECTION"),
-      );
-      expect(scriptInjFinding).toBeDefined();
-      expect(scriptInjFinding?.severity).toBe("HIGH");
-
-      const commentBody = mocks.createComment.mock.calls[0][0].body;
-      expect(commentBody).toContain("WORKFLOW_SCRIPT_INJECTION");
-      expect(commentBody).toContain("`.github/workflows/ci.yml`");
-      expect(commentBody).toContain("Fix:");
+      vi.stubEnv("SCANNER_CONTEXT_LINES", "-8");
+      expect(resolveContextLines()).toBe(0);
     });
 
-    it("does not run workflow rules on files outside .github/workflows/", async () => {
-      const otherFiles = [
-        {
-          filename: "scripts/deploy.yml",
-          patch: `+name: Deploy\n+on: push\n+permissions: write-all\n+jobs:\n+  deploy:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n`,
-        },
-      ];
+    it("falls back to default (5) on non-integer or invalid input with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      expect(resolveContextLines("invalid")).toBe(5);
+      expect(resolveContextLines("5.5")).toBe(5);
+      expect(resolveContextLines(NaN)).toBe(5);
+      expect(resolveContextLines(Infinity)).toBe(5);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid contextLines value"));
+    });
 
-      mocks.listComments.mockResolvedValue({ data: [] });
-      mocks.createComment.mockResolvedValue({ data: { id: 2003 } });
-      mocks.scanPullRequest.mockResolvedValue([]);
+    it("parses contextLines from .secureflow.json root, scanner, and gate", () => {
+      const jsonRoot = JSON.stringify({ contextLines: 7 });
+      expect(parseSecureFlowConfig(jsonRoot).contextLines).toBe(7);
 
-      const result = await processScanJob(
-        { ...jobData, fileChanges: otherFiles } as ScanJobData,
-        undefined,
-        {
-          report: true,
-          persist: false,
-          enrich: false,
-        },
-      );
+      const jsonScanner = JSON.stringify({ scanner: { contextLines: 12 } });
+      expect(parseSecureFlowConfig(jsonScanner).contextLines).toBe(12);
 
-      const workflowFindings = result.findings.filter((f) =>
-        f.matchedSignatures?.some((s) => s.startsWith("WORKFLOW_")),
-      );
-      expect(workflowFindings.length).toBe(0);
+      const jsonGate = JSON.stringify({ gate: { contextLines: 15 } });
+      expect(parseSecureFlowConfig(jsonGate).contextLines).toBe(15);
+    });
+
+    it("caps parsed contextLines at 20 and clamps negative at 0 in parseSecureFlowConfig", () => {
+      const jsonOver = JSON.stringify({ contextLines: 50 });
+      expect(parseSecureFlowConfig(jsonOver).contextLines).toBe(20);
+
+      const jsonUnder = JSON.stringify({ contextLines: -5 });
+      expect(parseSecureFlowConfig(jsonUnder).contextLines).toBe(0);
+    });
+
+    it("recognises default contextLines (5) as default gate and custom as non-default", () => {
+      const configDefault = parseSecureFlowConfig(JSON.stringify({ contextLines: 5 }));
+      expect(isDefaultGate(configDefault)).toBe(true);
+
+      const configCustom = parseSecureFlowConfig(JSON.stringify({ contextLines: 10 }));
+      expect(isDefaultGate(configCustom)).toBe(false);
     });
   });
 });

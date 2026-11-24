@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { mapFindingToComplianceTags } from "@/lib/compliance/taxonomy";
 import { FINDING_CATEGORY_TITLE, normalizeFindingType } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, type StoredSeverity } from "@/lib/severity";
+import { resolveCwe, getCweUrl } from "@/lib/cwe";
 /**
  * Compliance-Enhanced SARIF 2.1.0 Exporter
  *
@@ -146,6 +147,14 @@ export function buildComplianceSarifDocument(
           });
 
     const ruleId = `SECUREFLOW-${category}-${severity}`;
+    const resolvedCwe =
+      (typeof finding.cwe === "string" ? finding.cwe : undefined) ||
+      resolveCwe({
+        type: typeof finding.type === "string" ? finding.type : undefined,
+        explanation: finding.explanation ?? undefined,
+        codeSnippet: finding.codeSnippet ?? undefined,
+        fileLocation: finding.fileLocation ?? undefined,
+      });
 
     let ruleIndex = ruleMap.get(ruleId);
     if (ruleIndex === undefined) {
@@ -154,6 +163,9 @@ export function buildComplianceSarifDocument(
 
       const title = FINDING_CATEGORY_TITLE[category];
       const tags = ["security", category.toLowerCase(), ...complianceTags];
+      if (resolvedCwe && !tags.includes(resolvedCwe)) {
+        tags.push(resolvedCwe);
+      }
 
       rules.push({
         id: ruleId,
@@ -180,8 +192,12 @@ export function buildComplianceSarifDocument(
           "security-severity": CVSS_SEVERITY[severity],
           complianceTags,
         },
-        helpUri: `${informationUri}#${ruleId.toLowerCase()}`,
+        helpUri: resolvedCwe ? getCweUrl(resolvedCwe) : `${informationUri}#${ruleId.toLowerCase()}`,
       });
+    } else {
+      if (resolvedCwe && !rules[ruleIndex].properties.tags.includes(resolvedCwe)) {
+        rules[ruleIndex].properties.tags.push(resolvedCwe);
+      }
     }
 
     const uri = finding.fileLocation?.trim() || "unknown";

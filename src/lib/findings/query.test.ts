@@ -238,6 +238,9 @@ describe("normalizeFindingsQuery", () => {
       to: null,
       expiring: null,
       assignee: null,
+      tab: null,
+      tag: null,
+      source: null,
     });
   });
 
@@ -735,5 +738,40 @@ describe("Assignee filtering (#1921)", () => {
       fingerprint: { in: ["fp-mine-1", "fp-mine-2"] },
     });
     expect(where.AND.some((clause: any) => clause.OR !== undefined)).toBe(true);
+  });
+
+  describe("Baseline scan filtering (#2011)", () => {
+    it("filters to BASELINE tag when tab is baseline", () => {
+      const query = normalizeFindingsQuery({ tab: "baseline" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.tag).toBe("BASELINE");
+    });
+
+    it("filters to BASELINE tag when tag is explicitly BASELINE", () => {
+      const query = normalizeFindingsQuery({ tag: "BASELINE" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.tag).toBe("BASELINE");
+    });
+
+    it("filters out BASELINE findings when tab is prs", () => {
+      const query = normalizeFindingsQuery({ tab: "prs" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.OR).toEqual([{ tag: null }, { tag: { not: "BASELINE" } }]);
+    });
+
+    it("round-trips tab and tag in searchParams", () => {
+      const q1 = fromSearchParams({ tab: "baseline", tag: "BASELINE" });
+      expect(q1.tab).toBe("baseline");
+      expect(q1.tag).toBe("BASELINE");
+
+      const params = toSearchParams(q1);
+      expect(params).toContain("tab=baseline");
+      expect(params).toContain("tag=BASELINE");
+    });
+
+    it("marks hasActiveFilters true when tab or tag is set", () => {
+      expect(hasActiveFilters(normalizeFindingsQuery({ tab: "baseline" }))).toBe(true);
+      expect(hasActiveFilters(normalizeFindingsQuery({ tag: "BASELINE" }))).toBe(true);
+    });
   });
 });

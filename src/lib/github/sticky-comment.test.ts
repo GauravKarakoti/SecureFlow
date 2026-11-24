@@ -3,9 +3,13 @@ import {
   SECUREFLOW_COMMENT_MARKER,
   ensureSecureFlowMarker,
   findSecureFlowComment,
+  findAllSecureFlowComments,
   formatScanMetadata,
   isNotFoundError,
   isSecureFlowComment,
+  minimizeOutdatedComment,
+  deleteCommentSafely,
+  replaceSecureFlowComment,
   upsertSecureFlowComment,
 } from "./sticky-comment";
 
@@ -57,9 +61,7 @@ describe("formatScanMetadata", () => {
       commitSha: "abc1234",
       scanTime: "2026-11-22T10:00:00.000Z",
     });
-    expect(meta).toBe(
-      "Scanned commit: `abc1234`\nScan time: `2026-11-22T10:00:00.000Z`\n\n",
-    );
+    expect(meta).toBe("Scanned commit: `abc1234`\nScan time: `2026-11-22T10:00:00.000Z`\n\n");
   });
 
   it("formats scan time when passed as a Date object", () => {
@@ -68,9 +70,7 @@ describe("formatScanMetadata", () => {
       commitSha: "def5678",
       scanTime: d,
     });
-    expect(meta).toBe(
-      "Scanned commit: `def5678`\nScan time: `2026-11-22T12:30:00.000Z`\n\n",
-    );
+    expect(meta).toBe("Scanned commit: `def5678`\nScan time: `2026-11-22T12:30:00.000Z`\n\n");
   });
 
   it("formats only commit SHA when scan time is omitted", () => {
@@ -604,6 +604,283 @@ describe("upsertSecureFlowComment", () => {
       expect(store).toHaveLength(1);
       expect(store[0].id).toBe(2);
       expect(store[0].body).toContain("Push 3 report (sha3)");
+    });
+  });
+
+  describe("replaceSecureFlowComment & delete-old-and-create strategy (#2012)", () => {
+    it("deletes existing SecureFlow comments and creates a clean new comment", async () => {
+      const deletedIds: number[] = [];
+      const commentsStore = [
+        { id: 10, node_id: "IC_kw10", body: `${SECUREFLOW_COMMENT_MARKER}\nOld Push 1 comment` },
+        { id: 11, node_id: "IC_kw11", body: `${SECUREFLOW_COMMENT_MARKER}\nOld Push 2 comment` },
+        { id: 99, node_id: "IC_kw99", body: "User review comment without marker" },
+      ];
+
+      const mockOctokit = {
+        rest: {
+          issues: {
+            listComments: vi.fn().mockResolvedValue({
+              data: [...commentsStore],
+            }),
+            deleteComment: vi.fn().mockImplementation(async ({ comment_id }) => {
+              deletedIds.push(comment_id);
+              const idx = commentsStore.findIndex((c) => c.id === comment_id);
+              if (idx !== -1) commentsStore.splice(idx, 1);
+              return {};
+            }),
+            createComment: vi.fn().mockImplementation(async ({ body }) => {
+              const newComment = { id: 12, node_id: "IC_kw12", body };
+              commentsStore.push(newComment);
+              return { data: newComment };
+            }),
+          },
+        },
+      };
+
+      const result = await replaceSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+        body: "Fresh Push 3 comment",
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.data.id).toBe(12);
+      expect(deletedIds).toEqual([10, 11]);
+      // Only the non-SecureFlow comment and the fresh comment remain
+      expect(commentsStore.map((c) => c.id)).toEqual([99, 12]);
+      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        issue_number: 42,
+        body: expect.stringContaining("Fresh Push 3 comment"),
+      });
+    });
+
+    it("falls back gracefully when old comment was already deleted (404 on delete)", async () => {
+      const mockOctokit = {
+        rest: {
+          issues: {
+            listComments: vi.fn().mockResolvedValue({
+              data: [
+                { id: 10, node_id: "IC_kw10", body: `${SECUREFLOW_COMMENT_MARKER}\nReport 1` },
+              ],
+            }),
+            deleteComment: vi.fn().mockRejectedValue({
+              status: 404,
+              message: "Not Found",
+            }),
+            createComment: vi.fn().mockResolvedValue({
+              data: { id: 11, body: "New report" },
+            }),
+          },
+        },
+      };
+
+      const result = await replaceSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+        body: "Fresh scan report",
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.data.id).toBe(11);
+      expect(mockOctokit.rest.issues.deleteComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        comment_id: 10,
+      });
+      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+    });
+
+    it("triggers replaceOldComments through upsertSecureFlowComment when option is set", async () => {
+      const deleteComment = vi.fn().mockResolvedValue({});
+      const createComment = vi.fn().mockResolvedValue({
+        data: { id: 25, body: "created" },
+      });
+      const listComments = vi.fn().mockResolvedValue({
+        data: [
+          { id: 20, node_id: "IC_kw20", body: `${SECUREFLOW_COMMENT_MARKER}\nPrevious comment` },
+        ],
+      });
+
+      const mockOctokit = {
+        rest: {
+          issues: {
+            listComments,
+            deleteComment,
+            createComment,
+          },
+        },
+      };
+
+      const result = await upsertSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+        body: "Replaced comment body",
+        replaceOldComments: true,
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.data.id).toBe(25);
+      expect(deleteComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        comment_id: 20,
+      });
+      expect(createComment).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("minimizeOutdatedComment and extra comments minimization (#2012)", () => {
+    it("calls GraphQL minimizeComment with OUTDATED classifier", async () => {
+      const mockGraphql = vi.fn().mockResolvedValue({
+        minimizeComment: {
+          minimizedComment: {
+            isMinimized: true,
+            minimizedReason: "OUTDATED",
+          },
+        },
+      });
+
+      const mockOctokit = {
+        graphql: mockGraphql,
+      };
+
+      const success = await minimizeOutdatedComment(mockOctokit, "IC_kwTest123", "OUTDATED");
+      expect(success).toBe(true);
+      expect(mockGraphql).toHaveBeenCalledTimes(1);
+      expect(mockGraphql).toHaveBeenCalledWith(
+        expect.stringContaining("minimizeComment"),
+        expect.objectContaining({
+          input: {
+            subjectId: "IC_kwTest123",
+            classifier: "OUTDATED",
+          },
+        }),
+      );
+    });
+
+    it("minimizes extra comments as outdated when multiple SecureFlow comments exist", async () => {
+      const mockGraphql = vi.fn().mockResolvedValue({});
+      const updateComment = vi.fn().mockResolvedValue({
+        data: { id: 101, body: "updated" },
+      });
+      const listComments = vi.fn().mockResolvedValue({
+        data: [
+          { id: 101, node_id: "IC_kw101", body: `${SECUREFLOW_COMMENT_MARKER}\nMain comment` },
+          { id: 102, node_id: "IC_kw102", body: `${SECUREFLOW_COMMENT_MARKER}\nStale comment 1` },
+          { id: 103, node_id: "IC_kw103", body: `${SECUREFLOW_COMMENT_MARKER}\nStale comment 2` },
+        ],
+      });
+
+      const mockOctokit = {
+        graphql: mockGraphql,
+        rest: {
+          issues: {
+            listComments,
+            updateComment,
+            createComment: vi.fn(),
+          },
+        },
+      };
+
+      const result = await upsertSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+        body: "Updated latest scan report",
+      });
+
+      expect(result.action).toBe("updated");
+      expect(result.data.id).toBe(101);
+      // Both stale extra comments (102, 103) should be minimized as OUTDATED
+      expect(mockGraphql).toHaveBeenCalledTimes(2);
+      expect(mockGraphql).toHaveBeenCalledWith(
+        expect.stringContaining("minimizeComment"),
+        expect.objectContaining({ input: { subjectId: "IC_kw102", classifier: "OUTDATED" } }),
+      );
+      expect(mockGraphql).toHaveBeenCalledWith(
+        expect.stringContaining("minimizeComment"),
+        expect.objectContaining({ input: { subjectId: "IC_kw103", classifier: "OUTDATED" } }),
+      );
+    });
+
+    it("minimizes extra comments if delete fails during replaceSecureFlowComment", async () => {
+      const mockGraphql = vi.fn().mockResolvedValue({});
+      const listComments = vi.fn().mockResolvedValue({
+        data: [{ id: 201, node_id: "IC_kw201", body: `${SECUREFLOW_COMMENT_MARKER}\nStale 1` }],
+      });
+      const deleteComment = vi.fn().mockRejectedValue(new Error("Permission denied"));
+      const createComment = vi.fn().mockResolvedValue({
+        data: { id: 202, body: "New report" },
+      });
+
+      const mockOctokit = {
+        graphql: mockGraphql,
+        rest: {
+          issues: {
+            listComments,
+            deleteComment,
+            createComment,
+          },
+        },
+      };
+
+      const result = await replaceSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+        body: "New scan report",
+      });
+
+      expect(result.action).toBe("created");
+      expect(deleteComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        comment_id: 201,
+      });
+      // Fallback minimization executed
+      expect(mockGraphql).toHaveBeenCalledTimes(1);
+      expect(mockGraphql).toHaveBeenCalledWith(
+        expect.stringContaining("minimizeComment"),
+        expect.objectContaining({ input: { subjectId: "IC_kw201", classifier: "OUTDATED" } }),
+      );
+    });
+
+    it("handles findAllSecureFlowComments with pagination", async () => {
+      const page1 = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        body: i === 50 ? `${SECUREFLOW_COMMENT_MARKER}\nFound in page 1` : "Regular comment",
+      }));
+      const page2 = [
+        { id: 101, body: `${SECUREFLOW_COMMENT_MARKER}\nFound in page 2` },
+        { id: 102, body: "Regular comment in page 2" },
+      ];
+
+      const listComments = vi.fn().mockImplementation(async ({ page }) => {
+        if (page === 1) return { data: page1 };
+        if (page === 2) return { data: page2 };
+        return { data: [] };
+      });
+
+      const mockOctokit = {
+        rest: {
+          issues: { listComments },
+        },
+      };
+
+      const matches = await findAllSecureFlowComments(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 42,
+      });
+
+      expect(matches).toHaveLength(2);
+      expect(matches.map((m) => m.id)).toEqual([51, 101]);
+      expect(listComments).toHaveBeenCalledTimes(2);
     });
   });
 });
