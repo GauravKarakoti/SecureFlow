@@ -21,7 +21,7 @@ const VALID_INPUT = {
 
 const MOCK_OUTPUT = {
   patchDiff:
-    "--- a/src/db.ts\n+++ b/src/db.ts\n@@ -1 +1 @@\n-const query = ...\n+const query = ...",
+    "--- a/src/db.ts\n+++ b/src/db.ts\n@@ -1 +1 @@\n-const query = 'SELECT * FROM users WHERE id = ' + userId;\n+const query = 'SELECT * FROM users WHERE id = ?';",
   explanation: "Replaced string concatenation with a parameterized query.",
 };
 

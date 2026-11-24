@@ -60,6 +60,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         remediation: true,
         fingerprint: true,
         complianceTags: true,
+        cwe: true,
       },
       take: limit,
       orderBy: { createdAt: "desc" },

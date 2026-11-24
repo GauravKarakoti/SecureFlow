@@ -27,8 +27,11 @@ const OOM = new Error("model requires more system memory (8.4 GiB) than is avail
 const CUDA_OOM = new Error("CUDA out of memory. Tried to allocate 2.00 GiB");
 
 const goodOutput = {
-  patchDiff: "--- a/src/db.ts\n+++ b/src/db.ts\n@@\n-db.query(...)\n+db.query(sql, [id])",
+  patchDiff:
+    '--- a/src/db.ts\n+++ b/src/db.ts\n@@ -1 +1 @@\n-db.query("SELECT * FROM u WHERE id=" + id)\n+db.query(sql, [id])',
   explanation: "Use a parameterised query.",
+  verified: true,
+  readyFix: true,
 };
 
 describe("generateRemediationPatch - insufficient VRAM (#1525)", () => {

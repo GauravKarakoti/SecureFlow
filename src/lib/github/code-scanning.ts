@@ -2,6 +2,7 @@ import { gzipSync } from "node:zlib";
 import { normalizeFindingType, type FindingCategory } from "@/lib/finding-taxonomy";
 import { storedSeverityRank, toStoredSeverity, type StoredSeverity } from "@/lib/severity";
 import { maskFindingText } from "@/lib/armor/secret-masking";
+import { resolveCwe } from "@/lib/cwe";
 
 /**
  * Publishing scan results to GitHub's native Code Scanning UI.
@@ -32,6 +33,7 @@ export interface CodeScanningFinding {
   explanation?: string | null;
   remediation?: string | null;
   fingerprint?: string | null;
+  cwe?: string | null;
 }
 
 export interface SarifDocument {
@@ -190,11 +192,23 @@ export function buildSarifDocument(findings: readonly CodeScanningFinding[]): Sa
     const category = normalizeFindingType(finding.type);
     const severity = toStoredSeverity(finding.severity);
     const id = ruleIdFor(category, severity);
+    const resolvedCwe =
+      (typeof finding.cwe === "string" ? finding.cwe : undefined) ||
+      resolveCwe({
+        type: typeof finding.type === "string" ? finding.type : undefined,
+        explanation: finding.explanation ?? undefined,
+        description: finding.description ?? undefined,
+        fileLocation: finding.fileLocation ?? undefined,
+      });
 
     let ruleIndex = ruleIndexById.get(id);
     if (ruleIndex === undefined) {
       ruleIndex = rules.length;
       ruleIndexById.set(id, ruleIndex);
+      const tags = ["security", `secureflow:${category.toLowerCase()}`];
+      if (resolvedCwe && !tags.includes(resolvedCwe)) {
+        tags.push(resolvedCwe);
+      }
       rules.push({
         id,
         name: `${category}${severity}`,
@@ -202,11 +216,15 @@ export function buildSarifDocument(findings: readonly CodeScanningFinding[]): Sa
         fullDescription: { text: CATEGORY_DESCRIPTION[category] },
         defaultConfiguration: { level: LEVEL[severity] },
         properties: {
-          tags: ["security", `secureflow:${category.toLowerCase()}`],
+          tags,
           "security-severity": SECURITY_SEVERITY[severity],
         },
         helpUri: INFORMATION_URI,
       });
+    } else {
+      if (resolvedCwe && !rules[ruleIndex].properties.tags.includes(resolvedCwe)) {
+        rules[ruleIndex].properties.tags.push(resolvedCwe);
+      }
     }
 
     const startLine = normalizeLine(finding.lineStart);

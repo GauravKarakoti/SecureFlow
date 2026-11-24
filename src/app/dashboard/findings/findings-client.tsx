@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/ui/severity-badge";
+import { CweBadge } from "@/components/ui/cwe-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import FindingAssigneeSelect from "./finding-assignee-select";
@@ -123,8 +124,32 @@ export default function FindingsClient({
     searchParams?.get("status") ||
     searchParams?.get("repo") ||
     searchParams?.get("from") ||
-    searchParams?.get("to"),
+    searchParams?.get("to") ||
+    searchParams?.get("tab") ||
+    searchParams?.get("tag"),
   );
+
+  const currentTab =
+    searchParams?.get("tab") || (searchParams?.get("tag") === "BASELINE" ? "baseline" : "all");
+
+  const handleTabChange = (newTab: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (newTab === "all") {
+      params.delete("tab");
+      params.delete("tag");
+      params.delete("source");
+    } else if (newTab === "baseline") {
+      params.set("tab", "baseline");
+      params.set("tag", "BASELINE");
+    } else if (newTab === "prs") {
+      params.set("tab", "prs");
+      params.delete("tag");
+    }
+    params.delete("page");
+    params.delete("cursor");
+    const query = params.toString();
+    router.push(`${pathname}${query ? `?${query}` : ""}`);
+  };
   const exportHref = useMemo(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.delete("page");
@@ -314,6 +339,49 @@ export default function FindingsClient({
         </div>
       )}
 
+      {/* Findings Source Tabs (#2011) */}
+      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+        <button
+          onClick={() => handleTabChange("all")}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            currentTab === "all"
+              ? "bg-primary text-primary-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          }`}
+          data-testid="tab-all-findings"
+        >
+          All Findings
+        </button>
+        <button
+          onClick={() => handleTabChange("prs")}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            currentTab === "prs"
+              ? "bg-primary text-primary-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          }`}
+          data-testid="tab-pr-findings"
+        >
+          PR Scans
+        </button>
+        <button
+          onClick={() => handleTabChange("baseline")}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+            currentTab === "baseline"
+              ? "bg-purple-600 text-white font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          }`}
+          data-testid="tab-baseline-findings"
+        >
+          <span>Baseline Findings (Default Branch)</span>
+          <Badge
+            variant="outline"
+            className="text-[10px] bg-purple-500/20 text-purple-200 border-purple-500/40 py-0 px-1"
+          >
+            BASELINE
+          </Badge>
+        </button>
+      </div>
+
       <FindingsToolbar
         options={filterOptions}
         total={total}
@@ -499,6 +567,15 @@ export default function FindingsClient({
                                 </div>
                                 <div className="text-[10px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 break-all">
                                   <span>{finding.fileLocation}</span>
+                                  {finding.isBaseline && (
+                                    <Badge
+                                      variant="outline"
+                                      className="border-purple-500/30 bg-purple-500/10 text-purple-400 font-mono text-[10px] shrink-0 uppercase py-0 px-1.5 h-4"
+                                      data-testid="finding-baseline-badge"
+                                    >
+                                      BASELINE
+                                    </Badge>
+                                  )}
                                   <Badge
                                     variant="outline"
                                     className="border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0 capitalize py-0 px-1.5 h-4"
@@ -530,6 +607,7 @@ export default function FindingsClient({
 
                             {/* Badges: wrapped row on mobile, inline on desktop */}
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5 md:pt-0 md:contents">
+                              <CweBadge cwe={finding.cwe} />
                               {finding.promptInjectionSuspected && (
                                 <Badge
                                   className="bg-yellow-500 text-black shrink-0 text-[10px]"

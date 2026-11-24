@@ -385,6 +385,7 @@ const handler = async function POST(req: NextRequest) {
       fileLocation: string;
       patchDiff: string;
       explanation: string;
+      verified?: boolean;
     }> = [];
 
     const failedItems: Array<{ findingId: string; error: string }> = [];
@@ -407,6 +408,7 @@ const handler = async function POST(req: NextRequest) {
           fileLocation: finding.fileLocation,
           patchDiff: aiResult.patchDiff,
           explanation: aiResult.explanation,
+          verified: Boolean(aiResult.verified),
         });
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : "AI patch generation failed";
@@ -449,10 +451,11 @@ const handler = async function POST(req: NextRequest) {
           // Keep raw diff on boundary warning
         }
 
+        const status = (item as any).verified ? "VERIFIED" : "GENERATED";
         const patch = await client.remediationPatch.upsert({
           where: { findingId: item.findingId },
-          update: { patchDiff: cleanDiff, status: "GENERATED" },
-          create: { findingId: item.findingId, patchDiff: cleanDiff, status: "GENERATED" },
+          update: { patchDiff: cleanDiff, status },
+          create: { findingId: item.findingId, patchDiff: cleanDiff, status },
         });
         patches.push(patch);
       }
