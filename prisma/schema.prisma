@@ -308,6 +308,7 @@ model Finding {
   remediation              String?                 @db.Text
   promptInjectionSuspected Boolean                 @default(false)
   fingerprint              String                  @default("")
+  cwe                      String?
   complianceTags           String[]                @default([])
   tag                      String?
   isBaseline               Boolean                 @default(false)
@@ -816,4 +817,28 @@ model SecurityDigest {
   @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@map("security_digests")
+}
+
+/**
+ * Installation-level default settings and security baselines (#2010).
+ * Configured per GitHub App installation or system-wide (installationId = "default" or numeric string).
+ * Repositories inherit these defaults unless overridden in .secureflow.json.
+ * Admins can mark specific settings as locked so repositories cannot weaken them.
+ */
+model InstallationSettings {
+  id                   String   @id @default(cuid())
+  installationId       String   @unique @default("default")
+  gateBlockOn          String?
+  gateReviewOn         String?
+  minCommentConfidence String?
+  includeDefaults      Boolean?
+  skipDrafts           Boolean?
+  skipAuthors          String[] @default([])
+  lockedSettings       String[] @default([])
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([installationId])
+  @@map("installation_settings")
 }

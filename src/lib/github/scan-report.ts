@@ -32,6 +32,9 @@ export interface ScanReportFinding {
   explanation?: string | null;
   remediation?: string | null;
   promptInjectionSuspected?: boolean;
+  verifiedPatch?: boolean;
+  readyFix?: boolean;
+  patchNote?: string;
 }
 
 export interface SuppressedFindingReport {
@@ -238,8 +241,12 @@ export function renderScanReportSummary({
       body += INJECTION_WARNING(f.severity);
     }
     body += `${toBlockquote(f.explanation ?? "")}\n\n`;
-    body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
+    const patchBadge = f.verifiedPatch ? " (Verified Ready Fix)" : "";
+    body += `<details>\n<summary><b>🛠️ View Remediation Suggestions${patchBadge}</b></summary>\n\n`;
     body += `${f.remediation ?? ""}\n\n`;
+    if (f.patchNote) {
+      body += `> ℹ️ ${f.patchNote}\n\n`;
+    }
     body += `</details>\n\n`;
     body += `---\n\n`;
   }

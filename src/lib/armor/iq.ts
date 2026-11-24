@@ -143,6 +143,10 @@ export class ArmorIQPolicyEngine {
 
     // Check BLOCKED condition across eligible findings
     for (const finding of eligibleFindings) {
+      // #2007: Rejected findings are marked UNVERIFIED and do not block.
+      if (finding.verificationStatus === "UNVERIFIED") {
+        continue;
+      }
       const { blockOn } = getFindingGate(finding);
       if (blockOn !== "NONE") {
         if (isAtLeast(finding.severity, blockOn as Severity)) {
@@ -153,6 +157,10 @@ export class ArmorIQPolicyEngine {
 
     // Check REVIEW REQUIRED condition across eligible findings
     for (const finding of eligibleFindings) {
+      // #2007: Rejected findings are marked UNVERIFIED and do not trigger review.
+      if (finding.verificationStatus === "UNVERIFIED") {
+        continue;
+      }
       const parsed = parseSeverity(finding.severity);
       // Uninterpretable severity always requires human review
       if (parsed === null) {

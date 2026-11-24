@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/ui/severity-badge";
+import { CweBadge } from "@/components/ui/cwe-badge";
 import StreamingExplanation from "@/components/streaming-explanation";
 import FindingTriageControls, { BulkTriageBar } from "./finding-triage-controls";
 import FindingAssigneeSelect from "./finding-assignee-select";
@@ -606,6 +607,7 @@ export default function FindingsClient({
 
                             {/* Badges: wrapped row on mobile, inline on desktop */}
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5 md:pt-0 md:contents">
+                              <CweBadge cwe={finding.cwe} />
                               {finding.promptInjectionSuspected && (
                                 <Badge
                                   className="bg-yellow-500 text-black shrink-0 text-[10px]"

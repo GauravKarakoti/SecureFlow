@@ -35,6 +35,8 @@ import {
   Play,
   RotateCw,
   Calendar,
+  Lock,
+  Sliders,
 } from "lucide-react";
 import {
   updateRepositoryBaselineConfig,
@@ -48,6 +50,38 @@ import { type OutboundWebhookView } from "@/lib/actions/settings";
 const subscribeToOrigin = () => () => {};
 const getBrowserOrigin = () => window.location.origin;
 const getServerOrigin = () => "";
+
+function SettingSourceBadge({ source, isLocked }: { source: string; isLocked?: boolean }) {
+  const label =
+    source === "repository"
+      ? "Repository (.secureflow.json)"
+      : source === "installation"
+        ? "Installation Default"
+        : "Built-in Default";
+  const badgeClass =
+    source === "repository"
+      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+      : source === "installation"
+        ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+        : "bg-muted text-muted-foreground border-border";
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <Badge variant="outline" className={`text-[10px] font-mono font-medium ${badgeClass}`}>
+        {label}
+      </Badge>
+      {isLocked && (
+        <Badge
+          variant="outline"
+          className="text-[10px] font-mono font-medium bg-amber-500/10 text-amber-400 border-amber-500/30 flex items-center gap-1"
+        >
+          <Lock className="w-2.5 h-2.5" />
+          Locked Baseline
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 export default function SettingsClient({
   initialWebhookUrl,
@@ -838,6 +872,126 @@ export default function SettingsClient({
                       </div>
                     )}
                   </div>
+        
+                  {/* Effective Security & Governance Baseline Settings (#2010) */}
+                  {repo.effectiveSettings && (
+                    <div className="border-t border-border/40 pt-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Sliders className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-medium">
+                            Effective Security &amp; Gate Settings
+                          </p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          Hierarchical resolution with locked baseline enforcement
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {/* Gate Block On */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Gate Block Severity
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.gateBlockOn.source}
+                              isLocked={repo.effectiveSettings.gateBlockOn.isLocked}
+                            />
+                          </div>
+                          <div className="font-mono text-sm font-semibold">
+                            {repo.effectiveSettings.gateBlockOn.value}
+                          </div>
+                        </div>
+
+                        {/* Gate Review On */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Gate Review Severity
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.gateReviewOn.source}
+                              isLocked={repo.effectiveSettings.gateReviewOn.isLocked}
+                            />
+                          </div>
+                          <div className="font-mono text-sm font-semibold">
+                            {repo.effectiveSettings.gateReviewOn.value}
+                          </div>
+                        </div>
+
+                        {/* Min Comment Confidence */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Confidence Threshold
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.minCommentConfidence.source}
+                              isLocked={repo.effectiveSettings.minCommentConfidence.isLocked}
+                            />
+                          </div>
+                          <div className="font-mono text-sm font-semibold">
+                            {repo.effectiveSettings.minCommentConfidence.value}
+                          </div>
+                        </div>
+
+                        {/* Include Defaults */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Default Rules
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.includeDefaults.source}
+                              isLocked={repo.effectiveSettings.includeDefaults.isLocked}
+                            />
+                          </div>
+                          <div className="font-mono text-sm font-semibold">
+                            {repo.effectiveSettings.includeDefaults.value ? "Included" : "Excluded"}
+                          </div>
+                        </div>
+
+                        {/* Skip Drafts */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Skip Draft PRs
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.skipDrafts.source}
+                              isLocked={repo.effectiveSettings.skipDrafts.isLocked}
+                            />
+                          </div>
+                          <div className="font-mono text-sm font-semibold">
+                            {repo.effectiveSettings.skipDrafts.value ? "Enabled" : "Disabled"}
+                          </div>
+                        </div>
+
+                        {/* Skip Authors */}
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Skip Authors
+                            </span>
+                            <SettingSourceBadge
+                              source={repo.effectiveSettings.skipAuthors.source}
+                              isLocked={repo.effectiveSettings.skipAuthors.isLocked}
+                            />
+                          </div>
+                          <div
+                            className="font-mono text-xs font-semibold truncate"
+                            title={repo.effectiveSettings.skipAuthors.value.join(", ") || "None"}
+                          >
+                            {repo.effectiveSettings.skipAuthors.value.length > 0
+                              ? repo.effectiveSettings.skipAuthors.value.join(", ")
+                              : "None"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })

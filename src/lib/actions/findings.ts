@@ -87,6 +87,8 @@ export interface FindingRow {
   tag?: string | null;
   /** True when finding belongs to a default branch baseline scan (#2011). */
   isBaseline?: boolean;
+  /** Common Weakness Enumeration ID (e.g. CWE-798, CWE-89) (#2008). */
+  cwe?: string | null;
 }
 
 export interface FindingsStats {
@@ -317,6 +319,7 @@ export async function getUserFindings(
       issueUrl: finding.issueUrl ?? null,
       tag: finding.tag ?? (finding.isBaseline ? "BASELINE" : null),
       isBaseline: Boolean(finding.isBaseline || finding.tag === "BASELINE"),
+      cwe: finding.cwe ?? null,
     };
   });
 

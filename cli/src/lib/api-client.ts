@@ -122,8 +122,12 @@ export interface RemediationPatchResponse {
     findingId: string;
     patchDiff: string;
     status: string;
+    verified?: boolean;
   };
   explanation?: string;
+  verified?: boolean;
+  readyFix?: boolean;
+  note?: string;
   error?: string;
   code?: string | undefined;
   retryable?: boolean | undefined;

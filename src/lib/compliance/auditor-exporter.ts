@@ -83,6 +83,7 @@ export interface AuditorComplianceDossier {
     severity: string;
     fileLocation: string;
     complianceTags: string[];
+    cwe?: string;
     createdAt: string;
   }>;
 }
@@ -232,6 +233,7 @@ export async function generateAuditorComplianceDossier(
         explanation: true,
         remediation: true,
         complianceTags: true,
+        cwe: true,
         createdAt: true,
       },
       take: filters.limit || 500,
@@ -383,6 +385,7 @@ export async function generateAuditorComplianceDossier(
       severity: String(f.severity),
       fileLocation: f.fileLocation || "unknown",
       complianceTags: f.complianceTags,
+      cwe: f.cwe ? (Array.isArray(f.cwe) ? f.cwe[0] : f.cwe) : undefined,
       createdAt: f.createdAt ? new Date(f.createdAt).toISOString() : new Date().toISOString(),
     })),
   };

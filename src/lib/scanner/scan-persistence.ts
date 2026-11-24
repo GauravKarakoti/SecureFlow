@@ -32,6 +32,7 @@
 import type { ScanFinding } from "@/lib/armor/scanner";
 import { normalizeFindingTypeEnum, normalizePolicyDecisionEnum } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, totalRiskScore } from "@/lib/severity";
+import { resolveCwe } from "@/lib/cwe";
 
 /** The `PolicyDecision` members, mirroring `prisma/schema.prisma`. */
 export type StoredPolicyDecision = "PASS" | "REVIEW" | "BLOCK";
@@ -172,6 +173,7 @@ export interface FindingCreateInput {
   remediation: string | null;
   promptInjectionSuspected: boolean;
   fingerprint: string;
+  cwe: string | null;
   suppressionStatus: string | null;
   suppressionRuleId: string | null;
   tag?: string | null;
@@ -199,6 +201,11 @@ export interface FindingCreateInput {
 export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateInput {
   const isBaseline = Boolean((finding as any).isBaseline || (finding as any).tag === "BASELINE");
   const tag = (finding as any).tag || (isBaseline ? "BASELINE" : null);
+  const resolvedCweId = finding.cwe || resolveCwe(finding) || null;
+  const explanation =
+    finding.verificationStatus === "UNVERIFIED" && finding.verificationReason
+      ? `[UNVERIFIED: ${finding.verificationReason}]\n\n${finding.explanation || ""}`.trim()
+      : finding.explanation || null;
 
   return {
     type: normalizeFindingTypeEnum(finding.type),
@@ -207,11 +214,14 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     lineStart: typeof finding.lineStart === "number" ? finding.lineStart : null,
     lineEnd: typeof finding.lineEnd === "number" ? finding.lineEnd : null,
     codeSnippet: finding.codeSnippet || null,
-    explanation: finding.explanation || null,
+    explanation,
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
-    suppressionStatus: finding.suppressionStatus || null,
+    cwe: resolvedCweId,
+    suppressionStatus:
+      finding.suppressionStatus ||
+      (finding.verificationStatus === "UNVERIFIED" ? "UNVERIFIED" : null),
     suppressionRuleId: finding.suppressionRuleId || null,
     tag,
     isBaseline,

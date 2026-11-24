@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-pod
+spec:
+  containers:
+    - name: agent
+      image: alpine:3.19
+      securityContext:
+        privileged: true

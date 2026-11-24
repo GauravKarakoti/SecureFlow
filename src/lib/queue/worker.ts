@@ -30,6 +30,7 @@ import {
   isAuthorSkipped,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
+import { buildEffectiveGateConfig } from "@/lib/scanner/installation-settings";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
@@ -45,6 +46,10 @@ import {
   type ScanReportFinding,
 } from "@/lib/github/scan-report";
 import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
+import {
+  buildInlineReviewComments,
+  resolveSuggestionsConfig,
+} from "@/lib/github/suggested-changes";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -669,12 +674,42 @@ export async function runPullRequestScan({
     const octokit = await appClient.getInstallationOctokit(installation.id);
 
     // Load base-branch gate configuration early to check skipDrafts and skipAuthors (#1982)
-    const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+    let gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
       owner: repository.owner.login,
       repo: repository.name,
       prNumber: pullRequest.number,
       baseRef: pullRequest.base?.ref,
     });
+
+    try {
+      const instId = String(installation?.id || "default");
+      const instRecord =
+        (await (prisma as any).installationSettings?.findUnique?.({
+          where: { installationId: instId },
+        })) ||
+        (instId !== "default"
+          ? await (prisma as any).installationSettings?.findUnique?.({
+              where: { installationId: "default" },
+            })
+          : null);
+
+      if (instRecord) {
+        gateConfig = buildEffectiveGateConfig(gateConfig, {
+          installationId: instRecord.installationId,
+          gateBlockOn: instRecord.gateBlockOn,
+          gateReviewOn: instRecord.gateReviewOn,
+          minCommentConfidence: instRecord.minCommentConfidence,
+          includeDefaults: instRecord.includeDefaults,
+          skipDrafts: instRecord.skipDrafts,
+          skipAuthors: instRecord.skipAuthors,
+          lockedSettings: instRecord.lockedSettings,
+        });
+      } else {
+        gateConfig = buildEffectiveGateConfig(gateConfig, null);
+      }
+    } catch {
+      // Safe fallback if installation settings cannot be loaded
+    }
 
     const isDraft = pullRequest?.draft === true;
     const authorLogin = pullRequest?.user?.login;
@@ -1225,14 +1260,6 @@ export async function runPullRequestScan({
       // were both labelled "🟡 MEDIUM" in the pull request comment — the report
       // overstated the severity of the least severe findings.
 
-      // Resolve the diff line to anchor an inline comment on, or null when the
-      // finding has no usable line inside the PR diff (GitHub would reject it).
-      const anchorLine = (f: any): number | null => {
-        if (typeof f.lineStart !== "number") return null;
-        const lines = commentableLines.get(f.fileLocation);
-        return lines && lines.has(f.lineStart) ? f.lineStart : null;
-      };
-
       // Findings with a diff-anchored line become inline review comments; the
       // rest fall back into the summary body so nothing is ever lost.
       const inlineComments: { path: string; line: number; body: string }[] = [];
@@ -1246,6 +1273,11 @@ export async function runPullRequestScan({
             line,
             body:
               `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
+              (f.verificationStatus === "UNVERIFIED"
+                ? `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                : f.verificationStatus === "CONFIRMED"
+                  ? `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                  : "") +
               // Layer 4: surface injection warning on the individual inline comment when flagged.
               (f.promptInjectionSuspected
                 ? `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`
@@ -1258,6 +1290,14 @@ export async function runPullRequestScan({
           summaryFindings.push(f);
         }
       });
+      
+      // Incorporates GitHub ```suggestion blocks when enabled for the repository (#2005).
+      const suggestionsConfig = resolveSuggestionsConfig(gateConfig);
+      const { inlineComments, summaryFindings } = buildInlineReviewComments(
+        enrichedFindings,
+        commentableLines,
+        { suggestionsConfig },
+      );
 
       const scanTime = new Date().toISOString();
       const summaryInput = (findings: ScanReportFinding[]) => ({
