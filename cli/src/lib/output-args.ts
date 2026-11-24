@@ -312,3 +312,51 @@ export function parseTargetDirectoryArg(argv: readonly string[]): string | undef
 
   return undefined;
 }
+
+export type VerbosityLevel = "quiet" | "normal" | "verbose";
+
+/**
+ * Check if `--quiet` or `-q` was specified.
+ */
+export function parseQuietArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--quiet" || arg === "-q") return true;
+    if (arg.startsWith("--quiet=")) {
+      const val = arg.slice("--quiet=".length).toLowerCase();
+      if (val !== "false" && val !== "0") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if `--verbose` was specified.
+ */
+export function parseVerboseArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--verbose") return true;
+    if (arg.startsWith("--verbose=")) {
+      const val = arg.slice("--verbose=".length).toLowerCase();
+      if (val !== "false" && val !== "0") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse verbosity level from CLI args: `--quiet` / `-q`, `--verbose`, or default "normal".
+ * Throws a CliUsageError if both `--quiet` and `--verbose` are provided.
+ */
+export function parseVerbosityArg(argv: readonly string[]): VerbosityLevel {
+  const quiet = parseQuietArg(argv);
+  const verbose = parseVerboseArg(argv);
+
+  if (quiet && verbose) {
+    throw new CliUsageError("--quiet and --verbose cannot be combined");
+  }
+
+  if (quiet) return "quiet";
+  if (verbose) return "verbose";
+  return "normal";
+}
+

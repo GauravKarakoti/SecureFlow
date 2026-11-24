@@ -152,7 +152,8 @@ Commands:
 | `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                                                        |
 | `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                                          |
 | `--no-color`           |           |                     | Disable colored output (ANSI escape codes)                                                                                  |
-| `--verbose`            |           | `false`             | Enable verbose diagnostic logging                                                                                           |
+| `--quiet`              | `-q`      | `false`             | Print only the summary and errors                                                                                           |
+| `--verbose`            |           | `false`             | Enable verbose logging (per-file timing and skipped files)                                                                  |
 | `--help`               | `-h`      |                     | Display CLI usage instructions and exit                                                                                     |
 
 ---

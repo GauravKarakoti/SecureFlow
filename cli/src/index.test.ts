@@ -46,6 +46,9 @@ const m = vi.hoisted(() => ({
   parseCacheMaxSizeArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
   parseTargetDirectoryArg: vi.fn(),
+  parseVerbosityArg: vi.fn(),
+  parseQuietArg: vi.fn(),
+  parseVerboseArg: vi.fn(),
   discoverWorkspaceFiles: vi.fn(),
   isGitRepository: vi.fn(() => true),
   getCacheEntry: vi.fn(),
@@ -121,6 +124,9 @@ vi.mock("./lib/output-args.js", () => ({
   parseCacheMaxSizeArg: m.parseCacheMaxSizeArg,
   parseCacheDirArg: m.parseCacheDirArg,
   parseTargetDirectoryArg: m.parseTargetDirectoryArg,
+  parseVerbosityArg: m.parseVerbosityArg,
+  parseQuietArg: m.parseQuietArg,
+  parseVerboseArg: m.parseVerboseArg,
 }));
 vi.mock("./workspace.js", () => ({
   discoverWorkspaceFiles: m.discoverWorkspaceFiles,
@@ -199,6 +205,30 @@ beforeEach(() => {
   m.parseNoCacheArg.mockReturnValue(false);
   m.parseCacheClearArg.mockReturnValue(false);
   m.parseCacheDirArg.mockReturnValue(undefined);
+  m.parseVerbosityArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    let q = false;
+    let v = false;
+    for (const a of argv) {
+      if (a === "--quiet" || a === "-q" || a.startsWith("--quiet=")) {
+        const val = a.startsWith("--quiet=") ? a.slice("--quiet=".length).toLowerCase() : "true";
+        if (val !== "false" && val !== "0") q = true;
+      }
+      if (a === "--verbose" || a.startsWith("--verbose=")) {
+        const val = a.startsWith("--verbose=") ? a.slice("--verbose=".length).toLowerCase() : "true";
+        if (val !== "false" && val !== "0") v = true;
+      }
+    }
+    if (q && v) throw new errors.CliUsageError("--quiet and --verbose cannot be combined");
+    if (q) return "quiet";
+    if (v) return "verbose";
+    return "normal";
+  });
+  m.parseQuietArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    return argv.some((a) => a === "--quiet" || a === "-q");
+  });
+  m.parseVerboseArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    return argv.some((a) => a === "--verbose");
+  });
   m.getCacheEntry.mockReturnValue(null);
   m.setCacheEntry.mockReturnValue(undefined);
   m.clearCache.mockReturnValue({ cleared: true, count: 0, cacheDir: "/dummy/cache" });
@@ -969,5 +999,89 @@ describe("--fail-on thresholds, exit codes, and severity counts", () => {
     const code = await runCli();
     expect(code).toBe(1);
     expect(output(errorSpy)).toContain("fatal: not a git repository");
+  });
+
+  describe("Verbosity and progress indicator (--quiet, --verbose) (#1978)", () => {
+    it("prints only summary and errors in --quiet mode when clean", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockReturnValue(scanResult("a.ts", []));
+
+      const code = await runCli("--quiet");
+      expect(code).toBe(0);
+      const out = output(logSpy);
+      expect(out).toContain("Findings by severity: critical: 0, high: 0, medium: 0, low: 0");
+      expect(out).toContain("SecureFlow scan passed");
+      expect(out).not.toContain("Analyzed");
+      expect(out).not.toContain("scanned");
+      expect(out).not.toContain("✨ No security violations");
+      expect(output(errorSpy)).toBe("");
+    });
+
+    it("prints only summary and errors in -q mode when violations exist", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts"]);
+      m.readStagedContent.mockReturnValue("console.log(password);");
+      m.scanFile.mockReturnValue(scanResult("a.ts", [violation]));
+      m.shouldFailScan.mockReturnValue(true);
+
+      const code = await runCli("-q");
+      expect(code).toBe(1);
+      const errOut = output(errorSpy);
+      expect(errOut).toContain("Secret logging detected in a.ts:3");
+      expect(errOut).toContain("SecureFlow blocked this commit");
+      const out = output(logSpy);
+      expect(out).toContain("Findings by severity: critical: 0, high: 1, medium: 0, low: 0");
+      expect(out).not.toContain("Analyzed");
+      expect(out).not.toContain("scanned");
+    });
+
+    it("prints per-file timing and skipped files in --verbose mode", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockImplementation((filePath: string) => {
+        if (filePath === "b.ts") {
+          return { path: filePath, violations: [], skipped: "matched .secureflowignore" };
+        }
+        return scanResult(filePath, []);
+      });
+
+      const code = await runCli("--verbose");
+      expect(code).toBe(0);
+      const out = output(logSpy);
+      expect(out).toMatch(/✓ scanned a\.ts \(\d+(\.\d+)?ms\)/);
+      expect(out).toContain("↷ skipped b.ts (matched .secureflowignore)");
+      expect(out).toContain("Skipped 1 file(s) (ignored or excluded).");
+      expect(out).toContain("Analyzed 2 file(s) (0 cached).");
+    });
+
+    it("fails with exit code 1 when --quiet and --verbose are combined", async () => {
+      const code = await runCli("--quiet", "--verbose");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("--quiet and --verbose cannot be combined");
+    });
+
+    it("fails with exit code 1 when -q and --verbose are combined", async () => {
+      const code = await runCli("-q", "--verbose");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("--quiet and --verbose cannot be combined");
+    });
+
+    it("contains no progress characters when output is piped or redirected (non-terminal)", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockReturnValue(scanResult("a.ts", []));
+
+      // With non-TTY stderr/stdout
+      const stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation((() => true) as any);
+      try {
+        const code = await runCli();
+        expect(code).toBe(0);
+        // Ensure no progress indicator updates were written to stderr
+        const stderrCalls = stderrWriteSpy.mock.calls.map((c) => String(c[0])).join("");
+        expect(stderrCalls).not.toContain("Scanning files (");
+      } finally {
+        stderrWriteSpy.mockRestore();
+      }
+    });
   });
 });

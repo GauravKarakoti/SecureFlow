@@ -17,6 +17,9 @@ import {
   parseCacheMaxSizeArg,
   parseCacheDirArg,
   parseTargetDirectoryArg,
+  parseVerbosityArg,
+  parseQuietArg,
+  parseVerboseArg,
 } from "./output-args.js";
 
 const argv = (...args: string[]) => ["node", "secureflow", ...args];
@@ -319,5 +322,57 @@ describe("parseCacheMaxSizeArg", () => {
   it("rejects missing values", () => {
     expect(() => parseCacheMaxSizeArg(argv("--max-size"))).toThrow(CliUsageError);
     expect(() => parseCacheMaxSizeArg(argv("--cache-max-size="))).toThrow(CliUsageError);
+  });
+});
+
+describe("parseVerbosityArg, parseQuietArg, parseVerboseArg", () => {
+  it("defaults to normal when neither flag is present", () => {
+    expect(parseVerbosityArg(argv())).toBe("normal");
+    expect(parseQuietArg(argv())).toBe(false);
+    expect(parseVerboseArg(argv())).toBe(false);
+  });
+
+  it("parses --quiet and -q flags", () => {
+    expect(parseVerbosityArg(argv("--quiet"))).toBe("quiet");
+    expect(parseVerbosityArg(argv("-q"))).toBe("quiet");
+    expect(parseQuietArg(argv("--quiet"))).toBe(true);
+    expect(parseQuietArg(argv("-q"))).toBe(true);
+    expect(parseVerboseArg(argv("--quiet"))).toBe(false);
+  });
+
+  it("parses --quiet=true and --quiet=false forms", () => {
+    expect(parseVerbosityArg(argv("--quiet=true"))).toBe("quiet");
+    expect(parseVerbosityArg(argv("--quiet=1"))).toBe("quiet");
+    expect(parseVerbosityArg(argv("--quiet=false"))).toBe("normal");
+    expect(parseVerbosityArg(argv("--quiet=0"))).toBe("normal");
+  });
+
+  it("parses --verbose flag", () => {
+    expect(parseVerbosityArg(argv("--verbose"))).toBe("verbose");
+    expect(parseVerboseArg(argv("--verbose"))).toBe(true);
+    expect(parseQuietArg(argv("--verbose"))).toBe(false);
+  });
+
+  it("parses --verbose=true and --verbose=false forms", () => {
+    expect(parseVerbosityArg(argv("--verbose=true"))).toBe("verbose");
+    expect(parseVerbosityArg(argv("--verbose=1"))).toBe("verbose");
+    expect(parseVerbosityArg(argv("--verbose=false"))).toBe("normal");
+    expect(parseVerbosityArg(argv("--verbose=0"))).toBe("normal");
+  });
+
+  it("throws CliUsageError when combining --quiet and --verbose", () => {
+    expect(() => parseVerbosityArg(argv("--quiet", "--verbose"))).toThrow(CliUsageError);
+    expect(() => parseVerbosityArg(argv("--quiet", "--verbose"))).toThrow(
+      "--quiet and --verbose cannot be combined",
+    );
+    expect(() => parseVerbosityArg(argv("-q", "--verbose"))).toThrow(
+      "--quiet and --verbose cannot be combined",
+    );
+    expect(() => parseVerbosityArg(argv("--verbose", "-q"))).toThrow(
+      "--quiet and --verbose cannot be combined",
+    );
+    expect(() => parseVerbosityArg(argv("--quiet=true", "--verbose=true"))).toThrow(
+      "--quiet and --verbose cannot be combined",
+    );
   });
 });

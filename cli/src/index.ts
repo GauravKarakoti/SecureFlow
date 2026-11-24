@@ -41,6 +41,10 @@ import {
 import { hostedAiScanSkipReason, localModeEnv, validateCliAiConfig } from "./lib/local-mode.js";
 import {
   CliUsageError,
+  parseVerbosityArg,
+  parseQuietArg,
+  parseVerboseArg,
+  type VerbosityLevel,
   parseIgnoreFilePath,
   parseOutputFormat,
   parseOutputPath,
@@ -68,12 +72,18 @@ import {
 import { playVoiceDebrief } from "./lib/audio-player.js";
 import {
   TerminalSpinner,
+  ScanProgressIndicator,
   formatTuiScanSummary,
   initSecureFlow,
   formatInitGreeting,
 } from "./lib/tui.js";
 
-const VERBOSE = process.argv.includes("--verbose");
+let VERBOSE = process.argv.includes("--verbose");
+let QUIET = process.argv.includes("--quiet") || process.argv.includes("-q");
+if (VERBOSE && QUIET) {
+  VERBOSE = false;
+  QUIET = false;
+}
 const DRY_RUN = process.argv.includes("--dry-run");
 const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
 
@@ -182,7 +192,8 @@ Options:
   --cache-dir <path>     Specify custom local cache directory
   --cache-ttl <duration> Max time-to-live for cache entries (e.g. 7d, 30d, 24h)
   --cache-max-size <sz>  Maximum cache directory storage ceiling (e.g. 50MB, 100M)
-  --verbose              Enable verbose logging
+  -q, --quiet            Print only the summary and errors
+  --verbose              Enable verbose logging (per-file timing and skipped files)
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
   --ignore-file <path>   Path to custom ignore configuration file
@@ -251,6 +262,14 @@ function parseSeverityArg(): Set<Severity> | null {
 function reportSkipped(result: FileScanResult): void {
   if (VERBOSE && result.skipped) {
     console.log(`  ↷ skipped ${result.path} (${result.skipped})`);
+  }
+}
+
+function reportFileTiming(filePath: string, durationMs: number, cached = false): void {
+  if (VERBOSE) {
+    const timingStr = durationMs < 1 ? `${durationMs.toFixed(2)}ms` : `${durationMs.toFixed(1)}ms`;
+    const cachedStr = cached ? ", cached" : "";
+    console.log(`  ✓ scanned ${filePath} (${timingStr}${cachedStr})`);
   }
 }
 
@@ -629,6 +648,9 @@ async function main(): Promise<number> {
   let customCacheDir: string | undefined;
   let failOnThreshold: FailOnSeverity | null = null;
   try {
+    const verbosity = parseVerbosityArg(process.argv);
+    VERBOSE = verbosity === "verbose";
+    QUIET = verbosity === "quiet";
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
@@ -697,8 +719,16 @@ async function main(): Promise<number> {
 
   let violationCount = 0;
 
+  const progress = new ScanProgressIndicator(filesToScan.length, {
+    quiet: QUIET,
+    ...(format !== "text" ? { enabled: false } : {}),
+  });
+
   if (filesToScan.length > 0) {
-    for (const filePath of filesToScan) {
+    for (let i = 0; i < filesToScan.length; i++) {
+      const filePath = filesToScan[i]!;
+      progress.update(i + 1, filePath);
+      const startFileTime = performance.now();
       let content: string | null = null;
 
       if (isDirMode || isSinceMode) {
@@ -728,6 +758,7 @@ async function main(): Promise<number> {
 
       if (cached) {
         cachedCount++;
+        const elapsedMs = performance.now() - startFileTime;
         const result: FileScanResult = {
           ...cached.result,
           path: filePath,
@@ -742,21 +773,42 @@ async function main(): Promise<number> {
           );
         }
         if (format === "text") {
-          reportSkipped(result);
-          reportViolations(result);
+          if (VERBOSE) {
+            progress.clear();
+            if (result.skipped) {
+              reportSkipped(result);
+            } else {
+              reportFileTiming(filePath, elapsedMs, true);
+            }
+          }
+          if (result.violations.length > 0) {
+            progress.clear();
+            reportViolations(result);
+          }
         }
         violationCount += result.violations.length;
       } else {
         analyzedCount++;
         const result = scanFile(filePath, content, customIgnores);
+        const elapsedMs = performance.now() - startFileTime;
         fileResults.push(result);
         if (result.skipped) {
           skippedCount++;
         }
         newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {
-          reportSkipped(result);
-          reportViolations(result);
+          if (VERBOSE) {
+            progress.clear();
+            if (result.skipped) {
+              reportSkipped(result);
+            } else {
+              reportFileTiming(filePath, elapsedMs, false);
+            }
+          }
+          if (result.violations.length > 0) {
+            progress.clear();
+            reportViolations(result);
+          }
         }
         violationCount += result.violations.length;
 
@@ -765,6 +817,7 @@ async function main(): Promise<number> {
         }
       }
     }
+    progress.done();
   }
 
   const filteredResults = severityFilter
@@ -776,7 +829,7 @@ async function main(): Promise<number> {
   // local-scan-only for now so existing automated consumers of those
   // formats aren't changed by this PR.
   const aiSpinner =
-    format === "text" && stagedForAi.length > 0
+    format === "text" && stagedForAi.length > 0 && !QUIET
       ? new TerminalSpinner("Running AI security inspection").start()
       : null;
   const aiFindings = await runAiScanIfAvailable(stagedForAi);
@@ -808,10 +861,10 @@ async function main(): Promise<number> {
     for (const finding of filteredAiFindings) {
       reportAiFinding(finding);
     }
-    if (fileResults.length > 0 || filteredAiFindings.length > 0) {
+    if (!QUIET && (fileResults.length > 0 || filteredAiFindings.length > 0)) {
       console.log(formatTuiScanSummary(filteredResults, filteredAiFindings));
     }
-    if (filesToScan.length > 0) {
+    if (!QUIET && filesToScan.length > 0) {
       console.log(`ℹ️  [SecureFlow] Analyzed ${analyzedCount} file(s) (${cachedCount} cached).`);
       if (VERBOSE) {
         console.log(`ℹ️  [SecureFlow] Skipped ${skippedCount} file(s) (ignored or excluded).`);
@@ -876,7 +929,7 @@ ${textOutput}`);
     console.log(formatSeverityCounts(counts));
   }
 
-  if (voiceEnabled) {
+  if (voiceEnabled && !QUIET) {
     const summaryText = generateVoiceSummaryText(violationCount, allAiFindings, !shouldFail);
     await playVoiceDebrief(summaryText, {
       files: stagedForAi,
