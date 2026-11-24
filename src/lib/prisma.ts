@@ -11,6 +11,7 @@ import {
   type PgPoolConfig,
 } from "@/lib/db/pool-config";
 import { decryptFinding, decryptFindings, encryptFinding } from "@/lib/security/finding-encryption";
+import { env } from "./env";
 
 const log = createLogger({ context: { component: "prisma" } });
 
@@ -601,16 +602,11 @@ export function getDatabaseConnectionString(): string | undefined {
   return resolveConnectionString() ?? undefined;
 }
 
-/**
- * PostgreSQL pool options for a serverless deployment.
- *
- * `DB_POOL_MAX` used to be read with a bare `parseInt`, so `DB_POOL_MAX=abc`
- * reached `new Pool({ max: NaN })` and `DB_POOL_MAX=0` disabled the pool
- * outright. It is clamped now, and an unusable value is reported rather than
- * propagated (#688).
- */
 export function getPgPoolConfig(overrideConnectionString?: string): PgPoolConfig {
-  const { config } = resolvePoolConfig();
+  const { config } = resolvePoolConfig({
+    ...env,
+    NODE_ENV: env.NODE_ENV as "development" | "production" | "test",
+  });
   const { warning } = resolvePoolMax();
 
   if (warning) log.warn(warning);
