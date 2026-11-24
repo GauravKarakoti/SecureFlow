@@ -34,6 +34,8 @@ import {
 import { runDeterministicPrecheck } from "@/lib/armor/precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { resolveIacRuleOptions } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -509,6 +511,34 @@ export async function processScanJob(
     );
     if (!alreadyExists) {
       allFindings.push(wf);
+    }
+  }
+
+  // Ensure deterministic IaC security rules are present (#2004)
+  const iacOptions = resolveIacRuleOptions(repositoryGateConfig);
+  const iacRuleFindings = runIacSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: iacOptions.enabled,
+    disabledRules: iacOptions.disabledRules,
+  });
+  for (const iac of iacRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === iac.fileLocation && f.lineStart === iac.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === iac.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === iac.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        iac.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = iac;
+      }
+    } else {
+      allFindings.push(iac);
     }
   }
 

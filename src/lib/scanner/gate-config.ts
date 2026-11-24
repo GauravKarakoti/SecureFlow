@@ -132,6 +132,15 @@ export interface GateConfig {
   skipAuthors?: string[];
   suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  disabledRules?: string[];
+  iacRulesEnabled?: boolean;
+}
+
+export interface RulesConfig {
+  disabled?: string[];
+  disabledRules?: string[];
+  iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  [ruleName: string]: unknown;
 }
 
 export interface SuggestionsConfig {
@@ -143,6 +152,9 @@ export const DEFAULT_MAX_SUGGESTIONS = 5;
 
 export interface SecureFlowConfig {
   gate: GateConfig;
+  rules?: RulesConfig;
+  disabledRules?: string[];
+  iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -242,6 +254,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     gate.suggestions === undefined ||
     (typeof gate.suggestions === "boolean" && !gate.suggestions) ||
     (typeof gate.suggestions === "object" && !gate.suggestions?.enabled);
+  // #2004: IaC rules and disabledRules checks
+  const sameIac = gate.iacRulesEnabled === undefined || gate.iacRulesEnabled === true;
+  const noDisabledRules = !gate.disabledRules || gate.disabledRules.length === 0;
 
   return (
     sameBlock &&
@@ -258,6 +273,8 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameSkipDrafts &&
     noSkipAuthors &&
     sameSuggestions
+    sameIac &&
+    noDisabledRules
   );
 }
 
@@ -631,6 +648,54 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2004: parse rules and IaC configuration
+  const rawRules = root.rules ?? gateObj.rules;
+  const rawRulesObj =
+    rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)
+      ? (rawRules as Record<string, unknown>)
+      : undefined;
+
+  let iacRulesEnabled: boolean | undefined = undefined;
+  const rawIac = root.iac ?? gateObj.iac ?? rawRulesObj?.iac;
+  if (rawIac === false) {
+    iacRulesEnabled = false;
+  } else if (typeof rawIac === "object" && rawIac !== null && !Array.isArray(rawIac)) {
+    if ((rawIac as Record<string, unknown>).enabled === false) {
+      iacRulesEnabled = false;
+    }
+  }
+
+  const disabledRulesSet = new Set<string>();
+  const collectRules = (arr: unknown) => {
+    if (Array.isArray(arr)) {
+      for (const item of arr) {
+        if (typeof item === "string" && item.trim()) {
+          disabledRulesSet.add(item.trim());
+        }
+      }
+    }
+  };
+
+  collectRules(root.disabledRules);
+  collectRules(gateObj.disabledRules);
+  collectRules(rawRulesObj?.disabled);
+  collectRules(rawRulesObj?.disabledRules);
+
+  if (typeof rawIac === "object" && rawIac !== null && !Array.isArray(rawIac)) {
+    collectRules((rawIac as Record<string, unknown>).disabled);
+    collectRules((rawIac as Record<string, unknown>).disabledRules);
+  }
+
+  if (rawRulesObj) {
+    for (const [key, val] of Object.entries(rawRulesObj)) {
+      if (val === false && key !== "iac") {
+        disabledRulesSet.add(key);
+      }
+    }
+  }
+
+  const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
+
   return {
     blockOn,
     reviewOn,
@@ -648,6 +713,24 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(skipDrafts !== undefined ? { skipDrafts } : {}),
     ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
     ...(suggestions !== undefined ? { suggestions } : {}),
+    ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
+    ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
+  };
+}
+
+/**
+ * Resolves options for IaC security rules from repository gate configuration (#2004).
+ */
+export function resolveIacRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [] };
+  }
+  return {
+    enabled: config.iacRulesEnabled !== false,
+    disabledRules: config.disabledRules ?? [],
   };
 }
 
