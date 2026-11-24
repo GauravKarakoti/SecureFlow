@@ -652,7 +652,7 @@ describe("scan model", () => {
     const files = [
       {
         filename: "Dockerfile",
-        patch: "+FROM alpine:latest\n+RUN apk add curl",
+        patch: "+FROM alpine:3.19\n+RUN apk add curl",
       },
       {
         filename: "infra/main.tf",
