@@ -107,4 +107,26 @@ describe("DeliveriesClient Component (#1928)", () => {
       screen.getByText("No webhook deliveries recorded for the selected filters."),
     ).toBeInTheDocument();
   });
+
+  it("renders Redeliver buttons for eligible failed or rejected deliveries (#2013)", () => {
+    render(
+      <DeliveriesClient
+        initialDeliveries={mockDeliveries}
+        initialTotal={4}
+        initialStats={mockStats}
+        initialRepositories={["acme/repo-a", "acme/repo-b"]}
+      />,
+    );
+
+    // del-rejected-22222 has outcome 'rejected' and is eligible
+    const desktopRedeliverBtn = screen.getByTestId("redeliver-btn-del-rejected-22222");
+    expect(desktopRedeliverBtn).toBeInTheDocument();
+    expect(desktopRedeliverBtn).toHaveTextContent("Redeliver");
+
+    const mobileRedeliverBtn = screen.getByTestId("redeliver-btn-mobile-del-rejected-22222");
+    expect(mobileRedeliverBtn).toBeInTheDocument();
+
+    // del-scanned-12345 (outcome 'scanned', reasonCode 'SCANNED') is NOT eligible
+    expect(screen.queryByTestId("redeliver-btn-del-scanned-12345")).toBeNull();
+  });
 });

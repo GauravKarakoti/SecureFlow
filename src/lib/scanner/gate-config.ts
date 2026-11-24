@@ -401,9 +401,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameSkipDrafts &&
     noSkipAuthors &&
     sameVerifyCritical &&
-    sameMaxVerificationCalls
-    sameContextLines
-    sameSuggestions
+    sameMaxVerificationCalls &&
+    sameContextLines &&
+    sameSuggestions &&
     sameIac &&
     noDisabledRules
   );
