@@ -16,8 +16,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "secureflow.selectorLabels" . | nindent 12 }}
-            app.kubernetes.io/component: retention
+            {{- include "secureflow.retentionSelectorLabels" . | nindent 12 }}
         spec:
           restartPolicy: OnFailure
           {{- with .Values.global.imagePullSecrets }}
