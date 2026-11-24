@@ -3,11 +3,13 @@ import {
   escapeCsv,
   escapeHtml,
   escapeMarkdownTable,
+  escapeXml,
   toMarkdownCodeSpan,
   CsvExporter,
   HtmlExporter,
   MarkdownExporter,
   SarifExporter,
+  JunitExporter,
   getExporter,
 } from "./exporters.js";
 import {
@@ -325,17 +327,19 @@ describe("MarkdownExporter", () => {
   it("should render report title and table headers", () => {
     const md = new MarkdownExporter().export(sampleResults);
     expect(md).toContain("# 🛡️ SecureFlow Scan Report");
-    expect(md).toContain("| File | Line | Violation | Reason |");
-    expect(md).toContain("| --- | --- | --- | --- |");
+    expect(md).toContain("| Severity | Rule | File:Line | Violation | Reason |");
+    expect(md).toContain("| --- | --- | --- | --- | --- |");
+    expect(md).toContain("### Summary");
+    expect(md).toContain("| Severity | Count |");
   });
 
   it("should contain violation details in markdown table format", () => {
     const md = new MarkdownExporter().export(sampleResults);
     expect(md).toContain(
-      '| src/config/db.ts | 15 | `console.log("DB Password:", process.env.DB_PASSWORD);` | environment variable |',
+      '| HIGH | console-secret-logging | src/config/db.ts:15 | `console.log("DB Password:", process.env.DB_PASSWORD);` | environment variable |',
     );
     expect(md).toContain(
-      '| src/utils/logger.ts | 42 | `console.error("Auth:", customAuthSecret);` | secret-named identifier |',
+      '| HIGH | console-secret-logging | src/utils/logger.ts:42 | `console.error("Auth:", customAuthSecret);` | secret-named identifier |',
     );
   });
 
@@ -347,7 +351,7 @@ describe("MarkdownExporter", () => {
   it("should render clean state when no violations are found", () => {
     const md = new MarkdownExporter().export(emptyResults);
     expect(md).toContain("✅ **No violations detected.**");
-    expect(md).not.toContain("| File | Line | Violation | Reason |");
+    expect(md).not.toContain("| Severity | Rule | File:Line | Violation | Reason |");
   });
 
   it("should escape pipe characters inside violation code blocks", () => {
@@ -743,6 +747,199 @@ describe("--severity and --fail-on combined", () => {
     it("ensures uppercase and lowercase sarif format identifiers return SarifExporter", () => {
       expect(getExporter("sarif")).toBeInstanceOf(SarifExporter);
       expect(getExporter("SARIF")).toBeInstanceOf(SarifExporter);
+    });
+  });
+
+  describe("escapeXml (#2021)", () => {
+    it("escapes XML special characters & < > \" '", () => {
+      expect(escapeXml(`a & b < c > d " e ' f`)).toBe("a &amp; b &lt; c &gt; d &quot; e &apos; f");
+    });
+
+    it("strips invalid XML 1.0 control characters", () => {
+      expect(escapeXml("hello\x00\x08world\x0B\x0C!\x1F")).toBe("helloworld!");
+      // Preserves \t (0x09), \n (0x0A), \r (0x0D)
+      expect(escapeXml("line1\tline2\r\nline3")).toBe("line1\tline2\r\nline3");
+    });
+  });
+
+  describe("JunitExporter (#2021)", () => {
+    it("returns JunitExporter from getExporter with 'junit' or 'JUNIT'", () => {
+      expect(getExporter("junit")).toBeInstanceOf(JunitExporter);
+      expect(getExporter("JUNIT")).toBeInstanceOf(JunitExporter);
+    });
+
+    it("exports clean XML report when there are no violations", () => {
+      const exporter = new JunitExporter();
+      const xml = exporter.export(emptyResults);
+
+      expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+      expect(xml).toContain('<testsuites name="SecureFlow Security Scan" tests="1" failures="0" errors="0" time="0.000">');
+      expect(xml).toContain('<testsuite name="src/safe.ts" tests="1" failures="0" errors="0" time="0.000">');
+      expect(xml).toContain('<testcase name="Security scan: no violations" classname="src/safe.ts" time="0.000" />');
+      expect(xml).toContain("</testsuite>");
+      expect(xml).toContain("</testsuites>");
+    });
+
+    it("exports testcase failures for blocking findings by default (HIGH, CRITICAL)", () => {
+      const exporter = new JunitExporter();
+      const xml = exporter.export(sampleResults);
+
+      expect(xml).toContain('<testsuites name="SecureFlow Security Scan" tests="4" failures="3" errors="0" time="0.000">');
+      expect(xml).toContain('<testsuite name="src/config/db.ts" tests="2" failures="2" errors="0" time="0.000">');
+      expect(xml).toContain('<testsuite name="src/utils/logger.ts" tests="1" failures="1" errors="0" time="0.000">');
+      expect(xml).toContain('<testsuite name="src/components/clean.ts" tests="1" failures="0" errors="0" time="0.000">');
+
+      expect(xml).toContain('<failure message="environment variable (severity: HIGH)" type="HIGH">');
+      expect(xml).toContain("File: src/config/db.ts:15");
+    });
+
+    it("respects failOnThreshold (e.g. CRITICAL allows HIGH to pass with system-out)", () => {
+      const exporter = new JunitExporter();
+      const xml = exporter.export(sampleResults, { failOnThreshold: "CRITICAL" });
+
+      // All sample violations are HIGH, so none block when failOnThreshold is CRITICAL
+      expect(xml).toContain('failures="0"');
+      expect(xml).toContain("<system-out>[ADVISORY] File: src/config/db.ts:15");
+      expect(xml).not.toContain("<failure");
+    });
+
+    it("respects failOnThreshold=NONE where everything is advisory", () => {
+      const exporter = new JunitExporter();
+      const mixedResults: FileScanResult[] = [
+        {
+          path: "src/critical.ts",
+          violations: [
+            {
+              line: 5,
+              text: "console.log(rootKey)",
+              reason: "private key exposure",
+              severity: "CRITICAL",
+            },
+          ],
+        },
+      ];
+      const xml = exporter.export(mixedResults, { failOnThreshold: "NONE" });
+
+      expect(xml).toContain('failures="0"');
+      expect(xml).toContain("<system-out>");
+      expect(xml).not.toContain("<failure");
+    });
+
+    it("masks secrets in JUnit testcase failures and advisory details", () => {
+      const exporter = new JunitExporter();
+      const fakeAwsKey = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+      const fakeGhp = ["ghp", "123456789012345678901234567890123456"].join("_");
+      const secretResults: FileScanResult[] = [
+        {
+          path: "src/secret.ts",
+          violations: [
+            {
+              line: 12,
+              text: `const apiKey = "${fakeAwsKey}"; console.log(apiKey);`,
+              reason: "aws access key",
+              severity: "HIGH",
+            },
+            {
+              line: 20,
+              text: `const token = "${fakeGhp}"; console.log(token);`,
+              reason: "github token",
+              severity: "HIGH",
+            },
+          ],
+        },
+      ];
+
+      const xml = exporter.export(secretResults);
+      expect(xml).not.toContain(fakeAwsKey);
+      expect(xml).not.toContain(fakeGhp);
+      expect(xml).toContain("[REDACTED]");
+    });
+  });
+
+  describe("Secret Masking in Exporters (#2021)", () => {
+    const fakeStripe = ["sk", "live", "999999999999999999999999"].join("_");
+    const fakeSlack = ["https:", "", "hooks.slack.com", "services", "T000", "B000", "XXXXX"].join("/");
+    const rawSecretResults: FileScanResult[] = [
+      {
+        path: "src/keys.ts",
+        violations: [
+          {
+            line: 7,
+            text: `console.log("Stripe:", "${fakeStripe}");`,
+            reason: "stripe key",
+            severity: "HIGH",
+          },
+          {
+            line: 14,
+            text: `console.log("Slack:", "${fakeSlack}");`,
+            reason: "slack webhook",
+            severity: "HIGH",
+          },
+        ],
+      },
+    ];
+
+    it("masks secrets in Markdown export", () => {
+      const md = new MarkdownExporter().export(rawSecretResults);
+      expect(md).not.toContain(fakeStripe);
+      expect(md).not.toContain(fakeSlack);
+      expect(md).toContain("[REDACTED]");
+    });
+
+    it("masks secrets in CSV export", () => {
+      const csv = new CsvExporter().export(rawSecretResults);
+      expect(csv).not.toContain(fakeStripe);
+      expect(csv).toContain("[REDACTED]");
+    });
+
+    it("masks secrets in HTML export", () => {
+      const html = new HtmlExporter().export(rawSecretResults);
+      expect(html).not.toContain(fakeStripe);
+      expect(html).toContain("[REDACTED]");
+    });
+  });
+
+  describe("Snapshot Tests for JUnit XML and Markdown formats (#2021)", () => {
+    const snapshotFixture: FileScanResult[] = [
+      {
+        path: "src/auth/token.ts",
+        violations: [
+          {
+            line: 10,
+            text: 'console.log("Bearer token:", bearerToken);',
+            reason: "secret-named identifier",
+            severity: "HIGH",
+            ruleId: "console-secret-logging",
+          },
+          {
+            line: 25,
+            text: 'console.error("Master key:", masterSecretKey);',
+            reason: "master key exposed",
+            severity: "CRITICAL",
+            ruleId: "master-key-logging",
+            custom: true,
+          },
+        ],
+      },
+      {
+        path: "src/utils/sanitize.ts",
+        violations: [],
+      },
+    ];
+
+    it("matches snapshot for Markdown exporter", () => {
+      const md = new MarkdownExporter().export(snapshotFixture);
+      expect(md).toMatchSnapshot();
+    });
+
+    it("matches snapshot for JUnit exporter with default thresholds", () => {
+      const junit = new JunitExporter().export(snapshotFixture);
+      expect(junit).toMatchSnapshot();
+    });
+
+    it("matches snapshot for clean scan in both formats", () => {
+      expect(new MarkdownExporter().export(emptyResults)).toMatchSnapshot();
+      expect(new JunitExporter().export(emptyResults)).toMatchSnapshot();
     });
   });
 });

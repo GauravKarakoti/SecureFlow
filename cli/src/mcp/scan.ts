@@ -19,7 +19,7 @@ import {
   type ThreatIntelResolutionSource,
 } from "../threat-intel.js";
 
-const FORMATS = ["json", "text", "sarif", "csv", "html", "markdown", "md"] as const;
+const FORMATS = ["json", "text", "sarif", "csv", "html", "markdown", "md", "junit"] as const;
 
 export const SCAN_CONTENT_SCHEMA = {
   type: "object" as const,

@@ -229,12 +229,14 @@ Findings by severity: critical: 0, high: 2, medium: 1, low: 0
 - **HTML (`html`)**: Self-contained, responsive HTML report suitable for sharing and compliance reviews.
 - **CSV (`csv`)**: Formatted tabular output hardened against spreadsheet formula injection (CWE-1236).
 - **JSON (`json`)**: Machine-readable JSON object representing findings and metadata.
-- **Markdown (`markdown` / `md`)**: GitHub-Flavored Markdown table with sanitized code fences.
+- **Markdown (`markdown` / `md`)**: GitHub-Flavored Markdown summary with severity counts and findings table (secrets masked).
+- **JUnit (`junit`)**: Standard JUnit XML test report mapping findings to test cases for native rendering in CI/CD platforms (failures for blocking severities).
 
 ```bash
 secureflow --format html -o security-report.html
 secureflow --format sarif -o results.sarif
 secureflow --format markdown -o findings.md
+secureflow --format junit -o test-results.xml
 ```
 
 #### GitHub Advanced Security (GHAS) Integration (#1766)
@@ -427,7 +429,7 @@ Findings generated from custom rules are clearly labeled across all exporters:
 
 ## 🔄 CI/CD Pipeline Integration
 
-### GitHub Actions Workflow
+### GitHub Actions Workflow (SARIF & Markdown)
 
 ```yaml
 name: Security Scan
@@ -444,7 +446,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run SecureFlow Scanner
+      - name: Run SecureFlow Scanner (SARIF)
         run: npx secureflow-cli --format sarif -o results.sarif --fail-on high
 
       - name: Upload SARIF to GitHub Security tab
@@ -452,6 +454,80 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+
+      - name: Generate PR Markdown Summary
+        if: always()
+        run: npx secureflow-cli --format markdown -o pr-summary.md
+```
+
+### Jenkins Pipeline (JUnit Test Results)
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Security Scan') {
+            steps {
+                sh 'npx secureflow-cli --format junit -o secureflow-junit.xml --fail-on high'
+            }
+            post {
+                always {
+                    junit testResults: 'secureflow-junit.xml', allowEmptyResults: true
+                }
+            }
+        }
+    }
+}
+```
+
+### GitLab CI/CD (`.gitlab-ci.yml`)
+
+```yaml
+stages:
+  - test
+
+secureflow_scan:
+  stage: test
+  image: node:20
+  script:
+    - npx secureflow-cli --format junit -o secureflow-junit.xml --fail-on high
+  artifacts:
+    when: always
+    reports:
+      junit: secureflow-junit.xml
+```
+
+### Azure DevOps Pipeline (`azure-pipelines.yml`)
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '20.x'
+    displayName: 'Install Node.js'
+
+  - script: |
+      npx secureflow-cli --format junit -o $(Build.SourcesDirectory)/test-results.xml --fail-on high
+    displayName: 'Run SecureFlow Security Scan'
+
+  - task: PublishTestResults@2
+    condition: always()
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/test-results.xml'
+      testRunTitle: 'SecureFlow Security Scan'
+      failTaskOnFailedTests: true
 ```
 
 ---

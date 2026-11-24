@@ -34,6 +34,7 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   "csv",
   "html",
   "markdown",
+  "junit",
 ];
 
 /** Accepted spellings that are not themselves format names. */
