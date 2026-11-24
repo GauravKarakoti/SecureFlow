@@ -241,6 +241,7 @@ describe("normalizeFindingsQuery", () => {
       tab: null,
       tag: null,
       source: null,
+      pathPrefix: null,
     });
   });
 
@@ -772,6 +773,46 @@ describe("Assignee filtering (#1921)", () => {
     it("marks hasActiveFilters true when tab or tag is set", () => {
       expect(hasActiveFilters(normalizeFindingsQuery({ tab: "baseline" }))).toBe(true);
       expect(hasActiveFilters(normalizeFindingsQuery({ tag: "BASELINE" }))).toBe(true);
+    });
+  });
+
+  describe("Path prefix filtering (#2018)", () => {
+    it("filters to root files when pathPrefix is (root)", () => {
+      const query = normalizeFindingsQuery({ pathPrefix: "(root)" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.fileLocation).toEqual({
+        not: {
+          contains: "/",
+        },
+      });
+    });
+
+    it("filters with startsWith and equals when pathPrefix is a directory", () => {
+      const query = normalizeFindingsQuery({ pathPrefix: "src/lib" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.fileLocation).toEqual({
+        OR: [{ startsWith: "src/lib/" }, { equals: "src/lib" }],
+      });
+    });
+
+    it("normalizes path with trailing slash", () => {
+      const query = normalizeFindingsQuery({ pathPrefix: "src/components/" });
+      const where = buildFindingsWhere(CONTEXT, query) as any;
+      expect(where.fileLocation).toEqual({
+        OR: [{ startsWith: "src/components/" }, { equals: "src/components" }],
+      });
+    });
+
+    it("round-trips path in searchParams", () => {
+      const q = fromSearchParams({ path: "src/lib/" });
+      expect(q.pathPrefix).toBe("src/lib/");
+      const params = toSearchParams(q);
+      expect(params).toContain("path=src%2Flib%2F");
+    });
+
+    it("marks hasActiveFilters true when pathPrefix is set", () => {
+      expect(hasActiveFilters(normalizeFindingsQuery({ pathPrefix: "src/" }))).toBe(true);
+      expect(hasActiveFilters(normalizeFindingsQuery({ pathPrefix: "(root)" }))).toBe(true);
     });
   });
 });
