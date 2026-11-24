@@ -1,5 +1,54 @@
 # secureflow-cli
 
+## 3.13.0
+
+### Minor Changes
+
+- b644f7d: feat(cli): add scan progress indicator, --quiet, and --verbose flags
+
+  - Display real-time progress indicator on stderr during file scanning when attached to an interactive terminal, automatically disabled when output is piped or redirected.
+  - Add `--quiet` (`-q`) flag to suppress progress, spinners, and informational logs, outputting only scan summaries and errors.
+  - Add `--verbose` flag to display per-file execution timing and skipped file details.
+  - Disallow combining `--quiet` and `--verbose` with a clear usage error.
+
+- c56d35f: feat(scanner): second verification pass for CRITICAL findings before a PR is blocked (#2007)
+- 8bc8978: Attach standard CWE identifiers (e.g. CWE-798, CWE-89) to findings, include them as SARIF rule tags, add them to compliance exports, and display them as clickable MITRE badges in the findings dashboard (#2008).
+- 88dc2c2: feat(rules): flag risky newly added dependencies in package manifests (typosquatting, install scripts) (#2003)
+- 5ff41e5: feat(scanner): configurable surrounding context lines for diff hunks (#2006)
+- de154ce: feat(rules): deterministic infrastructure-as-code checks for Dockerfile, Kubernetes and Terraform changes (#2004)
+- d8aa1d8: feat(config): installation-level default settings that repositories inherit and can override (#2010)
+- e23fe41: feat(notifications): in-app notification center with @mentions in finding notes and assignment alerts (#1979)
+- bf3e17d: feat(queue): per-installation concurrency limits and round-robin fair scheduling (#1980)
+- d92cb5d: feat(github): add hidden HTML marker, commit SHA, and scan time to sticky PR comments
+- 678e959: feat(scanner): configurable scan time budget and partial results (#1981)
+- 9775e5e: feat(scanner): built-in default ignore patterns for lockfiles, minified bundles, vendored code and snapshots (#1983)
+- 54f33ac: Add nightly scanner LLM stability evaluation check that re-scans golden fixtures across iterations, reports per-sample stability percentages, highlights runs below threshold, and publishes results to GitHub Actions job summaries (#2009).
+- cd99460: feat(scans): scheduled baseline scan of the default branch (#2011)
+
+  - Added opt-in scheduled baseline scanning for default branches in repositories.
+  - Implemented baseline file limit bounds (1-200, default 50) and frequency scheduling (daily, weekly, monthly).
+  - Distributed baseline scan jobs using fair queue scheduling across installations with concurrency limits.
+  - Tagged baseline findings with `BASELINE` and stored them under dedicated baseline container (`prNumber: 0`), preventing them from blocking PR checks.
+  - Added Baseline Findings dashboard tab and filterable queries in findings management.
+  - Added scheduled baseline settings section and manual "Run Baseline Scan Now" action in settings dashboard.
+
+- dd4da91: feat(config): skip draft pull requests and selected authors (bots) through .secureflow.json (#1982)
+- ac0100a: feat(pr): post remediation as GitHub suggested-change blocks when the fix is a small safe edit (#2005)
+- f4a6d7f: feat(ai): verify generated patches apply cleanly before showing them (#1977)
+- f31e556: feat(rules): deterministic security checks for changed GitHub Actions workflows (#2002)
+
+### Patch Changes
+
+- 9c86afd: feat(pr): minimize outdated comments and delete-old-and-create sticky report on pushes (#2012)
+
+  - Added `replaceSecureFlowComment` and `deleteCommentSafely` to delete old SecureFlow comments before posting a clean new report comment.
+  - Added `minimizeOutdatedComment` using GitHub GraphQL `minimizeComment` mutation to mark stale comments as OUTDATED.
+  - Added `findAllSecureFlowComments` to reliably discover all historical comments across pagination.
+  - Added support for `replaceOldComments` option in `upsertSecureFlowComment`.
+  - Handled graceful fallback when old comments were deleted or when deletion API permissions are restricted.
+
+- e20ffff: verify(docker): [NSoC_2026] verify Dockerfile and heist prompt-guard suites without regression (#1794)
+
 ## 3.12.0
 
 ### Minor Changes
