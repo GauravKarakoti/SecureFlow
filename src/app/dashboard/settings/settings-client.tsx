@@ -32,9 +32,16 @@ import {
   Copy,
   Mail,
   Bell,
+  Play,
+  RotateCw,
+  Calendar,
   Lock,
   Sliders,
 } from "lucide-react";
+import {
+  updateRepositoryBaselineConfig,
+  triggerRepositoryBaselineScan,
+} from "@/lib/actions/baseline";
 import WebhookConfigCard from "@/components/settings/webhook-config-card";
 import ApiTokensCard from "@/components/settings/api-tokens-card";
 import OutboundWebhooksCard from "@/components/settings/outbound-webhooks-card";
@@ -299,6 +306,102 @@ export default function SettingsClient({
           prev.map((r) => (r.id === repoId ? { ...r, codeScanningEnabled: !checked } : r)),
         );
         toast.error(e.message || "Failed to update code scanning setting.");
+      }
+    });
+  };
+
+  // --- Baseline Scans state & handlers (#2011) ---
+  const [isBaselinePending, startBaselineTransition] = useTransition();
+
+  const handleBaselineToggle = (repoId: string, enabled: boolean) => {
+    setRepositories((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, baselineScanEnabled: enabled } : r)),
+    );
+    startBaselineTransition(async () => {
+      try {
+        const res = await updateRepositoryBaselineConfig(repoId, { enabled });
+        if (res.ok) {
+          toast.success(
+            enabled
+              ? "Scheduled baseline scanning enabled."
+              : "Scheduled baseline scanning disabled.",
+          );
+        } else {
+          setRepositories((prev) =>
+            prev.map((r) => (r.id === repoId ? { ...r, baselineScanEnabled: !enabled } : r)),
+          );
+          toast.error(res.error || "Failed to update baseline scan settings.");
+        }
+      } catch (err: any) {
+        setRepositories((prev) =>
+          prev.map((r) => (r.id === repoId ? { ...r, baselineScanEnabled: !enabled } : r)),
+        );
+        toast.error(err?.message || "Failed to update baseline scan settings.");
+      }
+    });
+  };
+
+  const handleBaselineFrequencyChange = (repoId: string, frequency: string) => {
+    setRepositories((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, baselineFrequency: frequency } : r)),
+    );
+    startBaselineTransition(async () => {
+      try {
+        const res = await updateRepositoryBaselineConfig(repoId, { frequency });
+        if (res.ok) {
+          toast.success(`Baseline frequency updated to ${frequency}.`);
+        } else {
+          toast.error(res.error || "Failed to update baseline frequency.");
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to update baseline frequency.");
+      }
+    });
+  };
+
+  const handleBaselineFileLimitChange = (repoId: string, limit: number) => {
+    setRepositories((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, baselineFileLimit: limit } : r)),
+    );
+    startBaselineTransition(async () => {
+      try {
+        const res = await updateRepositoryBaselineConfig(repoId, { fileLimit: limit });
+        if (res.ok) {
+          toast.success(`Baseline file limit set to ${limit} files.`);
+        } else {
+          toast.error(res.error || "Failed to update baseline file limit.");
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to update baseline file limit.");
+      }
+    });
+  };
+
+  const handleRunBaselineNow = (repoId: string) => {
+    startBaselineTransition(async () => {
+      try {
+        toast.info("Starting baseline scan of default branch...");
+        const res = await triggerRepositoryBaselineScan(repoId, { force: true });
+        if (res.ok) {
+          toast.success(
+            "Baseline scan complete! Findings are tagged and available in the Baseline tab.",
+          );
+          setRepositories((prev) =>
+            prev.map((r) =>
+              r.id === repoId
+                ? {
+                    ...r,
+                    lastBaselineScanAt: new Date(),
+                    lastBaselineScanStatus: "COMPLETED",
+                  }
+                : r,
+            ),
+          );
+        } else {
+          toast.error(res.error || "Failed to execute baseline scan.");
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to execute baseline scan.");
       }
     });
   };
@@ -668,6 +771,108 @@ export default function SettingsClient({
                     </div>
                   )}
 
+                  {/* Scheduled Baseline Security Scan (#2011) */}
+                  <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">Scheduled Baseline Security Scans</p>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-purple-500/10 text-purple-400 border-purple-500/30"
+                          >
+                            BASELINE
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Scan the default branch in bounded chunks for pre-existing
+                          vulnerabilities, secrets, and misconfigurations without blocking pull
+                          requests.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={repo.baselineScanEnabled ?? false}
+                        onCheckedChange={(checked) => handleBaselineToggle(repo.id, checked)}
+                        disabled={isBaselinePending}
+                        aria-label={`Toggle baseline scans for ${repo.fullName}`}
+                      />
+                    </div>
+
+                    {repo.baselineScanEnabled && (
+                      <div className="rounded-md bg-muted/30 border border-border/50 p-3 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Scan Frequency
+                            </label>
+                            <select
+                              value={repo.baselineFrequency ?? "weekly"}
+                              onChange={(e) =>
+                                handleBaselineFrequencyChange(repo.id, e.target.value)
+                              }
+                              disabled={isBaselinePending}
+                              aria-label={`Baseline frequency for ${repo.fullName}`}
+                              className="w-full text-xs bg-background border border-border rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="weekly">Weekly (Recommended)</option>
+                              <option value="daily">Daily</option>
+                              <option value="monthly">Monthly</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              File Limit (1 - 200)
+                            </label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={200}
+                              value={repo.baselineFileLimit ?? 50}
+                              onChange={(e) =>
+                                handleBaselineFileLimitChange(
+                                  repo.id,
+                                  parseInt(e.target.value, 10) || 50,
+                                )
+                              }
+                              disabled={isBaselinePending}
+                              aria-label={`Baseline file limit for ${repo.fullName}`}
+                              className="h-8 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-border/40 pt-2 text-xs">
+                          <div className="text-muted-foreground flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-primary" />
+                            <span>
+                              {repo.lastBaselineScanAt
+                                ? `Last scanned: ${new Date(repo.lastBaselineScanAt).toLocaleDateString()}`
+                                : "Never scanned"}
+                            </span>
+                            {repo.lastBaselineScanStatus && (
+                              <Badge variant="outline" className="text-[10px] py-0 px-1">
+                                {repo.lastBaselineScanStatus}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRunBaselineNow(repo.id)}
+                            disabled={isBaselinePending}
+                            className="h-7 text-xs gap-1.5 self-start sm:self-auto"
+                            aria-label={`Run baseline scan now for ${repo.fullName}`}
+                          >
+                            <Play className="w-3 h-3 text-purple-400" />
+                            {isBaselinePending ? "Scanning..." : "Run Baseline Scan Now"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+        
                   {/* Effective Security & Governance Baseline Settings (#2010) */}
                   {repo.effectiveSettings && (
                     <div className="border-t border-border/40 pt-3 space-y-3">

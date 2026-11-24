@@ -158,14 +158,19 @@ model VerificationToken {
 }
 
 model Repository {
-  id                  String  @id @default(cuid())
-  githubId            BigInt  @unique
-  fullName            String
-  owner               String
-  isActive            Boolean @default(true)
-  publicBadgeEnabled  Boolean @default(false)
-  codeScanningEnabled Boolean @default(false)
-  codeScanningWarning String?
+  id                     String    @id @default(cuid())
+  githubId               BigInt    @unique
+  fullName               String
+  owner                  String
+  isActive               Boolean   @default(true)
+  publicBadgeEnabled     Boolean   @default(false)
+  codeScanningEnabled    Boolean   @default(false)
+  codeScanningWarning    String?
+  baselineScanEnabled    Boolean   @default(false)
+  baselineFrequency      String    @default("weekly")
+  baselineFileLimit      Int       @default(50)
+  lastBaselineScanAt     DateTime?
+  lastBaselineScanStatus String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -276,6 +281,7 @@ model ScanResult {
   gateConfig     Json?
   riskScore      Int
   policyDecision PolicyDecision @default(REVIEW)
+  scanType       String         @default("PR")
   createdAt      DateTime       @default(now())
 
   @@index([pullRequestId])
@@ -285,6 +291,7 @@ model ScanResult {
   @@index([pullRequestId, policyDecision])
   @@index([riskScore])
   @@index([policyDecision, createdAt(sort: Desc)])
+  @@index([scanType])
 }
 
 model Finding {
@@ -303,6 +310,8 @@ model Finding {
   fingerprint              String                  @default("")
   cwe                      String?
   complianceTags           String[]                @default([])
+  tag                      String?
+  isBaseline               Boolean                 @default(false)
   suppressionStatus        String?
   suppressionRuleId        String?
   issueUrl                 String?
@@ -331,6 +340,8 @@ model Finding {
   @@index([suppressionStatus])
   @@index([suppressionRuleId])
   @@index([issueUrl])
+  @@index([tag])
+  @@index([isBaseline])
 }
 
 model FindingNote {

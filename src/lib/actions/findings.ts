@@ -83,6 +83,10 @@ export interface FindingRow {
   noteCount: number;
   /** Linked GitHub issue URL created from this finding (#1987). */
   issueUrl?: string | null;
+  /** Finding tag, e.g. BASELINE (#2011). */
+  tag?: string | null;
+  /** True when finding belongs to a default branch baseline scan (#2011). */
+  isBaseline?: boolean;
   /** Common Weakness Enumeration ID (e.g. CWE-798, CWE-89) (#2008). */
   cwe?: string | null;
 }
@@ -313,6 +317,8 @@ export async function getUserFindings(
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
       noteCount: finding._count?.notes ?? 0,
       issueUrl: finding.issueUrl ?? null,
+      tag: finding.tag ?? (finding.isBaseline ? "BASELINE" : null),
+      isBaseline: Boolean(finding.isBaseline || finding.tag === "BASELINE"),
       cwe: finding.cwe ?? null,
     };
   });
