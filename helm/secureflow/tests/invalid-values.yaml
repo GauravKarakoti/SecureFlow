@@ -1,0 +1,22 @@
+# Deliberately invalid values to verify Helm values.schema.json rejection (#1984)
+
+# 1. Unknown top-level key (rejected by additionalProperties: false at root)
+unknownTopLevelKey: "should-fail-schema"
+
+app:
+  # 2. Invalid type: string instead of integer
+  replicaCount: "two"
+
+  # 3. Unknown property within app section
+  unknownAppSetting: "typo-in-config"
+
+  service:
+    # 4. Invalid enum value
+    type: "InvalidServiceType"
+
+    # 5. Out of range integer (maximum is 65535)
+    port: 999999
+
+worker:
+  # 6. Negative integer (minimum is 0)
+  replicaCount: -5

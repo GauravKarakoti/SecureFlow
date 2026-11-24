@@ -1,14 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   isSuppressionActive,
-  activeSuppressionWhere,
   validateExpiryDate,
   MAX_EXPIRY_DAYS,
   getEndOfQuarter,
   computeExpiryDate,
   isExpiringSoon,
-  handleExpiredDismissals,
 } from "./expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "./expiry-server";
 
 describe("Triage Expiry Helper (#1503, #1890)", () => {
   const baseTime = new Date("2026-11-01T12:00:00.000Z");

@@ -296,7 +296,9 @@ export async function initTracing(): Promise<NodeSDK | null> {
   });
 
   sdkInstance = new NodeSDK({
-    resource,
+    resource: resource as unknown as NonNullable<
+      ConstructorParameters<typeof NodeSDK>[0]
+    >["resource"],
     traceExporter,
   });
 

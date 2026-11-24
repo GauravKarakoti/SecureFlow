@@ -194,6 +194,73 @@ export class TerminalSpinner {
   }
 }
 
+export interface ScanProgressOptions {
+  stream?: NodeJS.WriteStream | undefined;
+  isTTY?: boolean | undefined;
+  quiet?: boolean | undefined;
+  enabled?: boolean | undefined;
+}
+
+/**
+ * Interactive progress indicator displaying the number of files scanned.
+ * Sends progress updates to stderr and is automatically disabled when
+ * output is not a terminal (piped/redirected) or in quiet mode (#1978).
+ */
+export class ScanProgressIndicator {
+  private stream: NodeJS.WriteStream;
+  private enabled: boolean;
+  private total: number;
+  private current: number = 0;
+
+  constructor(total: number, options: ScanProgressOptions = {}) {
+    this.total = total;
+    this.stream = options.stream ?? process.stderr;
+
+    const streamIsTTY =
+      options.isTTY !== undefined
+        ? options.isTTY
+        : Boolean(this.stream && this.stream.isTTY);
+
+    const stdoutIsTTY =
+      options.isTTY !== undefined
+        ? options.isTTY
+        : typeof process !== "undefined" && process.stdout
+          ? Boolean(process.stdout.isTTY)
+          : true;
+
+    // Output is considered a terminal only when stderr and stdout are both TTYs
+    const isTerminal =
+      options.isTTY !== undefined
+        ? options.isTTY
+        : streamIsTTY && stdoutIsTTY && !process.env.CI;
+
+    this.enabled =
+      options.enabled !== undefined
+        ? options.enabled
+        : Boolean(!options.quiet && isTerminal && total > 0);
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  update(current: number, filePath?: string): void {
+    if (!this.enabled) return;
+    this.current = current;
+    this.stream.write(`\rScanning files (${this.current}/${this.total})...`);
+  }
+
+  clear(): void {
+    if (!this.enabled) return;
+    this.stream.write("\r\x1b[K");
+  }
+
+  done(): void {
+    if (!this.enabled) return;
+    this.clear();
+  }
+}
+
 export function formatSeverityBadge(severity: string): string {
   const upper = severity.toUpperCase();
   switch (upper) {
@@ -302,7 +369,7 @@ export function formatTuiScanSummary(
 }
 
 import type { InitConfigResult } from "../init-config.js";
-import type { GateLevel } from "../contracts/config-schema.js";
+import type { GateLevel } from "../contracts/index.js";
 import { initConfigFiles } from "../init-config.js";
 
 export interface InitHookResult {

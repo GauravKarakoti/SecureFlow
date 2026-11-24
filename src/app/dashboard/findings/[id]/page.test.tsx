@@ -10,6 +10,7 @@ const {
   findFirstMock,
   findUniqueMock,
   auditLogFindManyMock,
+  findingNoteFindManyMock,
   redirectMock,
   notFoundMock,
 } = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const {
   findFirstMock: vi.fn(),
   findUniqueMock: vi.fn(),
   auditLogFindManyMock: vi.fn(),
+  findingNoteFindManyMock: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT: ${url}`);
   }),
@@ -30,10 +32,19 @@ vi.mock("@/lib/prisma", () => ({
   default: {
     finding: { findFirst: findFirstMock },
     findingTriage: { findUnique: findUniqueMock },
+    findingNote: { findMany: findingNoteFindManyMock },
     auditLog: { findMany: auditLogFindManyMock },
   },
 }));
-vi.mock("next/navigation", () => ({ redirect: redirectMock, notFound: notFoundMock }));
+vi.mock("next/navigation", () => ({
+  redirect: redirectMock,
+  notFound: notFoundMock,
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
 
 vi.mock("@/components/findings/finding-audio-player", () => ({
   default: (props: {
@@ -77,6 +88,12 @@ vi.mock("./finding-actions", () => ({
   ),
 }));
 
+vi.mock("../finding-notes-thread", () => ({
+  default: (props: { findingId: string }) => (
+    <div data-testid="finding-notes-thread" data-finding-id={props.findingId} />
+  ),
+}));
+
 import FindingDetailPage from "./page";
 
 const baseFinding = {
@@ -111,6 +128,7 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
       note: "Initial pending triage",
     });
     auditLogFindManyMock.mockResolvedValue([]);
+    findingNoteFindManyMock.mockResolvedValue([]);
   });
 
   it("redirects unauthenticated visitors to sign in without querying the database", async () => {
@@ -143,6 +161,17 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
           fingerprint: "fp-123456",
         },
       },
+      include: {
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            codename: true,
+            image: true,
+          },
+        },
+      },
     });
   });
 
@@ -160,6 +189,16 @@ describe("FindingDetailPage server component (#1372, #1465)", () => {
     expect(actions.dataset.severity).toBe("CRITICAL");
     expect(actions.dataset.triageStatus).toBe("RESOLVED");
     expect(actions.dataset.note).toBe("Patched via PR #43");
+  });
+
+  it("renders FindingNotesThread with the finding ID (#1920)", async () => {
+    findingNoteFindManyMock.mockResolvedValue([{ id: "note-1", text: "Important context" }]);
+
+    await renderPage();
+
+    const thread = screen.getByTestId("finding-notes-thread");
+    expect(thread).toBeInTheDocument();
+    expect(thread.dataset.findingId).toBe("finding-1");
   });
 
   it("returns a not-found response when the finding is missing or owned by someone else", async () => {

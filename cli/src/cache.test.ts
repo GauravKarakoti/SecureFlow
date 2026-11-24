@@ -8,6 +8,12 @@ import {
   getCacheEntry,
   setCacheEntry,
   clearCache,
+  pruneCache,
+  getCacheStats,
+  parseDurationMs,
+  parseSizeBytes,
+  reapOrphanedTempFiles,
+  enforceCacheStorageLimit,
   scanFileWithCache,
   scanFilesWithCache,
   getRulesetVersion,
@@ -381,6 +387,294 @@ describe("Cache Module - Content Hash and Ruleset Version Caching", () => {
       const scan2 = scanFilesWithCache(files, { cacheDir: tempDir });
       expect(scan2.analyzedCount).toBe(2);
       expect(scan2.cachedCount).toBe(0);
+    });
+  });
+
+  describe("8. parseDurationMs and parseSizeBytes", () => {
+    it("parses duration strings accurately across units", () => {
+      expect(parseDurationMs("7d")).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(parseDurationMs("24h")).toBe(24 * 60 * 60 * 1000);
+      expect(parseDurationMs("30m")).toBe(30 * 60 * 1000);
+      expect(parseDurationMs("3600s")).toBe(3600 * 1000);
+      expect(parseDurationMs("500ms")).toBe(500);
+      expect(parseDurationMs("10000")).toBe(10000);
+      expect(parseDurationMs(5000)).toBe(5000);
+      expect(parseDurationMs("invalid")).toBeNull();
+      expect(parseDurationMs(null)).toBeNull();
+      expect(parseDurationMs(undefined)).toBeNull();
+    });
+
+    it("parses size strings accurately across units", () => {
+      expect(parseSizeBytes("50MB")).toBe(50 * 1024 * 1024);
+      expect(parseSizeBytes("100M")).toBe(100 * 1024 * 1024);
+      expect(parseSizeBytes("10KB")).toBe(10 * 1024);
+      expect(parseSizeBytes("1GB")).toBe(1024 * 1024 * 1024);
+      expect(parseSizeBytes("1024")).toBe(1024);
+      expect(parseSizeBytes(2048)).toBe(2048);
+      expect(parseSizeBytes("invalid")).toBeNull();
+      expect(parseSizeBytes(null)).toBeNull();
+      expect(parseSizeBytes(undefined)).toBeNull();
+    });
+  });
+
+  describe("9. TTL Expiration Lifecycle", () => {
+    it("returns cache entry when cachedAt is within TTL window", () => {
+      const content = "const validTtl = 1;";
+      const mockResult = { path: "valid.ts", violations: [] };
+
+      setCacheEntry({
+        filePath: "valid.ts",
+        content,
+        result: mockResult,
+        cacheDir: tempDir,
+      });
+
+      const entry = getCacheEntry({
+        content,
+        cacheDir: tempDir,
+        ttlMs: 60 * 1000, // 1 minute
+      });
+
+      expect(entry).not.toBeNull();
+    });
+
+    it("expires and unlinks cache entry when older than TTL window", () => {
+      const content = "const expiredTtl = 2;";
+      const hash = computeContentHash(content);
+      const cacheFile = path.join(tempDir, `${hash}.json`);
+
+      // Write an entry with cachedAt 2 hours ago
+      const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+      const expiredEntry: CacheEntry = {
+        version: 1,
+        rulesetVersion: DEFAULT_RULESET_VERSION,
+        contentHash: hash,
+        filePath: "expired.ts",
+        result: { path: "expired.ts", violations: [] },
+        cachedAt: twoHoursAgo,
+      };
+      fs.writeFileSync(cacheFile, JSON.stringify(expiredEntry), "utf-8");
+
+      // Verify file initially exists
+      expect(fs.existsSync(cacheFile)).toBe(true);
+
+      // Query with 1 hour TTL: should miss and unlink file
+      const entry = getCacheEntry({
+        content,
+        cacheDir: tempDir,
+        ttlMs: 60 * 60 * 1000, // 1 hour TTL
+      });
+
+      expect(entry).toBeNull();
+      expect(fs.existsSync(cacheFile)).toBe(false);
+    });
+
+    it("respects SECUREFLOW_CACHE_TTL environment variable", () => {
+      process.env.SECUREFLOW_CACHE_TTL = "1h";
+      try {
+        const content = "const envTtl = 3;";
+        const hash = computeContentHash(content);
+        const cacheFile = path.join(tempDir, `${hash}.json`);
+
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        const expiredEntry: CacheEntry = {
+          version: 1,
+          rulesetVersion: DEFAULT_RULESET_VERSION,
+          contentHash: hash,
+          filePath: "env.ts",
+          result: { path: "env.ts", violations: [] },
+          cachedAt: twoHoursAgo,
+        };
+        fs.writeFileSync(cacheFile, JSON.stringify(expiredEntry), "utf-8");
+
+        const entry = getCacheEntry({ content, cacheDir: tempDir });
+        expect(entry).toBeNull();
+        expect(fs.existsSync(cacheFile)).toBe(false);
+      } finally {
+        delete process.env.SECUREFLOW_CACHE_TTL;
+      }
+    });
+  });
+
+  describe("10. Storage Limits & LRU Eviction", () => {
+    it("evicts oldest entries when cache directory exceeds max storage budget", () => {
+      // Create 3 entries with staggered timestamps
+      const entries = [
+        { name: "oldest", content: "export const a = 'oldest';", time: 1000 },
+        { name: "middle", content: "export const b = 'middle';", time: 2000 },
+        { name: "newest", content: "export const c = 'newest';", time: 3000 },
+      ];
+
+      for (const item of entries) {
+        const hash = computeContentHash(item.content);
+        const entry: CacheEntry = {
+          version: 1,
+          rulesetVersion: DEFAULT_RULESET_VERSION,
+          contentHash: hash,
+          filePath: `${item.name}.ts`,
+          result: { path: `${item.name}.ts`, violations: [] },
+          cachedAt: item.time,
+        };
+        fs.writeFileSync(
+          path.join(tempDir, `${hash}.json`),
+          JSON.stringify(entry, null, 2),
+          "utf-8",
+        );
+      }
+
+      // Check stats: 3 entries
+      const initialStats = getCacheStats(tempDir);
+      expect(initialStats.entryCount).toBe(3);
+
+      // Enforce a tight budget that forces eviction
+      const smallBudget = Math.floor(initialStats.totalSizeBytes * 0.7);
+      const lruResult = enforceCacheStorageLimit(tempDir, smallBudget);
+
+      expect(lruResult.evictedCount).toBeGreaterThan(0);
+      expect(lruResult.freedBytes).toBeGreaterThan(0);
+
+      // Oldest entry should be evicted first
+      const oldestHash = computeContentHash(entries[0]!.content);
+      expect(fs.existsSync(path.join(tempDir, `${oldestHash}.json`))).toBe(false);
+
+      // Newest entry should remain
+      const newestHash = computeContentHash(entries[2]!.content);
+      expect(fs.existsSync(path.join(tempDir, `${newestHash}.json`))).toBe(true);
+    });
+
+    it("automatically triggers LRU eviction in setCacheEntry when limit is exceeded", () => {
+      // Write entry 1
+      setCacheEntry({
+        filePath: "1.ts",
+        content: "const a = 1;",
+        result: { path: "1.ts", violations: [] },
+        cacheDir: tempDir,
+      });
+
+      const initialSize = getCacheStats(tempDir).totalSizeBytes;
+
+      // Write entry 2 with maxSizeBytes set lower than 2 entries
+      setCacheEntry({
+        filePath: "2.ts",
+        content: "const b = 2;",
+        result: { path: "2.ts", violations: [] },
+        cacheDir: tempDir,
+        maxSizeBytes: initialSize + 10,
+      });
+
+      const finalStats = getCacheStats(tempDir);
+      // Entry 2 should exist
+      const entry2 = getCacheEntry({ content: "const b = 2;", cacheDir: tempDir });
+      expect(entry2).not.toBeNull();
+      // Total size should not exceed maxSizeBytes
+      expect(finalStats.totalSizeBytes).toBeLessThanOrEqual(initialSize + 10);
+    });
+  });
+
+  describe("11. Orphaned Temp File Reaping", () => {
+    it("sweeps .tmp files older than max age while leaving fresh .tmp files alone", () => {
+      const oldTmp = path.join(tempDir, ".old.tmp");
+      const freshTmp = path.join(tempDir, ".fresh.tmp");
+
+      fs.writeFileSync(oldTmp, "temp old", "utf-8");
+      fs.writeFileSync(freshTmp, "temp fresh", "utf-8");
+
+      // Backdate oldTmp mtime to 2 hours ago
+      const twoHoursAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000;
+      fs.utimesSync(oldTmp, twoHoursAgo, twoHoursAgo);
+
+      const reaped = reapOrphanedTempFiles(tempDir, 60 * 60 * 1000); // 1 hour max age
+      expect(reaped).toBe(1);
+      expect(fs.existsSync(oldTmp)).toBe(false);
+      expect(fs.existsSync(freshTmp)).toBe(true);
+    });
+  });
+
+  describe("12. pruneCache", () => {
+    it("selectively prunes entries exceeding TTL without wiping active entries", () => {
+      const freshContent = "const fresh = 'keep';";
+      const staleContent = "const stale = 'prune';";
+
+      // Write fresh entry
+      setCacheEntry({
+        filePath: "fresh.ts",
+        content: freshContent,
+        result: { path: "fresh.ts", violations: [] },
+        cacheDir: tempDir,
+      });
+
+      // Write stale entry (10 days old)
+      const staleHash = computeContentHash(staleContent);
+      const staleEntry: CacheEntry = {
+        version: 1,
+        rulesetVersion: DEFAULT_RULESET_VERSION,
+        contentHash: staleHash,
+        filePath: "stale.ts",
+        result: { path: "stale.ts", violations: [] },
+        cachedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+      };
+      fs.writeFileSync(
+        path.join(tempDir, `${staleHash}.json`),
+        JSON.stringify(staleEntry),
+        "utf-8",
+      );
+
+      // Prune with 7d TTL
+      const result = pruneCache({
+        ttlMs: 7 * 24 * 60 * 60 * 1000,
+        cacheDir: tempDir,
+      });
+
+      expect(result.prunedCount).toBe(1);
+      expect(result.remainingCount).toBe(1);
+      expect(getCacheEntry({ content: freshContent, cacheDir: tempDir })).not.toBeNull();
+      expect(getCacheEntry({ content: staleContent, cacheDir: tempDir })).toBeNull();
+    });
+
+    it("returns zero pruned count for already clean or empty cache", () => {
+      const result = pruneCache({ cacheDir: tempDir, ttlMs: 100000 });
+      expect(result.prunedCount).toBe(0);
+      expect(result.remainingCount).toBe(0);
+    });
+  });
+
+  describe("13. getCacheStats", () => {
+    it("reports zero stats for empty cache directory", () => {
+      const stats = getCacheStats(tempDir);
+      expect(stats.entryCount).toBe(0);
+      expect(stats.totalSizeBytes).toBe(0);
+      expect(stats.tempFileCount).toBe(0);
+      expect(stats.oldestEntryAt).toBeNull();
+      expect(stats.newestEntryAt).toBeNull();
+    });
+
+    it("aggregates entries, disk size, ruleset versions, and timestamps", () => {
+      setRulesetVersion("1.0.0");
+      setCacheEntry({
+        filePath: "1.ts",
+        content: "content1",
+        result: { path: "1.ts", violations: [] },
+        cacheDir: tempDir,
+      });
+
+      setRulesetVersion("2.0.0");
+      setCacheEntry({
+        filePath: "2.ts",
+        content: "content2",
+        result: { path: "2.ts", violations: [] },
+        cacheDir: tempDir,
+      });
+
+      fs.writeFileSync(path.join(tempDir, ".abandoned.tmp"), "temp", "utf-8");
+
+      const stats = getCacheStats(tempDir);
+      expect(stats.entryCount).toBe(2);
+      expect(stats.totalSizeBytes).toBeGreaterThan(0);
+      expect(stats.tempFileCount).toBe(1);
+      expect(stats.oldestEntryAt).not.toBeNull();
+      expect(stats.newestEntryAt).not.toBeNull();
+      expect(stats.rulesetVersions["1.0.0"]).toBe(1);
+      expect(stats.rulesetVersions["2.0.0"]).toBe(1);
     });
   });
 });

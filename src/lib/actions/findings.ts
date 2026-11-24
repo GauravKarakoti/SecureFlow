@@ -19,6 +19,8 @@ import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 
 import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
 import { findingAgeDays, isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import { decryptFinding } from "@/lib/security/finding-encryption";
 
 /**
  * Server actions for the Security Findings dashboard (#561).
@@ -64,10 +66,30 @@ export interface FindingRow {
   triageExpiresAt?: Date | null;
   resolvedAt?: Date | null;
   resolvedCommitSha?: string | null;
+  assigneeId?: string | null;
+  assignee?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    codename: string | null;
+    image: string | null;
+  } | null;
+  /** Detected programming language / file format for the finding location. */
+  language?: string;
   /** Age of the finding in whole days (from createdAt). */
   ageDays: number | null;
   /** True when the finding has exceeded the configurable target age for its severity. */
   isOverdue: boolean;
+  /** Number of reviewer discussion notes on this finding (#1920). */
+  noteCount: number;
+  /** Linked GitHub issue URL created from this finding (#1987). */
+  issueUrl?: string | null;
+  /** Finding tag, e.g. BASELINE (#2011). */
+  tag?: string | null;
+  /** True when finding belongs to a default branch baseline scan (#2011). */
+  isBaseline?: boolean;
+  /** Common Weakness Enumeration ID (e.g. CWE-798, CWE-89) (#2008). */
+  cwe?: string | null;
 }
 
 export interface FindingsStats {
@@ -130,12 +152,20 @@ export async function getUserFindings(
   const now = new Date();
   const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
   const expiringFingerprints: string[] = [];
+  const assignedToMeFingerprints: string[] = [];
+  const assignedFingerprints: string[] = [];
   for (const [key, entry] of byKey) {
+    const fingerprint = key.slice(key.indexOf(":") + 1);
     if (entry.expiresAt) {
       const expTime = new Date(entry.expiresAt).getTime();
       if (expTime > now.getTime() && expTime <= now.getTime() + fourteenDaysMs) {
-        const fingerprint = key.slice(key.indexOf(":") + 1);
         expiringFingerprints.push(fingerprint);
+      }
+    }
+    if (entry.assigneeId) {
+      assignedFingerprints.push(fingerprint);
+      if (entry.assigneeId === userId) {
+        assignedToMeFingerprints.push(fingerprint);
       }
     }
   }
@@ -145,6 +175,8 @@ export async function getUserFindings(
     dismissedFingerprints: suppressedFingerprints,
     fingerprintsByStatus: groupFingerprintsByStatus(byKey),
     expiringFingerprints,
+    assignedToMeFingerprints,
+    assignedFingerprints,
   };
 
   const listWhere = buildFindingsWhere(context, normalized);
@@ -169,6 +201,9 @@ export async function getUserFindings(
           include: { repository: { select: { id: true, fullName: true } } },
         },
       },
+    },
+    _count: {
+      select: { notes: true },
     },
   } as const;
 
@@ -248,7 +283,8 @@ export async function getUserFindings(
     }
   }
 
-  const findings: FindingRow[] = rows.map((finding: any) => {
+  const findings: FindingRow[] = rows.map((rawFinding: any) => {
+    const finding = decryptFinding(rawFinding);
     const pullRequest = finding.scanResult.pullRequest;
     const repositoryId = pullRequest.repositoryId;
     const triage = byKey.get(triageKey(repositoryId, finding.fingerprint));
@@ -259,6 +295,7 @@ export async function getUserFindings(
       type: finding.type,
       severity: finding.severity,
       fileLocation: finding.fileLocation,
+      language: detectFileLanguage(finding.fileLocation).language,
       lineStart: finding.lineStart ?? null,
       lineEnd: finding.lineEnd ?? null,
       codeSnippet: finding.codeSnippet ?? null,
@@ -276,8 +313,15 @@ export async function getUserFindings(
       triageExpiresAt: triage?.expiresAt ?? null,
       resolvedAt: triage?.resolvedAt ?? null,
       resolvedCommitSha: triage?.resolvedCommitSha ?? null,
+      assigneeId: triage?.assigneeId ?? null,
+      assignee: triage?.assignee ?? null,
       ageDays: findingAgeDays(finding.createdAt),
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
+      noteCount: finding._count?.notes ?? 0,
+      issueUrl: finding.issueUrl ?? null,
+      tag: finding.tag ?? (finding.isBaseline ? "BASELINE" : null),
+      isBaseline: Boolean(finding.isBaseline || finding.tag === "BASELINE"),
+      cwe: finding.cwe ?? null,
     };
   });
 

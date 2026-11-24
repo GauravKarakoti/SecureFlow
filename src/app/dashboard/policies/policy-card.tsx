@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useOptimistic, useTransition } from "react";
+import { useSession } from "next-auth/react";
+import { can } from "@/lib/auth/permissions";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +29,9 @@ export function PolicyCard({
     (currentState: boolean, optimisticValue: boolean) => optimisticValue,
   );
   const [isPending, startTransition] = useTransition();
+  const { data: session } = useSession();
+  const canToggle = session?.user ? can(session.user, null, "policies:toggle") : true;
+  const canEdit = session?.user ? can(session.user, null, "policies:edit") : true;
   const { toast } = useToast();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -74,10 +79,10 @@ export function PolicyCard({
         className="absolute -right-12 -top-12 h-28 w-28 rotate-45 border border-primary/20 bg-primary/5"
         aria-hidden="true"
       />
-      <div className="absolute top-5 right-5 z-10">
+      <div className="absolute top-3 right-3 z-10 min-h-[44px] min-w-[44px] flex items-center justify-center">
         <Switch
           checked={optimisticActive}
-          disabled={isPending}
+          disabled={isPending || !canToggle}
           onCheckedChange={handleToggle}
           aria-label={`${optimisticActive ? "Disable" : "Enable"} rule: ${title}`}
           className="focus-visible:ring-2 focus-visible:ring-primary"
@@ -170,21 +175,24 @@ export function PolicyCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[10px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
+            className="h-10 min-h-[44px] min-w-[44px] px-3 text-[11px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
             onClick={() => setIsEditOpen(true)}
+            disabled={!canEdit}
             aria-label={`Edit ${title}`}
+            data-testid={`edit-policy-${id}`}
           >
-            <Edit3 className="w-3 h-3 mr-1" />
+            <Edit3 className="w-3.5 h-3.5 mr-1" />
             Edit
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[10px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
+            className="h-10 min-h-[44px] min-w-[44px] px-3 text-[11px] uppercase font-mono tracking-wider hover:bg-primary/10 hover:text-primary"
             onClick={() => setIsHistoryOpen(true)}
             aria-label={`History for ${title}`}
+            data-testid={`history-policy-${id}`}
           >
-            <History className="w-3 h-3 mr-1" />
+            <History className="w-3.5 h-3.5 mr-1" />
             History
           </Button>
         </div>

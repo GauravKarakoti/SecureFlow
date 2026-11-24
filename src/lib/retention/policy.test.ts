@@ -18,6 +18,7 @@ describe("RETENTION_RULES", () => {
       "auditLog",
       "findingSnippet",
       "scanResult",
+      "webhookDelivery",
       "webhookEvent",
     ]);
   });

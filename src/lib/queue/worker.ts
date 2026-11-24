@@ -4,12 +4,21 @@ import {
   postScanCheckRun,
   postScanErrorCheckRun,
   postScanCancelledCheckRun,
+  postScanSkippedCheckRun,
 } from "../scanner/check-run";
-import { registerInFlightScan, unregisterInFlightScan, type ActiveScan } from "./in-flight-scans";
+import { getZeroScanReason, formatZeroScanComment } from "@/lib/scanner/zero-scan";
+import {
+  registerInFlightScan,
+  unregisterInFlightScan,
+  getInFlightScans,
+  type ActiveScan,
+} from "./in-flight-scans";
+import { resolveInstallationConcurrencyLimit } from "./fair-scheduler";
 import { z } from "zod";
 import { redis } from "./redis";
 import { webhookQueue, webhookDLQ, WebhookJobData } from "./webhookQueue";
 import { dlqRetryStateFor } from "./dlq-auto-retry";
+import { isGitHubApiRateLimitError, extractGitHubRetryAfterMs } from "@/lib/github/throttling";
 import { acquireLock, releaseLock, startLockHeartbeat } from "./lock";
 import { scanner } from "@/lib/armor/scanner";
 import { processScanJob } from "@/lib/scanner/scanEngine";
@@ -19,8 +28,10 @@ import { iq } from "@/lib/armor/iq";
 import {
   loadTrustedGateConfig,
   formatGateSummaryLine,
+  isAuthorSkipped,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
+import { buildEffectiveGateConfig } from "@/lib/scanner/installation-settings";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
@@ -29,8 +40,17 @@ import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
 import { App } from "octokit";
 import { fetchPullRequestFiles, formatCoverageNotice } from "@/lib/github/pull-request-files";
-import { renderScanReportSummary, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/scan-report";
-import { upsertSecureFlowComment } from "@/lib/github/sticky-comment";
+import {
+  renderScanReportSummary,
+  renderScanReportWithBaseOwners,
+  SECUREFLOW_COMMENT_MARKER,
+  type ScanReportFinding,
+} from "@/lib/github/scan-report";
+import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
+import {
+  buildInlineReviewComments,
+  resolveSuggestionsConfig,
+} from "@/lib/github/suggested-changes";
 import {
   buildSarifDocument,
   pullRequestRef,
@@ -48,6 +68,7 @@ import { getGitHubAppCredentials } from "@/lib/github/app-auth";
 import { isSecureFlowCheckRun, isSecureFlowCheckSuite } from "@/lib/github/webhook-verification";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { encryptFinding } from "@/lib/security/finding-encryption";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import {
   normalizeFindingTypeEnum,
@@ -66,7 +87,7 @@ import {
   buildFindingCreatedPayload,
 } from "@/lib/webhooks/outbound-dispatcher";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
-import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import {
   extractPrNumberFromMergeGroup,
   fetchMergeGroupFiles,
@@ -77,6 +98,7 @@ import {
   getActiveSuppressionRules,
   recordSuppressionRuleEvents,
 } from "@/lib/suppression-rules/service";
+import { recordWebhookDelivery, WEBHOOK_REASON_CODES } from "@/lib/webhooks/delivery-recorder";
 
 // Sanitize user-controlled strings before logging to prevent log injection
 // (CWE-117). The implementation moved to src/lib/logger.ts so every module gets
@@ -449,6 +471,9 @@ const PR_SCAN_LOCK_RENEW_MS = 20_000;
 /** How long a job that lost the race for a PR waits before trying again. */
 const PR_SCAN_LOCK_RETRY_DELAY_MS = 15_000;
 
+/** How long a job waits when its installation reached its concurrency limit (#1980). */
+export const INSTALLATION_CONCURRENCY_RETRY_DELAY_MS = 5_000;
+
 export interface RunPullRequestScanParams {
   job: Job<WebhookJobData>;
   payload: any;
@@ -482,6 +507,22 @@ export async function runPullRequestScan({
 }: RunPullRequestScanParams): Promise<{ dbRepoId?: string; dbPrId?: string }> {
   let dbRepoId: string | undefined;
   let dbPrId: string | undefined;
+
+  // Enforce per-installation concurrency limit (#1980)
+  const installationId = installation?.id ? String(installation.id) : undefined;
+  if (installationId) {
+    const limit = resolveInstallationConcurrencyLimit();
+    const activeForInst = (typeof getInFlightScans === "function" ? getInFlightScans() : []).filter(
+      (s) => String(s?.installationId) === installationId,
+    ).length;
+    if (activeForInst >= limit) {
+      log.warn(
+        `[Worker] Installation ${installationId} reached concurrency limit of ${limit} (active: ${activeForInst}). Delaying job...`,
+      );
+      await job.moveToDelayed(Date.now() + INSTALLATION_CONCURRENCY_RETRY_DELAY_MS, job.token);
+      throw new DelayedError();
+    }
+  }
 
   const lockKey = `pr-scan:${repository.full_name}:${pullRequest.number}`;
   const lockToken = await acquireLock(lockKey, PR_SCAN_LOCK_TTL_MS);
@@ -610,6 +651,139 @@ export async function runPullRequestScan({
       }
     }
 
+    if (dbRepo && !dbRepo.isActive) {
+      log.info(`[Worker] Repository ${sanitize(repository.full_name)} is inactive; skipping scan.`);
+      if (deliveryId) {
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: event || "pull_request",
+          action: action ?? null,
+          repository: repository.full_name,
+          outcome: "ignored",
+          reasonCode: WEBHOOK_REASON_CODES.REPO_DISABLED,
+          error: "Repository is inactive / disabled",
+        });
+      }
+      return { dbRepoId: dbRepo.id };
+    }
+
+    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
+    const appClient = new App({
+      appId,
+      privateKey,
+      ...(customOctokit ? { Octokit: customOctokit } : {}),
+    });
+    const octokit = await appClient.getInstallationOctokit(installation.id);
+
+    // Load base-branch gate configuration early to check skipDrafts and skipAuthors (#1982)
+    let gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+      owner: repository.owner.login,
+      repo: repository.name,
+      prNumber: pullRequest.number,
+      baseRef: pullRequest.base?.ref,
+    });
+
+    try {
+      const instId = String(installation?.id || "default");
+      const instRecord =
+        (await (prisma as any).installationSettings?.findUnique?.({
+          where: { installationId: instId },
+        })) ||
+        (instId !== "default"
+          ? await (prisma as any).installationSettings?.findUnique?.({
+              where: { installationId: "default" },
+            })
+          : null);
+
+      if (instRecord) {
+        gateConfig = buildEffectiveGateConfig(gateConfig, {
+          installationId: instRecord.installationId,
+          gateBlockOn: instRecord.gateBlockOn,
+          gateReviewOn: instRecord.gateReviewOn,
+          minCommentConfidence: instRecord.minCommentConfidence,
+          includeDefaults: instRecord.includeDefaults,
+          skipDrafts: instRecord.skipDrafts,
+          skipAuthors: instRecord.skipAuthors,
+          lockedSettings: instRecord.lockedSettings,
+        });
+      } else {
+        gateConfig = buildEffectiveGateConfig(gateConfig, null);
+      }
+    } catch {
+      // Safe fallback if installation settings cannot be loaded
+    }
+
+    const isDraft = pullRequest?.draft === true;
+    const authorLogin = pullRequest?.user?.login;
+    const isDraftSkipped = isDraft && gateConfig.skipDrafts === true;
+    const isSkippedAuthor = isAuthorSkipped(authorLogin, gateConfig.skipAuthors);
+
+    if (isDraftSkipped || isSkippedAuthor) {
+      const skipReason = isDraftSkipped
+        ? "Pull request is a draft and skipDrafts is enabled in repository configuration."
+        : `Author @${authorLogin} is excluded from security scanning by skipAuthors in repository configuration.`;
+      const reasonCode = isDraftSkipped
+        ? WEBHOOK_REASON_CODES.DRAFT_PR
+        : WEBHOOK_REASON_CODES.AUTHOR_SKIPPED;
+
+      log.info(
+        `[Worker] PR #${sanitize(pullRequest.number)} on ${sanitize(repository.full_name)} skipped: ${skipReason}`,
+      );
+
+      try {
+        await postScanSkippedCheckRun(octokit as any, {
+          owner: repository.owner.login,
+          repo: repository.name,
+          headSha: pullRequest.head?.sha,
+          reason: skipReason,
+          checkRunId: inFlightScan.checkRunId,
+        });
+      } catch (checkErr) {
+        log.warn(`[Worker] Failed to post skipped check run:`, checkErr);
+        try {
+          await upsertSecureFlowComment(octokit, {
+            owner: repository.owner.login,
+            repo: repository.name,
+            issueNumber: pullRequest.number,
+            body: `⚪ **SecureFlow — Scan Skipped**\n\n${skipReason}`,
+          });
+        } catch (commentErr) {
+          log.warn(`[Worker] Failed to post skipped comment:`, commentErr);
+        }
+      }
+
+      if (deliveryId) {
+        await recordWebhookDelivery({
+          deliveryId,
+          eventType: event || "pull_request",
+          action: action ?? null,
+          repository: repository.full_name,
+          outcome: "ignored",
+          reasonCode,
+          error: skipReason,
+        });
+      }
+
+      return { dbRepoId: dbRepo?.id };
+    }
+
+    if (shouldScanPullRequestManifests(event, action)) {
+      // Never throws (it logs and returns), so a manifest problem cannot
+      // fail the code scan below. SBOM jobs are keyed by head SHA and file,
+      // so a retry of this delivery does not enqueue them twice.
+      await handlePullRequestSynchronize(
+        {
+          ...payload,
+          number: pullRequest.number,
+          pull_request: pullRequest,
+          repository,
+          installation,
+        },
+        deliveryId ?? undefined,
+        correlationId,
+      );
+    }
+
     const userId = dbRepo?.userId;
 
     // Use Redis-cached policy list to avoid two Prisma queries per scan.
@@ -637,14 +811,6 @@ export async function runPullRequestScan({
         }),
       });
     }
-
-    const { appId, privateKey, Octokit: customOctokit } = getGitHubAppCredentials();
-    const appClient = new App({
-      appId,
-      privateKey,
-      ...(customOctokit ? { Octokit: customOctokit } : {}),
-    });
-    const octokit = await appClient.getInstallationOctokit(installation.id);
 
     // Paginated: the endpoint defaults to 30 files per page, so an unpaginated
     // call left every file past the 30th unscanned while still reporting a
@@ -686,6 +852,99 @@ export async function runPullRequestScan({
         patch: file.patch,
       }));
 
+    if (fileChanges.length === 0) {
+      const zeroReason = getZeroScanReason(pullRequestFilesResult.files);
+      const combinedNotice = [coverageNotice].filter(Boolean).join("\n\n") || undefined;
+
+      await withSpan(
+        "check_run.update",
+        async (span) => {
+          span.setAttribute("secureflow.correlation_id", correlationId);
+          span.setAttribute("secureflow.repository_id", repository.full_name);
+          span.setAttribute("secureflow.pr_number", pullRequest.number);
+          if (pullRequest.head?.sha) span.setAttribute("secureflow.head_sha", pullRequest.head.sha);
+          if (checkRunId) span.setAttribute("secureflow.check_run_id", checkRunId);
+          span.setAttribute("secureflow.decision", "PASS");
+          span.setAttribute("secureflow.findings_count", 0);
+          span.setAttribute("secureflow.files_scanned", 0);
+
+          const checkRunResult = await postScanCheckRun(octokit as any, {
+            owner: repository.owner.login,
+            repo: repository.name,
+            headSha: pullRequest.head?.sha,
+            decision: "PASS",
+            findingsCount: 0,
+            fileCount: 0,
+            emptyReason: zeroReason,
+            notice: combinedNotice,
+            findings: [],
+            checkRunId,
+          });
+          const returnedRunId = (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
+          if (returnedRunId && typeof returnedRunId === "number") {
+            inFlightScan.checkRunId = returnedRunId;
+          }
+          return checkRunResult;
+        },
+        { parentContext },
+      );
+
+      const emptyBody = formatZeroScanComment(zeroReason, {
+        commitSha: pullRequest.head?.sha,
+        coverageNotice: coverageNotice || undefined,
+      });
+
+      await upsertSecureFlowComment(octokit, {
+        owner: repository.owner.login,
+        repo: repository.name,
+        issueNumber: pullRequest.number,
+        body: emptyBody,
+      });
+
+      if (userId) {
+        await prisma.auditLog.create({
+          data: sanitizeAuditLogInput({
+            userId: userId,
+            action: "Scan Completed (Nothing to scan)",
+            resource: `${repository.full_name}#${pullRequest.number}`,
+            decision: "PASS",
+            metadata: {
+              correlationId,
+              deliveryId,
+              findingsCount: 0,
+              analyzedFiles: 0,
+              zeroScanReason: zeroReason,
+              trigger: isRerun ? "manual_rerun" : "webhook",
+            },
+          }),
+        });
+      }
+
+      if (dbRepo) {
+        const prFacts = buildPullRequestFacts(pullRequest);
+        const dbPr = await prisma.pullRequest.upsert({
+          where: { githubId: BigInt(pullRequest.id) },
+          update: {
+            ...pullRequestUpdateData(prFacts),
+            status: normalizePrStatusEnum("PASS"),
+          },
+          create: {
+            githubId: BigInt(pullRequest.id),
+            prNumber: pullRequest.number,
+            title: prFacts.title,
+            state: prFacts.state,
+            status: normalizePrStatusEnum("PASS"),
+            authorLogin: prFacts.authorLogin,
+            authorAvatarUrl: prFacts.authorAvatarUrl,
+            repositoryId: dbRepo.id,
+          },
+        });
+        dbPrId = dbPr.id;
+      }
+
+      return { dbRepoId, dbPrId };
+    }
+
     // Map each changed file to the set of new-file line numbers that are part of
     // the PR diff, so we only anchor inline review comments on commentable lines.
     const commentableLines = new Map<string, Set<number>>();
@@ -693,9 +952,10 @@ export async function runPullRequestScan({
       commentableLines.set(file.filename, getCommentableLines(file.patch));
     }
 
+    const scanTime = new Date().toISOString();
     const pendingBody =
       `${SECUREFLOW_COMMENT_MARKER}\n### ⏳ SecureFlow AI Security Scan\n\n` +
-      (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
+      formatScanMetadata({ commitSha: pullRequest.head?.sha, scanTime }) +
       `Evaluating **${fileChanges.length}** changed files. Please wait while the AI analyzes the code for potential vulnerabilities...` +
       (coverageNotice ? `\n\n${coverageNotice}` : "");
 
@@ -876,14 +1136,7 @@ export async function runPullRequestScan({
       ...ruleSuppressedFindings,
     ];
 
-    // Load base-branch gate configuration
-    const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
-      owner: repository.owner.login,
-      repo: repository.name,
-      prNumber: pullRequest.number,
-      baseRef: pullRequest.base?.ref,
-    });
-
+    // Base-branch gate configuration was loaded early during PR filtering
     const decision = iq.evaluateFindings(activeFindings, gateConfig);
 
     if (userId) {
@@ -911,6 +1164,25 @@ export async function runPullRequestScan({
 
     const gateSummary = formatGateSummaryLine(gateConfig);
     const combinedNotice = [gateSummary, coverageNotice].filter(Boolean).join("\n\n") || undefined;
+    const analyzedFilesCount = scanResult.scannedFiles ?? fileChanges.length;
+    const zeroReason =
+      scanResult.zeroScanReason ||
+      (analyzedFilesCount === 0
+        ? getZeroScanReason(pullRequestFilesResult.files, scanJobData.customIgnores)
+        : undefined);
+
+    const workerSkippedFiles = [
+      ...((scanResult.skippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
+        []),
+      ...((scanner.lastSkippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
+        []),
+    ];
+    const isPartialScan =
+      Boolean(coverageNotice) ||
+      Boolean((scanResult as any).isPartial) ||
+      Boolean((scanResult as any).timedOut) ||
+      workerSkippedFiles.length > 0;
+    const unscannedFilesList = workerSkippedFiles.length > 0 ? workerSkippedFiles : undefined;
 
     await withSpan(
       "check_run.update",
@@ -929,10 +1201,14 @@ export async function runPullRequestScan({
           headSha: pullRequest.head?.sha,
           decision,
           findingsCount: activeFindings.length,
-          fileCount: fileChanges.length,
+          fileCount: analyzedFilesCount,
+          emptyReason: analyzedFilesCount === 0 ? zeroReason : undefined,
           notice: combinedNotice,
           findings: enrichedFindings,
           checkRunId,
+          isPartial: isPartialScan,
+          unscannedFiles: unscannedFilesList,
+          conclusion: isPartialScan ? "neutral" : undefined,
         });
         const returnedRunId = (checkRunResult as any)?.data?.id ?? (checkRunResult as any)?.id;
         if (returnedRunId && typeof returnedRunId === "number") {
@@ -986,53 +1262,31 @@ export async function runPullRequestScan({
       // were both labelled "🟡 MEDIUM" in the pull request comment — the report
       // overstated the severity of the least severe findings.
 
-      // Resolve the diff line to anchor an inline comment on, or null when the
-      // finding has no usable line inside the PR diff (GitHub would reject it).
-      const anchorLine = (f: any): number | null => {
-        if (typeof f.lineStart !== "number") return null;
-        const lines = commentableLines.get(f.fileLocation);
-        return lines && lines.has(f.lineStart) ? f.lineStart : null;
-      };
-
       // Findings with a diff-anchored line become inline review comments; the
       // rest fall back into the summary body so nothing is ever lost.
-      const inlineComments: { path: string; line: number; body: string }[] = [];
-      const summaryFindings: any[] = [];
+      // Incorporates GitHub ```suggestion blocks when enabled for the repository (#2005).
+      const suggestionsConfig = resolveSuggestionsConfig(gateConfig);
+      const { inlineComments, summaryFindings } = buildInlineReviewComments(
+        enrichedFindings,
+        commentableLines,
+        { suggestionsConfig },
+      );
 
-      enrichedFindings.forEach((f: any) => {
-        const line = anchorLine(f);
-        if (line !== null) {
-          inlineComments.push({
-            path: f.fileLocation,
-            line,
-            body:
-              `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
-              // Layer 4: surface injection warning on the individual inline comment when flagged.
-              (f.promptInjectionSuspected
-                ? `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`
-                : "") +
-              `${f.explanation}\n\n` +
-              `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n` +
-              `${f.remediation}\n\n</details>`,
-          });
-        } else {
-          summaryFindings.push(f);
-        }
+      const scanTime = new Date().toISOString();
+      const summaryInput = (findings: ScanReportFinding[]) => ({
+        findings,
+        totalFindings: enrichedFindings.length,
+        inlineCount: inlineComments.length,
+        coverageNotice,
+        suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
+        rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
+        previouslyDismissedCount: suppressedFindings.length,
+        ruleSuppressedCount: ruleSuppressedFindings.length,
+        commitSha: pullRequest.head?.sha,
+        scanTime,
+        expiredIgnoreRules: scanResult.expiredIgnoreRules,
+        defaultSkippedCount: scanResult.defaultSkippedCount,
       });
-
-      const renderSummary = (findingsToRender: any[]) =>
-        renderScanReportSummary({
-          findings: findingsToRender,
-          totalFindings: enrichedFindings.length,
-          inlineCount: inlineComments.length,
-          coverageNotice,
-          suppressedFindings: scanner.lastSuppressionResult?.suppressedFindings,
-          rejectedSuppressions: scanner.lastSuppressionResult?.rejectedSuppressions,
-          previouslyDismissedCount: suppressedFindings.length,
-          ruleSuppressedCount: ruleSuppressedFindings.length,
-          commitSha: pullRequest.head?.sha,
-          expiredIgnoreRules: scanResult.expiredIgnoreRules,
-        });
 
       // Try to post the anchored findings as an inline review. If that fails
       // (e.g. a line slipped past the guard), fall back to a summary comment
@@ -1046,7 +1300,7 @@ export async function runPullRequestScan({
             pull_number: pullRequest.number,
             commit_id: pullRequest.head?.sha,
             event: "COMMENT",
-            body: renderSummary(summaryFindings),
+            body: renderScanReportSummary(summaryInput(summaryFindings)),
             comments: inlineComments,
           });
           inlinePosted = true;
@@ -1063,9 +1317,16 @@ export async function runPullRequestScan({
         repo: repository.name,
         issueNumber: pullRequest.number,
         commentId: pendingComment.data.id,
-        // When inline posting succeeded, the pending comment only needs the
-        // non-anchored findings; otherwise it carries the full report.
-        body: renderSummary(inlinePosted ? summaryFindings : enrichedFindings),
+        body: await renderScanReportWithBaseOwners(
+          octokit,
+          {
+            owner: repository.owner.login,
+            repo: repository.name,
+            baseRef: pullRequest.base?.sha || pullRequest.base?.ref,
+          },
+          summaryInput(inlinePosted ? summaryFindings : enrichedFindings),
+          inlinePosted ? inlineComments.map((comment) => comment.path) : [],
+        ),
       });
 
       if (userId) {
@@ -1084,6 +1345,54 @@ export async function runPullRequestScan({
           }),
         });
       }
+    } else if (analyzedFilesCount === 0) {
+      const cleanDismissedNotice =
+        suppressedFindings.length > 0
+          ? `\n\n🛡️ **${suppressedFindings.length} previously dismissed** finding(s) were suppressed for this repository.`
+          : "";
+
+      const cleanRuleNotice =
+        ruleSuppressedFindings.length > 0
+          ? `\n\n🛡️ **${ruleSuppressedFindings.length}** finding(s) were suppressed by installation suppression rule(s).`
+          : "";
+
+      const cleanExpiredNotice =
+        scanResult.expiredIgnoreRules && scanResult.expiredIgnoreRules.length > 0
+          ? `\n\n### ⚠️ Expired Ignore Rules (${scanResult.expiredIgnoreRules.length})\n\n` +
+            scanResult.expiredIgnoreRules
+              .map(
+                (r) =>
+                  `- ⚠️ ignore rule \`${r.pattern}\` expired on ${r.expires}${
+                    r.reason ? ` — reason: ${r.reason}` : ""
+                  }`,
+              )
+              .join("\n")
+          : "";
+
+      const cleanDefaultNotice =
+        scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+          ? `\n\nℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+          : "";
+
+      const emptyBody = formatZeroScanComment(zeroReason ?? "no changed files", {
+        commitSha: pullRequest.head?.sha,
+        cleanDismissedNotice,
+        cleanRuleNotice,
+        cleanExpiredNotice,
+        defaultSkippedNotice:
+          scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+            ? `ℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+            : undefined,
+        coverageNotice: coverageNotice || undefined,
+      });
+
+      await upsertSecureFlowComment(octokit, {
+        owner: repository.owner.login,
+        repo: repository.name,
+        issueNumber: pullRequest.number,
+        commentId: pendingComment.data.id,
+        body: emptyBody,
+      });
     } else {
       const cleanDismissedNotice =
         suppressedFindings.length > 0
@@ -1108,13 +1417,19 @@ export async function runPullRequestScan({
               .join("\n")
           : "";
 
+      const cleanDefaultNotice =
+        scanResult.defaultSkippedCount && scanResult.defaultSkippedCount > 0
+          ? `\n\nℹ️ **${scanResult.defaultSkippedCount} file${scanResult.defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.`
+          : "";
+
       const cleanBody =
         `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n` +
-        (pullRequest.head?.sha ? `Scanned commit: \`${pullRequest.head.sha}\`\n\n` : "") +
-        `✅ Scan completed successfully. No vulnerabilities found in the **${fileChanges.length}** analyzed files.` +
+        formatScanMetadata({ commitSha: pullRequest.head?.sha, scanTime }) +
+        `✅ Scan completed successfully. No vulnerabilities found in the **${analyzedFilesCount}** analyzed files.` +
         cleanDismissedNotice +
         cleanRuleNotice +
         cleanExpiredNotice +
+        cleanDefaultNotice +
         // A clean result on a partial scan must say so — this is exactly the
         // case where silent truncation was most misleading.
         (coverageNotice ? `\n\n${coverageNotice}` : "");
@@ -1177,29 +1492,47 @@ export async function runPullRequestScan({
           span.setAttribute("secureflow.risk_score", riskScore);
           span.setAttribute("secureflow.policy_decision", normalizePolicyDecisionEnum(decision));
 
+          const scanGateConfig = isPartialScan
+            ? {
+                ...gateConfig,
+                isPartialScan: true,
+                isPartial: true,
+                skippedFiles: workerSkippedFiles.map((f: any) =>
+                  typeof f === "string" ? f : f.filename,
+                ),
+              }
+            : gateConfig;
+
           return await prisma.scanResult.create({
             data: {
               pullRequestId: dbPr.id,
               headSha: pullRequest.head?.sha,
-              gateConfig,
+              gateConfig: scanGateConfig,
               riskScore,
               policyDecision: normalizePolicyDecisionEnum(decision),
               findings: {
-                create: findingsToPersist.map((f: any) => ({
-                  type: normalizeFindingTypeEnum(f.type),
-                  // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
-                  // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
-                  // not a `FindingSeverity` member, so the insert fails outright (#686).
-                  severity: toStoredSeverity(f.severity),
-                  fileLocation: f.fileLocation,
-                  lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
-                  lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
-                  codeSnippet: f.codeSnippet || null,
-                  explanation: f.explanation || null,
-                  remediation: f.remediation || null,
-                  promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
-                  fingerprint: f.fingerprint || "",
-                })),
+                create: findingsToPersist.map((f: any) => {
+                  const encrypted = encryptFinding({
+                    codeSnippet: f.codeSnippet || null,
+                    explanation: f.explanation || null,
+                  });
+                  return {
+                    type: normalizeFindingTypeEnum(f.type),
+                    // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                    // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                    // not a `FindingSeverity` member, so the insert fails outright (#686).
+                    severity: toStoredSeverity(f.severity),
+                    fileLocation: f.fileLocation,
+                    lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
+                    lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
+                    codeSnippet: encrypted.codeSnippet || null,
+                    explanation: encrypted.explanation || null,
+                    remediation: f.remediation || null,
+                    promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                    fingerprint: f.fingerprint || "",
+                    encryptionKeyId: encrypted.encryptionKeyId || null,
+                  };
+                }),
               },
             },
           });
@@ -1208,9 +1541,6 @@ export async function runPullRequestScan({
       );
 
       // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
-      const isPartialScan =
-        Boolean(coverageNotice) ||
-        Boolean(scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0);
       await autoResolveFixedFindings({
         repositoryId: (dbRepo?.id || repository.id).toString(),
         pullRequestId: dbPr.id,
@@ -1322,6 +1652,30 @@ export async function runPullRequestScan({
         }
       }
     }
+
+    if (deliveryId) {
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: event || "pull_request",
+        action: action ?? null,
+        repository: repository?.full_name ?? null,
+        outcome: "scanned",
+        reasonCode: WEBHOOK_REASON_CODES.SCANNED,
+      });
+    }
+  } catch (err: any) {
+    if (deliveryId) {
+      await recordWebhookDelivery({
+        deliveryId,
+        eventType: event || "pull_request",
+        action: action ?? null,
+        repository: repository?.full_name ?? null,
+        outcome: "rejected",
+        reasonCode: WEBHOOK_REASON_CODES.SCAN_FAILED,
+        error: err?.message || "Scan execution failed",
+      });
+    }
+    throw err;
   } finally {
     unregisterInFlightScan(scanTrackingId);
     // Stop renewing before releasing, so a late renewal cannot run after
@@ -1553,7 +1907,27 @@ export const worker = new Worker<WebhookJobData>(
 
       if (actionKind === "ignore") {
         log.info(`Action not tracked: ${sanitize(action)}`);
+        if (deliveryId) {
+          await recordWebhookDelivery({
+            deliveryId,
+            eventType: event || "pull_request",
+            action: action ?? null,
+            repository: repository?.full_name ?? null,
+            outcome: "ignored",
+            reasonCode: WEBHOOK_REASON_CODES.UNTRACKED_ACTION,
+          });
+        }
       } else if (actionKind === "metadata") {
+        if (deliveryId) {
+          await recordWebhookDelivery({
+            deliveryId,
+            eventType: event || "pull_request",
+            action: action ?? null,
+            repository: repository?.full_name ?? null,
+            outcome: "ignored",
+            reasonCode: WEBHOOK_REASON_CODES.METADATA_ONLY,
+          });
+        }
         // No new head commit, so no scan: re-running the pipeline here would cost
         // a Groq call and post a second review on a pull request that is already
         // closed. But `closed` is the only delivery that can tell us a pull
@@ -2233,6 +2607,33 @@ worker.on("failed", async (job: Job | undefined, err: Error) => {
     (job.data as WebhookJobData)?.deliveryId ||
     job.id;
   const log = logger.child({ correlationId, jobId: job.id });
+
+  // Rate limit protection (#2014):
+  // If the failure was caused by GitHub primary or secondary rate limits,
+  // delay and requeue the job instead of moving it to the dead letter queue.
+  if (isGitHubApiRateLimitError(err)) {
+    const delayMs = extractGitHubRetryAfterMs(err);
+    log.warn(
+      `[RATE_LIMIT_BACKOFF] Job ${job.id} rate-limited by GitHub API. Delaying retry by ${Math.ceil(
+        delayMs / 1000,
+      )}s without moving to DLQ: ${err.message}`,
+      { delayMs, attemptsMade: job.attemptsMade },
+    );
+
+    try {
+      if (job.data) {
+        await webhookQueue.add("process-webhook", job.data, {
+          jobId: job.id ? `${job.id}-ratelimit-${Date.now()}` : undefined,
+          delay: delayMs,
+          priority: 2,
+        });
+      }
+      return;
+    } catch (requeueErr: any) {
+      log.error(`Failed to delay rate-limited job ${job.id}:`, { error: requeueErr?.message });
+    }
+  }
+
   const maxAttempts = job.opts.attempts || 3;
   if (job.attemptsMade >= maxAttempts) {
     log.error(

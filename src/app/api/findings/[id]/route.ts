@@ -24,6 +24,8 @@ import {
 import { checkRateLimitDetailed } from "@/lib/redis";
 import { isTriageStatus, type TriageStatus } from "@/lib/triage/statuses";
 import type { FindingSeverity } from "@prisma/client";
+import { can } from "@/lib/auth/permissions";
+import { decryptFinding } from "@/lib/security/finding-encryption";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +46,8 @@ const FINDING_SELECT = {
   promptInjectionSuspected: true,
   fingerprint: true,
   complianceTags: true,
+  encryptionKeyId: true,
+  issueUrl: true,
   createdAt: true,
   remediationPatch: {
     select: {
@@ -115,7 +119,12 @@ const getHandler = withErrorHandler(async function GET(
     throw new AppError("Finding not found", 404);
   }
 
-  return NextResponse.json(finding, {
+  const session = await auth();
+  if (!can(session?.user, null, "findings:delete")) {
+    throw new AppError("Forbidden: Your role does not allow deleting findings", 403);
+  }
+
+  return NextResponse.json(decryptFinding(finding), {
     status: 200,
     headers: { "Cache-Control": "private, no-store" },
   });
@@ -216,6 +225,12 @@ const patchHandler = withErrorHandler(async function PATCH(
   // Apply triage status via the FindingTriage upsert pattern
   if (triageStatus !== undefined) {
     const repositoryId = existing.scanResult.pullRequest.repositoryId;
+    const isDismissing = triageStatus === "FALSE_POSITIVE" || triageStatus === "IGNORED";
+    const requiredAction = isDismissing ? "findings:dismiss" : "findings:restore";
+    const session = await auth();
+    if (!can(session?.user, repositoryId, requiredAction)) {
+      throw new AppError("Forbidden: Your role does not allow triaging findings", 403);
+    }
     const fingerprint = existing.fingerprint;
     const cleanNote = note?.trim() ? note.trim() : null;
     await prisma.findingTriage.upsert({
@@ -288,6 +303,11 @@ const deleteHandler = withErrorHandler(async function DELETE(
   });
   if (!finding) {
     throw new AppError("Finding not found", 404);
+  }
+
+  const session = await auth();
+  if (!can(session?.user, null, "findings:delete")) {
+    throw new AppError("Forbidden: Your role does not allow deleting findings", 403);
   }
 
   await prisma.finding.delete({ where: { id } });

@@ -203,8 +203,32 @@ const envSchema = z
     BREVO_API_KEY_FILE: z.string().optional(),
     SMTP_PASS_FILE: z.string().optional(),
     REDIS_URL_FILE: z.string().optional(),
+
+    // Finding Encryption at Rest (#2016)
+    ENCRYPTION_ENABLED: z.string().optional(),
+    FINDINGS_ENCRYPTION_ENABLED: z.string().optional(),
+    ENCRYPTION_KEY: z.string().optional(),
+    ENCRYPTION_KEY_ID: z.string().optional(),
+    ENCRYPTION_KEY_FILE: z.string().optional(),
+    ENCRYPTION_KEYS: z.string().optional(),
+    ENCRYPTION_KEYS_FILE: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    const encryptionEnabled =
+      data.ENCRYPTION_ENABLED === "true" ||
+      data.ENCRYPTION_ENABLED === "1" ||
+      data.FINDINGS_ENCRYPTION_ENABLED === "true" ||
+      data.FINDINGS_ENCRYPTION_ENABLED === "1";
+
+    if (encryptionEnabled && (!data.ENCRYPTION_KEY || data.ENCRYPTION_KEY.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ENCRYPTION_KEY"],
+        message:
+          "ENCRYPTION_KEY is required when encryption is enabled (ENCRYPTION_ENABLED=true). Specify ENCRYPTION_KEY or ENCRYPTION_KEY_FILE.",
+      });
+    }
+
     const isProduction = (data.NODE_ENV ?? process.env.NODE_ENV) === "production";
     if (isProduction) {
       if (data.GITHUB_API_URL) {

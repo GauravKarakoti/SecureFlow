@@ -92,6 +92,7 @@ SecureFlow also maintains implementation-level security documentation for
 specific subsystems, which may be useful background when reporting an issue in
 one of these areas:
 
+- [Threat model & STRIDE analysis](docs/threat-model.md)
 - [Prompt injection in AI-generated explanations](docs/security/prompt-injection.md)
 - [HTTP security response headers](docs/security/response-headers.md)
 - [API rate limiting](docs/security/rate-limiting.md)

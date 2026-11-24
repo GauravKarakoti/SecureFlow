@@ -6,6 +6,7 @@
 [![Contributors](https://img.shields.io/github/contributors/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/graphs/contributors)
 [![GitHub issues](https://img.shields.io/github/issues/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/GauravKarakoti/SecureFlow?style=for-the-badge)](https://github.com/GauravKarakoti/SecureFlow/pulls)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/GauravKarakoti/SecureFlow)
 
 </div>
 
@@ -26,6 +27,7 @@
 - [💻 Prerequisites & 2-Minute Quickstart](#-prerequisites--2-minute-quickstart)
   - [System Prerequisites](#system-prerequisites)
   - [Quickstart: Clone, Install & Run Tests](#quickstart-clone-install--run-tests)
+  - [One-Click Cloud & Container Setup (Dev Containers & GitHub Codespaces)](#one-click-cloud--container-setup-dev-containers--github-codespaces)
 - [⚡ Running the Project](#-running-the-project)
   - [1. Running & Testing the CLI (`secureflow`)](#1-running--testing-the-cli-secureflow)
   - [2. Running the Mission Control Dashboard](#2-running-the-mission-control-dashboard)
@@ -195,6 +197,25 @@ npm test
 > 💡 **Why `npm test` works out of the box**:  
 > The test runner automatically sets `GROQ_API_KEY=test-key` and uses mock adapters for the database, GitHub App, and Redis. You do **not** need to sign up for Groq, GitHub Developer accounts, or run a local database just to run tests or work on features!
 
+### One-Click Cloud & Container Setup (Dev Containers & GitHub Codespaces)
+
+SecureFlow provides a fully automated **Dev Container** setup that works out-of-the-box in GitHub Codespaces and VS Code Remote - Containers. It starts Node.js 22, PostgreSQL 16, and Redis services using Docker Compose, automatically installs dependencies, configures local environment defaults, and runs migrations.
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/GauravKarakoti/SecureFlow)
+
+#### Option 1: GitHub Codespaces (One-Click in Your Browser)
+
+1. Click the **Open in GitHub Codespaces** badge above (or navigate to your fork on GitHub and click **Code > Codespaces > Create codespace on main**).
+2. The devcontainer automatically boots and runs `postCreateCommand` (`npm ci`, safe local `.env` creation, and Prisma migrations).
+3. Once loaded, run `npm test` or `npm run dev` to start developing immediately.
+
+#### Option 2: VS Code Dev Containers (Local Docker)
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) in VS Code.
+2. Clone your fork and open the `SecureFlow` folder in VS Code.
+3. When prompted with **Reopen in Container**, click it (or press `F1` / `Ctrl+Shift+P` and choose **Dev Containers: Reopen in Container**).
+4. The devcontainer boots the `app`, PostgreSQL, and Redis containers, forwards ports `9002` (web dashboard), `5432` (PostgreSQL), and `6379` (Redis), and preinstalls ESLint, Prettier, Prisma, and Playwright extensions.
+
 ---
 
 ## ⚡ Running the Project
@@ -325,25 +346,27 @@ npm run worker
 
 We prioritize deterministic, fast, and comprehensive testing. Always ensure relevant suites pass before opening a PR:
 
-| Command                       | Scope                | Description                                                         |
-| :---------------------------- | :------------------- | :------------------------------------------------------------------ |
-| `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                   |
-| `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests      |
-| `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`               |
-| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                      |
-| `npm run lint`                | ESLint               | Lints TypeScript and React source code                              |
-| `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards              |
-| `npm run format`              | Prettier             | Automatically formats all files with Prettier                       |
-| `npm run test:a11y`           | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit          |
-| `npm run test:e2e`            | End-to-End           | Runs Playwright browser end-to-end tests                            |
-| `npm run test:visual`         | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages      |
-| `npm run test:visual:update`  | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`         |
-| `npm run db:check-drift`      | Prisma               | Verifies that Prisma schema and migrations are in sync              |
-| `npm run lint:openapi`        | OpenAPI              | Validates `openapi.yaml` with Spectral linter                       |
-| `npm run verify:openapi`      | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml`  |
-| `npm run analyze`             | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server  |
-| `npm run check:bundle-budget` | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json` |
-| `npm run lhci:audit`          | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`           |
+| Command                       | Scope                | Description                                                                  |
+| :---------------------------- | :------------------- | :--------------------------------------------------------------------------- |
+| `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                            |
+| `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests               |
+| `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`                        |
+| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                               |
+| `npm run lint`                | ESLint               | Lints TypeScript and React source code                                       |
+| `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards                       |
+| `npm run format`              | Prettier             | Automatically formats all files with Prettier                                |
+| `npm run test:a11y`           | Accessibility (a11y) | Runs Playwright `@axe-core/playwright` accessibility audit                   |
+| `npm run test:e2e`            | End-to-End           | Runs Playwright browser end-to-end tests                                     |
+| `npm run test:visual`         | Visual Regression    | Runs Playwright visual regression snapshot tests for key pages               |
+| `npm run test:visual:update`  | Visual Regression    | Updates baseline visual snapshots in `e2e/__screenshots__/`                  |
+| `npm run db:check-drift`      | Prisma               | Verifies that Prisma schema and migrations are in sync                       |
+| `npm run lint:openapi`        | OpenAPI              | Validates `openapi.yaml` with Spectral linter                                |
+| `npm run verify:openapi`      | OpenAPI              | Checks that all public API routes are documented in `openapi.yaml`           |
+| `npm run analyze`             | Bundle Analysis      | Generates `@next/bundle-analyzer` HTML reports for client & server           |
+| `npm run check:bundle-budget` | Performance Budgets  | Compares per-route JS sizes against budgets in `bundle-budget.json`          |
+| `npm run lhci:audit`          | Lighthouse CI        | Audits login & dashboard against `lighthouse-budget.json`                    |
+| `npm run test:helm`           | Helm Chart           | Runs `helm-unittest` test suites under `helm/secureflow/tests/`              |
+| `npm run test:helm:all`       | Helm Chart           | Runs full lint, rendering, and contract suite (`scripts/test-helm-chart.sh`) |
 
 ### Running Specific Tests
 
@@ -356,6 +379,50 @@ npx vitest src/components/theme-toggle.test.tsx
 
 # Run scanner prompt golden regression tests (mocked, zero LLM cost)
 npx vitest run src/lib/armor/prompt-regression.test.ts
+```
+
+### ⎈ Testing the Helm Chart Locally
+
+SecureFlow uses [`helm-unittest`](https://github.com/helm-unittest/helm-unittest) to unit-test Kubernetes manifests generated by the Helm chart without requiring an active cluster. Tests live under `helm/secureflow/tests/` and cover `Deployment`, `Service`, `Ingress`, `ServiceMonitor`, and secret providers with default and overridden values.
+
+#### 1. Prerequisites
+
+Install [Helm](https://helm.sh/docs/intro/install/) (v3.12+). Then install the `helm-unittest` plugin:
+
+```bash
+helm plugin install https://github.com/helm-unittest/helm-unittest.git
+```
+
+#### 2. Running Helm Unit Tests
+
+```bash
+# Run all Helm unit tests
+helm unittest helm/secureflow
+
+# Or via npm script
+npm run test:helm
+
+# Run a specific template test suite
+helm unittest -f 'tests/deployment_test.yaml' helm/secureflow
+helm unittest -f 'tests/service_test.yaml' helm/secureflow
+helm unittest -f 'tests/ingress_test.yaml' helm/secureflow
+helm unittest -f 'tests/servicemonitor_test.yaml' helm/secureflow
+helm unittest -f 'tests/secret_test.yaml' helm/secureflow
+```
+
+#### 3. Running Chart Linting & Contract Verification
+
+```bash
+# Lint the chart templates with required secrets
+helm lint helm/secureflow --set secrets.authSecret=local-test-only
+
+# Run chart-testing (ct lint)
+ct lint --config .github/ct.yaml --charts helm/secureflow
+
+# Run the complete lint, render, and contract verification script
+bash scripts/test-helm-chart.sh
+# Or via npm script
+npm run test:helm:all
 ```
 
 ### ⚡ JavaScript Bundle Size & Lighthouse Performance Budgets

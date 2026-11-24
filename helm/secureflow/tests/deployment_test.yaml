@@ -1,0 +1,247 @@
+suite: test deployment templates
+templates:
+  - app-deployment.yaml
+  - worker-deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+
+values:
+  - ../values.yaml
+
+tests:
+  - it: should render default app deployment with probes, resources, runAsNonRoot, and secrets
+    template: app-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow-app
+      - equal:
+          path: spec.replicas
+          value: 2
+      # Security context assertions: runAsNonRoot and unprivileged
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1001
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      # Probes assertions: liveness, readiness, startup
+      - isNotNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /api/health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 9002
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 15
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 20
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 9002
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.initialDelaySeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 10
+      - isNotNull:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /api/health
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 30
+      # Resources assertions: requests and limits
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: "1000m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: "1024Mi"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.ephemeral-storage
+          value: "2Gi"
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: "250m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: "512Mi"
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.ephemeral-storage
+          value: "512Mi"
+      # Image tag default assertion (resolved from Chart appVersion)
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "secureflow/app:0.1.0"
+      # Secret and ConfigMap references
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: RELEASE-NAME-secureflow-secrets
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            configMapRef:
+              name: RELEASE-NAME-secureflow-config
+
+  - it: should render app deployment with custom overridden values
+    template: app-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+      secrets.existingSecret: my-precreated-secret
+      app.replicaCount: 5
+      app.image.repository: mycorp/secureflow-app
+      app.image.tag: v2.5.0
+      global.imageRegistry: ghcr.io
+      app.podSecurityContext.runAsUser: 2001
+      app.podSecurityContext.runAsGroup: 2001
+      app.resources.limits.cpu: "2000m"
+      app.resources.limits.memory: "4096Mi"
+      app.resources.requests.cpu: "500m"
+      app.resources.requests.memory: "1024Mi"
+      app.livenessProbe.httpGet.path: /custom/health
+      app.livenessProbe.initialDelaySeconds: 30
+      app.livenessProbe.periodSeconds: 45
+      app.podAnnotations:
+        custom.company.io/cost-center: secops
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/mycorp/secureflow-app:v2.5.0"
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 2001
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 2001
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: "2000m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: "4096Mi"
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: "500m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: "1024Mi"
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /custom/health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 45
+      - equal:
+          path: spec.template.metadata.annotations["custom.company.io/cost-center"]
+          value: secops
+      # Existing secret used instead of chart-managed secret
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: my-precreated-secret
+
+  - it: should omit replicas when app autoscaling is enabled
+    template: app-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+      app.autoscaling.enabled: true
+    asserts:
+      - isNull:
+          path: spec.replicas
+
+  - it: should render default worker deployment with probes, runAsNonRoot, and lifecycle
+    template: worker-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow-worker
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 35
+      - isNotNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should render worker deployment with custom terminationGracePeriod and local inference
+    template: worker-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+      worker.terminationGracePeriodSeconds: 60
+      worker.localInference.enabled: true
+      worker.localInference.url: "http://ollama:11434/v1"
+      worker.localInference.model: "llama-3"
+      worker.localInference.resources.limits:
+        nvidia.com/gpu: 1
+      worker.localInference.resources.requests:
+        nvidia.com/gpu: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOCAL_AI_URL
+            value: "http://ollama:11434/v1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOCAL_AI_MODEL
+            value: "llama-3"
+
+  - it: should not render worker deployment when worker is disabled
+    template: worker-deployment.yaml
+    set:
+      secrets.authSecret: local-test-only-secret-key
+      worker.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

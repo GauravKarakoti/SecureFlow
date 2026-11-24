@@ -11,6 +11,15 @@ import githubProvider from "../__mocks__/next-auth/providers/github";
 import { auth, SAFE_MOCK_AUTH_SESSION } from "../__mocks__/auth";
 import { hasHighEntropy, isBenignSecretCandidate } from "../cli/src/entropy.js";
 
+vi.mock("next-auth", async () => {
+  const actual =
+    await vi.importActual<typeof import("../__mocks__/next-auth")>("../__mocks__/next-auth");
+  return {
+    ...actual,
+    default: actual.default,
+  };
+});
+
 describe("Mock Data Credentials Security Audit (#1303, #1354)", () => {
   describe("groq-sdk mock audit", () => {
     it("provides safe synthetic mock API key without real secrets", () => {

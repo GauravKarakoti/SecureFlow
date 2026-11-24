@@ -95,6 +95,23 @@ export interface FindingsQuery {
   from?: string | null;
   to?: string | null;
   expiring?: string | null;
+  assignee?: string | null;
+  tab?: string | null;
+  tag?: string | null;
+  source?: string | null;
+  pathPrefix?: string | null;
+  path?: string | null;
+}
+
+export type AssigneeFilter = "me" | "unassigned" | null;
+
+/** Keep only recognised assignee filters. */
+export function parseAssigneeFilter(value: unknown): AssigneeFilter {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (lower === "me" || lower === "assigned_to_me") return "me";
+  if (lower === "unassigned") return "unassigned";
+  return null;
 }
 
 /** A query with every field resolved to a safe, in-range value. */
@@ -112,6 +129,11 @@ export interface NormalizedFindingsQuery {
   from: string | null;
   to: string | null;
   expiring: string | null;
+  assignee: AssigneeFilter;
+  tab: string | null;
+  tag: string | null;
+  source: string | null;
+  pathPrefix: string | null;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -317,6 +339,19 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
         query.expiring.trim().toLowerCase() === "true")
         ? "14d"
         : null,
+    assignee: parseAssigneeFilter(query.assignee),
+    tab: typeof query.tab === "string" && query.tab.trim() ? query.tab.trim().toLowerCase() : null,
+    tag: typeof query.tag === "string" && query.tag.trim() ? query.tag.trim().toUpperCase() : null,
+    source:
+      typeof query.source === "string" && query.source.trim()
+        ? query.source.trim().toLowerCase()
+        : null,
+    pathPrefix:
+      typeof query.pathPrefix === "string" && query.pathPrefix.trim()
+        ? query.pathPrefix.trim()
+        : typeof query.path === "string" && query.path.trim()
+          ? query.path.trim()
+          : null,
   };
 
   if (query.cursor !== undefined) {
@@ -441,6 +476,10 @@ export interface FindingsWhereContext {
   fingerprintsByStatus?: Partial<Record<FindingStatus, readonly string[]>>;
   /** Fingerprints whose triage expiry falls within the next 14 days. */
   expiringFingerprints?: readonly string[];
+  /** Fingerprints assigned to the current user. */
+  assignedToMeFingerprints?: readonly string[];
+  /** All assigned fingerprints (for unassigned filter). */
+  assignedFingerprints?: readonly string[];
 }
 
 /**
@@ -508,6 +547,20 @@ export function buildFindingsWhere(
 
   if (query.type.length > 0) {
     where.type = { in: query.type };
+  }
+
+  // Tag / Baseline filter (#2011)
+  if (query.tag) {
+    where.tag = query.tag;
+  } else if (query.tab === "baseline" || query.source === "baseline") {
+    where.tag = "BASELINE";
+  } else if (
+    query.tab === "prs" ||
+    query.tab === "pr" ||
+    query.source === "pr" ||
+    query.source === "prs"
+  ) {
+    where.OR = [{ tag: null }, { tag: { not: "BASELINE" } }];
   }
 
   if (query.from || query.to) {
@@ -595,9 +648,33 @@ export function buildFindingsWhere(
     });
   }
 
+  if (query.pathPrefix) {
+    const prefix = query.pathPrefix.trim();
+    if (prefix === "(root)" || prefix === "root" || prefix === "/") {
+      where.fileLocation = {
+        not: { contains: "/" },
+      };
+    } else {
+      const normalizedPrefix = prefix.endsWith("/") ? prefix : `${prefix}/`;
+      where.fileLocation = {
+        OR: [{ startsWith: normalizedPrefix }, { equals: prefix.replace(/\/+$/, "") }],
+      };
+    }
+  }
+
   if (query.expiring === "14d") {
     const targetFingerprints = context.expiringFingerprints ?? [];
     andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
+  }
+
+  if (query.assignee === "me") {
+    const targetFingerprints = context.assignedToMeFingerprints ?? [];
+    andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
+  } else if (query.assignee === "unassigned") {
+    const anyAssigned = context.assignedFingerprints ?? [];
+    if (anyAssigned.length > 0) {
+      andClauses.push({ fingerprint: { notIn: [...new Set(anyAssigned)] } });
+    }
   }
 
   if (andClauses.length > 0) {
@@ -633,7 +710,11 @@ export function hasActiveFilters(query: NormalizedFindingsQuery): boolean {
     query.search !== null ||
     query.from !== null ||
     query.to !== null ||
-    query.expiring !== null
+    query.expiring !== null ||
+    query.tab !== null ||
+    query.tag !== null ||
+    query.source !== null ||
+    query.pathPrefix !== null
   );
 }
 
@@ -650,6 +731,10 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
   if (query.expiring) params.set("expiring", query.expiring);
+  if (query.tab) params.set("tab", query.tab);
+  if (query.tag) params.set("tag", query.tag);
+  if (query.source) params.set("source", query.source);
+  if (query.pathPrefix) params.set("path", query.pathPrefix);
   for (const severity of query.severity) params.append("severity", severity);
   for (const type of query.type) params.append("type", type);
   for (const status of query.status) params.append("status", status);
@@ -682,6 +767,11 @@ export function fromSearchParams(
     from: single(params.from),
     to: single(params.to),
     expiring: single(params.expiring),
+    assignee: single(params.assignee),
+    tab: single(params.tab),
+    tag: single(params.tag),
+    source: single(params.source),
+    pathPrefix: single(params.path) ?? single(params.pathPrefix),
   });
 }
 

@@ -31,6 +31,7 @@ const m = vi.hoisted(() => ({
   parseOutputFormat: vi.fn(),
   parseOutputPath: vi.fn(),
   parseIgnoreFilePath: vi.fn(),
+  parseConfigFilePath: vi.fn(),
   parseVoiceArg: vi.fn(),
   parseColorArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
@@ -40,11 +41,25 @@ const m = vi.hoisted(() => ({
   parseSinceArg: vi.fn(),
   parseNoCacheArg: vi.fn(),
   parseCacheClearArg: vi.fn(),
+  parseCachePruneArg: vi.fn(),
+  parseCacheStatsArg: vi.fn(),
+  parseCacheTtlArg: vi.fn(),
+  parseCacheMaxSizeArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
   parseIgnoreSuppressionsArg: vi.fn(() => false),
+  parseTargetDirectoryArg: vi.fn(),
+  parseVerbosityArg: vi.fn(),
+  parseQuietArg: vi.fn(),
+  parseVerboseArg: vi.fn(),
+  discoverWorkspaceFiles: vi.fn(),
+  isGitRepository: vi.fn(() => true),
   getCacheEntry: vi.fn(),
   setCacheEntry: vi.fn(),
   clearCache: vi.fn(),
+  pruneCache: vi.fn(),
+  getCacheStats: vi.fn(),
+  parseDurationMs: vi.fn(),
+  parseSizeBytes: vi.fn(),
   resolveCacheDir: vi.fn(),
 }));
 
@@ -54,6 +69,7 @@ vi.mock("./git.js", () => ({
   readStagedContent: m.readStagedContent,
   getChangedFilesSince: m.getChangedFilesSince,
   getRepoRoot: m.getRepoRoot,
+  isGitRepository: m.isGitRepository,
 }));
 vi.mock("./scanner.js", () => ({
   scanFile: m.scanFile,
@@ -66,6 +82,24 @@ vi.mock("./scanner.js", () => ({
   filterBySeverity: m.filterBySeverity,
   parseSeverityFilter: m.parseSeverityFilter,
   generateVoiceSummaryText: m.generateVoiceSummaryText,
+  countFindingsBySeverity: (localCount: number, aiFindings: any[] = []) => {
+    let critical = 0;
+    let high = localCount;
+    let medium = 0;
+    let low = 0;
+    for (const f of aiFindings) {
+      const s = (f.severity || "LOW").toUpperCase();
+      if (s === "CRITICAL") critical++;
+      else if (s === "HIGH") high++;
+      else if (s === "MEDIUM") medium++;
+      else if (s === "LOW") low++;
+    }
+    return { critical, high, medium, low };
+  },
+  formatSeverityCounts: (c: any) =>
+    `Findings by severity: critical: ${c.critical}, high: ${c.high}, medium: ${c.medium}, low: ${c.low}`,
+  DEFAULT_IGNORE_PATTERNS: [],
+  compileIgnorePatterns: vi.fn(() => []),
 }));
 vi.mock("./lib/api-client.js", () => ({
   NetworkUnavailableError: errors.NetworkUnavailableError,
@@ -81,13 +115,25 @@ vi.mock("./lib/output-args.js", () => ({
   parseOutputFormat: m.parseOutputFormat,
   parseOutputPath: m.parseOutputPath,
   parseIgnoreFilePath: m.parseIgnoreFilePath,
+  parseConfigFilePath: m.parseConfigFilePath,
   parseVoiceArg: m.parseVoiceArg,
   parseSinceArg: m.parseSinceArg,
   parseColorArg: m.parseColorArg,
   parseNoCacheArg: m.parseNoCacheArg,
   parseCacheClearArg: m.parseCacheClearArg,
+  parseCachePruneArg: m.parseCachePruneArg,
+  parseCacheStatsArg: m.parseCacheStatsArg,
+  parseCacheTtlArg: m.parseCacheTtlArg,
+  parseCacheMaxSizeArg: m.parseCacheMaxSizeArg,
   parseCacheDirArg: m.parseCacheDirArg,
   parseIgnoreSuppressionsArg: m.parseIgnoreSuppressionsArg,
+  parseTargetDirectoryArg: m.parseTargetDirectoryArg,
+  parseVerbosityArg: m.parseVerbosityArg,
+  parseQuietArg: m.parseQuietArg,
+  parseVerboseArg: m.parseVerboseArg,
+}));
+vi.mock("./workspace.js", () => ({
+  discoverWorkspaceFiles: m.discoverWorkspaceFiles,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));
@@ -95,6 +141,10 @@ vi.mock("./cache.js", () => ({
   getCacheEntry: m.getCacheEntry,
   setCacheEntry: m.setCacheEntry,
   clearCache: m.clearCache,
+  pruneCache: m.pruneCache,
+  getCacheStats: m.getCacheStats,
+  parseDurationMs: m.parseDurationMs,
+  parseSizeBytes: m.parseSizeBytes,
   resolveCacheDir: m.resolveCacheDir,
 }));
 
@@ -154,11 +204,36 @@ beforeEach(() => {
   m.parseOutputFormat.mockReturnValue("text");
   m.parseOutputPath.mockReturnValue(null);
   m.parseIgnoreFilePath.mockReturnValue(undefined);
+  m.parseConfigFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
   m.parseSinceArg.mockReturnValue(undefined);
   m.parseNoCacheArg.mockReturnValue(false);
   m.parseCacheClearArg.mockReturnValue(false);
   m.parseCacheDirArg.mockReturnValue(undefined);
+  m.parseVerbosityArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    let q = false;
+    let v = false;
+    for (const a of argv) {
+      if (a === "--quiet" || a === "-q" || a.startsWith("--quiet=")) {
+        const val = a.startsWith("--quiet=") ? a.slice("--quiet=".length).toLowerCase() : "true";
+        if (val !== "false" && val !== "0") q = true;
+      }
+      if (a === "--verbose" || a.startsWith("--verbose=")) {
+        const val = a.startsWith("--verbose=") ? a.slice("--verbose=".length).toLowerCase() : "true";
+        if (val !== "false" && val !== "0") v = true;
+      }
+    }
+    if (q && v) throw new errors.CliUsageError("--quiet and --verbose cannot be combined");
+    if (q) return "quiet";
+    if (v) return "verbose";
+    return "normal";
+  });
+  m.parseQuietArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    return argv.some((a) => a === "--quiet" || a === "-q");
+  });
+  m.parseVerboseArg.mockImplementation((argv: readonly string[] = process.argv) => {
+    return argv.some((a) => a === "--verbose");
+  });
   m.getCacheEntry.mockReturnValue(null);
   m.setCacheEntry.mockReturnValue(undefined);
   m.clearCache.mockReturnValue({ cleared: true, count: 0, cacheDir: "/dummy/cache" });
@@ -172,10 +247,19 @@ beforeEach(() => {
   m.scanFile.mockImplementation((path: string) => scanResult(path));
   m.filterBySeverity.mockImplementation((results: unknown) => results);
   m.formatScanResults.mockReturnValue("FORMATTED");
-  m.parseFailOnArg.mockReturnValue("high");
+  m.parseFailOnArg.mockImplementation((args: string[] = process.argv) => {
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a?.startsWith("--fail-on=")) return a.slice("--fail-on=".length).toUpperCase();
+      if (a === "--fail-on" && args[i + 1]) return args[i + 1]!.toUpperCase();
+    }
+    return "high";
+  });
   m.shouldFailScan.mockReturnValue(false);
   m.blockingAiFindings.mockReturnValue([]);
-  m.describeFailThreshold.mockReturnValue("high");
+  m.describeFailThreshold.mockImplementation((t) =>
+    t ? `the --fail-on=${t} threshold` : "the default HIGH/CRITICAL threshold",
+  );
   m.generateVoiceSummaryText.mockReturnValue("summary");
   m.playVoiceDebrief.mockResolvedValue(undefined);
   m.requestAiFileScan.mockResolvedValue([]);
@@ -659,6 +743,21 @@ describe("caching and cache-clear flags", () => {
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
   });
 
+  it("reports the number of skipped files in verbose mode", async () => {
+    m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.scanFile.mockImplementation((filePath: string) => {
+      if (filePath === "b.ts") {
+        return { path: filePath, violations: [], skipped: "matched .secureflowignore" };
+      }
+      return scanResult(filePath, []);
+    });
+
+    const code = await runCli("--verbose");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain("Skipped 1 file(s) (ignored or excluded).");
+  });
+
   it("bypasses cache when --no-cache is passed", async () => {
     m.parseNoCacheArg.mockReturnValue(true);
     m.getStagedFiles.mockReturnValue(["file.ts"]);
@@ -671,5 +770,323 @@ describe("caching and cache-clear flags", () => {
     expect(m.scanFile).toHaveBeenCalledTimes(1);
     expect(m.setCacheEntry).not.toHaveBeenCalled();
     expect(output(logSpy)).toContain("Analyzed 1 file(s) (0 cached).");
+  });
+
+  it("prunes cache and outputs summary when cache-prune is invoked", async () => {
+    m.parseCachePruneArg.mockReturnValue(true);
+    m.parseCacheTtlArg.mockReturnValue("7d");
+    m.parseDurationMs.mockReturnValue(7 * 24 * 60 * 60 * 1000);
+    m.pruneCache.mockReturnValue({
+      prunedCount: 5,
+      freedBytes: 1024 * 50,
+      remainingCount: 10,
+      remainingBytes: 1024 * 100,
+      cacheDir: "/dummy/cache",
+    });
+
+    const code = await runCli("cache-prune", "--ttl", "7d");
+    expect(code).toBe(0);
+    expect(m.pruneCache).toHaveBeenCalledWith({
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+      maxSizeBytes: undefined,
+      cacheDir: undefined,
+      cwd: expect.any(String),
+    });
+    expect(output(logSpy)).toContain("Cache pruned: 5 entries removed");
+    expect(output(logSpy)).toContain("10 remaining");
+  });
+
+  it("prints cache statistics when cache-stats is invoked", async () => {
+    m.parseCacheStatsArg.mockReturnValue(true);
+    m.getCacheStats.mockReturnValue({
+      cacheDir: "/dummy/cache",
+      entryCount: 12,
+      totalSizeBytes: 1024 * 200,
+      tempFileCount: 0,
+      tempSizeBytes: 0,
+      oldestEntryAt: Date.now() - 100000,
+      newestEntryAt: Date.now(),
+      rulesetVersions: { "1.0.0": 12 },
+    });
+
+    const code = await runCli("cache-stats");
+    expect(code).toBe(0);
+    expect(m.getCacheStats).toHaveBeenCalled();
+    expect(output(logSpy)).toContain("Scan Cache Statistics");
+    expect(output(logSpy)).toContain("Total Entries:     12");
+  });
+});
+
+describe("directory scanning and non-git fallback (#1933)", () => {
+  it("scans files in target directory when positional target is provided", async () => {
+    m.parseTargetDirectoryArg.mockReturnValue("src");
+    m.discoverWorkspaceFiles.mockReturnValue(["src/index.ts"]);
+    m.scanFile.mockReturnValue(scanResult("src/index.ts", []));
+
+    const code = await runCli("src");
+    expect(code).toBe(0);
+    expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+      "src",
+      expect.objectContaining({ workspaceRoot: expect.any(String) }),
+    );
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in src).");
+  });
+
+  it("falls back gracefully to current directory scan when not inside a git repository", async () => {
+    m.isGitRepository.mockReturnValue(false);
+    m.discoverWorkspaceFiles.mockReturnValue(["package.json"]);
+    m.scanFile.mockReturnValue(scanResult("package.json", []));
+
+    const code = await runCli();
+    expect(code).toBe(0);
+    expect(m.discoverWorkspaceFiles).toHaveBeenCalledWith(
+      ".",
+      expect.objectContaining({ workspaceRoot: expect.any(String) }),
+    );
+    expect(m.getStagedFiles).not.toHaveBeenCalled();
+    expect(output(logSpy)).toContain("SecureFlow scan passed (1 file(s) in directory).");
+  });
+});
+
+describe("--fail-on thresholds, exit codes, and severity counts", () => {
+  beforeEach(() => {
+    m.getStagedFiles.mockReturnValue(["src/app.ts"]);
+    m.readStagedContent.mockReturnValue("const x = 1;");
+    m.scanFile.mockReturnValue(scanResult("src/app.ts", []));
+  });
+
+  it("exits 0 when findings are below the critical threshold", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "critical");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 1, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("below the --fail-on=CRITICAL threshold");
+  });
+
+  it("exits 1 when findings meet or exceed the critical threshold", async () => {
+    const critical = aiFinding("critical");
+    m.requestAiFileScan.mockResolvedValue([critical]);
+    m.blockingAiFindings.mockReturnValue([critical]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "critical");
+    expect(code).toBe(1);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 1, high: 0, medium: 0, low: 0",
+    );
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=CRITICAL threshold",
+    );
+  });
+
+  it("exits 0 when findings are below the high threshold", async () => {
+    const medium = aiFinding("medium");
+    m.requestAiFileScan.mockResolvedValue([medium]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 1, low: 0",
+    );
+  });
+
+  it("exits 1 when findings meet or exceed the high threshold", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.blockingAiFindings.mockReturnValue([high]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=HIGH threshold",
+    );
+  });
+
+  it("exits 0 when findings are below the medium threshold", async () => {
+    const low = aiFinding("low");
+    m.requestAiFileScan.mockResolvedValue([low]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "medium");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 0, low: 1",
+    );
+  });
+
+  it("exits 1 when findings meet or exceed the medium threshold", async () => {
+    const medium = aiFinding("medium");
+    m.requestAiFileScan.mockResolvedValue([medium]);
+    m.blockingAiFindings.mockReturnValue([medium]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "medium");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=MEDIUM threshold",
+    );
+  });
+
+  it("exits 0 when no findings exist with --fail-on low", async () => {
+    m.requestAiFileScan.mockResolvedValue([]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "low");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 0, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("SecureFlow scan passed");
+  });
+
+  it("exits 1 when low findings are met with --fail-on low", async () => {
+    const low = aiFinding("low");
+    m.requestAiFileScan.mockResolvedValue([low]);
+    m.blockingAiFindings.mockReturnValue([low]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("--fail-on", "low");
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain(
+      "blocked this commit: 1 AI-detected finding at or above the --fail-on=LOW threshold",
+    );
+  });
+
+  it("exits 0 in advisory mode with --fail-on none even when critical findings exist", async () => {
+    const critical = aiFinding("critical");
+    m.requestAiFileScan.mockResolvedValue([critical]);
+    m.shouldFailScan.mockReturnValue(false);
+
+    const code = await runCli("--fail-on", "none");
+    expect(code).toBe(0);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 1, high: 0, medium: 0, low: 0",
+    );
+    expect(output(logSpy)).toContain("advisory warning: 1 finding below");
+  });
+
+  it("supports secureflow scan --fail-on high subcommand syntax", async () => {
+    const high = aiFinding("high");
+    m.requestAiFileScan.mockResolvedValue([high]);
+    m.blockingAiFindings.mockReturnValue([high]);
+    m.shouldFailScan.mockReturnValue(true);
+
+    const code = await runCli("scan", "--fail-on", "high");
+    expect(code).toBe(1);
+    expect(output(logSpy)).toContain(
+      "Findings by severity: critical: 0, high: 1, medium: 0, low: 0",
+    );
+  });
+
+  it("exits 2 on scan error when --fail-on is specified", async () => {
+    m.getStagedFiles.mockImplementation(() => {
+      throw new errors.GitError("fatal: not a git repository");
+    });
+
+    const code = await runCli("--fail-on", "high");
+    expect(code).toBe(2);
+    expect(output(errorSpy)).toContain("fatal: not a git repository");
+  });
+
+  it("retains default exit code 1 on scan error when --fail-on is omitted", async () => {
+    m.getStagedFiles.mockImplementation(() => {
+      throw new errors.GitError("fatal: not a git repository");
+    });
+
+    const code = await runCli();
+    expect(code).toBe(1);
+    expect(output(errorSpy)).toContain("fatal: not a git repository");
+  });
+
+  describe("Verbosity and progress indicator (--quiet, --verbose) (#1978)", () => {
+    it("prints only summary and errors in --quiet mode when clean", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockReturnValue(scanResult("a.ts", []));
+
+      const code = await runCli("--quiet");
+      expect(code).toBe(0);
+      const out = output(logSpy);
+      expect(out).toContain("Findings by severity: critical: 0, high: 0, medium: 0, low: 0");
+      expect(out).toContain("SecureFlow scan passed");
+      expect(out).not.toContain("Analyzed");
+      expect(out).not.toContain("scanned");
+      expect(out).not.toContain("✨ No security violations");
+      expect(output(errorSpy)).toBe("");
+    });
+
+    it("prints only summary and errors in -q mode when violations exist", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts"]);
+      m.readStagedContent.mockReturnValue("console.log(password);");
+      m.scanFile.mockReturnValue(scanResult("a.ts", [violation]));
+      m.shouldFailScan.mockReturnValue(true);
+
+      const code = await runCli("-q");
+      expect(code).toBe(1);
+      const errOut = output(errorSpy);
+      expect(errOut).toContain("Secret logging detected in a.ts:3");
+      expect(errOut).toContain("SecureFlow blocked this commit");
+      const out = output(logSpy);
+      expect(out).toContain("Findings by severity: critical: 0, high: 1, medium: 0, low: 0");
+      expect(out).not.toContain("Analyzed");
+      expect(out).not.toContain("scanned");
+    });
+
+    it("prints per-file timing and skipped files in --verbose mode", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockImplementation((filePath: string) => {
+        if (filePath === "b.ts") {
+          return { path: filePath, violations: [], skipped: "matched .secureflowignore" };
+        }
+        return scanResult(filePath, []);
+      });
+
+      const code = await runCli("--verbose");
+      expect(code).toBe(0);
+      const out = output(logSpy);
+      expect(out).toMatch(/✓ scanned a\.ts \(\d+(\.\d+)?ms\)/);
+      expect(out).toContain("↷ skipped b.ts (matched .secureflowignore)");
+      expect(out).toContain("Skipped 1 file(s) (ignored or excluded).");
+      expect(out).toContain("Analyzed 2 file(s) (0 cached).");
+    });
+
+    it("fails with exit code 1 when --quiet and --verbose are combined", async () => {
+      const code = await runCli("--quiet", "--verbose");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("--quiet and --verbose cannot be combined");
+    });
+
+    it("fails with exit code 1 when -q and --verbose are combined", async () => {
+      const code = await runCli("-q", "--verbose");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("--quiet and --verbose cannot be combined");
+    });
+
+    it("contains no progress characters when output is piped or redirected (non-terminal)", async () => {
+      m.getStagedFiles.mockReturnValue(["a.ts", "b.ts"]);
+      m.readStagedContent.mockReturnValue("const x = 1;");
+      m.scanFile.mockReturnValue(scanResult("a.ts", []));
+
+      // With non-TTY stderr/stdout
+      const stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation((() => true) as any);
+      try {
+        const code = await runCli();
+        expect(code).toBe(0);
+        // Ensure no progress indicator updates were written to stderr
+        const stderrCalls = stderrWriteSpy.mock.calls.map((c) => String(c[0])).join("");
+        expect(stderrCalls).not.toContain("Scanning files (");
+      } finally {
+        stderrWriteSpy.mockRestore();
+      }
+    });
   });
 });

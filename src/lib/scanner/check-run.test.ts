@@ -3,6 +3,7 @@ import {
   postScanCheckRun,
   postScanErrorCheckRun,
   postScanCancelledCheckRun,
+  postScanSkippedCheckRun,
   SCAN_CHECK_NAME,
   mapSeverityToAnnotationLevel,
   findingToAnnotation,
@@ -84,6 +85,93 @@ describe("Check conclusion logic (unchanged)", () => {
         conclusion: "success",
       }),
     );
+  });
+
+  describe("Zero analyzed files handling (PR with no scan targets)", () => {
+    it("sets conclusion to neutral and title to 'Nothing to scan' when fileCount is 0", async () => {
+      const o = mk();
+      await postScanCheckRun(o, { ...base, decision: "PASS", fileCount: 0, findingsCount: 0 });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: SCAN_CHECK_NAME,
+          status: "completed",
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: no changed files.",
+          }),
+        }),
+      );
+      // Ensure it never produces success conclusion when fileCount is 0
+      expect(o.rest.checks.create.mock.calls[0][0].conclusion).not.toBe("success");
+    });
+
+    it("explains 'unsupported file types' when emptyReason is provided", async () => {
+      const o = mk();
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        emptyReason: "unsupported file types",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: unsupported file types.",
+          }),
+        }),
+      );
+    });
+
+    it("explains 'all paths ignored' when emptyReason is provided", async () => {
+      const o = mk();
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        emptyReason: "all paths ignored",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: all paths ignored.",
+          }),
+        }),
+      );
+    });
+
+    it("updates existing check run with neutral conclusion and 'Nothing to scan' title", async () => {
+      const o = mk(777);
+      await postScanCheckRun(o, {
+        ...base,
+        decision: "PASS",
+        fileCount: 0,
+        findingsCount: 0,
+        checkRunId: 777,
+        emptyReason: "unsupported file types",
+      });
+
+      expect(o.rest.checks.create).not.toHaveBeenCalled();
+      expect(o.rest.checks.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          check_run_id: 777,
+          conclusion: "neutral",
+          output: expect.objectContaining({
+            title: "Nothing to scan",
+            summary: "Nothing to scan: unsupported file types.",
+          }),
+        }),
+      );
+    });
   });
 });
 
@@ -408,4 +496,78 @@ describe("Batching annotations (Checks API limit of 50 per call)", () => {
     expect(o.rest.checks.create.mock.calls[0][0].output.annotations).toBeUndefined();
     expect(o.rest.checks.update).not.toHaveBeenCalled();
   });
+
+  it("handles partial scan check run with neutral conclusion and unscanned files list (#1981)", async () => {
+    const o = mk();
+    await postScanCheckRun(o, {
+      ...base,
+      decision: "BLOCKED",
+      findingsCount: 2,
+      fileCount: 5,
+      isPartial: true,
+      unscannedFiles: [
+        { filename: "src/slow.ts", reason: "scan timeout budget of 120s exceeded" },
+        { filename: "src/large.ts", reason: "oversized" },
+      ],
+    });
+
+    expect(o.rest.checks.create).toHaveBeenCalledTimes(1);
+    const callArg = o.rest.checks.create.mock.calls[0][0];
+    expect(callArg.conclusion).toBe("neutral");
+    expect(callArg.output.title).toBe("Policy Decision: PARTIAL (2 issues in 5 analyzed files)");
+    expect(callArg.output.summary).toContain("Partial Scan — Unscanned Files (2)");
+    expect(callArg.output.summary).toContain("`src/slow.ts`: scan timeout budget of 120s exceeded");
+    expect(callArg.output.summary).toContain("`src/large.ts`: oversized");
+  });
 });
+
+  describe("postScanSkippedCheckRun (#1982)", () => {
+    it("creates a neutral check run with reason for skipped PR", async () => {
+      const o = mk();
+      await postScanSkippedCheckRun(o as any, {
+        owner: "acme",
+        repo: "repo",
+        headSha: "head123",
+        reason: "Pull request is a draft and skipDrafts is enabled.",
+      });
+
+      expect(o.rest.checks.create).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        name: SCAN_CHECK_NAME,
+        head_sha: "head123",
+        status: "completed",
+        conclusion: "neutral",
+        output: {
+          title: "SecureFlow — Scan Skipped",
+          summary: "Pull request is a draft and skipDrafts is enabled.",
+        },
+      });
+    });
+
+    it("updates existing check run when checkRunId is provided", async () => {
+      const o = mk();
+      await postScanSkippedCheckRun(o as any, {
+        owner: "acme",
+        repo: "repo",
+        headSha: "head123",
+        reason: "Author @dependabot[bot] is excluded by skipAuthors.",
+        checkRunId: 888,
+      });
+
+      expect(o.rest.checks.update).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        check_run_id: 888,
+        name: SCAN_CHECK_NAME,
+        head_sha: "head123",
+        status: "completed",
+        conclusion: "neutral",
+        output: {
+          title: "SecureFlow — Scan Skipped",
+          summary: "Author @dependabot[bot] is excluded by skipAuthors.",
+        },
+      });
+      expect(o.rest.checks.create).not.toHaveBeenCalled();
+    });
+  });

@@ -8,6 +8,7 @@
  */
 
 import { App, Octokit } from "octokit";
+import { ThrottledOctokit, createThrottleConfig } from "./throttling";
 
 /**
  * A problem with the deployment itself rather than with the delivery.
@@ -180,10 +181,13 @@ export function createGitHubAppClient(
   const privateKey = options.privateKey ?? defaultPrivateKey!;
   const apiUrl = options.baseUrl ?? options.apiUrl ?? defaultApiUrl!;
 
-  const baseOctokitClass = options.Octokit ?? Octokit;
+  const baseOctokitClass =
+    options.Octokit ??
+    (typeof ThrottledOctokit?.plugin === "function" ? ThrottledOctokit : Octokit);
+  const throttleConfig = createThrottleConfig();
   const customOctokit =
     typeof baseOctokitClass?.defaults === "function"
-      ? baseOctokitClass.defaults({ baseUrl: apiUrl })
+      ? baseOctokitClass.defaults({ baseUrl: apiUrl, throttle: throttleConfig })
       : baseOctokitClass;
 
   return new App({

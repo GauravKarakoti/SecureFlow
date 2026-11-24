@@ -1,0 +1,375 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://secure-flow-six.vercel.app/schema.json",
+  "title": "SecureFlow Configuration Schema",
+  "description": "JSON Schema for SecureFlow configuration file (.secureflow.json) controlling security gate thresholds, path-specific rules, and monorepo policy scopes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URI of the JSON Schema for validation and editor autocompletion."
+    },
+    "$comment": {
+      "type": "string",
+      "description": "Optional comment or documentation explaining this configuration."
+    },
+    "gate": {
+      "type": "object",
+      "description": "Security gate thresholds and rule overrides for PR merge and CI checks.",
+      "additionalProperties": false,
+      "properties": {
+        "blockOn": {
+          "description": "Severity threshold that blocks PR merge or pipeline execution.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "blockAt": {
+          "description": "Alias for blockOn.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "reviewOn": {
+          "description": "Severity threshold that flags findings for manual reviewer sign-off.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "reviewAt": {
+          "description": "Alias for reviewOn.",
+          "$ref": "#/definitions/GateLevel"
+        },
+        "overrides": {
+          "type": "array",
+          "description": "Per-finding-type severity threshold overrides.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Vulnerability type or category name to override (e.g. 'Hardcoded Secrets', 'SQL Injection')."
+              },
+              "blockOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "blockAt": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewAt": {
+                "$ref": "#/definitions/GateLevel"
+              }
+            }
+          }
+        },
+        "paths": {
+          "type": "array",
+          "description": "Path-specific severity threshold overrides matching file glob patterns.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["glob"],
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Glob pattern matching repository paths (e.g. 'infra/**', 'tests/**')."
+              },
+              "blockOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "blockAt": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewOn": {
+                "$ref": "#/definitions/GateLevel"
+              },
+              "reviewAt": {
+                "$ref": "#/definitions/GateLevel"
+              }
+            }
+          }
+        },
+        "policyScopes": {
+          "type": "array",
+          "description": "Path-scoped security policy rules defined within the gate section.",
+          "items": {
+            "$ref": "#/definitions/PolicyScopeRule"
+          }
+        },
+        "includeDefaults": {
+          "type": "boolean",
+          "description": "Whether to apply built-in default ignore patterns (lockfiles, minified files, vendor/, etc.). Defaults to true."
+        },
+        "forceInclude": {
+          "type": "array",
+          "description": "List of glob patterns to force include in scanning, overriding default ignore rules.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeoutBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total scan time budget in seconds before stopping with partial results (default: 120)."
+        },
+        "timeoutBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for timeoutBudget in seconds (default: 120)."
+        },
+        "requestTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-request LLM timeout in seconds (default: 60)."
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for requestTimeout in seconds (default: 60)."
+        },
+        "skipDrafts": {
+          "type": "boolean",
+          "description": "Whether to skip security scans for draft pull requests until marked ready for review."
+        },
+        "skipAuthors": {
+          "type": "array",
+          "description": "List of pull request author logins or glob patterns (e.g. 'dependabot[bot]', '*bot*') to skip scanning.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "skipDrafts": {
+      "type": "boolean",
+      "description": "Whether to skip security scans for draft pull requests until marked ready for review."
+    },
+    "skipAuthors": {
+      "type": "array",
+      "description": "List of pull request author logins or glob patterns (e.g. 'dependabot[bot]', '*bot*') to skip scanning.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "includeDefaults": {
+      "type": "boolean",
+      "description": "Whether to apply built-in default ignore patterns (lockfiles, minified files, vendor/, etc.). Defaults to true."
+    },
+    "forceInclude": {
+      "type": "array",
+      "description": "List of glob patterns to force include in scanning, overriding default ignore rules.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignore": {
+      "type": "object",
+      "description": "Ignore settings and overrides.",
+      "additionalProperties": false,
+      "properties": {
+        "includeDefaults": {
+          "type": "boolean",
+          "description": "Whether to apply built-in default ignore patterns."
+        },
+        "forceInclude": {
+          "type": "array",
+          "description": "List of glob patterns to force include in scanning.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "policyScopes": {
+      "type": "array",
+      "description": "Path-scoped policy rules (enable/disable specific policies for paths in monorepos).",
+      "items": {
+        "$ref": "#/definitions/PolicyScopeRule"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "description": "Custom project-specific regex security rules evaluated against file contents.",
+      "items": {
+        "$ref": "#/definitions/CustomRule"
+      }
+    },
+    "customRules": {
+      "type": "array",
+      "description": "Alias for rules.",
+      "items": {
+        "$ref": "#/definitions/CustomRule"
+      }
+    },
+    "timeoutBudget": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total scan time budget in seconds before stopping with partial results (default: 120)."
+    },
+    "timeoutBudgetSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Alias for timeoutBudget in seconds (default: 120)."
+    },
+    "requestTimeout": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-request LLM timeout in seconds (default: 60)."
+    },
+    "requestTimeoutSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Alias for requestTimeout in seconds (default: 60)."
+    },
+    "scanner": {
+      "type": "object",
+      "description": "Scanner settings including scan budget and timeouts.",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total scan time budget in seconds (default: 120)."
+        },
+        "timeoutBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for timeoutBudget in seconds (default: 120)."
+        },
+        "requestTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-request LLM timeout in seconds (default: 60)."
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Alias for requestTimeout in seconds (default: 60)."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "GateLevel": {
+      "type": "string",
+      "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"],
+      "description": "Severity gate level threshold."
+    },
+    "PolicyScopeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths"],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "description": "Glob patterns specifying which files or directories this policy rule applies to.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Glob pattern (e.g. 'src/**', 'components/**', 'tests/**')."
+          }
+        },
+        "enable": {
+          "type": "array",
+          "description": "Names of policy categories or checks to enable for matched paths.",
+          "items": {
+            "type": "string",
+            "description": "Policy name to enable."
+          }
+        },
+        "disable": {
+          "type": "array",
+          "description": "Names of policy categories or checks to disable for matched paths.",
+          "items": {
+            "type": "string",
+            "description": "Policy name to disable."
+          }
+        }
+      }
+    },
+    "CustomRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern", "severity", "message"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for the custom rule (e.g. 'internal-auth-token')."
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Regular expression pattern to detect."
+        },
+        "regex": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Alias for pattern."
+        },
+        "globs": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns specifying which files to evaluate."
+            },
+            {
+              "type": "string",
+              "description": "Glob pattern specifying which files to evaluate."
+            }
+          ]
+        },
+        "fileGlobs": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "paths": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+          "description": "Severity level assigned to findings generated by this rule."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description or remediation advice explaining the violation."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Alias for message."
+        },
+        "flags": {
+          "type": "string",
+          "description": "RegExp flags (e.g. 'i' for case-insensitive)."
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum execution time in milliseconds before aborting (default: 100)."
+        }
+      }
+    }
+  }
+}

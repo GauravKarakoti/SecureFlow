@@ -15,9 +15,11 @@ export default function RemediationPage() {
   const [loading, setLoading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
-  const [patchData, setPatchData] = useState<{ patchDiff: string; explanation: string } | null>(
-    null,
-  );
+  const [patchData, setPatchData] = useState<{
+    patchDiff: string;
+    explanation: string;
+    verified?: boolean;
+  } | null>(null);
   // #1513: set when the AI provider was rate limited or unavailable and a retry makes sense.
   const [generationError, setGenerationError] = useState<string | null>(null);
 
@@ -43,7 +45,18 @@ export default function RemediationPage() {
       }
 
       const data = await res.json();
-      setPatchData({ patchDiff: data.patch.patchDiff, explanation: data.explanation });
+      if (!data.patch?.patchDiff || data.verified === false) {
+        const errorMsg = data.note || data.error || "AI patch failed verification and was not saved as a ready fix.";
+        setGenerationError(errorMsg);
+        toast.error(errorMsg);
+        return;
+      }
+
+      setPatchData({
+        patchDiff: data.patch.patchDiff,
+        explanation: data.explanation,
+        verified: data.verified !== false,
+      });
       toast.success("Remediation patch generated successfully");
     } catch (error) {
       toast.error("Failed to generate remediation patch");
@@ -113,6 +126,13 @@ export default function RemediationPage() {
         </Card>
       ) : (
         <div className="space-y-4">
+          {patchData.verified && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                ✅ Verified Ready Fix
+              </span>
+            </div>
+          )}
           <PatchDiffViewer patchDiff={patchData.patchDiff} explanation={patchData.explanation} />
           {pullRequestUrl ? (
             <a

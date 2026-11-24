@@ -403,7 +403,12 @@ export default function DashboardClient({
 
                     <div className="min-w-0">
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-sm font-bold">
-                        <span className="truncate">{pr.title}</span>
+                        <Link
+                          href={`/dashboard/pull-requests/${pr.id}`}
+                          className="truncate hover:text-primary transition-colors"
+                        >
+                          {pr.title}
+                        </Link>
 
                         <Badge variant="secondary" className="shrink-0 py-0 text-[10px]">
                           #{pr.prNumber}
@@ -420,7 +425,7 @@ export default function DashboardClient({
                     </div>
                   </div>
 
-                  <div className="flex items-center pl-8 sm:pl-0">
+                  <div className="flex items-center gap-3 pl-8 sm:pl-0">
                     <span
                       role="status"
                       aria-label={`PR status: ${pr.status}`}
@@ -443,6 +448,13 @@ export default function DashboardClient({
                       )}
                       <span>{pr.status}</span>
                     </span>
+
+                    <Link
+                      href={`/dashboard/pull-requests/${pr.id}`}
+                      className="text-xs font-medium text-primary hover:underline shrink-0 hidden sm:inline"
+                    >
+                      Compare scans →
+                    </Link>
                   </div>
                 </div>
               ))

@@ -8,6 +8,8 @@ import {
   fileExists,
   sandboxWorkspacePath,
   PathTraversalError,
+  isBinaryFile,
+  discoverWorkspaceFiles,
 } from "./workspace";
 
 describe("SecureFlow CLI Workspace Integration (#636)", () => {
@@ -189,6 +191,93 @@ describe("workspace module helpers (#1526)", () => {
 
       const sandboxed = sandboxWorkspacePath("nested/child/file.txt", root);
       expect(sandboxed).toBe(fs.realpathSync(target));
+    });
+  });
+
+  describe("isBinaryFile", () => {
+    it("returns false for regular text source code", () => {
+      const root = makeTmpDir();
+      const textFile = path.join(root, "source.ts");
+      fs.writeFileSync(textFile, "export const greeting = 'Hello, world!';\n", "utf-8");
+
+      expect(isBinaryFile(textFile)).toBe(false);
+    });
+
+    it("returns true for files containing null bytes", () => {
+      const root = makeTmpDir();
+      const binFile = path.join(root, "binary.bin");
+      const buffer = Buffer.from([0x48, 0x65, 0x6c, 0x00, 0x6c, 0x6f]); // "Hel\0lo"
+      fs.writeFileSync(binFile, buffer);
+
+      expect(isBinaryFile(binFile)).toBe(true);
+    });
+  });
+
+  describe("discoverWorkspaceFiles", () => {
+    it("recursively discovers files within target directory", () => {
+      const root = makeTmpDir();
+      fs.mkdirSync(path.join(root, "src", "services"), { recursive: true });
+      fs.writeFileSync(path.join(root, "src", "index.ts"), "console.log(1);");
+      fs.writeFileSync(path.join(root, "src", "services", "auth.ts"), "console.log(2);");
+
+      const files = discoverWorkspaceFiles("src", { workspaceRoot: root });
+      expect(files).toContain("src/index.ts");
+      expect(files).toContain("src/services/auth.ts");
+    });
+
+    it("skips excluded directories by default", () => {
+      const root = makeTmpDir();
+      fs.mkdirSync(path.join(root, "node_modules", "pkg"), { recursive: true });
+      fs.mkdirSync(path.join(root, ".git", "objects"), { recursive: true });
+      fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+      fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+      fs.writeFileSync(path.join(root, "node_modules", "pkg", "index.js"), "dep");
+      fs.writeFileSync(path.join(root, ".git", "HEAD"), "ref: refs/heads/main");
+      fs.writeFileSync(path.join(root, "dist", "bundle.js"), "bundle");
+      fs.writeFileSync(path.join(root, "src", "app.ts"), "app");
+
+      const files = discoverWorkspaceFiles(".", { workspaceRoot: root });
+      expect(files).toEqual(["src/app.ts"]);
+    });
+
+    it("skips binary files and files exceeding size ceiling", () => {
+      const root = makeTmpDir();
+      fs.mkdirSync(path.join(root, "files"), { recursive: true });
+
+      const textFile = path.join(root, "files", "small.txt");
+      fs.writeFileSync(textFile, "small content");
+
+      const binFile = path.join(root, "files", "image.png");
+      fs.writeFileSync(binFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]));
+
+      const largeFile = path.join(root, "files", "large.txt");
+      fs.writeFileSync(largeFile, "x".repeat(100)); // limit to 50 bytes
+
+      const files = discoverWorkspaceFiles("files", {
+        workspaceRoot: root,
+        maxFileSizeBytes: 50,
+      });
+
+      expect(files).toContain("files/small.txt");
+      expect(files).not.toContain("files/image.png");
+      expect(files).not.toContain("files/large.txt");
+    });
+
+    it("respects compiled ignore regex patterns", () => {
+      const root = makeTmpDir();
+      fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+      fs.writeFileSync(path.join(root, "src", "index.ts"), "valid");
+      fs.writeFileSync(path.join(root, "src", "test.spec.ts"), "test");
+
+      const files = discoverWorkspaceFiles("src", {
+        workspaceRoot: root,
+        customIgnores: [/.*\.spec\.ts$/i],
+      });
+
+      expect(files).toContain("src/index.ts");
+      expect(files).not.toContain("src/test.spec.ts");
     });
   });
 });

@@ -32,6 +32,8 @@
 import type { ScanFinding } from "@/lib/armor/scanner";
 import { normalizeFindingTypeEnum, normalizePolicyDecisionEnum } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, totalRiskScore } from "@/lib/severity";
+import { resolveCwe } from "@/lib/cwe";
+import { encryptFinding } from "@/lib/security/finding-encryption";
 
 /** The `PolicyDecision` members, mirroring `prisma/schema.prisma`. */
 export type StoredPolicyDecision = "PASS" | "REVIEW" | "BLOCK";
@@ -172,8 +174,13 @@ export interface FindingCreateInput {
   remediation: string | null;
   promptInjectionSuspected: boolean;
   fingerprint: string;
+  cwe: string | null;
   suppressionStatus: string | null;
   suppressionRuleId: string | null;
+  tag?: string | null;
+  isBaseline?: boolean;
+  complianceTags?: string[];
+  encryptionKeyId?: string | null;
 }
 
 /**
@@ -194,19 +201,39 @@ export interface FindingCreateInput {
  * explicit null says what is meant.
  */
 export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateInput {
+  const isBaseline = Boolean((finding as any).isBaseline || (finding as any).tag === "BASELINE");
+  const tag = (finding as any).tag || (isBaseline ? "BASELINE" : null);
+  const resolvedCweId = finding.cwe || resolveCwe(finding) || null;
+  const explanation =
+    finding.verificationStatus === "UNVERIFIED" && finding.verificationReason
+      ? `[UNVERIFIED: ${finding.verificationReason}]\n\n${finding.explanation || ""}`.trim()
+      : finding.explanation || null;
+
+  const encrypted = encryptFinding({
+    codeSnippet: finding.codeSnippet || null,
+    explanation,
+  });
+
   return {
     type: normalizeFindingTypeEnum(finding.type),
     severity: toStoredSeverity(finding.severity),
     fileLocation: finding.fileLocation,
     lineStart: typeof finding.lineStart === "number" ? finding.lineStart : null,
     lineEnd: typeof finding.lineEnd === "number" ? finding.lineEnd : null,
-    codeSnippet: finding.codeSnippet || null,
-    explanation: finding.explanation || null,
+    codeSnippet: encrypted.codeSnippet || null,
+    explanation: encrypted.explanation || null,
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
-    suppressionStatus: finding.suppressionStatus || null,
+    cwe: resolvedCweId,
+    suppressionStatus:
+      finding.suppressionStatus ||
+      (finding.verificationStatus === "UNVERIFIED" ? "UNVERIFIED" : null),
     suppressionRuleId: finding.suppressionRuleId || null,
+    tag,
+    isBaseline,
+    complianceTags: isBaseline ? ["BASELINE"] : [],
+    encryptionKeyId: encrypted.encryptionKeyId || null,
   };
 }
 
@@ -228,6 +255,7 @@ export interface ScanResultCreateData {
   gateConfig?: object;
   riskScore: number;
   policyDecision: StoredPolicyDecision;
+  scanType?: string;
   findings: { create: FindingCreateInput[] };
 }
 
@@ -248,6 +276,7 @@ export function scanResultCreateData(args: {
   decision: unknown;
   scoredFindings: readonly EnrichedScanFinding[];
   findingsToPersist: readonly EnrichedScanFinding[];
+  scanType?: string;
 }): ScanResultCreateData {
   return {
     pullRequestId: args.pullRequestId,
@@ -255,6 +284,7 @@ export function scanResultCreateData(args: {
     ...(args.gateConfig ? { gateConfig: args.gateConfig } : {}),
     riskScore: storedRiskScore(args.scoredFindings),
     policyDecision: storedPolicyDecision(args.decision),
+    ...(args.scanType ? { scanType: args.scanType } : {}),
     findings: { create: args.findingsToPersist.map(findingCreateInput) },
   };
 }

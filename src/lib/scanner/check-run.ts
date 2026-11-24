@@ -41,6 +41,10 @@ export interface ScanCheckParams {
   notice?: string;
   findings?: readonly unknown[] | null;
   checkRunId?: number;
+  emptyReason?: string;
+  isPartial?: boolean;
+  unscannedFiles?: Array<{ filename: string; reason: string }> | string[];
+  conclusion?: "success" | "action_required" | "failure" | "neutral" | "skipped";
 }
 
 /**
@@ -173,26 +177,50 @@ export function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
 }
 
 export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams) {
+  const isZeroScan = p.fileCount === 0 || !!p.emptyReason;
+  const isPartial = p.isPartial === true;
+  const emptyReason = p.emptyReason || "no changed files";
+
   const annotations = buildCheckAnnotations(p.findings);
   const batches = chunkArray(annotations, ANNOTATION_BATCH_SIZE);
   const firstBatch = batches[0];
 
-  const summary =
-    `SecureFlow detected ${p.findingsCount} potential security issues across ${p.fileCount} analyzed file(s).` +
-    (p.notice ? `\n\n${p.notice}` : "");
+  let summary = isZeroScan
+    ? `Nothing to scan: ${emptyReason}.` + (p.notice ? `\n\n${p.notice}` : "")
+    : `SecureFlow detected ${p.findingsCount} potential security issues across ${p.fileCount} analyzed file(s).` +
+      (p.notice ? `\n\n${p.notice}` : "");
+
+  if (isPartial && p.unscannedFiles && p.unscannedFiles.length > 0) {
+    summary += `\n\n### ⚠️ Partial Scan — Unscanned Files (${p.unscannedFiles.length})\n`;
+    summary += `The scan time budget was reached or files were skipped. The following file(s) were not scanned:\n`;
+    for (const f of p.unscannedFiles) {
+      const name = typeof f === "string" ? f : f.filename;
+      const reason = typeof f === "string" ? "scan timeout budget exceeded" : f.reason;
+      summary += `- \`${name}\`: ${reason}\n`;
+    }
+  }
+
+  const outputTitle = isPartial
+    ? `Policy Decision: PARTIAL (${p.findingsCount} issues in ${p.fileCount} analyzed files)`
+    : isZeroScan
+      ? "Nothing to scan"
+      : `Policy Decision: ${String(p.decision)}`;
 
   const output: {
     title: string;
     summary: string;
     annotations?: CheckAnnotation[];
   } = {
-    title: `Policy Decision: ${String(p.decision)}`,
+    title: outputTitle,
     summary,
   };
 
   if (firstBatch && firstBatch.length > 0) {
     output.annotations = firstBatch;
   }
+
+  const conclusion =
+    p.conclusion ?? (isZeroScan || isPartial ? "neutral" : checkRunConclusion(p.decision));
 
   let result: unknown;
   let checkRunId = p.checkRunId;
@@ -205,7 +233,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
       name: SCAN_CHECK_NAME,
       head_sha: p.headSha,
       status: "completed",
-      conclusion: checkRunConclusion(p.decision),
+      conclusion,
       output,
     });
   } else {
@@ -215,7 +243,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
       name: SCAN_CHECK_NAME,
       head_sha: p.headSha,
       status: "completed",
-      conclusion: checkRunConclusion(p.decision),
+      conclusion,
       output,
     });
 
@@ -231,7 +259,7 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
         repo: p.repo,
         check_run_id: checkRunId,
         output: {
-          title: `Policy Decision: ${String(p.decision)}`,
+          title: isZeroScan ? "Nothing to scan" : `Policy Decision: ${String(p.decision)}`,
           summary,
           annotations: batches[i],
         },
@@ -323,6 +351,49 @@ export async function postScanCancelledCheckRun(
     head_sha: p.headSha,
     status: "completed",
     conclusion,
+    output,
+  });
+}
+
+/**
+ * Posts or updates a neutral check run when a PR scan is skipped early (#1982).
+ * e.g. for draft PRs or excluded bot authors configured in .secureflow.json.
+ */
+export async function postScanSkippedCheckRun(
+  octokit: ChecksClient,
+  p: {
+    owner: string;
+    repo: string;
+    headSha: string;
+    reason: string;
+    checkRunId?: number;
+  },
+) {
+  const output = {
+    title: "SecureFlow — Scan Skipped",
+    summary: p.reason,
+  };
+
+  if (p.checkRunId && typeof octokit.rest.checks.update === "function") {
+    return octokit.rest.checks.update({
+      owner: p.owner,
+      repo: p.repo,
+      check_run_id: p.checkRunId,
+      name: SCAN_CHECK_NAME,
+      head_sha: p.headSha,
+      status: "completed",
+      conclusion: "neutral",
+      output,
+    });
+  }
+
+  return octokit.rest.checks.create({
+    owner: p.owner,
+    repo: p.repo,
+    name: SCAN_CHECK_NAME,
+    head_sha: p.headSha,
+    status: "completed",
+    conclusion: "neutral",
     output,
   });
 }

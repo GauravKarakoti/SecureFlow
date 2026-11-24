@@ -9,6 +9,8 @@ export interface Dependency {
   version: string;
   manifestFile: string;
   ecosystem: "npm" | "pypi" | "maven" | "gem";
+  isTransitive?: boolean;
+  parentPackage?: string;
 }
 
 export interface VulnerabilityMatch {

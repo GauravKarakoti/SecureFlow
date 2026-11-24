@@ -63,15 +63,16 @@ model User {
   accounts      Account[]
   sessions      Session[]
 
-  repositories   Repository[]
-  policyToggles  UserPolicyToggle[]
-  policyVersions PolicyVersion[]
-  roles          UserRole[]
-  auditLogs      AuditLog[]
-  savedViews     SavedView[]
-  apiTokens      ApiToken[]
+  repositories     Repository[]
+  policyToggles    UserPolicyToggle[]
+  policyVersions   PolicyVersion[]
+  roles            UserRole[]
+  auditLogs        AuditLog[]
+  savedViews       SavedView[]
+  apiTokens        ApiToken[]
   outboundWebhooks OutboundWebhook[]
   suppressionRules SuppressionRule[]
+  assignedTriages  FindingTriage[]    @relation("FindingTriageAssignee")
 
   /**
    * Incoming Slack webhook URL for real-time alerts on CRITICAL/HIGH findings.
@@ -97,7 +98,16 @@ model User {
    */
   weeklyDigestEnabled Boolean @default(true)
 
-  digests SecurityDigest[]
+  digests      SecurityDigest[]
+  findingNotes FindingNote[]
+
+  /**
+   * In-app notification preferences (#1979). Enabled by default.
+   */
+  notifyOnAssignment      Boolean        @default(true)
+  notifyOnMention         Boolean        @default(true)
+  notifyOnDismissalExpiry Boolean        @default(true)
+  notifications           Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -148,23 +158,28 @@ model VerificationToken {
 }
 
 model Repository {
-  id                 String  @id @default(cuid())
-  githubId           BigInt  @unique
-  fullName           String
-  owner              String
-  isActive           Boolean @default(true)
-  publicBadgeEnabled Boolean @default(false)
-  codeScanningEnabled Boolean @default(false)
-  codeScanningWarning String?
+  id                     String    @id @default(cuid())
+  githubId               BigInt    @unique
+  fullName               String
+  owner                  String
+  isActive               Boolean   @default(true)
+  publicBadgeEnabled     Boolean   @default(false)
+  codeScanningEnabled    Boolean   @default(false)
+  codeScanningWarning    String?
+  baselineScanEnabled    Boolean   @default(false)
+  baselineFrequency      String    @default("weekly")
+  baselineFileLimit      Int       @default(50)
+  lastBaselineScanAt     DateTime?
+  lastBaselineScanStatus String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  pullRequests  PullRequest[]
-  webhookEvents WebhookEvent[]
-  triages       FindingTriage[]
-  createdAt     DateTime        @default(now())
-  scanJobs      ScanJob[]
+  pullRequests     PullRequest[]
+  webhookEvents    WebhookEvent[]
+  triages          FindingTriage[]
+  createdAt        DateTime          @default(now())
+  scanJobs         ScanJob[]
   storedScanInputs StoredScanInput[]
 
   @@index([userId])
@@ -239,10 +254,10 @@ model PullRequest {
   repositoryId    String
   repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 
-  scans         ScanResult[]
-  webhookEvents WebhookEvent[]
-  createdAt     DateTime       @default(now())
-  scanJobs      ScanJob[]
+  scans            ScanResult[]
+  webhookEvents    WebhookEvent[]
+  createdAt        DateTime          @default(now())
+  scanJobs         ScanJob[]
   storedScanInputs StoredScanInput[]
 
   @@unique([repositoryId, prNumber])
@@ -266,6 +281,7 @@ model ScanResult {
   gateConfig     Json?
   riskScore      Int
   policyDecision PolicyDecision @default(REVIEW)
+  scanType       String         @default("PR")
   createdAt      DateTime       @default(now())
 
   @@index([pullRequestId])
@@ -275,6 +291,7 @@ model ScanResult {
   @@index([pullRequestId, policyDecision])
   @@index([riskScore])
   @@index([policyDecision, createdAt(sort: Desc)])
+  @@index([scanType])
 }
 
 model Finding {
@@ -291,12 +308,18 @@ model Finding {
   remediation              String?                 @db.Text
   promptInjectionSuspected Boolean                 @default(false)
   fingerprint              String                  @default("")
+  cwe                      String?
   complianceTags           String[]                @default([])
+  tag                      String?
+  isBaseline               Boolean                 @default(false)
+  encryptionKeyId          String?
   suppressionStatus        String?
   suppressionRuleId        String?
+  issueUrl                 String?
   createdAt                DateTime                @default(now())
   remediationPatch         RemediationPatch?
   armorIQLogs              ArmorIQEnforcementLog[]
+  notes                    FindingNote[]
 
   @@index([scanResultId])
   // Analytics date windows and newest-first findings within a scan (#1515).
@@ -317,6 +340,49 @@ model Finding {
   @@index([promptInjectionSuspected])
   @@index([suppressionStatus])
   @@index([suppressionRuleId])
+  @@index([issueUrl])
+  @@index([tag])
+  @@index([isBaseline])
+  @@index([encryptionKeyId])
+}
+
+model FindingNote {
+  id        String   @id @default(cuid())
+  findingId String
+  authorId  String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([findingId, createdAt])
+  @@index([authorId])
+}
+
+enum NotificationType {
+  FINDING_ASSIGNED
+  MENTION
+  DISMISSAL_EXPIRING
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  link      String?
+  findingId String?
+  scanId    String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model RemediationPatch {
@@ -356,25 +422,28 @@ model StoredScanInput {
 }
 
 model FindingTriage {
-  id              String              @id @default(cuid())
-  repositoryId    String
-  repository      Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  fingerprint     String
-  status          FindingTriageStatus @default(OPEN)
-  dismissalReason DismissalReason?
-  dismissedAt     DateTime?
-  dismissedById   String?
+  id                String              @id @default(cuid())
+  repositoryId      String
+  repository        Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  fingerprint       String
+  status            FindingTriageStatus @default(OPEN)
+  dismissalReason   DismissalReason?
+  dismissedAt       DateTime?
+  dismissedById     String?
+  assigneeId        String?
+  assignee          User?               @relation("FindingTriageAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   note              String?
   resolvedById      String?
   resolvedAt        DateTime?
   resolvedCommitSha String?
   expiresAt         DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
   @@unique([repositoryId, fingerprint])
   @@index([repositoryId])
   @@index([fingerprint])
+  @@index([assigneeId])
   // Suppressed/triage lookups on the dashboard (#731). getSuppressedFingerprints
   // filters a repository's rows by status; the plain (repositoryId) index still
   // scans and filters status, so pair them.
@@ -469,6 +538,25 @@ model WebhookEvent {
   @@index([pullRequestId])
   @@index([createdAt(sort: Desc)])
   @@index([repositoryId, createdAt(sort: Desc)])
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  deliveryId String
+  eventType  String
+  action     String?
+  repository String?
+  outcome    String // "queued" | "scanned" | "ignored" | "rejected"
+  reasonCode String // stable reason code: QUEUED, SCANNED, BAD_SIGNATURE, UNTRACKED_EVENT, REPO_DISABLED, DRAFT_PR, DUPLICATE, etc.
+  error      String? // sanitized summary or error message (never payload bodies or secrets)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([repository])
+  @@index([outcome])
+  @@index([deliveryId])
+  @@index([reasonCode])
+  @@map("webhook_deliveries")
 }
 
 model Role {
@@ -671,16 +759,16 @@ model ApiToken {
  * to user-registered HTTPS endpoints with replay protection and delivery logs.
  */
 model OutboundWebhook {
-  id          String   @id @default(cuid())
+  id          String                    @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   url         String
   secret      String
   events      String[]
   description String?
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  enabled     Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
   deliveries  OutboundWebhookDelivery[]
 
   @@index([userId])
@@ -731,4 +819,28 @@ model SecurityDigest {
   @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@map("security_digests")
+}
+
+/**
+ * Installation-level default settings and security baselines (#2010).
+ * Configured per GitHub App installation or system-wide (installationId = "default" or numeric string).
+ * Repositories inherit these defaults unless overridden in .secureflow.json.
+ * Admins can mark specific settings as locked so repositories cannot weaken them.
+ */
+model InstallationSettings {
+  id                   String   @id @default(cuid())
+  installationId       String   @unique @default("default")
+  gateBlockOn          String?
+  gateReviewOn         String?
+  minCommentConfidence String?
+  includeDefaults      Boolean?
+  skipDrafts           Boolean?
+  skipAuthors          String[] @default([])
+  lockedSettings       String[] @default([])
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([installationId])
+  @@map("installation_settings")
 }

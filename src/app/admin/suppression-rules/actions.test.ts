@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createSuppressionRuleAction,
   updateSuppressionRuleAction,
+  renewSuppressionRuleAction,
   deleteSuppressionRuleAction,
   getSuppressionRulesAction,
 } from "./actions";
@@ -16,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
-      update: vi.fn(),
+      updateManyAndReturn: vi.fn(),
       delete: vi.fn(),
     },
     suppressionRuleEvent: {
@@ -54,6 +55,7 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
       await expect(updateSuppressionRuleAction("rule-1", { name: "Updated" })).rejects.toThrow(
         "Forbidden",
       );
+      await expect(renewSuppressionRuleAction("rule-1", "2030-01-01")).rejects.toThrow("Forbidden");
 
       await expect(deleteSuppressionRuleAction("rule-1")).rejects.toThrow("Forbidden");
 
@@ -77,6 +79,7 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
       await expect(updateSuppressionRuleAction("rule-1", { name: "Updated" })).rejects.toThrow(
         "Forbidden: Admin role required",
       );
+      await expect(renewSuppressionRuleAction("rule-1", "2030-01-01")).rejects.toThrow("Forbidden");
 
       await expect(deleteSuppressionRuleAction("rule-1")).rejects.toThrow(
         "Forbidden: Admin role required",
@@ -134,7 +137,7 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
         reason: "Updated reason",
         updatedAt: new Date(),
       };
-      vi.mocked(prisma.suppressionRule.update).mockResolvedValue(mockUpdated as any);
+      vi.mocked(prisma.suppressionRule.updateManyAndReturn).mockResolvedValue([mockUpdated as any]);
       vi.mocked(prisma.auditLog.create).mockResolvedValue({} as any);
 
       const res = await updateSuppressionRuleAction("rule-100", {
@@ -142,8 +145,8 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
         reason: "Updated reason",
       });
 
-      expect(res.name).toBe("Updated Name");
-      expect(prisma.suppressionRule.update).toHaveBeenCalledTimes(1);
+      expect(res).toMatchObject({ name: "Updated Name" });
+      expect(prisma.suppressionRule.updateManyAndReturn).toHaveBeenCalledTimes(1);
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -178,6 +181,86 @@ describe("Suppression Rules Admin Actions (#1891)", () => {
           }),
         }),
       );
+    });
+  });
+
+  describe("Expiry transitions", () => {
+    const now = new Date("2026-11-22T12:00:00Z");
+    const previousExpiry = new Date("2026-11-22T11:00:00Z");
+
+    beforeEach(async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      const { auth } = await import("@/auth");
+      vi.mocked(auth).mockResolvedValue({
+        user: { id: "admin-1", roles: ["ADMIN"] },
+      } as Awaited<ReturnType<typeof auth>>);
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    it("rejects ordinary edits when the rule expired or changed while the editor was open", async () => {
+      const { default: prisma } = await import("@/lib/prisma");
+      vi.mocked(prisma.suppressionRule.updateManyAndReturn).mockResolvedValue([]);
+
+      const result = await updateSuppressionRuleAction(
+        "rule-1",
+        { name: "Stale edit" },
+        previousExpiry,
+      );
+
+      expect(result).toMatchObject({ error: expect.stringContaining("expired or changed") });
+      expect(prisma.suppressionRule.updateManyAndReturn).toHaveBeenCalledWith({
+        where: {
+          id: "rule-1",
+          expiresAt: previousExpiry,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        data: { name: "Stale edit" },
+      });
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it.each(["", "2026-11-21", "2026-11-22", "2027-02-30", "2026-11-23T00:00:00Z"])(
+      "rejects invalid or elapsed renewal date %j before writing",
+      async (expiryDate) => {
+        const { default: prisma } = await import("@/lib/prisma");
+        const result = await renewSuppressionRuleAction("rule-1", expiryDate);
+        expect(result).toEqual({ error: "Choose a future expiry date (UTC)." });
+        expect(prisma.suppressionRule.updateManyAndReturn).not.toHaveBeenCalled();
+      },
+    );
+
+    it("renews only the expiry and audits the change", async () => {
+      const { default: prisma } = await import("@/lib/prisma");
+      const expiresAt = new Date("2026-12-01T00:00:00Z");
+      const rule = { id: "rule-1", expiresAt, reason: "Original criteria" };
+      vi.mocked(prisma.suppressionRule.updateManyAndReturn).mockResolvedValue([
+        rule as Awaited<ReturnType<typeof prisma.suppressionRule.update>>,
+      ]);
+
+      await expect(renewSuppressionRuleAction("rule-1", "2026-12-01")).resolves.toEqual(rule);
+      expect(prisma.suppressionRule.updateManyAndReturn).toHaveBeenCalledWith({
+        where: { id: "rule-1", expiresAt: { lte: now } },
+        data: { expiresAt },
+      });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "admin-1",
+          resource: "rule-1",
+          metadata: expect.objectContaining({ expiresAt: expiresAt.toISOString() }),
+        }),
+      });
+    });
+
+    it("does not write audit entries when renewal loses a race to another administrator", async () => {
+      const { default: prisma } = await import("@/lib/prisma");
+      vi.mocked(prisma.suppressionRule.updateManyAndReturn).mockResolvedValue([]);
+
+      await expect(renewSuppressionRuleAction("rule-1", "2026-12-01")).resolves.toMatchObject({
+        error: expect.stringContaining("no longer expired"),
+      });
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
     });
   });
 });

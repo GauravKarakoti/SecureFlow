@@ -471,7 +471,7 @@ export default function AuditLogTable({
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-full sm:w-[160px] min-h-[44px]">
               <SelectValue placeholder="All Actions" />
             </SelectTrigger>
             <SelectContent>
@@ -491,7 +491,7 @@ export default function AuditLogTable({
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-full sm:w-[150px] min-h-[44px]">
               <SelectValue placeholder="All Decisions" />
             </SelectTrigger>
             <SelectContent>
@@ -511,7 +511,7 @@ export default function AuditLogTable({
               setArmoriqOnly((prev) => !prev);
               setPage(1);
             }}
-            className={`h-9 gap-1.5 shrink-0 ${
+            className={`min-h-[44px] gap-1.5 shrink-0 ${
               armoriqOnly
                 ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500"
                 : "border-emerald-700/40 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30"
@@ -522,10 +522,8 @@ export default function AuditLogTable({
             {armoriqOnly ? "ArmorIQ Active" : "ArmorIQ Traces"}
           </Button>
 
-          {/* Date range + "to" + Export CSV are kept as one non-wrapping
-              unit, so Export CSV always sits directly beside the date
-              inputs instead of breaking onto a separate line. */}
-          <div className="flex flex-nowrap items-center gap-1.5 shrink-0">
+          {/* Date range + "to" + Export */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 w-full sm:w-auto shrink-0">
             <Input
               type="date"
               aria-label="Filter from date"
@@ -535,7 +533,7 @@ export default function AuditLogTable({
                 setPage(1);
               }}
               max={dateTo || undefined}
-              className="w-[140px] h-9 text-xs"
+              className="w-full sm:w-[140px] min-h-[44px] text-xs"
             />
             <span className="text-xs text-muted-foreground">to</span>
             <Input
@@ -547,7 +545,7 @@ export default function AuditLogTable({
                 setPage(1);
               }}
               min={dateFrom || undefined}
-              className="w-[140px] h-9 text-xs"
+              className="w-full sm:w-[140px] min-h-[44px] text-xs"
             />
           </div>
 
@@ -557,7 +555,7 @@ export default function AuditLogTable({
                 disabled={isExporting}
                 variant="outline"
                 size="sm"
-                className="h-9 gap-1.5 shrink-0"
+                className="min-h-[44px] gap-1.5 shrink-0"
               >
                 <Download className="w-3.5 h-3.5" />
                 {isExporting ? "Exporting..." : "Export"}
@@ -585,7 +583,7 @@ export default function AuditLogTable({
             <button
               onClick={clearFilters}
               aria-label="Clear all active filters"
-              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground bg-foreground/5 rounded-lg hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex items-center gap-1 px-3 py-2 min-h-[44px] text-xs font-medium text-muted-foreground hover:text-foreground bg-foreground/5 rounded-lg hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="w-3.5 h-3.5" /> Clear
             </button>
@@ -603,14 +601,14 @@ export default function AuditLogTable({
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="pl-9"
+            className="pl-9 min-h-[44px]"
           />
         </div>
       </div>
 
-      {/* Table */}
+      {/* Desktop Table (md and above) */}
       <div
-        className={`rounded-xl border border-foreground/10 overflow-hidden transition-opacity ${
+        className={`hidden md:block rounded-xl border border-foreground/10 overflow-hidden transition-opacity ${
           isLoading ? "opacity-60" : "opacity-100"
         }`}
       >
@@ -942,6 +940,111 @@ export default function AuditLogTable({
         </Table>
       </div>
 
+      {/* Mobile Stacked Cards (below md) */}
+      <div
+        className={`md:hidden space-y-3 transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}
+        data-testid="audit-log-cards"
+      >
+        {logs.length === 0 ? (
+          <div className="rounded-xl border border-foreground/10 p-8 text-center text-muted-foreground bg-foreground/[0.02]">
+            <History className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            No audit logs match your filters.
+          </div>
+        ) : (
+          logs.map((log) => {
+            const meta = (log.metadata as any) || {};
+            const isArmorIQ = meta.isArmorIQ || log.action.startsWith("ARMORIQ_");
+            return (
+              <div
+                key={log.id}
+                data-testid="audit-log-card"
+                className="rounded-xl border border-foreground/10 p-4 bg-foreground/[0.02] space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {isArmorIQ && (
+                      <span title="ArmorIQ Cryptographically Enforced Intent">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      </span>
+                    )}
+                    <span className="font-bold text-sm leading-tight">{log.action}</span>
+                    {(meta.reusedFromCache ||
+                      meta.cacheHit ||
+                      meta.cacheStatus === "reused from cache" ||
+                      (typeof log.action === "string" &&
+                        log.action.includes("reused from cache"))) && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] text-cyan-400 border-cyan-800/60 font-mono tracking-tight shrink-0"
+                      >
+                        reused from cache
+                      </Badge>
+                    )}
+                  </div>
+                  <Badge
+                    variant={
+                      log.decision === "BLOCK"
+                        ? "destructive"
+                        : log.decision === "PASS" || log.decision === "ALLOW"
+                          ? "default"
+                          : "secondary"
+                    }
+                    className="text-[10px] tracking-widest px-1.5 shrink-0"
+                  >
+                    {log.decision || "INFO"}
+                  </Badge>
+                </div>
+
+                <div className="text-xs font-mono text-muted-foreground break-all">
+                  <span className="text-[10px] uppercase text-muted-foreground/80 block font-sans font-semibold mb-0.5">
+                    Resource
+                  </span>
+                  {log.resource}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground font-mono pt-2 border-t border-foreground/5">
+                  <span>
+                    User: <strong className="text-foreground">{displayUser(log)}</strong>
+                  </span>
+                  <TimeAgo date={log.timestamp} />
+                </div>
+
+                {isArmorIQ && (
+                  <details className="group rounded-lg border border-emerald-800/40 bg-black/60 p-3 text-xs">
+                    <summary className="cursor-pointer font-mono font-bold text-emerald-400 hover:text-emerald-300 flex items-center justify-between select-none py-1">
+                      <span className="flex items-center gap-1.5 text-xs">
+                        <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>ArmorIQ Evidence</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">
+                        ▼
+                      </span>
+                    </summary>
+                    <div className="mt-2 space-y-2 font-mono text-[11px] pt-2 border-t border-emerald-900/40">
+                      <p className="text-emerald-300 break-all">
+                        <span className="text-muted-foreground">Proof: </span>
+                        {meta.proofHash || "N/A"}
+                      </p>
+                      {meta.rule && (
+                        <p className="text-amber-400">
+                          <span className="text-muted-foreground">Rule: </span>
+                          {meta.rule}
+                        </p>
+                      )}
+                      {(meta.reason || meta.justification) && (
+                        <p className="text-foreground text-xs font-sans">
+                          {meta.reason || meta.justification}
+                        </p>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* Pagination */}
       <div className="flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center text-sm">
         <span className="text-muted-foreground">
@@ -955,7 +1058,7 @@ export default function AuditLogTable({
             <button
               onClick={handleLoadMore}
               disabled={isLoadingMore}
-              className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 font-medium text-xs"
+              className="px-3.5 py-2 min-h-[44px] min-w-[44px] bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1 font-medium text-xs"
               aria-label="Load more logs"
             >
               {isLoadingMore ? "Loading..." : "Load more"}
@@ -965,7 +1068,7 @@ export default function AuditLogTable({
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={safePage === 1}
             aria-label="Previous page"
-            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
+            className="px-3.5 py-2 min-h-[44px] min-w-[44px] bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
           >
             <ChevronLeft className="w-4 h-4" /> Previous
           </button>
@@ -976,7 +1079,7 @@ export default function AuditLogTable({
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={safePage === totalPages}
             aria-label="Next page"
-            className="px-3 py-1 bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
+            className="px-3.5 py-2 min-h-[44px] min-w-[44px] bg-foreground/5 rounded hover:bg-foreground/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>

@@ -367,6 +367,33 @@ export class DynamicFingerprintEngine {
 export const dynamicFingerprintEngine = new DynamicFingerprintEngine();
 
 /**
+ * Normalizes a code snippet before computing a fingerprint.
+ *
+ * Triage decisions (dismiss / resolve / false-positive) survive across
+ * scans as long as the fingerprint remains stable. However, routine code
+ * formatting (e.g. Prettier, clang-format), CRLF vs LF line ending shifts,
+ * or minor indentation changes alter the raw text without modifying the
+ * flagged vulnerability or secret.
+ *
+ * Normalization canonicalizes:
+ * 1. CRLF (\r\n) and CR (\r) line endings to LF (\n).
+ * 2. Leading and trailing whitespace on each line.
+ * 3. Consecutive spaces or tabs within a line to a single space.
+ * 4. Multiple consecutive blank lines to a single blank line.
+ * 5. Leading and trailing outer whitespace of the snippet.
+ */
+export function normalizeSnippetForFingerprint(snippet: string | null | undefined): string {
+  if (!snippet) return "";
+  return snippet
+    .replace(/\r\n|\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trim().replace(/[ \t]+/g, " "))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Compute a stable fingerprint for a finding.
  *
  * Findings are regenerated on every scan — the latest-wins re-scan behaviour
@@ -377,8 +404,9 @@ export const dynamicFingerprintEngine = new DynamicFingerprintEngine();
  *
  * The inputs are the parts of a finding that identify *what* was flagged rather
  * than *when*: the repository, the file it lives in, the finding type, and the
- * offending code snippet. Line numbers are intentionally excluded so a finding
- * that merely shifts up or down the file keeps the same fingerprint.
+ * offending code snippet (normalized against whitespace and line-drift). Line
+ * numbers are intentionally excluded so a finding that merely shifts up or down
+ * the file keeps the same fingerprint.
  */
 export function computeFingerprint(
   repositoryId: string,
@@ -386,8 +414,9 @@ export function computeFingerprint(
   type: string,
   codeSnippet: string | null | undefined,
 ): string {
+  const normalizedSnippet = normalizeSnippetForFingerprint(codeSnippet);
   return createHash("sha256")
-    .update(`${repositoryId}\0${fileLocation}\0${type}\0${codeSnippet ?? ""}`)
+    .update(`${repositoryId}\0${fileLocation}\0${type}\0${normalizedSnippet}`)
     .digest("hex");
 }
 

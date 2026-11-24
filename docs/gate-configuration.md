@@ -171,6 +171,96 @@ When a file matches multiple scopes, they are evaluated in definition order:
 - **Graceful degradation**: Invalid globs, non-string policy names, or unknown policy names are logged as warnings and ignored without failing or interrupting the scan.
 - **PR comment reporting**: Applied policy scopes and the count of files scanned under each scope are shown in the PR comment summary under `📁 Policy Scopes Applied`.
 
+## Default Ignore Patterns & Overrides (`includeDefaults`, `forceInclude`)
+
+Generated and vendored files produce large diffs without useful LLM findings, waste AI tokens, trigger false positives, and slow down scans. SecureFlow applies a built-in default ignore list before scanning:
+
+- **Common package manager lockfiles**: `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`, `bun.lock`, `Cargo.lock`, `Gemfile.lock`, `composer.lock`, `poetry.lock`, `Pipfile.lock`, `flake.lock`.
+- **Minified bundles**: `*.min.js`, `*.min.css` (and `.min.mjs`, `.min.cjs`).
+- **Source maps**: `*.map`.
+- **Build and vendored directories**: `dist/`, `build/`, `vendor/`, `node_modules/`, `__snapshots__/`.
+- **Generated Protobuf**: `*_pb2.py`, `*_pb2_grpc.py`, `*.pb.go`, `*.pb.cc`, `*.pb.h`, `*pb_test.go`, `proto/gen/`, `google/protobuf/`.
+- **Generated OpenAPI client directories**: `client/openapi/`, `generated/openapi/`, `openapi/generated/`, `generated/`.
+
+### Overriding and Disabling Defaults in `.secureflow.json`
+
+Repositories can configure ignore defaults at the root level or in the `gate` / `ignore` block:
+
+```json
+{
+  "includeDefaults": true,
+  "forceInclude": ["vendor/critical-library/**", "client/openapi/custom-patch.ts"]
+}
+```
+
+- **`includeDefaults`**: (Optional, boolean, default `true`). Set to `false` to completely disable built-in default ignore patterns.
+- **`forceInclude`**: (Optional, string array). Array of glob patterns to force include in scanning, overriding default ignore rules.
+- **`.secureflowignore` compatibility**: Explicit repository `.secureflowignore` rules continue working as before and take precedence.
+
+### Deterministic Secret Pre-Scan & Safety Guarantees
+
+- **Deterministic pre-scan runs on skipped files**: Fast regex and entropy-based secret detection continues to run on files excluded from LLM scanning (e.g. lockfiles and vendored bundles). If an active production secret is added, it is flagged.
+- **Single changed file protection**: Files matching default ignore patterns are **never skipped** if they are the only files changed in the pull request and contain secret-like strings matching the deterministic secret pre-scan.
+- **Transparent PR reporting**: The pull request summary comment displays how many files were skipped by defaults (e.g., `ℹ️ **3 files** skipped by default ignore patterns`), ensuring no changes are silently dropped.
+
+## Scan Time Budget and Partial Results
+
+A slow LLM response or a very large PR could otherwise keep a scan in progress indefinitely and return zero findings if it fails. SecureFlow supports a configurable scan time budget and per-request timeout:
+
+```json
+{
+  "gate": {
+    "timeoutBudget": 120,
+    "requestTimeout": 60
+  }
+}
+```
+
+Or at the top-level of `.secureflow.json`:
+
+```json
+{
+  "timeoutBudget": 120,
+  "requestTimeout": 60
+}
+```
+
+### Configuration Options
+
+- **`timeoutBudget` / `timeoutBudgetSeconds`**: Total scan time budget in seconds (default: `120`). When this budget is reached, SecureFlow stops starting new chunks, preserves findings from completed chunks, and completes the check run as `neutral` with policy decision `PARTIAL`.
+- **`requestTimeout` / `requestTimeoutSeconds`**: Per-request LLM timeout in seconds (default: `60`).
+
+### Environment Variables
+
+Defaults can also be configured across the deployment via environment variables:
+
+- **`SCAN_TIMEOUT_BUDGET_SECONDS`**: Deployment-wide default scan time budget (seconds, default: `120`).
+- **`SCAN_REQUEST_TIMEOUT_SECONDS`**: Deployment-wide default per-request LLM timeout (seconds, default: `60`).
+
+### Partial Scan Behavior & Safety Guarantees
+
+- **Preserves Completed Findings**: Findings from chunks that completed before the timeout are preserved and reported.
+- **Visible Unscanned Files List**: The check run summary and details clearly list every unscanned file and the reason it was skipped (`scan timeout budget of ...s exceeded`).
+- **Check Run Conclusion**: The GitHub check run concludes with `neutral` and title `Policy Decision: PARTIAL (<count> issues in <count> analyzed files)`.
+- **Never Auto-Resolves Missing Findings**: Scans marked partial are flagged with `isPartialScan: true`. Automated finding resolution and scan comparison logic never treat missing findings as resolved or fixed during a partial scan.
+- **Full Scans Unaffected**: When all files are scanned within the time budget, the scan behaves exactly as before.
+
+## Skipping Draft Pull Requests and Automated Bot PRs (`skipDrafts` & `skipAuthors`)
+
+Draft PRs and automated PRs (dependency bots, release bots) can consume LLM quota and generate noise before work is ready for review. You can configure automatic early skips in `.secureflow.json`:
+
+```json
+{
+  "skipDrafts": true,
+  "skipAuthors": ["dependabot[bot]", "renovate[bot]", "*bot*", "release-*"]
+}
+```
+
+- **`skipDrafts`**: (Optional, boolean, default `false`). When `true`, pull requests in draft mode are skipped early from scanning. When the pull request is marked ready for review (`ready_for_review`), SecureFlow automatically triggers a full scan.
+- **`skipAuthors`**: (Optional, string array). A list of exact login names (case-insensitive) or wildcard patterns (e.g. `dependabot[bot]`, `*bot*`, `release-*`). Pull requests authored by matching accounts are skipped early.
+- **Early feedback**: When a scan is skipped, SecureFlow posts a short neutral check run (or comment) on the pull request stating why the scan was skipped, and records the event in webhook delivery diagnostics (`DRAFT_PR` or `AUTHOR_SKIPPED`).
+- **Base-branch authority**: Settings are read strictly from the target repository's **base branch** (`.secureflow.json`). If the file cannot be read or contains invalid values, SecureFlow logs a warning and safely falls back without skipping.
+
 ## CLI Initialization and Validation (`secureflow --init` & `secureflow validate`)
 
 To simplify repository setup and avoid manual syntax mistakes, use the SecureFlow CLI:

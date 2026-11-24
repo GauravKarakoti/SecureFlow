@@ -9,6 +9,7 @@ import {
   getApiTokens,
   getOutboundWebhooks,
   getWeeklyDigestPreference,
+  getNotificationPreferences,
 } from "@/lib/actions/settings";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export default async function SettingsPage() {
     initialApiTokens,
     initialOutboundWebhooks,
     initialWeeklyDigestEnabled,
+    initialNotificationPreferences,
   ] = await Promise.all([
     getSlackWebhook(),
     getTeamsWebhook(),
@@ -36,6 +38,7 @@ export default async function SettingsPage() {
     getApiTokens(),
     getOutboundWebhooks(),
     getWeeklyDigestPreference(),
+    getNotificationPreferences(),
   ]);
 
   return (
@@ -47,6 +50,7 @@ export default async function SettingsPage() {
       initialApiTokens={initialApiTokens}
       initialOutboundWebhooks={initialOutboundWebhooks}
       initialWeeklyDigestEnabled={initialWeeklyDigestEnabled}
+      initialNotificationPreferences={initialNotificationPreferences}
     />
   );
 }

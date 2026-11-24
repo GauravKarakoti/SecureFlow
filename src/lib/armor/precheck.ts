@@ -17,8 +17,8 @@ import {
 } from "./secret-detector";
 import { parseUnifiedPatch, addedLines } from "./diff";
 import { computeDynamicFingerprint } from "./fingerprint";
-import { ignoreReasonFor } from "./ignore-rules";
-import { compileIgnorePatterns } from "./scanner";
+import { ignoreReasonFor, compileIgnorePatterns } from "./ignore-rules";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import type { Severity } from "@/lib/severity";
 import type { FileChange, ScanFinding } from "./scanner";
 
@@ -100,9 +100,11 @@ export function precheckFilePatch(
 ): ScanFinding[] {
   const { customPlaceholders = [], customIgnores = [], repositoryId = "default-repo" } = options;
 
-  // Respect existing non-executable / ignore filters
+  // Respect custom ignores from .secureflowignore, but continue running
+  // deterministic pre-scan on files skipped from LLM scanning by default patterns (#1983).
   const compiledIgnores = compileIgnorePatterns(customIgnores);
-  if (ignoreReasonFor(filename, compiledIgnores)) {
+  const forCustom = filename.replace(/\\/g, "/");
+  if (compiledIgnores.some((pattern) => pattern.test(forCustom))) {
     return [];
   }
 
@@ -139,10 +141,13 @@ export function precheckFilePatch(
         if (!activeFinding) {
           const redacted = redactSecret(rawSecret);
           const dynFp = computeDynamicFingerprint(repositoryId, filename, "Secret", redacted);
+          const detected = detectFileLanguage(filename, patch);
 
           activeFinding = {
             type: "Secret",
             severity: family.severity,
+            confidence: "HIGH",
+            confidenceReason: `Deterministic pre-scan: ${family.name} pattern match.`,
             description: `Deterministic pre-scan: ${family.name} detected on line ${line.number}.`,
             fileLocation: filename,
             codeSnippet: content,
@@ -152,6 +157,8 @@ export function precheckFilePatch(
             signatureVersion: dynFp.signatureVersion,
             matchedSignatures: [family.id, "precheck-deterministic"],
             isZeroDay: false,
+            language: detected.language,
+            ...(detected.framework ? { framework: detected.framework } : {}),
           };
         }
       }
@@ -184,27 +191,45 @@ export function runDeterministicPrecheck(
 }
 
 /**
- * Deduplicates and merges precheck findings with LLM scan findings.
- * If both report on the same file and line, precheck findings take priority
- * ensuring deterministic redaction and source attribution.
+ * Deduplicates and merges precheck and deterministic findings with LLM scan findings.
+ * If both report on the same file and line, or share a dynamic/standard fingerprint,
+ * deterministic findings take priority and duplicate LLM findings are avoided.
  */
 export function mergePrecheckWithLlmFindings(
   precheckFindings: ScanFinding[],
   llmFindings: ScanFinding[],
 ): ScanFinding[] {
-  const seen = new Set<string>();
+  const seenLocations = new Set<string>();
+  const seenFingerprints = new Set<string>();
   const merged: ScanFinding[] = [];
 
   for (const f of precheckFindings) {
     const key = `${f.fileLocation}:${f.lineStart ?? 0}`;
-    seen.add(key);
+    seenLocations.add(key);
+    if (f.dynamicFingerprint) {
+      seenFingerprints.add(f.dynamicFingerprint);
+    }
+    const standardFp = (f as { fingerprint?: string }).fingerprint;
+    if (standardFp) {
+      seenFingerprints.add(standardFp);
+    }
     merged.push(f);
   }
 
   for (const f of llmFindings) {
     const key = `${f.fileLocation}:${f.lineStart ?? 0}`;
-    if (!seen.has(key)) {
-      seen.add(key);
+    const dynFp = f.dynamicFingerprint;
+    const standardFp = (f as { fingerprint?: string }).fingerprint;
+
+    const isDuplicate =
+      seenLocations.has(key) ||
+      (dynFp !== undefined && seenFingerprints.has(dynFp)) ||
+      (standardFp !== undefined && seenFingerprints.has(standardFp));
+
+    if (!isDuplicate) {
+      seenLocations.add(key);
+      if (dynFp) seenFingerprints.add(dynFp);
+      if (standardFp) seenFingerprints.add(standardFp);
       merged.push(f);
     }
   }

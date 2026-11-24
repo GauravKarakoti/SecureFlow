@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   createSuppressionRule,
   updateSuppressionRule,
+  renewSuppressionRule,
   deleteSuppressionRule,
   getSuppressionRulesWithStats,
   type CreateSuppressionRuleInput,
@@ -48,14 +49,43 @@ export async function createSuppressionRuleAction(input: CreateSuppressionRuleIn
   return result;
 }
 
-export async function updateSuppressionRuleAction(id: string, input: UpdateSuppressionRuleInput) {
+export async function updateSuppressionRuleAction(
+  id: string,
+  input: UpdateSuppressionRuleInput,
+  previousExpiresAt?: Date | null,
+) {
   const adminUser = await requireAdminSession();
 
   if (!id) {
     throw new Error("Rule ID is required.");
   }
 
-  const result = await updateSuppressionRule(id, input, adminUser.id);
+  const result = await updateSuppressionRule(id, input, adminUser.id, previousExpiresAt);
+  if (!result)
+    return { error: "This rule expired or changed. Refresh the list before editing it." };
+  revalidatePath("/admin/suppression-rules");
+  return result;
+}
+
+export async function renewSuppressionRuleAction(id: string, expiryDate: string) {
+  const adminUser = await requireAdminSession();
+  if (!id) throw new Error("Rule ID is required.");
+
+  const now = new Date();
+  if (typeof expiryDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate)) {
+    return { error: "Choose a future expiry date (UTC)." };
+  }
+  const expiresAt = new Date(expiryDate);
+  if (
+    !Number.isFinite(expiresAt.getTime()) ||
+    expiresAt.toISOString().slice(0, 10) !== expiryDate ||
+    expiresAt <= now
+  ) {
+    return { error: "Choose a future expiry date (UTC)." };
+  }
+
+  const result = await renewSuppressionRule(id, expiresAt, now, adminUser.id);
+  if (!result) return { error: "This rule is no longer expired. Refresh the list and try again." };
   revalidatePath("/admin/suppression-rules");
   return result;
 }

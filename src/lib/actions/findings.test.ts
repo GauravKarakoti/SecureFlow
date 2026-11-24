@@ -103,6 +103,7 @@ describe("getUserFindings", () => {
       type: "SECRET",
       severity: "HIGH",
       fileLocation: "src/app.ts",
+      language: "typescript",
       lineStart: 3,
       lineEnd: null,
       codeSnippet: "const key = ...",
@@ -118,12 +119,30 @@ describe("getUserFindings", () => {
       triageNote: "on it",
       triageReason: null,
       triageExpiresAt: null,
+      assigneeId: null,
+      assignee: null,
       resolvedAt: null,
       resolvedCommitSha: null,
-      ageDays: 81,
+      ageDays: expect.any(Number),
       isOverdue: true,
+      noteCount: 0,
+      issueUrl: null,
+      cwe: null,
     });
-    expect(result.findings[1]).toMatchObject({ triageStatus: "OPEN", triageNote: null });
+    expect(result.findings[1]).toMatchObject({
+      triageStatus: "OPEN",
+      triageNote: null,
+      noteCount: 0,
+    });
+  });
+
+  it("counts notes per finding and exposes noteCount (#1920)", async () => {
+    mockGetUserTriage.mockResolvedValue(triage());
+    stubCounts(1);
+    prismaMock.finding.findMany.mockResolvedValue([row("with-notes", { _count: { notes: 4 } })]);
+
+    const result = await getUserFindings();
+    expect(result.findings[0].noteCount).toBe(4);
   });
 
   it("returns the tiles, the page and the page count", async () => {

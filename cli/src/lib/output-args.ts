@@ -103,6 +103,14 @@ export function parseIgnoreFilePath(argv: readonly string[]): string | undefined
   return raw;
 }
 
+/** `--config <path>` (alias `-c`), or `undefined` for the default configuration file lookup. */
+export function parseConfigFilePath(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--config", "-c"]);
+  if (raw === undefined) return undefined;
+  if (raw === null) throw new CliUsageError("--config requires a file path");
+  return raw;
+}
+
 /** `-v` / `--voice` flag: play an audio summary debrief. */
 export function parseVoiceArg(argv: readonly string[]): boolean {
   for (const arg of argv) {
@@ -195,6 +203,58 @@ export function parseIgnoreSuppressionsArg(argv: readonly string[]): boolean {
 }
 
 /**
+ * Parse cache prune command: `cache-prune`, `cache prune`, or `--cache-prune`.
+ */
+export function parseCachePruneArg(argv: readonly string[]): boolean {
+  if (argv.includes("--cache-prune")) return true;
+  for (let i = 0; i < argv.length; i++) {
+    const current = argv[i];
+    if (current === "cache-prune") return true;
+    if (current === "cache" && argv[i + 1] === "prune") return true;
+  }
+  return false;
+}
+
+/**
+ * Parse cache stats command: `cache-stats`, `cache stats`, or `--cache-stats`.
+ */
+export function parseCacheStatsArg(argv: readonly string[]): boolean {
+  if (argv.includes("--cache-stats")) return true;
+  for (let i = 0; i < argv.length; i++) {
+    const current = argv[i];
+    if (current === "cache-stats") return true;
+    if (current === "cache" && argv[i + 1] === "stats") return true;
+  }
+  return false;
+}
+
+/**
+ * `--cache-ttl <duration>` / `--ttl <duration>`: TTL duration for caching/pruning (e.g. 7d, 30d, 24h).
+ */
+export function parseCacheTtlArg(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--cache-ttl", "--ttl"]);
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim().length === 0) {
+    throw new CliUsageError("--ttl/--cache-ttl requires a duration value (e.g. 7d, 30d, 24h)");
+  }
+  return raw.trim();
+}
+
+/**
+ * `--cache-max-size <size>` / `--max-size <size>`: Max storage size for cache (e.g. 50MB, 100M).
+ */
+export function parseCacheMaxSizeArg(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--cache-max-size", "--max-size"]);
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim().length === 0) {
+    throw new CliUsageError("--max-size/--cache-max-size requires a size value (e.g. 50MB, 100M)");
+  }
+  return raw.trim();
+}
+
+/**
+
+/**
  * `--cache-dir <path>`: optional custom cache directory.
  */
 export function parseCacheDirArg(argv: readonly string[]): string | undefined {
@@ -205,3 +265,122 @@ export function parseCacheDirArg(argv: readonly string[]): string | undefined {
   }
   return raw.trim();
 }
+
+const FLAGS_WITH_VALUE = new Set([
+  "-o",
+  "--output",
+  "--format",
+  "--ignore-file",
+  "--ignore",
+  "--since",
+  "--fail-on",
+  "--cache-dir",
+  "--cache-ttl",
+  "--ttl",
+  "--cache-max-size",
+  "--max-size",
+  "--local-model",
+  "--file",
+  "--finding-type",
+  "--severity",
+  "--validate",
+  "--dir",
+]);
+
+const KNOWN_COMMANDS = new Set([
+  "validate",
+  "init",
+  "mcp",
+  "sbom",
+  "explain",
+  "cache-clear",
+  "cache-prune",
+  "cache-stats",
+]);
+
+/**
+ * Parses target directory from `--dir <path>` or positional arguments.
+ * Returns undefined if scanning staged git files or running a specific subcommand.
+ */
+export function parseTargetDirectoryArg(argv: readonly string[]): string | undefined {
+  // Check explicit --dir
+  const explicit = optionValue(argv, ["--dir"]);
+  if (explicit !== undefined) {
+    if (explicit === null || explicit.trim().length === 0) {
+      throw new CliUsageError("--dir requires a directory path");
+    }
+    return explicit.trim();
+  }
+
+  // Look for positional argument
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg.startsWith("-")) {
+      if (FLAGS_WITH_VALUE.has(arg)) {
+        i++;
+      }
+      continue;
+    }
+    if (KNOWN_COMMANDS.has(arg)) {
+      return undefined;
+    }
+    if (arg === "scan") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) {
+        return next;
+      }
+      return ".";
+    }
+    return arg;
+  }
+
+  return undefined;
+}
+
+export type VerbosityLevel = "quiet" | "normal" | "verbose";
+
+/**
+ * Check if `--quiet` or `-q` was specified.
+ */
+export function parseQuietArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--quiet" || arg === "-q") return true;
+    if (arg.startsWith("--quiet=")) {
+      const val = arg.slice("--quiet=".length).toLowerCase();
+      if (val !== "false" && val !== "0") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if `--verbose` was specified.
+ */
+export function parseVerboseArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--verbose") return true;
+    if (arg.startsWith("--verbose=")) {
+      const val = arg.slice("--verbose=".length).toLowerCase();
+      if (val !== "false" && val !== "0") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse verbosity level from CLI args: `--quiet` / `-q`, `--verbose`, or default "normal".
+ * Throws a CliUsageError if both `--quiet` and `--verbose` are provided.
+ */
+export function parseVerbosityArg(argv: readonly string[]): VerbosityLevel {
+  const quiet = parseQuietArg(argv);
+  const verbose = parseVerboseArg(argv);
+
+  if (quiet && verbose) {
+    throw new CliUsageError("--quiet and --verbose cannot be combined");
+  }
+
+  if (quiet) return "quiet";
+  if (verbose) return "verbose";
+  return "normal";
+}
+

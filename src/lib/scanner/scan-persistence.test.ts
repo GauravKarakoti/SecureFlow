@@ -172,6 +172,17 @@ describe("findingCreateInput", () => {
     expect(input.suppressionRuleId).toBeNull();
   });
 
+  it("resolves and populates cwe on finding create input (#2008)", () => {
+    const inputWithCwe = findingCreateInput(finding({ type: "Secret" }));
+    expect(inputWithCwe.cwe).toBe("CWE-798");
+
+    const inputExplicit = findingCreateInput(finding({ cwe: "CWE-89" }));
+    expect(inputExplicit.cwe).toBe("CWE-89");
+
+    const inputUnknown = findingCreateInput(finding({ type: "UnknownWhateverType" }));
+    expect(inputUnknown.cwe).toBeNull();
+  });
+
   it("persists suppressionStatus and suppressionRuleId when set", () => {
     const input = findingCreateInput(
       finding({
@@ -181,6 +192,45 @@ describe("findingCreateInput", () => {
     );
     expect(input.suppressionStatus).toBe("SUPPRESSED_BY_RULE");
     expect(input.suppressionRuleId).toBe("rule-123");
+  });
+
+  it("encrypts codeSnippet and explanation when encryption is enabled (#2016)", () => {
+    process.env.ENCRYPTION_ENABLED = "true";
+    process.env.ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    process.env.ENCRYPTION_KEY_ID = "v1";
+
+    const input = findingCreateInput(
+      finding({
+        codeSnippet: "const secretKey = 'sk-12345';",
+        explanation: "Exposed API key.",
+      }),
+    );
+
+    expect(input.encryptionKeyId).toBe("v1");
+    expect(input.codeSnippet).not.toContain("sk-12345");
+    expect(input.codeSnippet?.startsWith("enc:v1:aes-256-gcm:")).toBe(true);
+    expect(input.explanation).not.toContain("Exposed API key");
+    expect(input.explanation?.startsWith("enc:v1:aes-256-gcm:")).toBe(true);
+
+    delete process.env.ENCRYPTION_ENABLED;
+    delete process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY_ID;
+  });
+
+  it("leaves codeSnippet and explanation plaintext when encryption is disabled (#2016)", () => {
+    delete process.env.ENCRYPTION_ENABLED;
+    delete process.env.ENCRYPTION_KEY;
+
+    const input = findingCreateInput(
+      finding({
+        codeSnippet: "const val = 123;",
+        explanation: "Normal explanation.",
+      }),
+    );
+
+    expect(input.encryptionKeyId).toBeNull();
+    expect(input.codeSnippet).toBe("const val = 123;");
+    expect(input.explanation).toBe("Normal explanation.");
   });
 });
 

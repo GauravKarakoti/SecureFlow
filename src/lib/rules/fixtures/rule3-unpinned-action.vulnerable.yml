@@ -1,0 +1,16 @@
+name: Vulnerable Unpinned Action
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with mutable tag
+        uses: actions/checkout@v4
+      - name: Setup Node with branch ref
+        uses: actions/setup-node@main

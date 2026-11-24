@@ -5,7 +5,7 @@ import {
   stripJsonComments,
   isValidGlob,
   isValidExpiryDate,
-} from "./config-schema.js";
+} from "./index.js";
 
 describe("stripJsonComments", () => {
   it("removes single-line // comments while preserving line count", () => {
@@ -192,5 +192,66 @@ describe("validateSecureFlowIgnore", () => {
     expect(expiryErr).toBeDefined();
     expect(expiryErr?.line).toBe(2);
     expect(expiryErr?.message).toContain('Invalid expiry date "2026-02-31"');
+  });
+});
+
+describe("validateSecureFlowJson with custom rules", () => {
+  it("passes for valid custom rules in .secureflow.json", () => {
+    const content = `
+    {
+      "rules": [
+        {
+          "id": "internal-token",
+          "pattern": "SEC_TOKEN_[A-Za-z0-9]{20,}",
+          "globs": ["src/**/*.ts", "lib/**/*.js"],
+          "severity": "CRITICAL",
+          "message": "Internal token pattern exposed"
+        },
+        {
+          "id": "banned-eval",
+          "pattern": "\\\\beval\\\\s*\\\\(",
+          "severity": "HIGH",
+          "message": "Direct eval() is prohibited"
+        }
+      ]
+    }
+    `;
+    const errors = validateSecureFlowJson(content);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("reports line-numbered errors for invalid custom rule configuration", () => {
+    const content = `{
+  "rules": [
+    {
+      "id": "broken-rule",
+      "pattern": "[invalid-regex",
+      "severity": "INVALID_SEV",
+      "globs": ["tests/[a-"],
+      "unknownProp": 123
+    }
+  ]
+}`;
+    const errors = validateSecureFlowJson(content);
+    expect(errors.length).toBeGreaterThanOrEqual(4);
+
+    const regexErr = errors.find((e) => e.code === "SYNTAX_ERROR" && e.message.includes("regex"));
+    expect(regexErr).toBeDefined();
+    expect(regexErr?.line).toBe(5);
+
+    const sevErr = errors.find((e) => e.code === "INVALID_SEVERITY");
+    expect(sevErr).toBeDefined();
+    expect(sevErr?.line).toBe(6);
+
+    const globErr = errors.find((e) => e.code === "INVALID_GLOB");
+    expect(globErr).toBeDefined();
+    expect(globErr?.line).toBe(7);
+
+    const unknownErr = errors.find((e) => e.code === "UNKNOWN_KEY");
+    expect(unknownErr).toBeDefined();
+    expect(unknownErr?.line).toBe(8);
+
+    const msgErr = errors.find((e) => e.message.includes("message"));
+    expect(msgErr).toBeDefined();
   });
 });

@@ -20,7 +20,14 @@ export const DEFAULT_SECRET_VARS: readonly string[] = [
   "BREVO_API_KEY",
   "SMTP_PASS",
   "REDIS_URL",
+  "ENCRYPTION_KEY",
 ] as const;
+
+/**
+ * External/IDE environment variables with a `_FILE` suffix that are not application secrets
+ * and may reference ephemeral files that do not exist during builds.
+ */
+const IGNORED_AUTO_DISCOVERED_FILE_VARS = new Set<string>(["CODELLDB_LAUNCH_CONNECT"]);
 
 export interface ResolveSecretOptions {
   /**
@@ -105,12 +112,16 @@ export function resolveFileSecrets<T extends Record<string, string | undefined>>
   options?: ResolveSecretOptions,
 ): T {
   const customReader = options?.readFile ?? ((p: string) => fs.readFileSync(p, "utf8"));
+  const hasExplicitSecretVars = options?.secretVars !== undefined;
   const configuredVars = new Set<string>(options?.secretVars ?? DEFAULT_SECRET_VARS);
 
   // Discover any keys ending in _FILE in the source record
   for (const key of Object.keys(source)) {
     if (key.endsWith("_FILE") && key.length > 5) {
       const baseName = key.slice(0, -5);
+      if (!hasExplicitSecretVars && IGNORED_AUTO_DISCOVERED_FILE_VARS.has(baseName)) {
+        continue;
+      }
       configuredVars.add(baseName);
     }
   }

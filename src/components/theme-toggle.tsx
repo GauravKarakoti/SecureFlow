@@ -42,7 +42,7 @@ export function ThemeToggle({ className = "" }: ThemeToggleProps) {
           type="button"
           aria-label="Toggle theme"
           title={`Theme: ${theme}`}
-          className={`w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+          className={`w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
           data-testid="theme-toggle-trigger"
         >
           {mounted ? (

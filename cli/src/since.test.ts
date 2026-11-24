@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { execSync, spawnSync } from "node:child_process";
+import { execFileSync, execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { pathToFileURL } from "node:url";
 
 const CLI_DIR = path.resolve(__dirname, "..");
 const BIN_PATH = path.resolve(CLI_DIR, "dist/index.js");
@@ -176,6 +177,81 @@ describe("--since REF CLI Integration Tests", () => {
     expect(res.stderr).toContain(
       '❌ [SecureFlow] Git reference "non-existent-ref-xyz" does not exist.',
     );
+  });
+
+  it("scans tracked edits from detached HEAD without scanning untracked files", () => {
+    tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-since-detached-"));
+    initGitRepo(tempBaseDir);
+    const tracked = path.join(tempBaseDir, "tracked.ts");
+    fs.writeFileSync(tracked, "export const count = 1;\n");
+    runGit(["add", "tracked.ts"], tempBaseDir);
+    runGit(["commit", "-m", "baseline"], tempBaseDir);
+    runGit(["checkout", "--detach", "HEAD"], tempBaseDir);
+
+    fs.writeFileSync(tracked, "export const count = 2;\n");
+    fs.writeFileSync(path.join(tempBaseDir, "untracked.ts"), "export const unused = true;\n");
+    const res = runCli(["--since", "HEAD", "--format", "json", "--no-cache"], tempBaseDir);
+
+    expect(res.status, res.stderr).toBe(0);
+    expect(JSON.parse(res.stdout).map((file: { path: string }) => file.path)).toEqual([
+      "tracked.ts",
+    ]);
+  });
+
+  it("reports a shallow clone's missing ref and scans against its available tip", () => {
+    tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-since-shallow-"));
+    const source = path.join(tempBaseDir, "source");
+    const clone = path.join(tempBaseDir, "shallow clone");
+    initGitRepo(source);
+    const file = path.join(source, "app.ts");
+    fs.writeFileSync(file, "export const score = 1;\n");
+    runGit(["add", "app.ts"], source);
+    runGit(["commit", "-m", "baseline"], source);
+    const oldTip = runGit(["rev-parse", "HEAD"], source).trim();
+    fs.writeFileSync(file, "export const score = 2;\n");
+    runGit(["commit", "-am", "update"], source);
+    execFileSync("git", ["clone", "--depth=1", pathToFileURL(source).href, clone], {
+      stdio: "pipe",
+    });
+    expect(runGit(["rev-parse", "--is-shallow-repository"], clone).trim()).toBe("true");
+
+    const missing = runCli(["--since", oldTip, "--no-cache"], clone);
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain(`Git reference "${oldTip}" does not exist.`);
+
+    fs.writeFileSync(path.join(clone, "app.ts"), "export const score = 3;\n");
+    const available = runCli(["--since", "HEAD", "--format", "json", "--no-cache"], clone);
+    expect(available.status, available.stderr).toBe(0);
+    expect(JSON.parse(available.stdout).map((entry: { path: string }) => entry.path)).toEqual([
+      "app.ts",
+    ]);
+  });
+
+  it("resolves monorepo diff paths from the repository root when invoked in a nested package", () => {
+    tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-since-monorepo-"));
+    initGitRepo(tempBaseDir);
+    const packages = path.join(tempBaseDir, "packages");
+    const client = path.join(packages, "client");
+    const server = path.join(packages, "server");
+    for (const dir of [client, server]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "index.ts"), "export const version = 1;\n");
+    }
+    fs.writeFileSync(
+      path.join(tempBaseDir, "package.json"),
+      JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+    );
+    runGit(["add", "."], tempBaseDir);
+    runGit(["commit", "-m", "baseline"], tempBaseDir);
+    for (const dir of [client, server]) {
+      fs.writeFileSync(path.join(dir, "index.ts"), "export const version = 2;\n");
+    }
+
+    const res = runCli(["--since", "HEAD", "--format", "json", "--no-cache"], client);
+
+    expect(res.status, res.stderr).toBe(0);
+    const paths = (JSON.parse(res.stdout) as Array<{ path: string }>).map((file) => file.path);
+    expect(paths.sort()).toEqual(["packages/client/index.ts", "packages/server/index.ts"]);
   });
 
   it("fails with a clear error when directory is not a git repository", () => {

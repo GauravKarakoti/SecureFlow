@@ -23,6 +23,8 @@ import {
   shouldFailScan,
   shouldScanFile,
   generateVoiceSummaryText,
+  countFindingsBySeverity,
+  formatSeverityCounts,
 } from "./scanner.js";
 import { CliUsageError, parseVoiceArg } from "./lib/output-args.js";
 import {
@@ -426,6 +428,37 @@ describe("describeFailThreshold", () => {
     // which read "below --fail-on=null threshold".
     expect(describeFailThreshold(null)).toBe("the default HIGH/CRITICAL threshold");
     expect(describeFailThreshold(null)).not.toContain("null");
+  });
+});
+
+describe("countFindingsBySeverity and formatSeverityCounts", () => {
+  it("counts zero findings when none exist", () => {
+    const counts = countFindingsBySeverity(0, []);
+    expect(counts).toEqual({ critical: 0, high: 0, medium: 0, low: 0 });
+    expect(formatSeverityCounts(counts)).toBe(
+      "Findings by severity: critical: 0, high: 0, medium: 0, low: 0",
+    );
+  });
+
+  it("counts local violations as high severity", () => {
+    const counts = countFindingsBySeverity(3, []);
+    expect(counts).toEqual({ critical: 0, high: 3, medium: 0, low: 0 });
+  });
+
+  it("aggregates local violations and AI findings across all severities case-insensitively", () => {
+    const aiFindings = [
+      { severity: "CRITICAL" },
+      { severity: "critical" },
+      { severity: "HIGH" },
+      { severity: "medium" },
+      { severity: "LOW" },
+      { severity: "low" },
+    ];
+    const counts = countFindingsBySeverity(1, aiFindings);
+    expect(counts).toEqual({ critical: 2, high: 2, medium: 1, low: 2 });
+    expect(formatSeverityCounts(counts)).toBe(
+      "Findings by severity: critical: 2, high: 2, medium: 1, low: 2",
+    );
   });
 });
 

@@ -1,10 +1,85 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   SECUREFLOW_COMMENT_MARKER,
   renderScanReportSummary,
+  renderScanReportWithBaseOwners,
   toBlockquote,
   toCodeSpan,
 } from "./scan-report";
+
+describe("rendering a sticky report with base CODEOWNERS", () => {
+  const base = { owner: "example", repo: "project", baseRef: "base-sha" };
+  const findings = [
+    {
+      severity: "LOW",
+      type: "Example",
+      fileLocation: "src/config.ts",
+      explanation: "Example explanation",
+    },
+    { severity: "LOW", type: "Example", fileLocation: "src/generated/item.ts" },
+  ];
+  const input = { findings, totalFindings: 4, inlineCount: 2, commitSha: "head-sha" };
+  const inline = ["src/api.ts", "src/api.ts"];
+
+  it("adds owners per finding and counts findings posted inline", async () => {
+    const getContent = vi.fn().mockResolvedValue({
+      data: "*.ts @example/platform ops@example.test\n/src/generated/",
+    });
+    const body = await renderScanReportWithBaseOwners(
+      { rest: { repos: { getContent } } },
+      base,
+      input,
+      inline,
+    );
+    expect(body).toContain(
+      "**By owner:** `@example/platform` (3), `ops@example.test` (3), Unowned (1)",
+    );
+    expect(body).toContain("`src/api.ts` (2) — `@example/platform`, `ops@example.test`");
+    expect(body).toContain("`src/config.ts`\n**Owners:** `@example/platform`, `ops@example.test`");
+    expect(body).toContain("`src/generated/item.ts`\n**Owners:** Unowned");
+    expect(getContent).toHaveBeenCalledWith(expect.objectContaining({ ref: "base-sha" }));
+  });
+
+  it("renders the same ownership for findings moved to the sticky fallback", async () => {
+    const client = {
+      rest: { repos: { getContent: vi.fn().mockResolvedValue({ data: "*.ts @platform" }) } },
+    };
+    const all = [
+      ...findings,
+      ...inline.map((fileLocation) => ({ severity: "LOW", type: "Example", fileLocation })),
+    ];
+    const body = await renderScanReportWithBaseOwners(
+      client,
+      base,
+      { ...input, findings: all },
+      [],
+    );
+    expect(body).toContain("**By owner:** `@platform` (4)");
+    expect(body.match(/\*\*Owners:\*\* `@platform`/g)).toHaveLength(4);
+    expect(body).not.toContain("Owners of findings posted inline");
+  });
+
+  it("preserves the report byte for byte when base ownership is absent", async () => {
+    const getContent = vi.fn().mockRejectedValue({ status: 404 });
+    expect(
+      await renderScanReportWithBaseOwners(
+        { rest: { repos: { getContent } } },
+        base,
+        input,
+        inline,
+      ),
+    ).toBe(renderScanReportSummary(input));
+    expect(getContent).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves the original report when the optional ownership would be too long", async () => {
+    const data = "* " + Array.from({ length: 5000 }, (_, index) => "@owner-" + index).join(" ");
+    const client = { rest: { repos: { getContent: vi.fn().mockResolvedValue({ data }) } } };
+    expect(await renderScanReportWithBaseOwners(client, base, input, inline)).toBe(
+      renderScanReportSummary(input),
+    );
+  });
+});
 
 const finding = (overrides: Record<string, unknown> = {}) => ({
   severity: "HIGH",
@@ -66,6 +141,45 @@ describe("renderScanReportSummary", () => {
     expect(body).toContain("Scanned commit: `abc1234567890abcdef`");
   });
 
+  it("includes scan time when provided as string", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      scanTime: "2026-11-22T10:00:00.000Z",
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scan time: `2026-11-22T10:00:00.000Z`");
+  });
+
+  it("includes scan time when provided as Date", () => {
+    const d = new Date("2026-11-22T14:30:00.000Z");
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      scanTime: d,
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scan time: `2026-11-22T14:30:00.000Z`");
+  });
+
+  it("includes both scanned commit SHA and scan time when both provided", () => {
+    const body = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      commitSha: "sha777",
+      scanTime: "2026-11-22T16:00:00.000Z",
+    });
+
+    expect(body).toContain(SECUREFLOW_COMMENT_MARKER);
+    expect(body).toContain("Scanned commit: `sha777`");
+    expect(body).toContain("Scan time: `2026-11-22T16:00:00.000Z`");
+  });
+
   it("omits the scanned commit line when commitSha is not provided", () => {
     const body = renderScanReportSummary({
       findings: [finding()],
@@ -74,6 +188,7 @@ describe("renderScanReportSummary", () => {
     });
 
     expect(body).not.toContain("Scanned commit:");
+    expect(body).not.toContain("Scan time:");
   });
 
   it("keeps a multi-paragraph explanation inside its blockquote", () => {
@@ -148,6 +263,29 @@ describe("renderScanReportSummary", () => {
     expect(body).not.toContain("null");
   });
 
+  it("marks verified ready fixes in the remediation section and displays patch notes (#1977)", () => {
+    const body = renderScanReportSummary({
+      findings: [
+        finding({
+          remediation: "Use parameterized queries.",
+          verifiedPatch: true,
+          readyFix: true,
+        }),
+        finding({
+          fileLocation: "src/unverified.ts",
+          remediation: "Manual fix required.",
+          verifiedPatch: false,
+          patchNote: "Patch verification failed: context mismatch. No ready fix available.",
+        }),
+      ],
+      totalFindings: 2,
+      inlineCount: 0,
+    });
+
+    expect(body).toContain("🛠️ View Remediation Suggestions (Verified Ready Fix)");
+    expect(body).toContain("Patch verification failed: context mismatch. No ready fix available.");
+  });
+
   it("reports previously dismissed findings count in the summary (#1528)", () => {
     const body = renderScanReportSummary({
       findings: [finding()],
@@ -218,5 +356,31 @@ describe("renderScanReportSummary", () => {
     expect(body).toContain(
       "🛡️ **4** finding(s) were suppressed by installation suppression rule(s).",
     );
+  });
+
+  it("renders default skipped file count when files were skipped by default patterns (#1983)", () => {
+    const bodySingle = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 1,
+    });
+    expect(bodySingle).toContain("ℹ️ **1 file** skipped by default ignore patterns.");
+
+    const bodyMultiple = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 5,
+    });
+    expect(bodyMultiple).toContain("ℹ️ **5 files** skipped by default ignore patterns.");
+
+    const bodyZero = renderScanReportSummary({
+      findings: [finding()],
+      totalFindings: 1,
+      inlineCount: 0,
+      defaultSkippedCount: 0,
+    });
+    expect(bodyZero).not.toContain("skipped by default ignore patterns");
   });
 });

@@ -127,7 +127,7 @@ describe("Webhook Worker DLQ Routing", () => {
       attemptsMade: 3,
       opts: { attempts: 3 },
     };
-    const mockError = new Error("Rate limit exceeded");
+    const mockError = new Error("Permanent fatal error");
 
     await failedHandler(mockJob, mockError);
 
@@ -135,10 +135,43 @@ describe("Webhook Worker DLQ Routing", () => {
       "process-webhook-dlq",
       expect.objectContaining({
         originalJobId: "job-failed-123",
-        failedReason: "Rate limit exceeded",
+        failedReason: "Permanent fatal error",
         attemptsMade: 3,
       }),
       { attempts: 1 },
+    );
+  });
+
+  it("does NOT move to DLQ when job fails due to GitHub rate limits, but delays it instead (#2014)", async () => {
+    const failedHandler = handlers.failed!;
+    mockDLQAdd.mockClear();
+
+    const mockJob = {
+      id: "job-rate-limited-123",
+      name: "process-webhook",
+      data: { event: "pull_request", payload: { action: "synchronize" }, correlationId: "corr-1" },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+    const rateLimitError = Object.assign(new Error("You have exceeded a secondary rate limit."), {
+      status: 403,
+      response: { headers: { "retry-after": "45" } },
+    });
+
+    await failedHandler(mockJob, rateLimitError);
+
+    // Rate limit must NOT move job to DLQ (dlq adds "process-webhook-dlq")
+    const dlqCalls = mockDLQAdd.mock.calls.filter((c: any[]) => c[0] === "process-webhook-dlq");
+    expect(dlqCalls).toHaveLength(0);
+
+    // Must requeue with delay ("process-webhook")
+    expect(mockDLQAdd).toHaveBeenCalledWith(
+      "process-webhook",
+      mockJob.data,
+      expect.objectContaining({
+        delay: 45_000,
+        priority: 2,
+      }),
     );
   });
 

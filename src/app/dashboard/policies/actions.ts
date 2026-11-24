@@ -10,6 +10,7 @@ import {
   type TogglePolicyResult,
 } from "@/lib/policies/toggle";
 import { invalidatePolicyCache } from "@/lib/policies/policy-cache";
+import { can } from "@/lib/auth/permissions";
 
 /**
  * Enable or disable one policy rule for the signed-in user.
@@ -36,6 +37,12 @@ export async function togglePolicy(input: unknown): Promise<TogglePolicyResult> 
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, error: TOGGLE_ERRORS.unauthenticated };
+  }
+  if (!can(session.user, null, "policies:toggle")) {
+    return {
+      ok: false,
+      error: "Permission denied: You do not have permission to modify policies.",
+    };
   }
   const userId = session.user.id;
 
@@ -122,6 +129,9 @@ export async function editPolicy(input: unknown): Promise<EditPolicyResult> {
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, error: "Your session has expired. Sign in again to edit policies." };
+  }
+  if (!can(session.user, null, "policies:edit")) {
+    return { ok: false, error: "Permission denied: You do not have permission to edit policies." };
   }
   const userId = session.user.id;
 
@@ -226,6 +236,12 @@ export async function rollbackPolicy(input: unknown): Promise<RollbackPolicyResu
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, error: "Your session has expired. Sign in again to rollback policies." };
+  }
+  if (!can(session.user, null, "policies:edit")) {
+    return {
+      ok: false,
+      error: "Permission denied: You do not have permission to rollback policies.",
+    };
   }
   const userId = session.user.id;
 
@@ -349,6 +365,9 @@ export async function getPolicyVersions(templateId: string) {
   const session = await auth();
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
+  }
+  if (!can(session.user, null, "policies:read")) {
+    throw new Error("Permission denied: You do not have permission to view policy versions.");
   }
   const userId = session.user.id;
 

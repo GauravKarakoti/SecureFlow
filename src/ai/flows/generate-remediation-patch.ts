@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { z } from "genkit";
 import { getAiInstance, getDefaultModelRef } from "@/ai/genkit";
 import {
@@ -9,11 +10,17 @@ import {
 } from "@/ai/resilience";
 import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
 import { detectPromptInjection } from "./security-helpers";
+import {
+  verifyPatchInTempCopy,
+  type PatchVerificationResult,
+} from "@/lib/patch/patch-verifier";
 
 const PatchInputSchema = z.object({
   vulnerableCode: z.string(),
   findingDescription: z.string(),
   filePath: z.string(),
+  originalContent: z.string().optional(),
+  verifyPatch: z.boolean().optional(),
 });
 
 export const PatchOutputSchema = z.object({
@@ -32,7 +39,12 @@ export type RemediationFailureReason = "rate_limit" | "timeout" | "unavailable";
  * callers (and the UI) can tell a rate limit from any other failure. It is not part
  * of `PatchOutputSchema`, so it is never sent to the model as part of the schema.
  */
-export type PatchResult = PatchOutput & { failureReason?: RemediationFailureReason };
+export type PatchResult = PatchOutput & {
+  failureReason?: RemediationFailureReason;
+  verified?: boolean;
+  readyFix?: boolean;
+  note?: string;
+};
 
 const FALLBACK_BASE = "The AI remediation service is temporarily unavailable";
 const FALLBACK_TAIL =
@@ -142,9 +154,129 @@ Provide ONLY the unified diff patch that fixes this issue securely. Do not inclu
           explanation:
             "Generated patch was discarded due to detected prompt injection or security boundary violation.",
           failureReason: "unavailable",
+          verified: false,
+          readyFix: false,
+          note: "Prompt injection detected in generated patch.",
         };
       }
-      return output;
+
+      // If verification is disabled or no patch diff was generated, return as-is
+      if (validatedInput.verifyPatch === false || !output.patchDiff || !output.patchDiff.trim()) {
+        return {
+          ...output,
+          verified: false,
+          readyFix: false,
+        };
+      }
+
+      // Determine original file content for temporary copy verification
+      let originalContent = validatedInput.originalContent;
+      let realWorkspacePath: string | undefined;
+      if (!originalContent) {
+        if (fs.existsSync(validatedInput.filePath)) {
+          try {
+            originalContent = fs.readFileSync(validatedInput.filePath, "utf8");
+            realWorkspacePath = validatedInput.filePath;
+          } catch {
+            // Fallback to vulnerable code if unreadable
+          }
+        }
+      }
+      if (!originalContent) {
+        originalContent = validatedInput.vulnerableCode;
+      }
+
+      // Verify patch against isolated temporary copy
+      const verification = await verifyPatchInTempCopy({
+        filePath: validatedInput.filePath,
+        originalContent,
+        patchDiff: output.patchDiff,
+        realWorkspacePath,
+      });
+
+      if (verification.verified) {
+        return {
+          patchDiff: output.patchDiff,
+          explanation: output.explanation,
+          verified: true,
+          readyFix: true,
+        };
+      }
+
+      // Verification failed: Retry once with the error as feedback
+      console.warn(
+        `[REMEDIATION] Patch verification failed (${verification.error}). Retrying once with error feedback...`,
+      );
+
+      const retryPrompt = `${prompt}
+
+IMPORTANT: The previous patch failed automated verification:
+${verification.error}
+
+Please provide a corrected unified diff patch that:
+1. Applies cleanly to the original file without any context or line mismatches.
+2. Produces valid, error-free syntax for ${verification.language || "the language"}.
+Provide ONLY the corrected raw unified diff patch and a brief 1-sentence explanation.`;
+
+      let retryOutput: PatchOutput | null = null;
+      try {
+        retryOutput = await breaker.execute(async () => {
+          const res = await retryWithBackoff(() =>
+            activeAi.generate({
+              model: activeModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
+              prompt: retryPrompt,
+              output: { schema: PatchOutputSchema, format: "json" },
+            }),
+          );
+          return res.output;
+        });
+      } catch (retryErr) {
+        console.warn("[REMEDIATION] Retry patch generation failed:", retryErr);
+      }
+
+      if (retryOutput && retryOutput.patchDiff && retryOutput.patchDiff.trim()) {
+        if (
+          detectPromptInjection(retryOutput.explanation || "") ||
+          detectPromptInjection(retryOutput.patchDiff || "")
+        ) {
+          console.warn("[REMEDIATION] Prompt injection detected in retry AI patch output");
+          return {
+            patchDiff: "",
+            explanation:
+              "Generated patch was discarded due to detected prompt injection or security boundary violation.",
+            failureReason: "unavailable",
+            verified: false,
+            readyFix: false,
+            note: "Prompt injection detected in generated patch.",
+          };
+        }
+
+        const retryVerification = await verifyPatchInTempCopy({
+          filePath: validatedInput.filePath,
+          originalContent,
+          patchDiff: retryOutput.patchDiff,
+          realWorkspacePath,
+        });
+
+        if (retryVerification.verified) {
+          return {
+            patchDiff: retryOutput.patchDiff,
+            explanation: retryOutput.explanation,
+            verified: true,
+            readyFix: true,
+          };
+        }
+      }
+
+      // If retry still fails, show the finding without a patch and a short note
+      const shortNote = `Patch verification failed (${verification.error || "unable to apply cleanly or parse syntax"}). No ready fix available.`;
+      return {
+        patchDiff: "",
+        explanation: output.explanation,
+        verified: false,
+        readyFix: false,
+        note: shortNote,
+      };
     }
   } catch (error) {
     if (error instanceof CircuitBreakerError) {

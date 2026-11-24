@@ -86,9 +86,9 @@ Posts detailed security reports directly on your PRs with collapsible remediatio
 
 Sets Pass/Review Required/Blocked status on PR commits for clear CI/CD integration.
 
-### 🎯 Custom Policies
+### 🎯 Custom Policies & Project Rules
 
-Create, toggle, and manage security policies per user or organization — write your own rules for the plan.
+Create, toggle, and manage security policies per user or organization through the dashboard. Teams can also configure project-specific regex rules in `.secureflow.json` (with ReDoS backtracking protection) to catch internal tokens and banned APIs.
 
 ### 🚫 Smart Exclusions
 
@@ -386,6 +386,38 @@ SecureFlow's Docker image uses a secure multi-stage build running as an unprivil
 - **Built-in HEALTHCHECK**: Container liveness is continuously monitored via a native `HEALTHCHECK` directive.
 - **Database migrations**: Managed cleanly via dedicated one-shot migrator or Kubernetes hooks with non-root privileges.
 
+### 🔐 Container Image Signing & Supply Chain Verification
+
+All official SecureFlow container images (`ghcr.io/gauravkarakoti/secureflow`) are cryptographically signed with **Sigstore Cosign** via GitHub OIDC, and published with attached **CycloneDX SBOM** and **SLSA Build Provenance** attestations.
+
+#### 1. Verify Image Signature:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+#### 2. Verify CycloneDX SBOM Attestation:
+
+```bash
+cosign verify-attestation \
+  --type cyclonedx \
+  --certificate-identity-regexp "^https://github\.com/GauravKarakoti/SecureFlow/\.github/workflows/docker-publish\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/gauravkarakoti/secureflow:latest
+```
+
+#### 3. Verify SLSA Build Provenance:
+
+```bash
+gh attestation verify oci://ghcr.io/gauravkarakoti/secureflow:latest \
+  --repo GauravKarakoti/SecureFlow
+```
+
+For detailed provenance extraction and Kubernetes admission controller (Kyverno) policies, see the **[Container Image Verification Guide](./docs/deployment.md#8-container-image-verification--supply-chain-security-cosign--slsa-provenance-1926)**.
+
 ### Upgrading SecureFlow
 
 When upgrading between releases, follow our step-by-step checklist covering database backups, migration execution, health validation, and rollback procedures in the **[Safe Upgrade Guide](./docs/upgrade.md)**.
@@ -511,6 +543,33 @@ secureflow scan --verbose
 # ℹ️  [SecureFlow] Active AI model: provider=groq, model=openai/gpt-oss-20b
 ```
 
+#### CI/CD Quality Gates (`--fail-on`) & Exit Codes
+
+Configure failure thresholds for CI/CD pipelines to fail only when findings reach a chosen severity:
+
+```bash
+# Fail only if critical or high findings are detected
+secureflow scan --fail-on high
+
+# Zero-tolerance mode: fail on any finding
+secureflow scan --fail-on low
+
+# Advisory mode: report findings without failing the pipeline
+secureflow scan --fail-on none
+```
+
+| Exit Code | Meaning                                                                             |
+| :-------: | :---------------------------------------------------------------------------------- |
+|    `0`    | Scan passed; findings are strictly below the `--fail-on` threshold (or 0 findings). |
+|    `1`    | Scan threshold met or exceeded; findings at or above the threshold were found.      |
+|    `2`    | Scan error (e.g. git failure, missing repository, or unreadable scan tree).         |
+
+Before exiting, SecureFlow outputs a concise one-line count per severity:
+
+```text
+Findings by severity: critical: 0, high: 2, medium: 1, low: 0
+```
+
 ---
 
 ## 📝 Available Scripts
@@ -554,15 +613,18 @@ SecureFlow ships with pre-built policy templates that are seeded into the databa
 
 ## 📊 Architecture
 
-The architecture follows a modern Next.js full-stack approach with real-time GitHub integration:
+SecureFlow links local developer workflows, automated CI/CD pipelines, and pull request audits with a centralized Mission Control dashboard:
 
-- **Frontend**: Next.js App Router with Tailwind CSS for the Mission Control dashboard
-- **Backend**: API routes handle authentication, webhooks, and business logic
-- AI Layer: Groq SDK processes code diffs through GPT-OSS-20B model — The Professor's brain
-- **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
-- **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
+- **CLI (`cli/`)**: Standalone developer scanner and git pre-commit hook (`.husky/pre-commit`) providing local secret checking, scan caching, and `--fail-on` quality gates.
+- **GitHub Action (`.github/workflows/`)**: Automated CI security analysis via `npx secureflow-cli`, exporting SARIF code scanning reports to GitHub Security.
+- **Backend Ingestion & Workers**: Event-driven webhook handler (`/api/webhooks/github`), Redis delivery deduplication, BullMQ fair queue scheduling, and distributed workers.
+- **Scanning & Rules Engine**: High-speed deterministic rules for secrets, workflows (`.github/workflows/*.yml`), package dependencies, and IaC manifests.
+- **AI Inference Layer**: Groq, Ollama, vLLM, or OpenAI-compatible models producing contextual findings, explanations, and verified remediation diffs via Genkit.
+- **Policy Engine (`IQEngine`)**: Evaluates base-branch gate policies (`.secureflow.yml`) and suppresses dismissed triage findings.
+- **Mission Control Dashboard (`src/app/dashboard/`)**: Next.js App Router command center for repository monitoring, findings triage, policy management, and audit logs.
+- **Database**: PostgreSQL with Prisma ORM for persistent scan telemetry and cryptographic audit ledgers.
 
-> 📐 For the complete system architecture, interactive Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and data models, see **[Architecture & Pipeline Specification](./docs/architecture.md)**.
+> 📐 For the complete architecture, interactive Mermaid diagrams of data flow from scan to dashboard, and step-by-step contributor guides on adding rules, AI providers, and dashboard pages, see the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ---
 
@@ -570,13 +632,14 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
-- **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
+- **[Architecture & Contributor Guide](./docs/architecture.md)**: Comprehensive architectural blueprint explaining how the CLI, GitHub Action, Dashboard, and AI layer connect, complete Mermaid data flow diagrams from scan to dashboard, and contributor extension guides for adding rules, AI providers, and dashboard pages.
 - **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
 - **[Database Backup, Restore & Verification Guide](./docs/database-backup-restore.md)**: Procedures for compressed PostgreSQL dumps (`pg_dump`), safe restores with non-empty database safety guards, ephemeral database verification, Linux `cron`, and Kubernetes `CronJob` scheduling.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
 - **[Kubernetes Deployment & Egress Hardening](./docs/deployment.md)**: Production deployment architecture, zero-trust network policies, and egress rule whitelisting for backend worker pods.
 - **[System Blueprint](./docs/blueprint.md)**: Explains the application blueprint, core capabilities, style guidelines, visual tokens, and heist-themed copywriting dictionary.
 - **[API Reference](./docs/api.md)**: Provides exhaustive details on HTTP endpoints, authentication, rate limits, error formats, and system types.
+- **[Threat Model & STRIDE Analysis](./docs/threat-model.md)**: Comprehensive threat modeling across webhook ingestion, BullMQ worker queues, static scanning, LLM providers, PostgreSQL audit ledgers, and outbound dispatchers, detailing mitigations, trust boundaries, and residual risks.
 - **[AI Security & Prompt Injection Defense](./docs/security/prompt-injection.md)**: Documents the threat vector, policy isolation boundaries, pre-filtering layers, and UI indicators used to protect against LLM prompt injection attacks.
 - **[Threat Intelligence MCP Server](./docs/mcp-server.md)**: Guide to connecting IDE agents (Cursor, Claude Desktop, Windsurf) to the SecureFlow CLI MCP server with ArmorIQ cryptographic intent verification.
 - **[Local Inference & VRAM Guide](./docs/local-inference.md)**: Hardware/VRAM requirements, memory management, and environment variables for air-gapped scanning with local Ollama and vLLM models.
@@ -602,7 +665,7 @@ The badge reflects the latest scan: **passing** (green), **review required** (ye
 
 Every good heist needs a crew! Contributions are welcome from developers of all skill levels.
 
-For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**. To understand how the CLI, GitHub Action, Dashboard, and AI layer connect, explore the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ### 🎯 Issue Difficulty Labels
 
@@ -649,7 +712,10 @@ git commit -m "docs: description of documentation change"
 SecureFlow uses AI to detect hardcoded secrets and sensitive data in your code. It's designed to catch API keys, passwords, tokens, and other credentials that might accidentally be committed to your repository.
 
 **Can I customize the scanning rules?**
-Yes! You can create, toggle, and manage custom policies through the dashboard. This allows you to enforce organization-specific security rules.
+Yes! You can create, toggle, and manage custom policies through the dashboard. You can also define custom regex rules directly in `.secureflow.json` (e.g. for internal token formats or banned APIs) with built-in ReDoS backtracking protection.
+
+**Can I define custom rules for internal tokens or banned APIs?**
+Yes! In `.secureflow.json`, define rules with an `id`, `pattern`, `globs`, `severity`, and `message`. Evaluations are sandboxed with timeouts to prevent regex backtracking hangs, and findings are labeled with `[Custom Rule: <id>]`.
 
 **Is my data sent to external services?**
 Your code diffs are sent to Groq's LLM service for analysis. We do not store your code or share it with third parties. The service is compliant with data protection standards.

@@ -109,13 +109,16 @@ describe("Queue Actions & DLQ", () => {
       });
 
       const result = await getQueueMetrics();
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         waiting: 5,
         active: 2,
         completed: 150,
         failed: 12,
         delayed: 0,
+        installationConcurrencyLimit: 2,
       });
+      expect(result.queueDepthPerInstallation).toBeDefined();
+      expect(result.activePerInstallation).toBeDefined();
     });
 
     it("throws Unauthorized for non-admin users", async () => {

