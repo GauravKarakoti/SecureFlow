@@ -33,7 +33,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
     const headSha = "abc1234def5678";
 
     it("marks finding that disappears in next successful scan as RESOLVED with commit SHA", async () => {
-      // Earlier scan had two findings: fp-fixed in file-1.ts, fp-staying in file-2.ts
       mockDb.scanResult.findMany.mockResolvedValue([
         {
           id: "scan-prev",
@@ -53,10 +52,8 @@ describe("autoResolveFixedFindings (#1869)", () => {
         },
       ]);
 
-      // No existing triage (implicitly OPEN)
       mockDb.findingTriage.findMany.mockResolvedValue([]);
 
-      // Current scan only finds fp-staying; fp-fixed is resolved
       const result = await autoResolveFixedFindings({
         repositoryId,
         pullRequestId,
@@ -89,7 +86,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
         }),
       });
 
-      // Audit log entry created
       expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
       expect(mockDb.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -105,7 +101,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
     });
 
     it("never resolves findings when scan is failed or partial", async () => {
-      // Test isFailedScan: true
       const failedResult = await autoResolveFixedFindings({
         repositoryId,
         pullRequestId,
@@ -119,7 +114,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
       expect(mockDb.scanResult.findMany).not.toHaveBeenCalled();
       expect(mockDb.findingTriage.upsert).not.toHaveBeenCalled();
 
-      // Test isPartialScan: true (some files were skipped)
       const partialResult = await autoResolveFixedFindings({
         repositoryId,
         pullRequestId,
@@ -154,7 +148,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
         },
       ]);
 
-      // fp-dismissed was previously DISMISSED by user
       mockDb.findingTriage.findMany.mockResolvedValue([
         {
           fingerprint: "fp-dismissed",
@@ -163,7 +156,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
         },
       ]);
 
-      // Both disappeared in new scan
       const result = await autoResolveFixedFindings({
         repositoryId,
         pullRequestId,
@@ -177,7 +169,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
       expect(result.resolvedFingerprints).toEqual(["fp-open"]);
       expect(result.skippedDismissedCount).toBe(1);
 
-      // Only fp-open was upserted to RESOLVED
       expect(mockDb.findingTriage.upsert).toHaveBeenCalledTimes(1);
       expect(mockDb.findingTriage.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -239,7 +230,6 @@ describe("autoResolveFixedFindings (#1869)", () => {
 
       mockDb.findingTriage.findMany.mockResolvedValue([]);
 
-      // Current scan only touched src/touched.ts; src/other.ts was not in PR changes
       const result = await autoResolveFixedFindings({
         repositoryId,
         pullRequestId,
@@ -251,6 +241,109 @@ describe("autoResolveFixedFindings (#1869)", () => {
 
       expect(result.resolvedCount).toBe(0);
       expect(mockDb.findingTriage.upsert).not.toHaveBeenCalled();
+    });
+
+    it("auto-resolves findings when file is renamed and flaw is removed in new file (#2052)", async () => {
+      mockDb.scanResult.findMany.mockResolvedValue([
+        {
+          id: "scan-prev",
+          createdAt: new Date("2026-11-18T10:00:00Z"),
+          findings: [
+            {
+              fingerprint: "fp-in-old-file",
+              fileLocation: "src/old-auth.ts",
+              createdAt: new Date("2026-11-18T10:00:00Z"),
+            },
+          ],
+        },
+      ]);
+
+      mockDb.findingTriage.findMany.mockResolvedValue([]);
+
+      const result = await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId,
+        headSha,
+        currentFindings: [],
+        fileChanges: [
+          {
+            filename: "src/new-auth.ts",
+            status: "renamed",
+            previous_filename: "src/old-auth.ts",
+          },
+        ],
+        userId: "user-1",
+        db: mockDb,
+      });
+
+      expect(result.resolvedCount).toBe(1);
+      expect(result.renamedResolvedCount).toBe(1);
+      expect(result.resolvedFingerprints).toEqual(["fp-in-old-file"]);
+      expect(mockDb.findingTriage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId,
+              fingerprint: "fp-in-old-file",
+            },
+          },
+          create: expect.objectContaining({
+            status: "RESOLVED",
+            note: expect.stringContaining("Resolved: file renamed to src/new-auth.ts"),
+          }),
+        }),
+      );
+    });
+
+    it("auto-resolves findings when file is deleted (#2052)", async () => {
+      mockDb.scanResult.findMany.mockResolvedValue([
+        {
+          id: "scan-prev",
+          createdAt: new Date("2026-11-18T10:00:00Z"),
+          findings: [
+            {
+              fingerprint: "fp-in-deleted-file",
+              fileLocation: "src/legacy-module.ts",
+              createdAt: new Date("2026-11-18T10:00:00Z"),
+            },
+          ],
+        },
+      ]);
+
+      mockDb.findingTriage.findMany.mockResolvedValue([]);
+
+      const result = await autoResolveFixedFindings({
+        repositoryId,
+        pullRequestId,
+        headSha,
+        currentFindings: [],
+        fileChanges: [
+          {
+            filename: "src/legacy-module.ts",
+            status: "removed",
+          },
+        ],
+        userId: "user-1",
+        db: mockDb,
+      });
+
+      expect(result.resolvedCount).toBe(1);
+      expect(result.deletedResolvedCount).toBe(1);
+      expect(result.resolvedFingerprints).toEqual(["fp-in-deleted-file"]);
+      expect(mockDb.findingTriage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            repositoryId_fingerprint: {
+              repositoryId,
+              fingerprint: "fp-in-deleted-file",
+            },
+          },
+          create: expect.objectContaining({
+            status: "RESOLVED",
+            note: expect.stringContaining("Resolved: file deleted by commit"),
+          }),
+        }),
+      );
     });
 
     it("never auto-resolves findings when isPartialScan is true (#1981)", async () => {
