@@ -38,6 +38,12 @@ describe("Compliance-Enhanced SARIF Exporter", () => {
     expect(secretRule).toBeDefined();
     expect(secretRule?.properties.complianceTags).toContain("SOC2:CC6.1");
     expect(secretRule?.properties.complianceTags).toContain("PCI-DSS:3.4");
+    expect(secretRule?.properties.tags).toContain("CWE-798");
+
+    const vulnRule = run.tool.driver.rules.find((r) => r.id.includes("VULNERABILITY"));
+    expect(vulnRule).toBeDefined();
+    expect(vulnRule?.properties.tags).toContain("CWE-89");
+    expect(vulnRule?.helpUri).toBe("https://cwe.mitre.org/data/definitions/89.html");
 
     expect(run.results).toHaveLength(2);
     expect(run.results[0].locations[0].physicalLocation.artifactLocation.uri).toBeDefined();

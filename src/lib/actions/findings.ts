@@ -83,6 +83,8 @@ export interface FindingRow {
   noteCount: number;
   /** Linked GitHub issue URL created from this finding (#1987). */
   issueUrl?: string | null;
+  /** Common Weakness Enumeration ID (e.g. CWE-798, CWE-89) (#2008). */
+  cwe?: string | null;
 }
 
 export interface FindingsStats {
@@ -311,6 +313,7 @@ export async function getUserFindings(
       isOverdue: isFindingOverdue(finding.severity, finding.createdAt, triageStatus, AGE_TARGETS),
       noteCount: finding._count?.notes ?? 0,
       issueUrl: finding.issueUrl ?? null,
+      cwe: finding.cwe ?? null,
     };
   });
 
