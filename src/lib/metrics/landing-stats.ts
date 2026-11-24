@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { fairQueueScheduler } from "@/lib/queue/fair-scheduler";
+import { getGitHubThrottleMetrics } from "@/lib/github/throttling";
 
 export interface LandingStats {
   prsCount: number;
@@ -17,6 +18,8 @@ export interface DetailedLandingMetrics extends LandingStats {
   blockedPRs: number;
   passedPRs: number;
   queueDepthPerInstallation?: Record<string, number>;
+  gitHubThrottlePrimaryTotal?: number;
+  gitHubThrottleSecondaryTotal?: number;
 }
 
 export const BASELINE_FALLBACK_METRICS: LandingStats = {
@@ -166,6 +169,7 @@ export async function getDetailedLandingMetrics(): Promise<DetailedLandingMetric
     ]);
 
     const queueDepthPerInstallation = fairQueueScheduler.getQueueDepthPerInstallation();
+    const throttleMetrics = getGitHubThrottleMetrics();
 
     return {
       ...baseStats,
@@ -175,6 +179,8 @@ export async function getDetailedLandingMetrics(): Promise<DetailedLandingMetric
       blockedPRs: blockedPrCount,
       passedPRs: passedPrCount,
       queueDepthPerInstallation,
+      gitHubThrottlePrimaryTotal: throttleMetrics.primaryRateLimitsTotal,
+      gitHubThrottleSecondaryTotal: throttleMetrics.secondaryRateLimitsTotal,
     };
   } catch (error) {
     console.error("[LandingStats] Failed to retrieve detailed metrics:", error);

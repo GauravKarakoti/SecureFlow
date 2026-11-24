@@ -60,5 +60,23 @@ export function formatPrometheusMetrics(metrics: DetailedLandingMetrics): string
     lines.push("");
   }
 
+  if (typeof metrics.gitHubThrottlePrimaryTotal === "number") {
+    lines.push(
+      "# HELP secureflow_github_throttle_primary_total Total GitHub primary API rate-limit events intercepted",
+      "# TYPE secureflow_github_throttle_primary_total counter",
+      `secureflow_github_throttle_primary_total ${metrics.gitHubThrottlePrimaryTotal}`,
+      "",
+    );
+  }
+
+  if (typeof metrics.gitHubThrottleSecondaryTotal === "number") {
+    lines.push(
+      "# HELP secureflow_github_throttle_secondary_total Total GitHub secondary API rate-limit events intercepted",
+      "# TYPE secureflow_github_throttle_secondary_total counter",
+      `secureflow_github_throttle_secondary_total ${metrics.gitHubThrottleSecondaryTotal}`,
+      "",
+    );
+  }
+
   return lines.join("\n");
 }
