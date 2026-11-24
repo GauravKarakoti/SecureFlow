@@ -45,6 +45,21 @@ import {
   type CompiledCustomRule,
   type CustomRuleConfig,
 } from "./custom-rules.js";
+import {
+  DEFAULT_BASELINE_FILENAME,
+  computeBaselineFingerprint,
+  computeSnippetHash,
+  createBaselineFromResults,
+  loadBaseline,
+  saveBaseline,
+  matchViolationAgainstBaseline,
+  filterResultsWithBaseline,
+  updateBaselineWithResults,
+  type BaselineFile,
+  type BaselineViolation,
+  type FilterBaselineResult,
+  type UpdateBaselineResult,
+} from "./baseline.js";
 
 export {
   scanFileWithCustomRules,
@@ -74,6 +89,19 @@ export {
   type InlineDirective,
   type InlineSuppressionOptions,
   type SuppressionMatchResult,
+  DEFAULT_BASELINE_FILENAME,
+  computeBaselineFingerprint,
+  computeSnippetHash,
+  createBaselineFromResults,
+  loadBaseline,
+  saveBaseline,
+  matchViolationAgainstBaseline,
+  filterResultsWithBaseline,
+  updateBaselineWithResults,
+  type BaselineFile,
+  type BaselineViolation,
+  type FilterBaselineResult,
+  type UpdateBaselineResult,
 };
 
 export {
@@ -123,6 +151,8 @@ export interface Violation {
         line?: number | undefined;
       }
     | undefined;
+  /** Baseline state if scanned with baseline filtering (#2060) */
+  baselineState?: "new" | "existing" | "absent" | "updated" | undefined;
 }
 
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace", "table", "dir"];
