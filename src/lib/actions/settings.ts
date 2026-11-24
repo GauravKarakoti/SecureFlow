@@ -182,6 +182,11 @@ export interface RepoBadgeSetting {
   codeScanningEnabled: boolean;
   codeScanningWarning?: string | null;
   latestStatus?: string | null;
+  baselineScanEnabled?: boolean;
+  baselineFrequency?: string;
+  baselineFileLimit?: number;
+  lastBaselineScanAt?: Date | null;
+  lastBaselineScanStatus?: string | null;
 }
 
 export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSetting[]> {
@@ -198,6 +203,11 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       publicBadgeEnabled: true,
       codeScanningEnabled: true,
       codeScanningWarning: true,
+      baselineScanEnabled: true,
+      baselineFrequency: true,
+      baselineFileLimit: true,
+      lastBaselineScanAt: true,
+      lastBaselineScanStatus: true,
       pullRequests: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -215,6 +225,11 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       publicBadgeEnabled: boolean;
       codeScanningEnabled: boolean;
       codeScanningWarning?: string | null;
+      baselineScanEnabled?: boolean;
+      baselineFrequency?: string;
+      baselineFileLimit?: number;
+      lastBaselineScanAt?: Date | null;
+      lastBaselineScanStatus?: string | null;
       pullRequests: Array<{ status: string }>;
     }>
   ).map((repo) => ({
@@ -225,6 +240,11 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
     codeScanningEnabled: repo.codeScanningEnabled,
     codeScanningWarning: repo.codeScanningWarning ?? null,
     latestStatus: repo.pullRequests[0]?.status ?? null,
+    baselineScanEnabled: repo.baselineScanEnabled ?? false,
+    baselineFrequency: repo.baselineFrequency ?? "weekly",
+    baselineFileLimit: repo.baselineFileLimit ?? 50,
+    lastBaselineScanAt: repo.lastBaselineScanAt ?? null,
+    lastBaselineScanStatus: repo.lastBaselineScanStatus ?? null,
   }));
 }
 

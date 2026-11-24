@@ -34,6 +34,7 @@ export type ScanFinding = {
   framework?: string;
   confidence?: ConfidenceLevel;
   confidenceReason?: string;
+  remediation?: string;
 };
 
 export interface FileChange {

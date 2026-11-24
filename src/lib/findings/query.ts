@@ -96,6 +96,9 @@ export interface FindingsQuery {
   to?: string | null;
   expiring?: string | null;
   assignee?: string | null;
+  tab?: string | null;
+  tag?: string | null;
+  source?: string | null;
 }
 
 export type AssigneeFilter = "me" | "unassigned" | null;
@@ -125,6 +128,9 @@ export interface NormalizedFindingsQuery {
   to: string | null;
   expiring: string | null;
   assignee: AssigneeFilter;
+  tab: string | null;
+  tag: string | null;
+  source: string | null;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -331,6 +337,12 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
         ? "14d"
         : null,
     assignee: parseAssigneeFilter(query.assignee),
+    tab: typeof query.tab === "string" && query.tab.trim() ? query.tab.trim().toLowerCase() : null,
+    tag: typeof query.tag === "string" && query.tag.trim() ? query.tag.trim().toUpperCase() : null,
+    source:
+      typeof query.source === "string" && query.source.trim()
+        ? query.source.trim().toLowerCase()
+        : null,
   };
 
   if (query.cursor !== undefined) {
@@ -528,6 +540,20 @@ export function buildFindingsWhere(
     where.type = { in: query.type };
   }
 
+  // Tag / Baseline filter (#2011)
+  if (query.tag) {
+    where.tag = query.tag;
+  } else if (query.tab === "baseline" || query.source === "baseline") {
+    where.tag = "BASELINE";
+  } else if (
+    query.tab === "prs" ||
+    query.tab === "pr" ||
+    query.source === "pr" ||
+    query.source === "prs"
+  ) {
+    where.OR = [{ tag: null }, { tag: { not: "BASELINE" } }];
+  }
+
   if (query.from || query.to) {
     const createdAtClause: Record<string, Date> = {};
     if (query.from) {
@@ -661,7 +687,10 @@ export function hasActiveFilters(query: NormalizedFindingsQuery): boolean {
     query.search !== null ||
     query.from !== null ||
     query.to !== null ||
-    query.expiring !== null
+    query.expiring !== null ||
+    query.tab !== null ||
+    query.tag !== null ||
+    query.source !== null
   );
 }
 
@@ -678,6 +707,9 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
   if (query.expiring) params.set("expiring", query.expiring);
+  if (query.tab) params.set("tab", query.tab);
+  if (query.tag) params.set("tag", query.tag);
+  if (query.source) params.set("source", query.source);
   for (const severity of query.severity) params.append("severity", severity);
   for (const type of query.type) params.append("type", type);
   for (const status of query.status) params.append("status", status);
@@ -711,6 +743,9 @@ export function fromSearchParams(
     to: single(params.to),
     expiring: single(params.expiring),
     assignee: single(params.assignee),
+    tab: single(params.tab),
+    tag: single(params.tag),
+    source: single(params.source),
   });
 }
 

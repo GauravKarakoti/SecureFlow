@@ -174,6 +174,9 @@ export interface FindingCreateInput {
   fingerprint: string;
   suppressionStatus: string | null;
   suppressionRuleId: string | null;
+  tag?: string | null;
+  isBaseline?: boolean;
+  complianceTags?: string[];
 }
 
 /**
@@ -194,6 +197,9 @@ export interface FindingCreateInput {
  * explicit null says what is meant.
  */
 export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateInput {
+  const isBaseline = Boolean((finding as any).isBaseline || (finding as any).tag === "BASELINE");
+  const tag = (finding as any).tag || (isBaseline ? "BASELINE" : null);
+
   return {
     type: normalizeFindingTypeEnum(finding.type),
     severity: toStoredSeverity(finding.severity),
@@ -207,6 +213,9 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     fingerprint: finding.fingerprint || "",
     suppressionStatus: finding.suppressionStatus || null,
     suppressionRuleId: finding.suppressionRuleId || null,
+    tag,
+    isBaseline,
+    complianceTags: isBaseline ? ["BASELINE"] : [],
   };
 }
 
@@ -228,6 +237,7 @@ export interface ScanResultCreateData {
   gateConfig?: object;
   riskScore: number;
   policyDecision: StoredPolicyDecision;
+  scanType?: string;
   findings: { create: FindingCreateInput[] };
 }
 
@@ -248,6 +258,7 @@ export function scanResultCreateData(args: {
   decision: unknown;
   scoredFindings: readonly EnrichedScanFinding[];
   findingsToPersist: readonly EnrichedScanFinding[];
+  scanType?: string;
 }): ScanResultCreateData {
   return {
     pullRequestId: args.pullRequestId,
@@ -255,6 +266,7 @@ export function scanResultCreateData(args: {
     ...(args.gateConfig ? { gateConfig: args.gateConfig } : {}),
     riskScore: storedRiskScore(args.scoredFindings),
     policyDecision: storedPolicyDecision(args.decision),
+    ...(args.scanType ? { scanType: args.scanType } : {}),
     findings: { create: args.findingsToPersist.map(findingCreateInput) },
   };
 }

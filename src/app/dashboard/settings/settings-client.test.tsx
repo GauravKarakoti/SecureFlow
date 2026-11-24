@@ -42,6 +42,11 @@ vi.mock("@/lib/actions/settings", () => ({
   updateWeeklyDigestPreference: updateWeeklyDigestPreferenceMock,
 }));
 
+vi.mock("@/lib/actions/baseline", () => ({
+  updateRepositoryBaselineConfig: vi.fn().mockResolvedValue({ ok: true }),
+  triggerRepositoryBaselineScan: vi.fn().mockResolvedValue({ ok: true, scanResultId: "scan-1" }),
+}));
+
 describe("SettingsClient component (#1333)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -314,6 +319,39 @@ describe("SettingsClient component (#1333)", () => {
     await waitFor(() => {
       expect(updateWeeklyDigestPreferenceMock).toHaveBeenCalledWith(false);
       expect(toastErrorMock).toHaveBeenCalledWith("Network error");
+    });
+  });
+
+  it("allows toggling baseline scans for a repository (#2011)", async () => {
+    const { updateRepositoryBaselineConfig } = await import("@/lib/actions/baseline");
+    render(
+      <SettingsClient
+        initialWebhookUrl=""
+        initialVoiceAlertsEnabled={false}
+        initialRepositories={[
+          {
+            id: "repo-baseline-1",
+            fullName: "acme/baseline-repo",
+            owner: "acme",
+            publicBadgeEnabled: false,
+            codeScanningEnabled: false,
+            baselineScanEnabled: false,
+            baselineFrequency: "weekly",
+            baselineFileLimit: 50,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Scheduled Baseline Security Scans")).toBeDefined();
+    const toggle = screen.getByLabelText("Toggle baseline scans for acme/baseline-repo");
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(updateRepositoryBaselineConfig).toHaveBeenCalledWith("repo-baseline-1", {
+        enabled: true,
+      });
+      expect(toastSuccessMock).toHaveBeenCalledWith("Scheduled baseline scanning enabled.");
     });
   });
 });
