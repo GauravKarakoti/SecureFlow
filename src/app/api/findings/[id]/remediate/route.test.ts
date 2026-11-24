@@ -271,6 +271,33 @@ describe("POST /api/findings/[id]/remediate — happy path", () => {
     expect(body.patch).toEqual(PATCH);
     expect(body.explanation).toBe("Use parameterized queries.");
   });
+
+  it("returns verified:true and readyFix:true when patch is verified", async () => {
+    generatePatchMock.mockResolvedValueOnce({
+      patchDiff: "--- a/src/db.ts\n+++ b/src/db.ts",
+      explanation: "Use parameterized queries.",
+      verified: true,
+      readyFix: true,
+    });
+    mockUpsert.mockResolvedValueOnce({
+      ...PATCH,
+      status: "VERIFIED",
+    });
+
+    const response = await POST(makeRequest("finding-1"), {
+      params: Promise.resolve({ id: "finding-1" }),
+    });
+
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.verified).toBe(true);
+    expect(body.readyFix).toBe(true);
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ status: "VERIFIED" }),
+      }),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@
  */
 
 import { scanner, ScannerTimeoutError } from "@/lib/armor/scanner";
+import { estimateDiffTokens } from "@/lib/armor/diff";
 import { iq } from "@/lib/armor/iq";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
@@ -34,6 +35,8 @@ import {
 import { runDeterministicPrecheck } from "@/lib/armor/precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { resolveIacRuleOptions } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -64,8 +67,17 @@ import {
   type GateConfig,
   resolveScanTimeoutBudgetMs,
   resolveScanRequestTimeoutMs,
+  resolveVerifyCritical,
+  resolveContextLines,
+  resolveSuggestionsConfig,
 } from "./gate-config";
 import { buildEffectiveGateConfig } from "./installation-settings";
+import { verifyCriticalFindings } from "./critical-verification";
+import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
+import {
+  buildInlineReviewComments,
+  postSuggestedChangesReview,
+} from "@/lib/github/suggested-changes";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
   getActiveSuppressionRules,
@@ -403,12 +415,14 @@ export async function processScanJob(
             repositoryGateConfig.timeoutBudget !== undefined ||
             repositoryGateConfig.timeoutBudgetSeconds !== undefined ||
             repositoryGateConfig.requestTimeout !== undefined ||
-            repositoryGateConfig.requestTimeoutSeconds !== undefined;
+            repositoryGateConfig.requestTimeoutSeconds !== undefined ||
+            repositoryGateConfig.contextLines !== undefined;
 
           const remainingBudgetMs = Math.max(0, timeoutBudgetMs - (Date.now() - scanStartedAt));
           const timeoutOptions = {
             timeoutBudgetMs: remainingBudgetMs,
             requestTimeoutMs,
+            contextLines: repositoryGateConfig.contextLines,
           };
 
           const chunkFindings =
@@ -540,6 +554,34 @@ export async function processScanJob(
     }
   }
 
+  // Ensure deterministic IaC security rules are present (#2004)
+  const iacOptions = resolveIacRuleOptions(repositoryGateConfig);
+  const iacRuleFindings = runIacSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: iacOptions.enabled,
+    disabledRules: iacOptions.disabledRules,
+  });
+  for (const iac of iacRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === iac.fileLocation && f.lineStart === iac.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === iac.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === iac.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        iac.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = iac;
+      }
+    } else {
+      allFindings.push(iac);
+    }
+  }
+
   onProgress({
     phase: "enriching",
     scannedFiles: totalFiles,
@@ -644,7 +686,27 @@ export async function processScanJob(
     enrichedFindings.push(...batchResults);
   }
 
-  const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
+  // #2007: Run verification pass for CRITICAL findings before evaluating gate
+  if (
+    repositoryGateConfig.verifyCritical ||
+    repositoryGateConfig.verifyCriticalFindings ||
+    resolveVerifyCritical(repositoryGateConfig)
+  ) {
+    await verifyCriticalFindings(enrichedFindings, {
+      gateConfig: repositoryGateConfig,
+      fileChanges,
+      policies: (activePolicies as any[]) || [],
+    });
+    for (let j = 0; j < activeFindings.length; j++) {
+      if (enrichedFindings[j]) {
+        activeFindings[j].verificationStatus = enrichedFindings[j].verificationStatus;
+        activeFindings[j].verificationReason = enrichedFindings[j].verificationReason;
+        activeFindings[j].verificationRawResponse = enrichedFindings[j].verificationRawResponse;
+      }
+    }
+  }
+
+  const decision = iq.evaluateFindings(enrichedFindings, repositoryGateConfig);
   const analyzedFilesCount = reusedFromCache ? totalFiles : allAnalyzedFiles.length;
   const zeroScanReason =
     analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
@@ -768,6 +830,11 @@ export async function processScanJob(
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
           }
+          if (f.verificationStatus === "UNVERIFIED") {
+            body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
+          } else if (f.verificationStatus === "CONFIRMED") {
+            body += `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
+          }
           if (f.confidence) {
             const reasonSuffix = f.confidenceReason ? ` — ${f.confidenceReason}` : "";
             body += `> **Confidence:** ${f.confidence}${reasonSuffix}\n\n`;
@@ -785,6 +852,40 @@ export async function processScanJob(
           issueNumber: prNumber,
           body,
         });
+
+        // Post suggested changes as inline review comments when enabled (#2005)
+        const suggestionsConfig = resolveSuggestionsConfig(repositoryGateConfig);
+        if (
+          suggestionsConfig.enabled &&
+          fileChanges.length > 0 &&
+          octokit?.rest?.pulls?.createReview
+        ) {
+          const commentableLinesByFile = new Map<string, Set<number>>();
+          for (const file of fileChanges) {
+            if (file.patch) {
+              commentableLinesByFile.set(
+                file.filename,
+                commentableLineNumbers(parseUnifiedPatch(file.patch)),
+              );
+            }
+          }
+
+          const { inlineComments } = buildInlineReviewComments(
+            enrichedFindings,
+            commentableLinesByFile,
+            { suggestionsConfig },
+          );
+
+          if (inlineComments.length > 0) {
+            await postSuggestedChangesReview(octokit, {
+              owner,
+              repo,
+              pullNumber: prNumber,
+              commitId: headSha,
+              comments: inlineComments,
+            });
+          }
+        }
       }
     } catch (err) {
       log.error(`[ScanEngine] Failed to post to GitHub:`, {
@@ -841,8 +942,14 @@ export async function processScanJob(
         typeof (prisma as any).storedScanInput.create === "function" &&
         fileChanges.length > 0
       ) {
+        const effectiveContext = resolveContextLines(repositoryGateConfig.contextLines);
         const tokenEstimate = fileChanges.reduce(
-          (sum, f) => sum + Math.max(1, Math.ceil((f.patch || "").length / 4)),
+          (sum, f) =>
+            sum +
+            estimateDiffTokens(f.patch, {
+              contextLines: effectiveContext,
+              fullContent: f.content,
+            }),
           0,
         );
         await (prisma as any).storedScanInput
