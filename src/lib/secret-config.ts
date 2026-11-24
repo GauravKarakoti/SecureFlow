@@ -20,6 +20,7 @@ export const DEFAULT_SECRET_VARS: readonly string[] = [
   "BREVO_API_KEY",
   "SMTP_PASS",
   "REDIS_URL",
+  "ENCRYPTION_KEY",
 ] as const;
 
 /**

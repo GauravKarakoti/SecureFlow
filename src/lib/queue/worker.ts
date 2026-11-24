@@ -68,6 +68,7 @@ import { getGitHubAppCredentials } from "@/lib/github/app-auth";
 import { isSecureFlowCheckRun, isSecureFlowCheckSuite } from "@/lib/github/webhook-verification";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { encryptFinding } from "@/lib/security/finding-encryption";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import {
   normalizeFindingTypeEnum,
@@ -1510,21 +1511,28 @@ export async function runPullRequestScan({
               riskScore,
               policyDecision: normalizePolicyDecisionEnum(decision),
               findings: {
-                create: findingsToPersist.map((f: any) => ({
-                  type: normalizeFindingTypeEnum(f.type),
-                  // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
-                  // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
-                  // not a `FindingSeverity` member, so the insert fails outright (#686).
-                  severity: toStoredSeverity(f.severity),
-                  fileLocation: f.fileLocation,
-                  lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
-                  lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
-                  codeSnippet: f.codeSnippet || null,
-                  explanation: f.explanation || null,
-                  remediation: f.remediation || null,
-                  promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
-                  fingerprint: f.fingerprint || "",
-                })),
+                create: findingsToPersist.map((f: any) => {
+                  const encrypted = encryptFinding({
+                    codeSnippet: f.codeSnippet || null,
+                    explanation: f.explanation || null,
+                  });
+                  return {
+                    type: normalizeFindingTypeEnum(f.type),
+                    // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                    // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                    // not a `FindingSeverity` member, so the insert fails outright (#686).
+                    severity: toStoredSeverity(f.severity),
+                    fileLocation: f.fileLocation,
+                    lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
+                    lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
+                    codeSnippet: encrypted.codeSnippet || null,
+                    explanation: encrypted.explanation || null,
+                    remediation: f.remediation || null,
+                    promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                    fingerprint: f.fingerprint || "",
+                    encryptionKeyId: encrypted.encryptionKeyId || null,
+                  };
+                }),
               },
             },
           });

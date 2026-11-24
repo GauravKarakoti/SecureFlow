@@ -312,6 +312,7 @@ model Finding {
   complianceTags           String[]                @default([])
   tag                      String?
   isBaseline               Boolean                 @default(false)
+  encryptionKeyId          String?
   suppressionStatus        String?
   suppressionRuleId        String?
   issueUrl                 String?
@@ -342,6 +343,7 @@ model Finding {
   @@index([issueUrl])
   @@index([tag])
   @@index([isBaseline])
+  @@index([encryptionKeyId])
 }
 
 model FindingNote {
