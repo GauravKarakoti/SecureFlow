@@ -28,6 +28,64 @@ export const DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS = 120;
 /** Default scan request timeout in seconds (#1981). */
 export const DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS = 60;
 
+/** Default number of surrounding context lines around diff hunks (#2006). */
+export const DEFAULT_CONTEXT_LINES = 5;
+
+/** Maximum number of surrounding context lines allowed (#2006). */
+export const MAX_CONTEXT_LINES = 20;
+
+/** Minimum number of surrounding context lines (#2006). */
+export const MIN_CONTEXT_LINES = 0;
+
+/**
+ * Resolves the number of context lines from configuration or environment (#2006).
+ * Validated and capped between 0 and 20 (defaults to 5).
+ */
+export function resolveContextLines(
+  configured?:
+    | number
+    | string
+    | {
+        contextLines?: number;
+        scanner?: { contextLines?: number };
+        gate?: { contextLines?: number };
+      }
+    | null,
+): number {
+  let raw: unknown = configured;
+  if (configured && typeof configured === "object") {
+    raw =
+      configured.contextLines ?? configured.scanner?.contextLines ?? configured.gate?.contextLines;
+  }
+  const val =
+    typeof raw === "number"
+      ? raw
+      : (raw ?? process.env.SCANNER_CONTEXT_LINES ?? process.env.CONTEXT_LINES)?.toString().trim();
+  if (val === undefined || val === null || val === "") {
+    return DEFAULT_CONTEXT_LINES;
+  }
+  const n = typeof val === "number" ? val : Number(val);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    console.warn(
+      `[GateConfig] Invalid contextLines value '${String(val)}' (expected integer between ${MIN_CONTEXT_LINES} and ${MAX_CONTEXT_LINES}); using default ${DEFAULT_CONTEXT_LINES}.`,
+    );
+    return DEFAULT_CONTEXT_LINES;
+  }
+  if (n < MIN_CONTEXT_LINES) {
+    console.warn(
+      `[GateConfig] contextLines value ${n} is below minimum ${MIN_CONTEXT_LINES}; clamping to ${MIN_CONTEXT_LINES}.`,
+    );
+    return MIN_CONTEXT_LINES;
+  }
+  if (n > MAX_CONTEXT_LINES) {
+    console.warn(
+      `[GateConfig] contextLines value ${n} exceeds maximum ${MAX_CONTEXT_LINES}; capping at ${MAX_CONTEXT_LINES}.`,
+    );
+    return MAX_CONTEXT_LINES;
+  }
+  return n;
+}
+
 /**
  * Resolves the total scan timeout budget in milliseconds from configuration or environment (#1981).
  * Default is 120 seconds (120,000 ms).
@@ -130,6 +188,7 @@ export interface GateConfig {
   requestTimeoutSeconds?: number;
   skipDrafts?: boolean;
   skipAuthors?: string[];
+  contextLines?: number;
   suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   disabledRules?: string[];
@@ -165,11 +224,15 @@ export interface SecureFlowConfig {
   timeoutBudgetSeconds?: number;
   requestTimeout?: number;
   requestTimeoutSeconds?: number;
+  skipDrafts?: boolean;
+  skipAuthors?: string[];
+  contextLines?: number;
   scanner?: {
     timeoutBudget?: number;
     timeoutBudgetSeconds?: number;
     requestTimeout?: number;
     requestTimeoutSeconds?: number;
+    contextLines?: number;
   };
   skipDrafts?: boolean;
   skipAuthors?: string[];
@@ -249,6 +312,9 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   // #1982: skipDrafts and skipAuthors checks
   const sameSkipDrafts = gate.skipDrafts === undefined || gate.skipDrafts === false;
   const noSkipAuthors = !gate.skipAuthors || gate.skipAuthors.length === 0;
+  // #2006: contextLines check
+  const sameContextLines =
+    gate.contextLines === undefined || gate.contextLines === DEFAULT_CONTEXT_LINES;
   // #2005: suggestions checks (opt-in, disabled by default)
   const sameSuggestions =
     gate.suggestions === undefined ||
@@ -272,6 +338,7 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameRequestTimeout &&
     sameSkipDrafts &&
     noSkipAuthors &&
+    sameContextLines
     sameSuggestions
     sameIac &&
     noDisabledRules
@@ -624,6 +691,35 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2006: parse contextLines from root, scanner, or gate
+  const rawContextLines = root.contextLines ?? rawScannerObj?.contextLines ?? gateObj.contextLines;
+  let contextLines: number | undefined = undefined;
+  if (rawContextLines !== undefined && rawContextLines !== null) {
+    const num =
+      typeof rawContextLines === "number"
+        ? rawContextLines
+        : Number(String(rawContextLines).trim());
+    if (Number.isInteger(num)) {
+      if (num < MIN_CONTEXT_LINES) {
+        console.warn(
+          `[GateConfig] contextLines value ${num} is below minimum ${MIN_CONTEXT_LINES}; clamping to ${MIN_CONTEXT_LINES}.`,
+        );
+        contextLines = MIN_CONTEXT_LINES;
+      } else if (num > MAX_CONTEXT_LINES) {
+        console.warn(
+          `[GateConfig] contextLines value ${num} exceeds maximum ${MAX_CONTEXT_LINES}; capping at ${MAX_CONTEXT_LINES}.`,
+        );
+        contextLines = MAX_CONTEXT_LINES;
+      } else {
+        contextLines = num;
+      }
+    } else {
+      console.warn(
+        `[GateConfig] Invalid contextLines value '${String(rawContextLines)}' (expected integer between ${MIN_CONTEXT_LINES} and ${MAX_CONTEXT_LINES}); ignoring.`,
+      );
+    }
+  }
+
   // #2005: parse suggestions / suggestedChanges configuration (opt-in)
   const rawSuggestions =
     root.suggestions ?? root.suggestedChanges ?? gateObj.suggestions ?? gateObj.suggestedChanges;
@@ -712,6 +808,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       : {}),
     ...(skipDrafts !== undefined ? { skipDrafts } : {}),
     ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
+    ...(contextLines !== undefined ? { contextLines } : {}),
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),

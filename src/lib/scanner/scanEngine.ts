@@ -10,6 +10,7 @@
  */
 
 import { scanner, ScannerTimeoutError } from "@/lib/armor/scanner";
+import { estimateDiffTokens } from "@/lib/armor/diff";
 import { iq } from "@/lib/armor/iq";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
@@ -66,6 +67,7 @@ import {
   type GateConfig,
   resolveScanTimeoutBudgetMs,
   resolveScanRequestTimeoutMs,
+  resolveContextLines,
   resolveSuggestionsConfig,
 } from "./gate-config";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -377,12 +379,14 @@ export async function processScanJob(
             repositoryGateConfig.timeoutBudget !== undefined ||
             repositoryGateConfig.timeoutBudgetSeconds !== undefined ||
             repositoryGateConfig.requestTimeout !== undefined ||
-            repositoryGateConfig.requestTimeoutSeconds !== undefined;
+            repositoryGateConfig.requestTimeoutSeconds !== undefined ||
+            repositoryGateConfig.contextLines !== undefined;
 
           const remainingBudgetMs = Math.max(0, timeoutBudgetMs - (Date.now() - scanStartedAt));
           const timeoutOptions = {
             timeoutBudgetMs: remainingBudgetMs,
             requestTimeoutMs,
+            contextLines: repositoryGateConfig.contextLines,
           };
 
           const chunkFindings =
@@ -877,8 +881,14 @@ export async function processScanJob(
         typeof (prisma as any).storedScanInput.create === "function" &&
         fileChanges.length > 0
       ) {
+        const effectiveContext = resolveContextLines(repositoryGateConfig.contextLines);
         const tokenEstimate = fileChanges.reduce(
-          (sum, f) => sum + Math.max(1, Math.ceil((f.patch || "").length / 4)),
+          (sum, f) =>
+            sum +
+            estimateDiffTokens(f.patch, {
+              contextLines: effectiveContext,
+              fullContent: f.content,
+            }),
           0,
         );
         await (prisma as any).storedScanInput
