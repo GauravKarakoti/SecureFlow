@@ -38,6 +38,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   MAX_PAGE_LIMIT,
 } from "@/lib/pagination/cursor";
+import { decryptFindings } from "@/lib/security/finding-encryption";
 
 /** Never cached: a POST result, and a per-user job handle. */
 const NO_STORE = { "Cache-Control": "no-store" } as const;
@@ -163,7 +164,7 @@ const getHandler = withErrorHandler(
     const items = hasMore ? rawItems.slice(0, limit) : rawItems;
     const nextCursor = hasMore && items.length > 0 ? encodeCursor(items[items.length - 1]) : null;
 
-    const findings = items.map((f: any) => ({
+    const findings = decryptFindings(items).map((f: any) => ({
       id: f.id,
       type: f.type,
       severity: f.severity,
