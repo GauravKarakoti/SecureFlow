@@ -37,6 +37,7 @@ export type ScanFinding = {
   description: string;
   fileLocation: string;
   codeSnippet: string;
+  remediation?: string;
   lineStart?: number;
   lineEnd?: number;
   dynamicFingerprint?: string;
