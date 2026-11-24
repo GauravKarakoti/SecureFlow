@@ -7,7 +7,3 @@
 # - Exact match: `/api/internal/route`
 # - Prefix wildcard: `/api/internal/*` matches any subroute under `/api/internal/`
 
-/api/webhooks/dlq*
-/api/admin/webhooks/{id}/redeliver
-/api/policies/effectiveness*
-

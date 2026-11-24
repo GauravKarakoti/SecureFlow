@@ -117,9 +117,11 @@ describe("Dead-Letter Queue (DLQ) & Durable Replay Engine (#2061)", () => {
 
     expect(purgeDlqEntry(entry1.id)).toBe(true);
     expect(getDlqEntry(entry1.id)?.status).toBe("purged");
+    expect(getDlqEntry(entry2.id)?.status).toBe("quarantined");
 
     const purgedCount = purgeAllDlq();
     expect(purgedCount).toBe(2);
+    expect(getDlqEntry(entry2.id)).toBeNull();
     expect(listDlqEntries()).toHaveLength(0);
   });
 
