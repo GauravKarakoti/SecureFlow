@@ -4,8 +4,14 @@ import {
   undiffedFiles,
   DEFAULT_MAX_PR_FILES,
   PR_FILES_PAGE_SIZE,
+  GITHUB_SINGLE_DIFF_FILE_LIMIT,
   fetchPullRequestFiles,
   formatCoverageNotice,
+  isDiffTooLargeError,
+  isDiffResponseTruncated,
+  determineUnscannedReason,
+  getUnscannedFiles,
+  parseMultiFileUnifiedDiff,
   type PullRequestFile,
 } from "./pull-request-files";
 
@@ -321,5 +327,238 @@ describe("files GitHub returned without a diff", () => {
       totalChanged: 1,
     });
     expect(notice).toContain("`odd'name.js`");
+  });
+});
+
+describe("diff too large detection and per-file pagination fallback (#2015)", () => {
+  function makeOctokitWithDiff(options: {
+    pages?: PullRequestFile[][];
+    diffData?: string;
+    diffStatus?: number;
+    diffHeaders?: Record<string, unknown>;
+    diffError?: unknown;
+  }) {
+    const pages = options.pages ?? [];
+    const pagesRequested: number[] = [];
+    const iterator = vi.fn(async function* (_route: unknown, params: Record<string, unknown>) {
+      for (let i = 0; i < pages.length; i++) {
+        pagesRequested.push(i);
+        yield { data: pages[i] };
+      }
+      void params;
+    });
+
+    const get = vi.fn(async (_params: unknown) => {
+      if (options.diffError) {
+        throw options.diffError;
+      }
+      return {
+        data: options.diffData ?? "",
+        status: options.diffStatus ?? 200,
+        headers: options.diffHeaders ?? {},
+      };
+    });
+
+    return {
+      octokit: {
+        paginate: { iterator },
+        rest: {
+          pulls: {
+            listFiles: "GET /repos/{owner}/{repo}/pulls/{pull_number}/files",
+            get,
+          },
+        },
+      } as never,
+      iterator,
+      get,
+      pagesRequested,
+    };
+  }
+
+  describe("isDiffTooLargeError", () => {
+    it("recognizes status 406 as diff too large", () => {
+      expect(isDiffTooLargeError({ status: 406 })).toBe(true);
+      expect(isDiffTooLargeError({ statusCode: 406 })).toBe(true);
+    });
+
+    it("recognizes error messages indicating diff too large", () => {
+      expect(isDiffTooLargeError(new Error("Diff too large"))).toBe(true);
+      expect(isDiffTooLargeError(new Error("Not Acceptable: diff too large to display"))).toBe(
+        true,
+      );
+      expect(isDiffTooLargeError({ message: "exceeded diff limit" })).toBe(true);
+    });
+
+    it("returns false for unrelated errors", () => {
+      expect(isDiffTooLargeError(null)).toBe(false);
+      expect(isDiffTooLargeError(undefined)).toBe(false);
+      expect(isDiffTooLargeError(new Error("Resource not found"))).toBe(false);
+      expect(isDiffTooLargeError({ status: 500, message: "Internal server error" })).toBe(false);
+    });
+  });
+
+  describe("isDiffResponseTruncated", () => {
+    it("recognizes diff truncation headers", () => {
+      expect(isDiffResponseTruncated({ headers: { "x-github-diff-truncated": "true" } })).toBe(
+        true,
+      );
+      expect(isDiffResponseTruncated({ headers: { "x-github-truncated": "true" } })).toBe(true);
+    });
+
+    it("recognizes truncation strings in diff body", () => {
+      expect(isDiffResponseTruncated({ data: "Warning: Diff is too large to show" })).toBe(true);
+      expect(isDiffResponseTruncated({ data: "diff ...diff truncated..." })).toBe(true);
+    });
+
+    it("returns false for regular responses", () => {
+      expect(isDiffResponseTruncated({ data: "diff --git a/a.ts b/a.ts" })).toBe(false);
+    });
+  });
+
+  describe("parseMultiFileUnifiedDiff", () => {
+    it("parses multiple files, statuses, and patches", () => {
+      const rawDiff = [
+        "diff --git a/src/index.ts b/src/index.ts",
+        "index 111..222 100644",
+        "--- a/src/index.ts",
+        "+++ b/src/index.ts",
+        "@@ -1,2 +1,3 @@",
+        " const a = 1;",
+        "+const b = 2;",
+        "diff --git a/src/new-file.ts b/src/new-file.ts",
+        "new file mode 100644",
+        "index 000..333",
+        "--- /dev/null",
+        "+++ b/src/new-file.ts",
+        "@@ -0,0 +1,2 @@",
+        "+export const x = 10;",
+        "diff --git a/assets/icon.png b/assets/icon.png",
+        "new file mode 100644",
+        "Binary files /dev/null and b/assets/icon.png differ",
+      ].join("\n");
+
+      const files = parseMultiFileUnifiedDiff(rawDiff);
+      expect(files).toHaveLength(3);
+
+      expect(files[0].filename).toBe("src/index.ts");
+      expect(files[0].status).toBe("modified");
+      expect(files[0].patch).toContain("+const b = 2;");
+
+      expect(files[1].filename).toBe("src/new-file.ts");
+      expect(files[1].status).toBe("added");
+      expect(files[1].patch).toContain("+export const x = 10;");
+
+      expect(files[2].filename).toBe("assets/icon.png");
+      expect(files[2].status).toBe("added");
+      expect(files[2].patch).toBeUndefined();
+    });
+  });
+
+  describe("getUnscannedFiles and determineUnscannedReason", () => {
+    it("categorizes binary files and diffs too large", () => {
+      const files: PullRequestFile[] = [
+        { filename: "src/normal.ts", patch: "@@ -1 +1 @@\n+ok" },
+        { filename: "assets/logo.png", patch: undefined },
+        { filename: "src/large-generated.ts", patch: undefined },
+        { filename: "deleted.ts", status: "removed", patch: undefined },
+      ];
+
+      const unscanned = getUnscannedFiles(files);
+      expect(unscanned).toEqual([
+        { filename: "assets/logo.png", reason: "binary file" },
+        { filename: "src/large-generated.ts", reason: "diff too large" },
+      ]);
+    });
+  });
+
+  describe("fallback behavior in fetchPullRequestFiles", () => {
+    const rawDiff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 111..222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,2 @@",
+      " const a = 1;",
+      "+const b = 2;",
+    ].join("\n");
+
+    it("normal-sized PR uses the diff endpoint path unchanged when successful", async () => {
+      const { octokit, get, iterator } = makeOctokitWithDiff({
+        diffData: rawDiff,
+      });
+
+      const result = await fetchPullRequestFiles(octokit, baseOptions);
+
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(iterator).not.toHaveBeenCalled();
+      expect(result.usedFallback).toBe(false);
+      expect(result.files).toHaveLength(1);
+      expect(result.files[0].filename).toBe("src/a.ts");
+      expect(result.files[0].patch).toContain("+const b = 2;");
+      expect(result.unscannedFiles).toEqual([]);
+    });
+
+    it("falls back to listing changed files with pagination when GitHub returns 406 Not Acceptable", async () => {
+      const error406 = new Error("Diff too large");
+      (error406 as any).status = 406;
+
+      const { octokit, get, iterator } = makeOctokitWithDiff({
+        diffError: error406,
+        pages: [
+          [
+            { filename: "src/file-1.ts", status: "modified", patch: "@@ -1 +1 @@\n+1" },
+            { filename: "src/file-2.ts", status: "modified", patch: "@@ -1 +1 @@\n+2" },
+            { filename: "docs/manual.pdf", status: "added", patch: undefined },
+            { filename: "src/oversized.ts", status: "modified", patch: "" },
+          ],
+        ],
+      });
+
+      const result = await fetchPullRequestFiles(octokit, baseOptions);
+
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(iterator).toHaveBeenCalledTimes(1);
+      expect(result.usedFallback).toBe(true);
+      expect(result.fetched).toBe(4);
+      expect(result.files).toHaveLength(4);
+      expect(result.unscannedFiles).toEqual([
+        { filename: "docs/manual.pdf", reason: "binary file" },
+        { filename: "src/oversized.ts", reason: "diff too large" },
+      ]);
+    });
+
+    it("falls back to pagination when response indicates truncated diff", async () => {
+      const { octokit, get, iterator } = makeOctokitWithDiff({
+        diffData: "Warning: Diff is too large to show",
+        diffHeaders: { "x-github-diff-truncated": "true" },
+        pages: [[{ filename: "src/file-1.ts", status: "modified", patch: "@@ -1 +1 @@\n+1" }]],
+      });
+
+      const result = await fetchPullRequestFiles(octokit, baseOptions);
+
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(iterator).toHaveBeenCalledTimes(1);
+      expect(result.usedFallback).toBe(true);
+      expect(result.fetched).toBe(1);
+    });
+
+    it("falls back to pagination directly when PR has more files than single-diff limit", async () => {
+      const { octokit, get, iterator } = makeOctokitWithDiff({
+        pages: [makeFiles(100, 0), makeFiles(100, 100), makeFiles(150, 200)],
+      });
+
+      const result = await fetchPullRequestFiles(octokit, {
+        ...baseOptions,
+        changedFiles: 350,
+        maxFiles: 350,
+      });
+
+      // Bypasses single-diff get since changedFiles exceeds GITHUB_SINGLE_DIFF_FILE_LIMIT (300)
+      expect(get).not.toHaveBeenCalled();
+      expect(iterator).toHaveBeenCalledTimes(1);
+      expect(result.usedFallback).toBe(true);
+      expect(result.fetched).toBe(350);
+      expect(result.totalChanged).toBe(350);
+    });
   });
 });

@@ -282,6 +282,7 @@ export async function processScanJob(
   const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
   let fileChanges = initialFileChanges;
+  const fetchedUnscannedFiles: Array<{ filename: string; reason: string }> = [];
   if (
     (!fileChanges || fileChanges.length === 0) &&
     typeof (octokit as any)?.paginate?.iterator === "function"
@@ -295,6 +296,9 @@ export async function processScanJob(
     fileChanges = result.files
       .filter((f: any) => f.patch && f.status !== "removed")
       .map((f: any) => ({ filename: f.filename, patch: f.patch }));
+    if (result.unscannedFiles && result.unscannedFiles.length > 0) {
+      fetchedUnscannedFiles.push(...result.unscannedFiles);
+    }
   }
   fileChanges = fileChanges ?? [];
 
@@ -324,7 +328,10 @@ export async function processScanJob(
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
   let allAnalyzedFiles: string[] = [];
-  const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+  const allSkippedFiles: Array<{ filename: string; reason: string }> = [
+    ...(data.skippedFiles ?? []),
+    ...fetchedUnscannedFiles,
+  ];
   let budgetExceeded = false;
 
   const ignoreOptions = {
@@ -858,7 +865,7 @@ export async function processScanJob(
         if (
           suggestionsConfig.enabled &&
           fileChanges.length > 0 &&
-          octokit?.rest?.pulls?.createReview
+          typeof octokit?.rest?.pulls?.createReview === "function"
         ) {
           const commentableLinesByFile = new Map<string, Set<number>>();
           for (const file of fileChanges) {
@@ -948,7 +955,7 @@ export async function processScanJob(
             sum +
             estimateDiffTokens(f.patch, {
               contextLines: effectiveContext,
-              fullContent: f.content,
+              fullContent: (f as any).content,
             }),
           0,
         );
