@@ -47,6 +47,8 @@ export type ScanFinding = {
   framework?: string;
   confidence?: ConfidenceLevel;
   confidenceReason?: string;
+  remediation?: string;
+  cwe?: string;
   verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
   verificationReason?: string;
   verificationRawResponse?: string;

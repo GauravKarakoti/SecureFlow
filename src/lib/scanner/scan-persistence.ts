@@ -32,6 +32,7 @@
 import type { ScanFinding } from "@/lib/armor/scanner";
 import { normalizeFindingTypeEnum, normalizePolicyDecisionEnum } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, totalRiskScore } from "@/lib/severity";
+import { resolveCwe } from "@/lib/cwe";
 
 /** The `PolicyDecision` members, mirroring `prisma/schema.prisma`. */
 export type StoredPolicyDecision = "PASS" | "REVIEW" | "BLOCK";
@@ -172,6 +173,7 @@ export interface FindingCreateInput {
   remediation: string | null;
   promptInjectionSuspected: boolean;
   fingerprint: string;
+  cwe: string | null;
   suppressionStatus: string | null;
   suppressionRuleId: string | null;
 }
@@ -194,6 +196,7 @@ export interface FindingCreateInput {
  * explicit null says what is meant.
  */
 export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateInput {
+  const resolvedCweId = finding.cwe || resolveCwe(finding) || null;
   const explanation =
     finding.verificationStatus === "UNVERIFIED" && finding.verificationReason
       ? `[UNVERIFIED: ${finding.verificationReason}]\n\n${finding.explanation || ""}`.trim()
@@ -210,6 +213,7 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
+    cwe: resolvedCweId,
     suppressionStatus:
       finding.suppressionStatus ||
       (finding.verificationStatus === "UNVERIFIED" ? "UNVERIFIED" : null),

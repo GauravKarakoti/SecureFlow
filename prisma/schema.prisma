@@ -301,6 +301,7 @@ model Finding {
   remediation              String?                 @db.Text
   promptInjectionSuspected Boolean                 @default(false)
   fingerprint              String                  @default("")
+  cwe                      String?
   complianceTags           String[]                @default([])
   suppressionStatus        String?
   suppressionRuleId        String?
