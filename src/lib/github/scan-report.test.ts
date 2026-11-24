@@ -263,6 +263,29 @@ describe("renderScanReportSummary", () => {
     expect(body).not.toContain("null");
   });
 
+  it("marks verified ready fixes in the remediation section and displays patch notes (#1977)", () => {
+    const body = renderScanReportSummary({
+      findings: [
+        finding({
+          remediation: "Use parameterized queries.",
+          verifiedPatch: true,
+          readyFix: true,
+        }),
+        finding({
+          fileLocation: "src/unverified.ts",
+          remediation: "Manual fix required.",
+          verifiedPatch: false,
+          patchNote: "Patch verification failed: context mismatch. No ready fix available.",
+        }),
+      ],
+      totalFindings: 2,
+      inlineCount: 0,
+    });
+
+    expect(body).toContain("🛠️ View Remediation Suggestions (Verified Ready Fix)");
+    expect(body).toContain("Patch verification failed: context mismatch. No ready fix available.");
+  });
+
   it("reports previously dismissed findings count in the summary (#1528)", () => {
     const body = renderScanReportSummary({
       findings: [finding()],
