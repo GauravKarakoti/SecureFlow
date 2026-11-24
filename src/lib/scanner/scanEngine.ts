@@ -66,7 +66,13 @@ import {
   type GateConfig,
   resolveScanTimeoutBudgetMs,
   resolveScanRequestTimeoutMs,
+  resolveSuggestionsConfig,
 } from "./gate-config";
+import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
+import {
+  buildInlineReviewComments,
+  postSuggestedChangesReview,
+} from "@/lib/github/suggested-changes";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
   getActiveSuppressionRules,
@@ -781,6 +787,40 @@ export async function processScanJob(
           issueNumber: prNumber,
           body,
         });
+
+        // Post suggested changes as inline review comments when enabled (#2005)
+        const suggestionsConfig = resolveSuggestionsConfig(repositoryGateConfig);
+        if (
+          suggestionsConfig.enabled &&
+          fileChanges.length > 0 &&
+          octokit?.rest?.pulls?.createReview
+        ) {
+          const commentableLinesByFile = new Map<string, Set<number>>();
+          for (const file of fileChanges) {
+            if (file.patch) {
+              commentableLinesByFile.set(
+                file.filename,
+                commentableLineNumbers(parseUnifiedPatch(file.patch)),
+              );
+            }
+          }
+
+          const { inlineComments } = buildInlineReviewComments(
+            enrichedFindings,
+            commentableLinesByFile,
+            { suggestionsConfig },
+          );
+
+          if (inlineComments.length > 0) {
+            await postSuggestedChangesReview(octokit, {
+              owner,
+              repo,
+              pullNumber: prNumber,
+              commitId: headSha,
+              comments: inlineComments,
+            });
+          }
+        }
       }
     } catch (err) {
       log.error(`[ScanEngine] Failed to post to GitHub:`, {

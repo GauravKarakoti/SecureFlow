@@ -130,6 +130,8 @@ export interface GateConfig {
   requestTimeoutSeconds?: number;
   skipDrafts?: boolean;
   skipAuthors?: string[];
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
 }
@@ -140,6 +142,13 @@ export interface RulesConfig {
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   [ruleName: string]: unknown;
 }
+
+export interface SuggestionsConfig {
+  enabled: boolean;
+  maxSuggestions: number;
+}
+
+export const DEFAULT_MAX_SUGGESTIONS = 5;
 
 export interface SecureFlowConfig {
   gate: GateConfig;
@@ -164,6 +173,8 @@ export interface SecureFlowConfig {
   };
   skipDrafts?: boolean;
   skipAuthors?: string[];
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   ignore?: {
     includeDefaults?: boolean;
     forceInclude?: string[];
@@ -238,6 +249,11 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   // #1982: skipDrafts and skipAuthors checks
   const sameSkipDrafts = gate.skipDrafts === undefined || gate.skipDrafts === false;
   const noSkipAuthors = !gate.skipAuthors || gate.skipAuthors.length === 0;
+  // #2005: suggestions checks (opt-in, disabled by default)
+  const sameSuggestions =
+    gate.suggestions === undefined ||
+    (typeof gate.suggestions === "boolean" && !gate.suggestions) ||
+    (typeof gate.suggestions === "object" && !gate.suggestions?.enabled);
   // #2004: IaC rules and disabledRules checks
   const sameIac = gate.iacRulesEnabled === undefined || gate.iacRulesEnabled === true;
   const noDisabledRules = !gate.disabledRules || gate.disabledRules.length === 0;
@@ -256,6 +272,7 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameRequestTimeout &&
     sameSkipDrafts &&
     noSkipAuthors &&
+    sameSuggestions
     sameIac &&
     noDisabledRules
   );
@@ -607,6 +624,30 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2005: parse suggestions / suggestedChanges configuration (opt-in)
+  const rawSuggestions =
+    root.suggestions ?? root.suggestedChanges ?? gateObj.suggestions ?? gateObj.suggestedChanges;
+
+  let suggestions:
+    boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number } | undefined =
+    undefined;
+
+  if (rawSuggestions !== undefined) {
+    if (typeof rawSuggestions === "boolean") {
+      suggestions = rawSuggestions;
+    } else if (
+      typeof rawSuggestions === "object" &&
+      rawSuggestions !== null &&
+      !Array.isArray(rawSuggestions)
+    ) {
+      suggestions = rawSuggestions as {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+      };
+    }
+  }
+
   // #2004: parse rules and IaC configuration
   const rawRules = root.rules ?? gateObj.rules;
   const rawRulesObj =
@@ -671,6 +712,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       : {}),
     ...(skipDrafts !== undefined ? { skipDrafts } : {}),
     ...(skipAuthors && skipAuthors.length > 0 ? { skipAuthors } : {}),
+    ...(suggestions !== undefined ? { suggestions } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
   };
@@ -690,6 +732,47 @@ export function resolveIacRuleOptions(config?: GateConfig | null): {
     enabled: config.iacRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
   };
+}
+
+/**
+ * Resolves suggestions configuration from gate config or root config (#2005).
+ * Opt-in by default: returns { enabled: false, maxSuggestions: 5 } unless configured.
+ */
+export function resolveSuggestionsConfig(
+  config?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+        suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+      }
+    | null,
+): SuggestionsConfig {
+  if (config === true) {
+    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+  if (!config || typeof config !== "object") {
+    return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+
+  const raw = config.suggestions ?? config.suggestedChanges ?? config;
+  if (raw === true) {
+    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const rawObj = raw as { enabled?: boolean; maxSuggestions?: number; limit?: number };
+    const enabled = rawObj.enabled === true;
+    const rawMax = rawObj.maxSuggestions ?? rawObj.limit;
+    const maxSuggestions =
+      typeof rawMax === "number" && Number.isInteger(rawMax) && rawMax > 0
+        ? rawMax
+        : DEFAULT_MAX_SUGGESTIONS;
+    return { enabled, maxSuggestions };
+  }
+
+  return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
 }
 
 /**
