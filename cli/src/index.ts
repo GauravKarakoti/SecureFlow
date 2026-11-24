@@ -43,6 +43,7 @@ import {
   parseNoCacheArg,
   parseCacheClearArg,
   parseCacheDirArg,
+  parseIgnoreSuppressionsArg,
 } from "./lib/output-args.js";
 import { getCacheEntry, setCacheEntry, clearCache } from "./cache.js";
 import { playVoiceDebrief } from "./lib/audio-player.js";
@@ -507,6 +508,7 @@ async function main(): Promise<number> {
   let sinceRef: string | undefined;
   let noCache = false;
   let customCacheDir: string | undefined;
+  const ignoreSuppressions = parseIgnoreSuppressionsArg(process.argv);
   try {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
@@ -604,7 +606,9 @@ async function main(): Promise<number> {
         violationCount += result.violations.length;
       } else {
         analyzedCount++;
-        const result = scanFile(filePath, content, customIgnores);
+        const result = ignoreSuppressions
+          ? scanFile(filePath, content, customIgnores, { ignoreSuppressions })
+          : scanFile(filePath, content, customIgnores);
         fileResults.push(result);
         newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {

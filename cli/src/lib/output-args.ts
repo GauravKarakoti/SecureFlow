@@ -181,6 +181,20 @@ export function parseCacheClearArg(argv: readonly string[]): boolean {
 }
 
 /**
+ * `--ignore-suppressions`: ignore inline suppression comments and treat all violations as active (#2051).
+ */
+export function parseIgnoreSuppressionsArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--ignore-suppressions") return true;
+    if (arg.startsWith("--ignore-suppressions=")) {
+      const val = arg.slice("--ignore-suppressions=".length).toLowerCase();
+      return val !== "false" && val !== "0";
+    }
+  }
+  return false;
+}
+
+/**
  * `--cache-dir <path>`: optional custom cache directory.
  */
 export function parseCacheDirArg(argv: readonly string[]): string | undefined {

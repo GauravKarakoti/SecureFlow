@@ -41,6 +41,7 @@ const m = vi.hoisted(() => ({
   parseNoCacheArg: vi.fn(),
   parseCacheClearArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
+  parseIgnoreSuppressionsArg: vi.fn(() => false),
   getCacheEntry: vi.fn(),
   setCacheEntry: vi.fn(),
   clearCache: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseNoCacheArg: m.parseNoCacheArg,
   parseCacheClearArg: m.parseCacheClearArg,
   parseCacheDirArg: m.parseCacheDirArg,
+  parseIgnoreSuppressionsArg: m.parseIgnoreSuppressionsArg,
 }));
 vi.mock("./lib/audio-player.js", () => ({ playVoiceDebrief: m.playVoiceDebrief }));
 vi.mock("./mcp/index.js", () => ({ startMcpServer: m.startMcpServer }));

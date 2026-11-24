@@ -76,6 +76,12 @@ export interface SarifReportingDescriptor {
   properties?: Record<string, unknown>;
 }
 
+export interface SarifSuppression {
+  kind: "inSource" | "external";
+  justification?: string;
+  status?: "accepted" | "underReview" | "rejected";
+}
+
 export interface SarifResult {
   ruleId: string;
   ruleIndex?: number;
@@ -86,6 +92,7 @@ export interface SarifResult {
   locations: SarifLocation[];
   partialFingerprints?: Record<string, string>;
   fixes?: SarifFix[];
+  suppressions?: SarifSuppression[];
   properties?: Record<string, unknown>;
 }
 
@@ -457,6 +464,27 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
               });
             }
           }
+          // Suppressions validation (SARIF v2.1.0 §3.27.24 / #2051)
+          if (res.suppressions !== undefined) {
+            if (!Array.isArray(res.suppressions)) {
+              errors.push(`${resPath}.suppressions must be an array`);
+            } else {
+              res.suppressions.forEach((supItem: unknown, supIdx: number) => {
+                const supPath = `${resPath}.suppressions[${supIdx}]`;
+                if (!supItem || typeof supItem !== "object" || Array.isArray(supItem)) {
+                  errors.push(`${supPath} must be an object`);
+                  return;
+                }
+                const sup = supItem as Record<string, unknown>;
+                if (sup.kind !== "inSource" && sup.kind !== "external") {
+                  errors.push(`${supPath}.kind must be 'inSource' or 'external'`);
+                }
+                if (sup.justification !== undefined && typeof sup.justification !== "string") {
+                  errors.push(`${supPath}.justification must be a string`);
+                }
+              });
+            }
+          }
         });
       }
     });
@@ -596,13 +624,18 @@ export function generateSarifReport(
   const sarifResults: SarifResult[] = [];
 
   for (const fileResult of scanResults) {
-    if (!fileResult.violations || fileResult.violations.length === 0) {
+    const allViolations = [
+      ...(fileResult.violations || []),
+      ...(fileResult.suppressedViolations || []),
+    ];
+
+    if (allViolations.length === 0) {
       continue;
     }
 
     const normalizedPath = fileResult.path.replace(/\\/g, "/");
 
-    for (const violation of fileResult.violations) {
+    for (const violation of allViolations) {
       const reasonKey = violation.reason || "generic-secret-logging";
       let ruleInfo = rulesMap.get(reasonKey);
 
@@ -657,6 +690,17 @@ export function generateSarifReport(
           primaryLocationLineHash: fingerprint,
         },
         ...(fix ? { fixes: [fix] } : {}),
+        ...(violation.suppression
+          ? {
+              suppressions: [
+                {
+                  kind: "inSource" as const,
+                  justification: violation.suppression.reason,
+                  status: "accepted" as const,
+                },
+              ],
+            }
+          : {}),
         properties: {
           reason: violation.reason,
           severity: violation.severity || "HIGH",

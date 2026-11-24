@@ -25,6 +25,16 @@ import {
   normalizeScanPath,
   type SecureFlowIgnoreConfig,
 } from "./ignore.js";
+import {
+  parseIsoDateUtc,
+  parseInlineDirective,
+  parseAllDirectives,
+  isViolationSuppressed,
+  applyInlineSuppressions,
+  type InlineDirective,
+  type InlineSuppressionOptions,
+  type SuppressionMatchResult,
+} from "./suppression.js";
 
 export {
   calculateShannonEntropy,
@@ -38,6 +48,14 @@ export {
   loadSecureFlowIgnore,
   normalizeScanPath,
   type SecureFlowIgnoreConfig,
+  parseIsoDateUtc,
+  parseInlineDirective,
+  parseAllDirectives,
+  isViolationSuppressed,
+  applyInlineSuppressions,
+  type InlineDirective,
+  type InlineSuppressionOptions,
+  type SuppressionMatchResult,
 };
 
 export {
@@ -76,7 +94,15 @@ export interface Violation {
   text: string;
   /** Which indicator matched, so the message can say why. */
   reason: string;
-  severity?: Severity;
+  severity?: Severity | undefined;
+  /** Set if finding was suppressed via inline comment directive (#2051) */
+  suppression?:
+    | {
+        reason: string;
+        expires?: string | undefined;
+        line?: number | undefined;
+      }
+    | undefined;
 }
 
 /** Console methods that put their arguments somewhere durable. */
@@ -425,12 +451,19 @@ export function findSecretLogging(source: string): Violation[] {
 export interface FileScanResult {
   path: string;
   violations: Violation[];
+  /** Violations suppressed via inline comment directives (#2051) */
+  suppressedViolations?: Violation[] | undefined;
   /** Set when the file was not scanned, with the reason. */
-  skipped?: string;
+  skipped?: string | undefined;
 }
 
 /** Scan one staged blob. */
-export function scanFile(path: string, content: string, customIgnores?: RegExp[]): FileScanResult {
+export function scanFile(
+  path: string,
+  content: string,
+  customIgnores?: RegExp[],
+  options?: InlineSuppressionOptions,
+): FileScanResult {
   if (customIgnores && shouldIgnorePath(path, customIgnores)) {
     return { path, violations: [], skipped: "matched .secureflowignore" };
   }
@@ -443,7 +476,18 @@ export function scanFile(path: string, content: string, customIgnores?: RegExp[]
     return { path, violations: [], skipped: "binary content" };
   }
 
-  return { path, violations: findSecretLogging(content) };
+  const rawViolations = findSecretLogging(content);
+  const { activeViolations, suppressedViolations } = applyInlineSuppressions(
+    rawViolations,
+    content,
+    options,
+  );
+
+  return {
+    path,
+    violations: activeViolations,
+    ...(suppressedViolations.length > 0 ? { suppressedViolations } : {}),
+  };
 }
 
 export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
