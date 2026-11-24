@@ -47,6 +47,9 @@ export type ScanFinding = {
   framework?: string;
   confidence?: ConfidenceLevel;
   confidenceReason?: string;
+  verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
+  verificationReason?: string;
+  verificationRawResponse?: string;
 };
 
 export interface FileChange {

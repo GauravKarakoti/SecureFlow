@@ -12,6 +12,10 @@ import {
   resolveScanRequestTimeoutMs,
   DEFAULT_SCAN_TIMEOUT_BUDGET_SECONDS,
   DEFAULT_SCAN_REQUEST_TIMEOUT_SECONDS,
+  resolveVerifyCritical,
+  resolveMaxVerificationCalls,
+  DEFAULT_MAX_VERIFICATION_CALLS,
+  MAX_VERIFICATION_CALLS_LIMIT,
   resolveContextLines,
   DEFAULT_CONTEXT_LINES,
   MAX_CONTEXT_LINES,
@@ -165,10 +169,8 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     it("Case 1: Happy path: tighten - one HIGH finding with blockOn: HIGH gives BLOCKED", () => {
       const findings = [makeFinding("VULNERABILITY", "HIGH")];
 
-      // With default gate: HIGH finding gives REVIEW REQUIRED
       expect(engine.evaluateFindings(findings, DEFAULT_GATE_CONFIG)).toBe("REVIEW REQUIRED");
 
-      // With tightened gate blockOn: HIGH
       const tightenedGate = { blockOn: "HIGH" as const, reviewOn: "MEDIUM" as const };
       expect(engine.evaluateFindings(findings, tightenedGate)).toBe("BLOCKED");
     });
@@ -176,10 +178,8 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     it("Case 2: Happy path: relax - one MEDIUM finding with reviewOn: HIGH gives PASS", () => {
       const findings = [makeFinding("VULNERABILITY", "MEDIUM")];
 
-      // With default gate: MEDIUM finding gives REVIEW REQUIRED
       expect(engine.evaluateFindings(findings, DEFAULT_GATE_CONFIG)).toBe("REVIEW REQUIRED");
 
-      // With relaxed gate reviewOn: HIGH (and blockOn: CRITICAL)
       const relaxedGate = { blockOn: "CRITICAL" as const, reviewOn: "HIGH" as const };
       expect(engine.evaluateFindings(findings, relaxedGate)).toBe("PASS");
     });
@@ -280,7 +280,6 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
         path: SECUREFLOW_CONFIG_FILE,
         ref: "production",
       });
-      // Verified ref is baseRef 'production', never any head ref
     });
 
     it("Case 6: Consistency - uninterpretable severity yields REVIEW REQUIRED regardless of gate", () => {
@@ -346,7 +345,6 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     });
 
     it("blocking behavior is unchanged by default with low confidence findings", () => {
-      // By default (filterBlocking is false/unset), a CRITICAL finding blocks even with LOW confidence
       const findingWithLowConf: ScanFinding = {
         type: "Secret",
         severity: "CRITICAL",
@@ -367,7 +365,6 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     });
 
     it("blocking behavior respects confidence filter when explicitly opted in", () => {
-      // When filterBlocking: true, finding with LOW confidence is filtered out of blocking evaluation
       const findingWithLowConf: ScanFinding = {
         type: "Secret",
         severity: "CRITICAL",
@@ -596,6 +593,86 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
     });
   });
 
+  describe("verifyCritical configuration (#2007)", () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("resolves default verifyCritical (false) when unconfigured", () => {
+      expect(resolveVerifyCritical()).toBe(false);
+      expect(resolveVerifyCritical(null)).toBe(false);
+      expect(resolveVerifyCritical({})).toBe(false);
+    });
+
+    it("resolves verifyCritical from environment variable", () => {
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "true");
+      expect(resolveVerifyCritical()).toBe(true);
+
+      vi.stubEnv("VERIFY_CRITICAL_FINDINGS", "false");
+      expect(resolveVerifyCritical()).toBe(false);
+    });
+
+    it("resolves verifyCritical from object config", () => {
+      expect(resolveVerifyCritical({ verifyCritical: true })).toBe(true);
+      expect(resolveVerifyCritical({ verifyCriticalFindings: true })).toBe(true);
+      expect(resolveVerifyCritical({ gate: { verifyCritical: true } })).toBe(true);
+      expect(resolveVerifyCritical({ scanner: { verifyCritical: true } })).toBe(true);
+    });
+
+    it("resolves default maxVerificationCalls (5) when unconfigured", () => {
+      expect(resolveMaxVerificationCalls()).toBe(DEFAULT_MAX_VERIFICATION_CALLS);
+      expect(resolveMaxVerificationCalls(null)).toBe(5);
+      expect(resolveMaxVerificationCalls({})).toBe(5);
+    });
+
+    it("resolves maxVerificationCalls from environment variable", () => {
+      vi.stubEnv("MAX_VERIFICATION_CALLS", "8");
+      expect(resolveMaxVerificationCalls()).toBe(8);
+    });
+
+    it("resolves valid configured integer value", () => {
+      expect(resolveMaxVerificationCalls(3)).toBe(3);
+      expect(resolveMaxVerificationCalls("7")).toBe(7);
+      expect(resolveMaxVerificationCalls({ maxVerificationCalls: 10 })).toBe(10);
+      expect(resolveMaxVerificationCalls({ gate: { maxVerificationCalls: 4 } })).toBe(4);
+    });
+
+    it("caps values at MAX_VERIFICATION_CALLS_LIMIT (20)", () => {
+      expect(resolveMaxVerificationCalls(25)).toBe(MAX_VERIFICATION_CALLS_LIMIT);
+      expect(resolveMaxVerificationCalls(100)).toBe(20);
+    });
+
+    it("falls back to default (5) on invalid input with a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn");
+      expect(resolveMaxVerificationCalls("invalid")).toBe(5);
+      expect(resolveMaxVerificationCalls(-3)).toBe(5);
+      expect(resolveMaxVerificationCalls(0)).toBe(5);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Invalid maxVerificationCalls value"),
+      );
+    });
+
+    it("parses verifyCritical and maxVerificationCalls from .secureflow.json", () => {
+      const json = JSON.stringify({
+        verifyCritical: true,
+        maxVerificationCalls: 7,
+      });
+      const parsed = parseSecureFlowConfig(json);
+      expect(parsed.verifyCritical).toBe(true);
+      expect(parsed.maxVerificationCalls).toBe(7);
+      expect(isDefaultGate(parsed)).toBe(false);
+    });
+
+    it("formats gate summary line with critical verification notice", () => {
+      const summary = formatGateSummaryLine({
+        blockOn: "CRITICAL",
+        reviewOn: "HIGH",
+        verifyCritical: true,
+      });
+      expect(summary).toContain("critical verification on");
+    });
+  });
+
   describe("contextLines configuration (#2006)", () => {
     beforeEach(() => {
       vi.unstubAllEnvs();
@@ -616,7 +693,6 @@ describe("gate-config loader and parser (#1491, #1470)", () => {
       vi.stubEnv("CONTEXT_LINES", "12");
       expect(resolveContextLines()).toBe(12);
 
-      // SCANNER_CONTEXT_LINES takes precedence over CONTEXT_LINES
       vi.stubEnv("SCANNER_CONTEXT_LINES", "15");
       expect(resolveContextLines()).toBe(15);
     });

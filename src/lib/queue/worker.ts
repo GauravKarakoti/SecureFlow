@@ -1231,6 +1231,35 @@ export async function runPullRequestScan({
 
       // Findings with a diff-anchored line become inline review comments; the
       // rest fall back into the summary body so nothing is ever lost.
+      const inlineComments: { path: string; line: number; body: string }[] = [];
+      const summaryFindings: ScanReportFinding[] = [];
+
+      enrichedFindings.forEach((f: any) => {
+        const line = anchorLine(f);
+        if (line !== null) {
+          inlineComments.push({
+            path: f.fileLocation,
+            line,
+            body:
+              `**${severityBadge(f.severity)} · ${f.type}**\n\n` +
+              (f.verificationStatus === "UNVERIFIED"
+                ? `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                : f.verificationStatus === "CONFIRMED"
+                  ? `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`
+                  : "") +
+              // Layer 4: surface injection warning on the individual inline comment when flagged.
+              (f.promptInjectionSuspected
+                ? `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(f.severity)} badge from the static scanner above the AI narrative.\n\n`
+                : "") +
+              `${f.explanation}\n\n` +
+              `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n` +
+              `${f.remediation}\n\n</details>`,
+          });
+        } else {
+          summaryFindings.push(f);
+        }
+      });
+      
       // Incorporates GitHub ```suggestion blocks when enabled for the repository (#2005).
       const suggestionsConfig = resolveSuggestionsConfig(gateConfig);
       const { inlineComments, summaryFindings } = buildInlineReviewComments(

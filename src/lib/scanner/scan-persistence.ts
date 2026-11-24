@@ -194,6 +194,11 @@ export interface FindingCreateInput {
  * explicit null says what is meant.
  */
 export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateInput {
+  const explanation =
+    finding.verificationStatus === "UNVERIFIED" && finding.verificationReason
+      ? `[UNVERIFIED: ${finding.verificationReason}]\n\n${finding.explanation || ""}`.trim()
+      : finding.explanation || null;
+
   return {
     type: normalizeFindingTypeEnum(finding.type),
     severity: toStoredSeverity(finding.severity),
@@ -201,11 +206,13 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     lineStart: typeof finding.lineStart === "number" ? finding.lineStart : null,
     lineEnd: typeof finding.lineEnd === "number" ? finding.lineEnd : null,
     codeSnippet: finding.codeSnippet || null,
-    explanation: finding.explanation || null,
+    explanation,
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
-    suppressionStatus: finding.suppressionStatus || null,
+    suppressionStatus:
+      finding.suppressionStatus ||
+      (finding.verificationStatus === "UNVERIFIED" ? "UNVERIFIED" : null),
     suppressionRuleId: finding.suppressionRuleId || null,
   };
 }
