@@ -62,6 +62,7 @@ import {
   parseCacheTtlArg,
   parseCacheMaxSizeArg,
   parseCacheDirArg,
+  parseIgnoreSuppressionsArg,
   parseTargetDirectoryArg,
 } from "./lib/output-args.js";
 import { discoverWorkspaceFiles } from "./workspace.js";
@@ -92,15 +93,6 @@ if (VERBOSE && QUIET) {
 const DRY_RUN = process.argv.includes("--dry-run");
 const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
 
-/**
- * --local / --ollama / --vllm flags: keep staged code on this machine (#892).
- *
- * The hosted AI pass is skipped (see hostedAiScanSkipReason), because it
- * uploads file contents to the SecureFlow API whatever LOCAL_AI_URL says.
- * LOCAL_AI_URL / LOCAL_AI_MODEL / LOCAL_AI_PROVIDER are still set for any in-process AI module
- * that reads them via resolveLocalModelConfig().
- * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
- */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
 
 if (typeof validateCliAiConfig === "function") {
@@ -214,29 +206,6 @@ Options:
   --color                Force colored output even on non-TTY terminals
   --no-color             Disable colored output
   -h, --help             Show this help message
-
-Examples:
-  $ secureflow --init                              # Initialize configuration (.secureflow.json, .secureflowignore) and git hooks
-  $ secureflow --init --severity HIGH --force      # Non-interactive initialization with severity threshold
-  $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
-  $ secureflow validate .secureflow.json           # Validate specific configuration file
-  $ secureflow                                     # Run standard security scan on staged files
-  $ secureflow src/                                # Recursively scan target workspace directory
-  $ secureflow --dir .                             # Recursively scan entire workspace
-  $ secureflow --since origin/main                 # Scan only files changed versus origin/main
-  $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
-  $ secureflow cache-clear                         # Clear the local scan results cache
-  $ secureflow cache-prune --ttl 7d                # Prune cache entries older than 7 days
-  $ secureflow cache-prune --max-size 50MB         # Evict oldest cache entries until within 50MB
-  $ secureflow cache-stats                         # Show cache size, entry count, and health stats
-  $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
-  $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
-  $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
-  $ secureflow -v                                  # Run scan and play audio summary debrief
-  $ secureflow mcp                                 # Start the Threat Intelligence MCP server over stdio
-  $ secureflow --format json -o res.json           # Scan and export results to JSON file
-  $ secureflow --fail-on high                      # Fail commit only on high/critical findings
-  $ secureflow --local --local-model llama3        # Run completely local scan
 `);
 }
 
@@ -304,13 +273,6 @@ function reportAiFinding(finding: AiFinding): void {
   console.error(`  -> ${finding.description}`);
 }
 
-/**
- * Best-effort AI-powered scan on top of the always-on local scan above.
- * Never throws and never delays the commit beyond its own short internal
- * timeout -- if the network is down, this is a silent (or
- * --verbose-logged) no-op and the local scan result stands on its own,
- * unchanged.
- */
 async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise<AiFinding[]> {
   if (AI_SKIP_REASON === "local" && VERBOSE) {
     console.warn(
@@ -536,7 +498,6 @@ async function main(): Promise<number> {
     }
   }
 
-  // Handle `secureflow sbom <file>` command (#1589)
   if (process.argv[2] === "sbom") {
     const filePath = process.argv[3];
     if (!filePath || filePath.startsWith("-")) {
@@ -599,7 +560,6 @@ async function main(): Promise<number> {
     }
   }
 
-  // Handle `secureflow explain --web3` command (#1589)
   if (
     process.argv[2] === "explain" ||
     (process.argv.includes("explain") && process.argv.includes("--web3"))
@@ -662,6 +622,8 @@ async function main(): Promise<number> {
   let noCache = false;
   let customCacheDir: string | undefined;
   let failOnThreshold: FailOnSeverity | null = null;
+  const ignoreSuppressions = parseIgnoreSuppressionsArg(process.argv);
+
   try {
     const verbosity = parseVerbosityArg(process.argv);
     VERBOSE = verbosity === "verbose";
@@ -679,6 +641,7 @@ async function main(): Promise<number> {
     console.error(`❌ [SecureFlow] ${error.message}`);
     return 1;
   }
+
   const hasFailOnFlag = process.argv.some(
     (arg) => arg === "--fail-on" || arg.startsWith("--fail-on="),
   );
@@ -695,7 +658,6 @@ async function main(): Promise<number> {
     ...(ignoreData ? ignoreData.config.ignoredPaths : []),
   ]);
 
-  // Load and validate custom rules at startup
   const customRulesResult = loadCustomRulesFromConfig({
     configPath: customConfigPath,
     targetDir,
@@ -793,7 +755,6 @@ async function main(): Promise<number> {
         continue;
       }
 
-      // Check cache unless --no-cache was specified
       const cached = !noCache
         ? getCacheEntry({ filePath, content, cacheDir: customCacheDir })
         : null;
@@ -831,10 +792,10 @@ async function main(): Promise<number> {
         violationCount += result.violations.length;
       } else {
         analyzedCount++;
-        const result =
-          customRules.length > 0
-            ? scanFile(filePath, content, customIgnores, customRules)
-            : scanFile(filePath, content, customIgnores);
+        const result = scanFile(filePath, content, customIgnores, {
+          ...(ignoreSuppressions ? { ignoreSuppressions } : {}),
+          ...(customRules.length > 0 ? { customRules } : {}),
+        });
         const elapsedMs = performance.now() - startFileTime;
         fileResults.push(result);
         if (result.skipped) {
@@ -869,10 +830,6 @@ async function main(): Promise<number> {
     ? filterBySeverity(fileResults, severityFilter)
     : fileResults;
 
-  // AI-powered pass, additive on top of the local scan above. Only
-  // affects the text output/exit code today -- JSON/SARIF export stays
-  // local-scan-only for now so existing automated consumers of those
-  // formats aren't changed by this PR.
   const aiSpinner =
     format === "text" && stagedForAi.length > 0 && !QUIET
       ? new TerminalSpinner("Running AI security inspection").start()
@@ -884,7 +841,6 @@ async function main(): Promise<number> {
     );
   }
 
-  // Persist newly analyzed results to cache
   if (!noCache && newlyAnalyzed.length > 0) {
     for (const item of newlyAnalyzed) {
       const fileAiFindings = aiFindings.filter((f) => f.fileLocation === item.filePath);
@@ -951,9 +907,6 @@ ${textOutput}`);
     console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
   }
 
-  // Warn on stderr regardless of output format: with --format json|sarif|...
-  // the scan would otherwise silently skip these entries, and stderr cannot
-  // corrupt the structured report on stdout.
   if (unreadable.length > 0) {
     const entryLabel = isSinceMode ? "changed" : "staged";
     console.warn(
@@ -965,8 +918,6 @@ ${textOutput}`);
 
   const activeThreshold = failOnThreshold ?? parseFailOnArg();
   const allLocalViolations = fileResults.flatMap((r) => r.violations);
-  // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
-  // filter, not a security gate bypass. --fail-on must see every finding.
   const shouldFail = allLocalViolations.some((v) => v.custom)
     ? shouldFailScan(allLocalViolations, allAiFindings, activeThreshold)
     : shouldFailScan(violationCount, allAiFindings, activeThreshold);
@@ -1039,9 +990,6 @@ ${textOutput}`);
 main()
   .then((code) => process.exit(code))
   .catch((error: unknown) => {
-    // Last-resort handler: without it an unexpected throw (e.g. an
-    // unwritable -o path) surfaces as a raw UnhandledPromiseRejection
-    // stack and an exit code that depends on Node's rejection mode.
     console.error(
       `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
     );

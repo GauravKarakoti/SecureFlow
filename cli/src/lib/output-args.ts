@@ -189,6 +189,20 @@ export function parseCacheClearArg(argv: readonly string[]): boolean {
 }
 
 /**
+ * `--ignore-suppressions`: ignore inline suppression comments and treat all violations as active (#2051).
+ */
+export function parseIgnoreSuppressionsArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--ignore-suppressions") return true;
+    if (arg.startsWith("--ignore-suppressions=")) {
+      const val = arg.slice("--ignore-suppressions=".length).toLowerCase();
+      return val !== "false" && val !== "0";
+    }
+  }
+  return false;
+}
+
+/**
  * Parse cache prune command: `cache-prune`, `cache prune`, or `--cache-prune`.
  */
 export function parseCachePruneArg(argv: readonly string[]): boolean {
@@ -237,6 +251,8 @@ export function parseCacheMaxSizeArg(argv: readonly string[]): string | undefine
   }
   return raw.trim();
 }
+
+/**
 
 /**
  * `--cache-dir <path>`: optional custom cache directory.

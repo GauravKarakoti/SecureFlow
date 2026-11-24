@@ -28,6 +28,16 @@ import {
   type SecureFlowIgnoreConfig,
 } from "./ignore.js";
 import {
+  parseIsoDateUtc,
+  parseInlineDirective,
+  parseAllDirectives,
+  isViolationSuppressed,
+  applyInlineSuppressions,
+  type InlineDirective,
+  type InlineSuppressionOptions,
+  type SuppressionMatchResult,
+} from "./suppression.js";
+import {
   scanFileWithCustomRules,
   scanContentWithCustomRule,
   validateCustomRules,
@@ -43,9 +53,6 @@ export {
   loadCustomRulesFromConfig,
   type CompiledCustomRule,
   type CustomRuleConfig,
-};
-
-export {
   calculateShannonEntropy,
   isBenignSecretCandidate,
   hasHighEntropy,
@@ -59,6 +66,14 @@ export {
   DEFAULT_IGNORE_PATTERNS,
   getEffectiveIgnorePatterns,
   type SecureFlowIgnoreConfig,
+  parseIsoDateUtc,
+  parseInlineDirective,
+  parseAllDirectives,
+  isViolationSuppressed,
+  applyInlineSuppressions,
+  type InlineDirective,
+  type InlineSuppressionOptions,
+  type SuppressionMatchResult,
 };
 
 export {
@@ -97,43 +112,26 @@ export interface Violation {
   text: string;
   /** Which indicator or rule matched, so the message can say why. */
   reason: string;
-  severity?: Severity;
+  severity?: Severity | undefined;
   ruleId?: string;
   custom?: boolean;
+  /** Set if finding was suppressed via inline comment directive (#2051) */
+  suppression?:
+    | {
+        reason: string;
+        expires?: string | undefined;
+        line?: number | undefined;
+      }
+    | undefined;
 }
 
-/** Console methods that put their arguments somewhere durable. */
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace", "table", "dir"];
-
-/**
- * Start of a console call. Whitespace is permitted around the dot and the
- * parenthesis because a formatter will put it there.
- */
 const CONSOLE_CALL = new RegExp(`console\\s*\\.\\s*(?:${CONSOLE_METHODS.join("|")})\\s*\\(`, "g");
-
-/**
- * Words that make an identifier secret-bearing, matched with `_` and `-`
- * removed so `private_key`, `privateKey` and `PRIVATE-KEY` read the same.
- *
- * This was a regex over the raw text that listed `privatekey` without a
- * separator, so `console.log(private_key)` — the spelling most config loaders
- * use — was never flagged, and nothing matched `passphrase` at all.
- */
 const SECRET_WORDS =
   /password|passwd|passphrase|secret|token|credential|apikey|privatekey|signingkey|encryptionkey/;
-
-/**
- * Token *counts* and *tokenizers*, which LLM code logs constantly
- * (`console.log(maxTokens)`, `console.log(usage.totalTokens)`). `token` as a
- * bare substring flagged every one of them as a leaked credential. Removed from
- * the normalized name before `SECRET_WORDS` is applied, so a name that is only
- * a count or a tokenizer passes while `tokens`, `authToken` or `passwordLength`
- * still read as secret-bearing.
- */
 const TOKEN_COUNT_FORMS =
   /tokeni[sz](?:er|ers|ed|es|ing|ation)?|(?:max|min|total|prompt|completion|input|output|num|remaining|used|reasoning|cached)tokens?|tokens?(?:count|counts|usage|limit|limits|length|budget|estimate|cost)/g;
 
-/** Whether an identifier reads as holding a credential. */
 export function isSecretIdentifier(name: string): boolean {
   if (isBenignSecretCandidate(name)) {
     return false;
@@ -142,7 +140,6 @@ export function isSecretIdentifier(name: string): boolean {
   return SECRET_WORDS.test(normalized.replace(TOKEN_COUNT_FORMS, ""));
 }
 
-/** Anything with a `test(text)` method: a RegExp or a custom matcher. */
 interface IndicatorMatcher {
   test(text: string): boolean;
 }
@@ -163,26 +160,15 @@ const COMPOUND_SECRET_IDENTIFIER: IndicatorMatcher = {
   },
 };
 
-/**
- * What makes an argument list suspicious.
- *
- * Checked against the *masked* source, so a string literal that merely contains
- * the word "password" does not match — only an identifier or a member
- * expression does.
- */
 const INDICATORS: ReadonlyArray<readonly [string, IndicatorMatcher]> = [
   [
     "environment variable",
     /\b(?:process\s*\.\s*env|import\s*\.\s*meta\s*\.\s*env|Deno\s*\.\s*env|os\s*\.\s*environ)\b/,
   ],
   ["secret-named identifier", SECRET_IDENTIFIER],
-  // `key` and `auth` on their own are common enough in ordinary code
-  // (`keyof`, `authorised`, `keys`) that they are only flagged when they read
-  // as a whole word or as an obvious compound.
   ["secret-named identifier", COMPOUND_SECRET_IDENTIFIER],
 ];
 
-/** Extensions never worth scanning as source text. */
 const BINARY_EXTENSIONS = [
   ".png",
   ".jpg",
@@ -222,7 +208,6 @@ const BINARY_EXTENSIONS = [
   ".db",
 ];
 
-/** Generated files that are large, uninteresting, and full of hashes. */
 const GENERATED_FILES = [
   "package-lock.json",
   "yarn.lock",
@@ -234,15 +219,8 @@ const GENERATED_FILES = [
   "poetry.lock",
 ];
 
-/**
- * Bytes above which a staged blob is skipped.
- *
- * Nothing bounded this before, so a staged fixture or a vendored bundle was
- * read into memory and scanned line by line.
- */
 export const MAX_SCANNED_BYTES = 512 * 1024;
 
-/** Whether `path` should be scanned at all. */
 export function shouldScanFile(
   path: string,
   byteLength?: number,
@@ -262,37 +240,12 @@ export function shouldScanFile(
   return true;
 }
 
-/**
- * Heuristic for content that is binary despite its name.
- *
- * A NUL byte does not occur in text. Checking this beats trusting the
- * extension, since a staged blob can be anything.
- */
 export function looksBinary(content: string): boolean {
   return content.includes("\u0000");
 }
 
-/** Filler used where a string literal's contents were. */
 const MASK_CHAR = "·";
 
-/**
- * Blank out the *contents* of string literals, preserving length.
- *
- * The previous implementation deleted them outright:
- *
- *     trimmedLine.replace(/(["'`])(?:(?=(\\?))\2.)*?\1/g, '')
- *
- * which turned `` console.log(`token: ${authToken}`) `` into `console.log()` —
- * the interpolation went with the quotes, so the single most common way a
- * secret reaches a log line became invisible. Deleting also shifts every column
- * after it, which matters now that whole files are scanned rather than
- * individual lines.
- *
- * Interpolations inside a template literal are left intact, because
- * `${authToken}` is code, not text. Escapes are honoured so a `\"` does not end
- * a literal, and an unterminated quote stops at the newline rather than eating
- * the rest of the file.
- */
 export function maskStringLiterals(source: string): string {
   const out = source.split("");
   let index = 0;
@@ -300,10 +253,6 @@ export function maskStringLiterals(source: string): string {
   while (index < out.length) {
     const char = out[index];
 
-    // Line comments are masked, not merely skipped over: skipping advances the
-    // cursor but leaves the text in the output, so the commented-out code was
-    // still scanned. The old detector only handled `//` at the very start of a
-    // trimmed line, so a trailing comment was scanned as code either way.
     if (char === "/" && out[index + 1] === "/") {
       while (index < out.length && out[index] !== "\n") {
         out[index] = MASK_CHAR;
@@ -334,7 +283,6 @@ export function maskStringLiterals(source: string): string {
       const current = out[index];
 
       if (current === "\\") {
-        // Escaped character: mask both, and never let it terminate the literal.
         if (out[index] !== "\n") out[index] = MASK_CHAR;
         if (index + 1 < out.length && out[index + 1] !== "\n") out[index + 1] = MASK_CHAR;
         index += 2;
@@ -346,12 +294,8 @@ export function maskStringLiterals(source: string): string {
         break;
       }
 
-      // An unterminated quote must not swallow the rest of the file. Only a
-      // template literal legally spans lines.
       if (current === "\n" && quote !== "`") break;
 
-      // `${ … }` inside a template literal is code. Leave it visible, tracking
-      // brace depth so a nested object literal does not end it early.
       if (quote === "`" && current === "$" && out[index + 1] === "{") {
         let depth = 1;
         index += 2;
@@ -371,21 +315,6 @@ export function maskStringLiterals(source: string): string {
   return out.join("");
 }
 
-/**
- * Text of the balanced argument list starting at `openParen`, or null when the
- * parenthesis is never closed.
- *
- * Scanning for the matching parenthesis rather than matching a regex is what
- * makes a wrapped call detectable. The old detector tested one line at a time,
- * so the `[\s\S]*?` in its pattern could never span anything and
- *
- *     console.log(
- *       'db password:',
- *       process.env.DB_PASSWORD
- *     );
- *
- * — the shape Prettier produces at default print width — went unflagged.
- */
 export function readArgumentList(source: string, openParen: number): string | null {
   let depth = 0;
 
@@ -400,7 +329,6 @@ export function readArgumentList(source: string, openParen: number): string | nu
   return null;
 }
 
-/** 1-based line number of `offset`. */
 export function lineOf(source: string, offset: number): number {
   let line = 1;
   for (let i = 0; i < offset && i < source.length; i += 1) {
@@ -409,13 +337,6 @@ export function lineOf(source: string, offset: number): number {
   return line;
 }
 
-/**
- * Find every `console.*` call whose arguments reference a secret.
- *
- * Operates on the whole file, not line by line, so a call split across lines is
- * matched. The reported line is the line the call *starts* on, which is where a
- * reader will look.
- */
 export function findSecretLogging(source: string): Violation[] {
   if (!source) return [];
 
@@ -446,21 +367,28 @@ export function findSecretLogging(source: string): Violation[] {
   return violations;
 }
 
-/** Result of scanning one staged file. */
 export interface FileScanResult {
   path: string;
   violations: Violation[];
-  /** Set when the file was not scanned, with the reason. */
-  skipped?: string;
+  suppressedViolations?: Violation[] | undefined;
+  skipped?: string | undefined;
 }
 
-/** Scan one staged blob, optionally evaluating user-defined custom rules. */
+export interface ScanFileOptions extends InlineSuppressionOptions {
+  customRules?: CompiledCustomRule[] | undefined;
+}
+
+/** Scan one staged blob, optionally evaluating custom rules and inline suppressions. */
 export function scanFile(
   path: string,
   content: string,
   customIgnores?: RegExp[],
-  customRules?: CompiledCustomRule[],
+  optionsOrCustomRules?: ScanFileOptions | CompiledCustomRule[],
 ): FileScanResult {
+  const options: ScanFileOptions = Array.isArray(optionsOrCustomRules)
+    ? { customRules: optionsOrCustomRules }
+    : (optionsOrCustomRules ?? {});
+
   const effectiveIgnores = customIgnores ?? compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
   if (effectiveIgnores && shouldIgnorePath(path, effectiveIgnores)) {
     return { path, violations: [], skipped: "matched .secureflowignore" };
@@ -474,13 +402,27 @@ export function scanFile(
     return { path, violations: [], skipped: "binary content" };
   }
 
-  const violations = findSecretLogging(content);
-  if (customRules && customRules.length > 0) {
-    const { violations: customViolations } = scanFileWithCustomRules(path, content, customRules);
-    violations.push(...customViolations);
+  const rawViolations = findSecretLogging(content);
+  if (options.customRules && options.customRules.length > 0) {
+    const { violations: customViolations } = scanFileWithCustomRules(
+      path,
+      content,
+      options.customRules,
+    );
+    rawViolations.push(...customViolations);
   }
 
-  return { path, violations };
+  const { activeViolations, suppressedViolations } = applyInlineSuppressions(
+    rawViolations,
+    content,
+    options,
+  );
+
+  return {
+    path,
+    violations: activeViolations,
+    ...(suppressedViolations.length > 0 ? { suppressedViolations } : {}),
+  };
 }
 
 export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
@@ -504,7 +446,6 @@ export function formatScanResults(
   }
 
   if (format === "text") {
-    // Default text summary
     let text = "";
     for (const r of results) {
       for (const v of r.violations) {
@@ -522,18 +463,13 @@ export function formatScanResults(
     return text;
   }
 
-  // Unified Exporters for CSV, Markdown, and HTML (#1095)
   try {
     const exporter = getExporter(format);
     return exporter.export(results);
-  } catch (err) {
+  } catch {
     throw new Error(`Unsupported output format: ${format}`);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Severity Threshold (Fail-on) helpers
-// ---------------------------------------------------------------------------
 
 export type FailOnSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE";
 
@@ -551,13 +487,6 @@ export function isValidFailOnSeverity(val: string): boolean {
 
 const FAIL_ON_EXPECTED = "expected one of: CRITICAL, HIGH, MEDIUM, LOW, NONE";
 
-/**
- * Parses `--fail-on=<SEVERITY>` or `--fail-on <SEVERITY>` command line argument.
- *
- * A missing or unrecognised value is a usage error, matching `--format`:
- * silently falling back to the default threshold would let a typo such as
- * `--fail-on=highh` gate commits on a threshold the user never asked for.
- */
 export function parseFailOnArg(args: string[] = process.argv): FailOnSeverity | null {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -582,13 +511,6 @@ export function parseFailOnArg(args: string[] = process.argv): FailOnSeverity | 
   return null;
 }
 
-/**
- * The AI findings that clear `failOnThreshold` — the ones actually responsible
- * for a non-zero exit.
- *
- * With no threshold set this is the default HIGH/CRITICAL set, matching
- * {@link shouldFailScan}. `NONE` is advisory mode, so nothing blocks.
- */
 export function blockingAiFindings<T extends { severity: string }>(
   aiFindings: T[],
   failOnThreshold: FailOnSeverity | null = null,
@@ -596,8 +518,6 @@ export function blockingAiFindings<T extends { severity: string }>(
   if (failOnThreshold === "NONE") return [];
 
   if (failOnThreshold === null) {
-    // Normalize case like the explicit-threshold path below: the API response
-    // is cast, not validated, so a lowercase "high" must still block.
     return aiFindings.filter((f) => {
       const sev = f.severity?.toUpperCase();
       return sev === "HIGH" || sev === "CRITICAL";
@@ -611,27 +531,12 @@ export function blockingAiFindings<T extends { severity: string }>(
   });
 }
 
-/**
- * How to refer to the active threshold in a message, so the default case does
- * not name a flag the user never passed.
- */
 export function describeFailThreshold(failOnThreshold: FailOnSeverity | null): string {
   return failOnThreshold === null
     ? "the default HIGH/CRITICAL threshold"
     : `the --fail-on=${failOnThreshold} threshold`;
 }
 
-/**
- * Determines whether a scan should return non-zero exit code based on the failOnThreshold.
- *
- * Local secret logging violations default to HIGH severity (rank 3), while custom rule
- * violations are evaluated at their specifically configured severity.
- *
- * `NONE` is advisory mode: findings are still reported, but nothing blocks the
- * commit. It is deliberately handled before the rank comparison, because its
- * rank of 0 is below every real severity and would otherwise make *every*
- * finding clear the bar.
- */
 export function shouldFailScan(
   localViolationCount: number | Array<{ severity?: string }>,
   aiFindings: { severity: string }[],
@@ -686,10 +591,6 @@ export interface SeverityCounts {
   low: number;
 }
 
-/**
- * Counts total findings by severity across local violations (evaluated at their configured
- * severity or defaulting to HIGH) and AI findings.
- */
 export function countFindingsBySeverity(
   localViolationCount: number | Array<{ severity?: string }>,
   aiFindings: { severity?: string }[] = [],
@@ -735,16 +636,9 @@ export function countFindingsBySeverity(
   return { critical, high, medium, low };
 }
 
-/**
- * Formats a one-line summary of finding counts per severity.
- */
 export function formatSeverityCounts(counts: SeverityCounts): string {
   return `Findings by severity: critical: ${counts.critical}, high: ${counts.high}, medium: ${counts.medium}, low: ${counts.low}`;
 }
-
-// ---------------------------------------------------------------------------
-// Severity filter helpers (--severity flag)
-// ---------------------------------------------------------------------------
 
 export function parseSeverityFilter(value: string): Set<Severity> {
   const levels = value.split(",").map((s) => s.trim().toUpperCase());
@@ -767,9 +661,6 @@ export function filterBySeverity(
   }));
 }
 
-/**
- * Generates natural language summary debrief text suitable for TTS voice readout.
- */
 export function generateVoiceSummaryText(
   violationCount: number,
   aiFindings: { severity?: string; type?: string }[] = [],
