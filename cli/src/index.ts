@@ -918,14 +918,17 @@ ${textOutput}`);
 
   const activeThreshold = failOnThreshold ?? parseFailOnArg();
   const allLocalViolations = fileResults.flatMap((r) => r.violations);
+  const normalizedViolations = allLocalViolations.map((v) =>
+    v.severity !== undefined ? { severity: v.severity } : {},
+  );
   const shouldFail = allLocalViolations.some((v) => v.custom)
-    ? shouldFailScan(allLocalViolations, allAiFindings, activeThreshold)
+    ? shouldFailScan(normalizedViolations, allAiFindings, activeThreshold)
     : shouldFailScan(violationCount, allAiFindings, activeThreshold);
   const blockingAi = blockingAiFindings(allAiFindings, activeThreshold);
 
   if (format === "text") {
     const counts = allLocalViolations.some((v) => v.custom)
-      ? countFindingsBySeverity(allLocalViolations, allAiFindings)
+      ? countFindingsBySeverity(normalizedViolations, allAiFindings)
       : countFindingsBySeverity(violationCount, allAiFindings);
     console.log(formatSeverityCounts(counts));
   }

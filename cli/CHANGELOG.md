@@ -1,5 +1,14 @@
 # secureflow-cli
 
+## 3.15.0
+
+### Minor Changes
+
+- 36f7713: feat(analytics): directory hotspot view showing where findings concentrate (#2018)
+- d1878c1: feat(cli): add inline comment suppression directive engine to CLI scanner (#2051)
+- 7df156a: feat(findings): git file rename and deletion tracking in auto-resolve engine to prevent orphaned findings and duplicate regressions (#2052)
+- 2167bc5: feat(sbom): parse package-lock.json and pnpm-lock.yaml for resolved transitive dependency vulnerability scanning (#2050)
+
 ## 3.14.0
 
 ### Minor Changes
