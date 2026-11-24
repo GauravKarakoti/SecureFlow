@@ -191,27 +191,45 @@ export function runDeterministicPrecheck(
 }
 
 /**
- * Deduplicates and merges precheck findings with LLM scan findings.
- * If both report on the same file and line, precheck findings take priority
- * ensuring deterministic redaction and source attribution.
+ * Deduplicates and merges precheck and deterministic findings with LLM scan findings.
+ * If both report on the same file and line, or share a dynamic/standard fingerprint,
+ * deterministic findings take priority and duplicate LLM findings are avoided.
  */
 export function mergePrecheckWithLlmFindings(
   precheckFindings: ScanFinding[],
   llmFindings: ScanFinding[],
 ): ScanFinding[] {
-  const seen = new Set<string>();
+  const seenLocations = new Set<string>();
+  const seenFingerprints = new Set<string>();
   const merged: ScanFinding[] = [];
 
   for (const f of precheckFindings) {
     const key = `${f.fileLocation}:${f.lineStart ?? 0}`;
-    seen.add(key);
+    seenLocations.add(key);
+    if (f.dynamicFingerprint) {
+      seenFingerprints.add(f.dynamicFingerprint);
+    }
+    const standardFp = (f as { fingerprint?: string }).fingerprint;
+    if (standardFp) {
+      seenFingerprints.add(standardFp);
+    }
     merged.push(f);
   }
 
   for (const f of llmFindings) {
     const key = `${f.fileLocation}:${f.lineStart ?? 0}`;
-    if (!seen.has(key)) {
-      seen.add(key);
+    const dynFp = f.dynamicFingerprint;
+    const standardFp = (f as { fingerprint?: string }).fingerprint;
+
+    const isDuplicate =
+      seenLocations.has(key) ||
+      (dynFp !== undefined && seenFingerprints.has(dynFp)) ||
+      (standardFp !== undefined && seenFingerprints.has(standardFp));
+
+    if (!isDuplicate) {
+      seenLocations.add(key);
+      if (dynFp) seenFingerprints.add(dynFp);
+      if (standardFp) seenFingerprints.add(standardFp);
       merged.push(f);
     }
   }

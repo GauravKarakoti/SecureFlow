@@ -74,6 +74,64 @@ export function resolveMaxVerificationCalls(configured?: unknown): number {
   return Math.min(n, MAX_VERIFICATION_CALLS_LIMIT);
 }
 
+/** Default number of surrounding context lines around diff hunks (#2006). */
+export const DEFAULT_CONTEXT_LINES = 5;
+
+/** Maximum number of surrounding context lines allowed (#2006). */
+export const MAX_CONTEXT_LINES = 20;
+
+/** Minimum number of surrounding context lines (#2006). */
+export const MIN_CONTEXT_LINES = 0;
+
+/**
+ * Resolves the number of context lines from configuration or environment (#2006).
+ * Validated and capped between 0 and 20 (defaults to 5).
+ */
+export function resolveContextLines(
+  configured?:
+    | number
+    | string
+    | {
+        contextLines?: number;
+        scanner?: { contextLines?: number };
+        gate?: { contextLines?: number };
+      }
+    | null,
+): number {
+  let raw: unknown = configured;
+  if (configured && typeof configured === "object") {
+    raw =
+      configured.contextLines ?? configured.scanner?.contextLines ?? configured.gate?.contextLines;
+  }
+  const val =
+    typeof raw === "number"
+      ? raw
+      : (raw ?? process.env.SCANNER_CONTEXT_LINES ?? process.env.CONTEXT_LINES)?.toString().trim();
+  if (val === undefined || val === null || val === "") {
+    return DEFAULT_CONTEXT_LINES;
+  }
+  const n = typeof val === "number" ? val : Number(val);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    console.warn(
+      `[GateConfig] Invalid contextLines value '${String(val)}' (expected integer between ${MIN_CONTEXT_LINES} and ${MAX_CONTEXT_LINES}); using default ${DEFAULT_CONTEXT_LINES}.`,
+    );
+    return DEFAULT_CONTEXT_LINES;
+  }
+  if (n < MIN_CONTEXT_LINES) {
+    console.warn(
+      `[GateConfig] contextLines value ${n} is below minimum ${MIN_CONTEXT_LINES}; clamping to ${MIN_CONTEXT_LINES}.`,
+    );
+    return MIN_CONTEXT_LINES;
+  }
+  if (n > MAX_CONTEXT_LINES) {
+    console.warn(
+      `[GateConfig] contextLines value ${n} exceeds maximum ${MAX_CONTEXT_LINES}; capping at ${MAX_CONTEXT_LINES}.`,
+    );
+    return MAX_CONTEXT_LINES;
+  }
+  return n;
+}
+
 /**
  * Resolves the total scan timeout budget in milliseconds from configuration or environment (#1981).
  * Default is 120 seconds (120,000 ms).
@@ -179,10 +237,32 @@ export interface GateConfig {
   verifyCritical?: boolean;
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
+  contextLines?: number;
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  disabledRules?: string[];
+  iacRulesEnabled?: boolean;
 }
+
+export interface RulesConfig {
+  disabled?: string[];
+  disabledRules?: string[];
+  iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  [ruleName: string]: unknown;
+}
+
+export interface SuggestionsConfig {
+  enabled: boolean;
+  maxSuggestions: number;
+}
+
+export const DEFAULT_MAX_SUGGESTIONS = 5;
 
 export interface SecureFlowConfig {
   gate: GateConfig;
+  rules?: RulesConfig;
+  disabledRules?: string[];
+  iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -193,6 +273,9 @@ export interface SecureFlowConfig {
   timeoutBudgetSeconds?: number;
   requestTimeout?: number;
   requestTimeoutSeconds?: number;
+  skipDrafts?: boolean;
+  skipAuthors?: string[];
+  contextLines?: number;
   scanner?: {
     timeoutBudget?: number;
     timeoutBudgetSeconds?: number;
@@ -201,12 +284,15 @@ export interface SecureFlowConfig {
     verifyCritical?: boolean;
     verifyCriticalFindings?: boolean;
     maxVerificationCalls?: number;
+    contextLines?: number;
   };
   skipDrafts?: boolean;
   skipAuthors?: string[];
   verifyCritical?: boolean;
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   ignore?: {
     includeDefaults?: boolean;
     forceInclude?: string[];
@@ -288,6 +374,17 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   const sameMaxVerificationCalls =
     gate.maxVerificationCalls === undefined ||
     gate.maxVerificationCalls === DEFAULT_MAX_VERIFICATION_CALLS;
+  // #2006: contextLines check
+  const sameContextLines =
+    gate.contextLines === undefined || gate.contextLines === DEFAULT_CONTEXT_LINES;
+  // #2005: suggestions checks (opt-in, disabled by default)
+  const sameSuggestions =
+    gate.suggestions === undefined ||
+    (typeof gate.suggestions === "boolean" && !gate.suggestions) ||
+    (typeof gate.suggestions === "object" && !gate.suggestions?.enabled);
+  // #2004: IaC rules and disabledRules checks
+  const sameIac = gate.iacRulesEnabled === undefined || gate.iacRulesEnabled === true;
+  const noDisabledRules = !gate.disabledRules || gate.disabledRules.length === 0;
 
   return (
     sameBlock &&
@@ -305,6 +402,10 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     noSkipAuthors &&
     sameVerifyCritical &&
     sameMaxVerificationCalls
+    sameContextLines
+    sameSuggestions
+    sameIac &&
+    noDisabledRules
   );
 }
 
@@ -699,6 +800,107 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2006: parse contextLines from root, scanner, or gate
+  const rawContextLines = root.contextLines ?? rawScannerObj?.contextLines ?? gateObj.contextLines;
+  let contextLines: number | undefined = undefined;
+  if (rawContextLines !== undefined && rawContextLines !== null) {
+    const num =
+      typeof rawContextLines === "number"
+        ? rawContextLines
+        : Number(String(rawContextLines).trim());
+    if (Number.isInteger(num)) {
+      if (num < MIN_CONTEXT_LINES) {
+        console.warn(
+          `[GateConfig] contextLines value ${num} is below minimum ${MIN_CONTEXT_LINES}; clamping to ${MIN_CONTEXT_LINES}.`,
+        );
+        contextLines = MIN_CONTEXT_LINES;
+      } else if (num > MAX_CONTEXT_LINES) {
+        console.warn(
+          `[GateConfig] contextLines value ${num} exceeds maximum ${MAX_CONTEXT_LINES}; capping at ${MAX_CONTEXT_LINES}.`,
+        );
+        contextLines = MAX_CONTEXT_LINES;
+      } else {
+        contextLines = num;
+      }
+    } else {
+      console.warn(
+        `[GateConfig] Invalid contextLines value '${String(rawContextLines)}' (expected integer between ${MIN_CONTEXT_LINES} and ${MAX_CONTEXT_LINES}); ignoring.`,
+      );
+    }
+  }
+
+  // #2005: parse suggestions / suggestedChanges configuration (opt-in)
+  const rawSuggestions =
+    root.suggestions ?? root.suggestedChanges ?? gateObj.suggestions ?? gateObj.suggestedChanges;
+
+  let suggestions:
+    boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number } | undefined =
+    undefined;
+
+  if (rawSuggestions !== undefined) {
+    if (typeof rawSuggestions === "boolean") {
+      suggestions = rawSuggestions;
+    } else if (
+      typeof rawSuggestions === "object" &&
+      rawSuggestions !== null &&
+      !Array.isArray(rawSuggestions)
+    ) {
+      suggestions = rawSuggestions as {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+      };
+    }
+  }
+
+  // #2004: parse rules and IaC configuration
+  const rawRules = root.rules ?? gateObj.rules;
+  const rawRulesObj =
+    rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)
+      ? (rawRules as Record<string, unknown>)
+      : undefined;
+
+  let iacRulesEnabled: boolean | undefined = undefined;
+  const rawIac = root.iac ?? gateObj.iac ?? rawRulesObj?.iac;
+  if (rawIac === false) {
+    iacRulesEnabled = false;
+  } else if (typeof rawIac === "object" && rawIac !== null && !Array.isArray(rawIac)) {
+    if ((rawIac as Record<string, unknown>).enabled === false) {
+      iacRulesEnabled = false;
+    }
+  }
+
+  const disabledRulesSet = new Set<string>();
+  const collectRules = (arr: unknown) => {
+    if (Array.isArray(arr)) {
+      for (const item of arr) {
+        if (typeof item === "string" && item.trim()) {
+          disabledRulesSet.add(item.trim());
+        }
+      }
+    }
+  };
+
+  collectRules(root.disabledRules);
+  collectRules(gateObj.disabledRules);
+  collectRules(rawRulesObj?.disabled);
+  collectRules(rawRulesObj?.disabledRules);
+
+  if (typeof rawIac === "object" && rawIac !== null && !Array.isArray(rawIac)) {
+    collectRules((rawIac as Record<string, unknown>).disabled);
+    collectRules((rawIac as Record<string, unknown>).disabledRules);
+  }
+
+  if (rawRulesObj) {
+    for (const [key, val] of Object.entries(rawRulesObj)) {
+      if (val === false && key !== "iac") {
+        disabledRulesSet.add(key);
+      }
+    }
+  }
+
+  const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
+
   return {
     blockOn,
     reviewOn,
@@ -719,7 +921,68 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       ? { verifyCritical, verifyCriticalFindings: verifyCritical }
       : {}),
     ...(maxVerificationCalls !== undefined ? { maxVerificationCalls } : {}),
+    ...(contextLines !== undefined ? { contextLines } : {}),
+    ...(suggestions !== undefined ? { suggestions } : {}),
+    ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
+    ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
   };
+}
+
+/**
+ * Resolves options for IaC security rules from repository gate configuration (#2004).
+ */
+export function resolveIacRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [] };
+  }
+  return {
+    enabled: config.iacRulesEnabled !== false,
+    disabledRules: config.disabledRules ?? [],
+  };
+}
+
+/**
+ * Resolves suggestions configuration from gate config or root config (#2005).
+ * Opt-in by default: returns { enabled: false, maxSuggestions: 5 } unless configured.
+ */
+export function resolveSuggestionsConfig(
+  config?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+        suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+      }
+    | null,
+): SuggestionsConfig {
+  if (config === true) {
+    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+  if (!config || typeof config !== "object") {
+    return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+
+  const raw = config.suggestions ?? config.suggestedChanges ?? config;
+  if (raw === true) {
+    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const rawObj = raw as { enabled?: boolean; maxSuggestions?: number; limit?: number };
+    const enabled = rawObj.enabled === true;
+    const rawMax = rawObj.maxSuggestions ?? rawObj.limit;
+    const maxSuggestions =
+      typeof rawMax === "number" && Number.isInteger(rawMax) && rawMax > 0
+        ? rawMax
+        : DEFAULT_MAX_SUGGESTIONS;
+    return { enabled, maxSuggestions };
+  }
+
+  return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
 }
 
 /**

@@ -46,6 +46,10 @@ import {
 } from "@/lib/github/scan-report";
 import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
 import {
+  buildInlineReviewComments,
+  resolveSuggestionsConfig,
+} from "@/lib/github/suggested-changes";
+import {
   buildSarifDocument,
   pullRequestRef,
   uploadSarifAnalysis,
@@ -1225,14 +1229,6 @@ export async function runPullRequestScan({
       // were both labelled "🟡 MEDIUM" in the pull request comment — the report
       // overstated the severity of the least severe findings.
 
-      // Resolve the diff line to anchor an inline comment on, or null when the
-      // finding has no usable line inside the PR diff (GitHub would reject it).
-      const anchorLine = (f: any): number | null => {
-        if (typeof f.lineStart !== "number") return null;
-        const lines = commentableLines.get(f.fileLocation);
-        return lines && lines.has(f.lineStart) ? f.lineStart : null;
-      };
-
       // Findings with a diff-anchored line become inline review comments; the
       // rest fall back into the summary body so nothing is ever lost.
       const inlineComments: { path: string; line: number; body: string }[] = [];
@@ -1263,6 +1259,14 @@ export async function runPullRequestScan({
           summaryFindings.push(f);
         }
       });
+      
+      // Incorporates GitHub ```suggestion blocks when enabled for the repository (#2005).
+      const suggestionsConfig = resolveSuggestionsConfig(gateConfig);
+      const { inlineComments, summaryFindings } = buildInlineReviewComments(
+        enrichedFindings,
+        commentableLines,
+        { suggestionsConfig },
+      );
 
       const scanTime = new Date().toISOString();
       const summaryInput = (findings: ScanReportFinding[]) => ({

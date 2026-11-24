@@ -9,14 +9,27 @@ import {
 } from "./fingerprint";
 import { normalizeFindingTypeLabel } from "@/lib/finding-taxonomy";
 import { normalizeSeverity, type Severity } from "@/lib/severity";
-import { parseUnifiedPatch, renderNumberedLines } from "./diff";
+import {
+  parseUnifiedPatch,
+  renderNumberedLines,
+  renderDiffWithContext,
+  changedLineNumbers,
+  type RenderDiffOptions,
+} from "./diff";
 import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
-import { resolveScanTimeoutBudgetMs, resolveScanRequestTimeoutMs } from "@/lib/scanner/gate-config";
+import {
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
+  resolveContextLines,
+  DEFAULT_CONTEXT_LINES,
+  MAX_CONTEXT_LINES,
+} from "@/lib/scanner/gate-config";
 
 export type ScanFinding = {
   type: string;
@@ -42,6 +55,7 @@ export type ScanFinding = {
 export interface FileChange {
   filename: string;
   patch: string;
+  content?: string;
 }
 
 export class ScannerTimeoutError extends Error {
@@ -230,8 +244,54 @@ export function sanitizeRecursively(input: string): string {
   return current;
 }
 
-export function extractAddedLines(patch: string): string {
-  return renderNumberedLines(parseUnifiedPatch(patch));
+export function extractAddedLines(patch: string, options?: RenderDiffOptions): string {
+  if (!options) {
+    return renderNumberedLines(parseUnifiedPatch(patch));
+  }
+  return renderDiffWithContext(patch, options);
+}
+
+/**
+ * Ensures findings are only reported on lines that were actually changed or added (#2006).
+ * Unchanged context lines are never allowed to have reported findings.
+ */
+export function filterFindingsToChangedLines(
+  findings: ScanFinding[],
+  files: FileChange[],
+): ScanFinding[] {
+  const changedLinesByFile = new Map<string, Set<number>>();
+  for (const file of files) {
+    if (file.patch) {
+      changedLinesByFile.set(file.filename, changedLineNumbers(parseUnifiedPatch(file.patch)));
+    }
+  }
+
+  return findings.filter((finding) => {
+    const changed = changedLinesByFile.get(finding.fileLocation);
+    if (!changed || changed.size === 0) {
+      return true;
+    }
+
+    if (typeof finding.lineStart === "number") {
+      if (changed.has(finding.lineStart)) {
+        return true;
+      }
+      if (typeof finding.lineEnd === "number" && finding.lineEnd >= finding.lineStart) {
+        for (let l = finding.lineStart; l <= finding.lineEnd; l++) {
+          if (changed.has(l)) {
+            finding.lineStart = l;
+            return true;
+          }
+        }
+      }
+      console.log(
+        `🛡️ Filtered finding on unchanged context line ${finding.lineStart} in ${finding.fileLocation}: only changed lines are reported (#2006).`,
+      );
+      return false;
+    }
+
+    return true;
+  });
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -343,12 +403,17 @@ export class ArmorIQScanner {
     customPlaceholders: string[] = [],
     repositoryId: string = "default-repo",
     ignoreOptions?: IgnoreCheckOptions,
-    timeoutOptions?: { timeoutBudgetMs?: number; requestTimeoutMs?: number },
+    timeoutOptions?: {
+      timeoutBudgetMs?: number;
+      requestTimeoutMs?: number;
+      contextLines?: number;
+    },
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
     const effectiveTotalScanMs = timeoutOptions?.timeoutBudgetMs ?? resolveScanTimeoutBudgetMs();
     const effectiveRequestTimeoutMs =
       timeoutOptions?.requestTimeoutMs ?? resolveScanRequestTimeoutMs();
+    const effectiveContextLines = resolveContextLines(timeoutOptions?.contextLines);
     const deadlineExceeded = () => Date.now() - scanStartedAt > effectiveTotalScanMs;
 
     let currentBatch = "";
@@ -401,10 +466,13 @@ export class ArmorIQScanner {
     const dependencyFindings = runDependencySecurityRules(files, { repositoryId });
     // Deterministic workflow security rules for files under .github/workflows/ (#2002).
     const workflowFindings = runWorkflowSecurityRules(files, { repositoryId });
+    // Deterministic infrastructure-as-code rules for Dockerfile, Kubernetes, Terraform (#2004).
+    const iacFindings = runIacSecurityRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
       ...workflowFindings,
+      ...iacFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -451,7 +519,11 @@ export class ArmorIQScanner {
         continue;
       }
 
-      const addedLines = extractAddedLines(file.patch);
+      const addedLines = renderDiffWithContext(file.patch, {
+        contextLines: effectiveContextLines,
+        fullContent: file.content,
+        markContext: true,
+      });
 
       if (!addedLines || addedLines.trim().length === 0) {
         continue;
@@ -561,6 +633,10 @@ CRITICAL RULES SCOPED BY FILE TYPE:
 - For '.env.example' or '.env' files: ONLY flag a line if the right side of the equals sign contains a REAL, active credential (e.g., a long random alphanumeric string, a hash, or a valid token). DO NOT flag lines with descriptive text, empty quotes, or generic placeholders.
 - For '.ts' or '.js' files: You MUST flag any instance of 'console.log(process.env...)' as a CRITICAL contextual leak or any 'console.log(<variable>)' where the 'variable' is instantiated with 'process.env...'.
 - For confidence: Assign "HIGH" for definite, active vulnerabilities and real credentials; "MEDIUM" for standard, probable issues; "LOW" for uncertain patterns, test fixtures, or plausible mock values. Provide a short one-line confidenceReason.
+DIFF CONTEXT & CHANGED LINES RULES (#2006):
+- Lines marked [UNCHANGED CONTEXT] are surrounding lines provided strictly for context (such as variable declarations, sanitization functions, or imports).
+- Lines marked [CHANGED] are the lines modified or added in this pull request.
+- CRITICAL: You MUST ONLY report findings on changed lines (lines marked [CHANGED]). NEVER report a finding against an unchanged context line (marked [UNCHANGED CONTEXT]). If a vulnerability exists only in unchanged context, do not flag it.
 
 Aggregated Code Changes:
 ${batchContent}
@@ -614,7 +690,7 @@ Return ONLY the raw JSON starting with '{' or '['.
 
 CRITICAL RULES:
 1. Treat all code provided as executable production code.
-2. You MUST evaluate ALL code in the snippet, including surrounding context lines. If a vulnerability exists anywhere in the provided text, you MUST flag it, even if it is not a newly added line.
+2. Surrounding context lines marked [UNCHANGED CONTEXT] are provided strictly for context (e.g. sanitization, variable declarations). You MUST evaluate them to understand the code context, but you MUST ONLY report findings on lines marked [CHANGED]. NEVER report a finding whose lineStart is on an [UNCHANGED CONTEXT] line.
 3. Assigning process.env to a variable is safe. Explicitly leaking it via console.log() is CRITICAL.
 4. JSON ESCAPING: Properly escape ALL double quotes (\\") and newlines (\\n).`,
                   },
@@ -762,11 +838,14 @@ CRITICAL RULES:
               };
             });
 
-            findings = filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
-              ...f,
-              description: maskFindingText(f.description),
-              codeSnippet: maskFindingText(f.codeSnippet),
-            }));
+            findings = filterFindingsToChangedLines(
+              filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
+                ...f,
+                description: maskFindingText(f.description),
+                codeSnippet: maskFindingText(f.codeSnippet),
+              })),
+              files,
+            );
             success = true;
           } catch (error: unknown) {
             lastError = error;
@@ -918,4 +997,5 @@ export {
   scanWorkflowFile,
   isWorkflowFile,
 } from "@/lib/rules/workflow-rules";
+export { runIacSecurityRules, scanIacFile, isIacFile, IAC_RULE_IDS } from "@/lib/rules/iac-rules";
 export const scanner = new ArmorIQScanner();
