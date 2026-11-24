@@ -11,6 +11,7 @@ vi.mock("child_process", () => ({
 import {
   colors,
   TerminalSpinner,
+  ScanProgressIndicator,
   formatSeverityBadge,
   renderWarningTable,
   formatTuiScanSummary,
@@ -395,6 +396,99 @@ describe("cli/src/lib/tui (#1712)", () => {
 
       spinner.fail("Scan failed");
       expect(written).toContain("Scan failed");
+    });
+  });
+
+  describe("ScanProgressIndicator (#1978)", () => {
+    it("writes progress to stderr when output is a terminal", () => {
+      let written = "";
+      const mockStream = {
+        isTTY: true,
+        write: (chunk: string) => {
+          written += chunk;
+        },
+      } as any;
+
+      const progress = new ScanProgressIndicator(3, {
+        stream: mockStream,
+        isTTY: true,
+      });
+
+      expect(progress.isEnabled()).toBe(true);
+      progress.update(1, "file1.ts");
+      expect(written).toContain("Scanning files (1/3)...");
+
+      progress.update(2, "file2.ts");
+      expect(written).toContain("Scanning files (2/3)...");
+
+      progress.done();
+      expect(written).toContain("\r\x1b[K");
+    });
+
+    it("disables progress indicator when output is not a terminal (piped/redirected)", () => {
+      let written = "";
+      const mockStream = {
+        isTTY: false,
+        write: (chunk: string) => {
+          written += chunk;
+        },
+      } as any;
+
+      const progress = new ScanProgressIndicator(3, {
+        stream: mockStream,
+        isTTY: false,
+      });
+
+      expect(progress.isEnabled()).toBe(false);
+      progress.update(1, "file1.ts");
+      progress.update(2, "file2.ts");
+      progress.clear();
+      progress.done();
+
+      expect(written).toBe("");
+    });
+
+    it("disables progress indicator in quiet mode even on a terminal", () => {
+      let written = "";
+      const mockStream = {
+        isTTY: true,
+        write: (chunk: string) => {
+          written += chunk;
+        },
+      } as any;
+
+      const progress = new ScanProgressIndicator(3, {
+        stream: mockStream,
+        isTTY: true,
+        quiet: true,
+      });
+
+      expect(progress.isEnabled()).toBe(false);
+      progress.update(1, "file1.ts");
+      progress.done();
+
+      expect(written).toBe("");
+    });
+
+    it("handles total = 0 gracefully without output", () => {
+      let written = "";
+      const mockStream = {
+        isTTY: true,
+        write: (chunk: string) => {
+          written += chunk;
+        },
+      } as any;
+
+      const progress = new ScanProgressIndicator(0, {
+        stream: mockStream,
+        isTTY: true,
+      });
+
+      expect(progress.isEnabled()).toBe(false);
+      progress.update(1);
+      progress.done();
+
+      expect(written).toBe("");
     });
   });
 
