@@ -172,6 +172,17 @@ describe("findingCreateInput", () => {
     expect(input.suppressionRuleId).toBeNull();
   });
 
+  it("resolves and populates cwe on finding create input (#2008)", () => {
+    const inputWithCwe = findingCreateInput(finding({ type: "Secret" }));
+    expect(inputWithCwe.cwe).toBe("CWE-798");
+
+    const inputExplicit = findingCreateInput(finding({ cwe: "CWE-89" }));
+    expect(inputExplicit.cwe).toBe("CWE-89");
+
+    const inputUnknown = findingCreateInput(finding({ type: "UnknownWhateverType" }));
+    expect(inputUnknown.cwe).toBeNull();
+  });
+
   it("persists suppressionStatus and suppressionRuleId when set", () => {
     const input = findingCreateInput(
       finding({

@@ -127,6 +127,7 @@ describe("getUserFindings", () => {
       isOverdue: true,
       noteCount: 0,
       issueUrl: null,
+      cwe: null,
     });
     expect(result.findings[1]).toMatchObject({
       triageStatus: "OPEN",
