@@ -18,7 +18,6 @@
 import prisma from "@/lib/prisma";
 import {
   getActiveKeyId,
-  isFindingEncryptionEnabled,
   resolvePrimaryEncryptionKey,
   rotateFindingsBatch,
   validateFindingEncryptionConfig,
