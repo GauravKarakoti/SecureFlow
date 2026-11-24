@@ -266,7 +266,29 @@ export function parseCacheDirArg(argv: readonly string[]): string | undefined {
   return raw.trim();
 }
 
+/**
+ * `--baseline [path]`: path to baseline file, or default ".secureflow-baseline.json" if flag passed (#2060).
+ */
+export function parseBaselineArg(argv: readonly string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--baseline") {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        return next;
+      }
+      return ".secureflow-baseline.json";
+    }
+    if (arg.startsWith("--baseline=")) {
+      const val = arg.slice("--baseline=".length).trim();
+      return val || ".secureflow-baseline.json";
+    }
+  }
+  return undefined;
+}
+
 const FLAGS_WITH_VALUE = new Set([
+  "--baseline",
   "-o",
   "--output",
   "--format",
