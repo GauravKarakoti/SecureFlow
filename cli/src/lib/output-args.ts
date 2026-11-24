@@ -296,6 +296,7 @@ const KNOWN_COMMANDS = new Set([
   "cache-clear",
   "cache-prune",
   "cache-stats",
+  "hook",
 ]);
 
 /**
@@ -303,6 +304,11 @@ const KNOWN_COMMANDS = new Set([
  * Returns undefined if scanning staged git files or running a specific subcommand.
  */
 export function parseTargetDirectoryArg(argv: readonly string[]): string | undefined {
+  // If --staged is explicitly requested, directory scanning is disabled
+  if (argv.includes("--staged")) {
+    return undefined;
+  }
+
   // Check explicit --dir
   const explicit = optionValue(argv, ["--dir"]);
   if (explicit !== undefined) {
@@ -329,12 +335,19 @@ export function parseTargetDirectoryArg(argv: readonly string[]): string | undef
       if (next && !next.startsWith("-")) {
         return next;
       }
-      return ".";
+      return undefined;
     }
     return arg;
   }
 
   return undefined;
+}
+
+/**
+ * Checks whether `--staged` was passed.
+ */
+export function parseStagedArg(argv: readonly string[]): boolean {
+  return argv.includes("--staged");
 }
 
 export type VerbosityLevel = "quiet" | "normal" | "verbose";
@@ -383,4 +396,3 @@ export function parseVerbosityArg(argv: readonly string[]): VerbosityLevel {
   if (verbose) return "verbose";
   return "normal";
 }
-
