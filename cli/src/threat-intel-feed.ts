@@ -143,7 +143,12 @@ export async function loadCisaKevCatalog(
 
     const parsed: unknown = JSON.parse(contents);
 
-    if (!isCisaKevCatalog(parsed)) return null;
+    if (!isCisaKevCatalog(parsed)) {
+      console.warn(
+        "[SecureFlow Threat Intel] Local CISA KEV catalog has an invalid structure. Refresh the feed to recover.",
+      );
+      return null;
+    }
 
     if (options.populateCache !== false) {
       await setThreatIntelCache(
@@ -154,7 +159,16 @@ export async function loadCisaKevCatalog(
       );
     }
     return parsed;
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.warn(
+        "[SecureFlow Threat Intel] Could not deserialize the local CISA KEV catalog. Refresh the feed to recover.",
+      );
+    } else if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      console.warn(
+        "[SecureFlow Threat Intel] Could not read the local CISA KEV catalog. Check file permissions or refresh the feed.",
+      );
+    }
     return null;
   }
 }
