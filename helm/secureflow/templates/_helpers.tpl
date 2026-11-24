@@ -62,6 +62,15 @@ app.kubernetes.io/component: worker
 {{- end }}
 
 {{/*
+Selector labels for retention cronjob
+*/}}
+{{- define "secureflow.retentionSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "secureflow.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: retention
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "secureflow.serviceAccountName" -}}

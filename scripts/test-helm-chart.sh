@@ -122,13 +122,60 @@ grep -Fq -- '- worker' <<< "$network_policies"
 grep -Fq -- '- migration' <<< "$network_policies"
 grep -Fq -- '- retention' <<< "$network_policies"
 
-# Worker egress and disruption-budget selector contracts (#1755).
+# Worker egress and disruption-budget selector contracts (#1755, #1954).
 grep -Fq 'name: check-secureflow-worker-egress' <<< "$network_policies"
 grep -Fq -- '- Egress' <<< "$network_policies"
 grep -Fq 'k8s-app: kube-dns' <<< "$network_policies"
 grep -Fq 'port: 53' <<< "$network_policies"
 if grep -Fq 'ipBlock:' <<< "$network_policies"; then
   echo 'Default worker egress must not allow external IP blocks' >&2
+  exit 1
+fi
+
+# Worker internal egress allows communication to postgresql and redis (#1954)
+grep -Fq 'app.kubernetes.io/component: postgresql' <<< "$network_policies"
+grep -Fq 'app.kubernetes.io/component: redis' <<< "$network_policies"
+
+# Worker pod labels match worker egress selector (#1954)
+worker_manifest="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/worker-deployment.yaml \
+  --set secrets.authSecret=local-test-only)"
+grep -Fq 'app.kubernetes.io/component: worker' <<< "$worker_manifest"
+
+# Retention job pod labels match postgresql/redis ingress allowed components (#1954)
+retention_manifest="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/retention-cronjob.yaml \
+  --set secrets.authSecret=local-test-only)"
+grep -Fq 'app.kubernetes.io/component: retention' <<< "$retention_manifest"
+
+# Verify disabled postgresql or redis removes corresponding policies (#1954)
+no_pg="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/networkpolicy.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set networkPolicy.enabled=true \
+  --set postgresql.enabled=false)"
+if grep -Fq 'name: check-secureflow-postgresql' <<< "$no_pg"; then
+  echo 'Disabled postgresql must not render postgresql network policy' >&2
+  exit 1
+fi
+
+no_redis="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/networkpolicy.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set networkPolicy.enabled=true \
+  --set redis.enabled=false)"
+if grep -Fq 'name: check-secureflow-redis' <<< "$no_redis"; then
+  echo 'Disabled redis must not render redis network policy' >&2
+  exit 1
+fi
+
+# Verify disabled retention does not render retention CronJob (#1954)
+retention_disabled="$("$helm_bin" template check "$chart_dir" \
+  --show-only templates/retention-cronjob.yaml \
+  --set secrets.authSecret=local-test-only \
+  --set retention.enabled=false)"
+if [ -n "$retention_disabled" ] && grep -Fq 'kind: CronJob' <<< "$retention_disabled"; then
+  echo 'Disabled retention must not render retention CronJob' >&2
   exit 1
 fi
 external="$("$helm_bin" template check "$chart_dir" \
