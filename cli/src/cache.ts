@@ -14,6 +14,195 @@ import type { AiFinding } from "./lib/api-client.js";
 
 export const DEFAULT_RULESET_VERSION = "1.0.0";
 export const DEFAULT_CACHE_SUBDIR = path.join(".secureflow", "cache");
+export const DEFAULT_MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+export const DEFAULT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const DEFAULT_ORPHANED_TEMP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Parses duration string (e.g. "7d", "24h", "30m", "3600s", or raw ms) to milliseconds.
+ */
+export function parseDurationMs(durationStr: string | number | undefined | null): number | null {
+  if (typeof durationStr === "number") {
+    return durationStr >= 0 ? durationStr : null;
+  }
+  if (!durationStr || typeof durationStr !== "string") return null;
+  const trimmed = durationStr.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return parseInt(trimmed, 10);
+  }
+  const match = /^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/.exec(trimmed);
+  if (!match) return null;
+  const num = parseFloat(match[1]!);
+  const unit = match[2]!.toLowerCase();
+  switch (unit) {
+    case "d":
+    case "day":
+    case "days":
+      return Math.round(num * 24 * 60 * 60 * 1000);
+    case "h":
+    case "hr":
+    case "hrs":
+    case "hour":
+    case "hours":
+      return Math.round(num * 60 * 60 * 1000);
+    case "m":
+    case "min":
+    case "mins":
+    case "minute":
+    case "minutes":
+      return Math.round(num * 60 * 1000);
+    case "s":
+    case "sec":
+    case "secs":
+    case "second":
+    case "seconds":
+      return Math.round(num * 1000);
+    case "ms":
+      return Math.round(num);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Parses size string (e.g. "50MB", "100M", "10KB", "1GB", or raw bytes) to bytes.
+ */
+export function parseSizeBytes(sizeStr: string | number | undefined | null): number | null {
+  if (typeof sizeStr === "number") {
+    return sizeStr >= 0 ? sizeStr : null;
+  }
+  if (!sizeStr || typeof sizeStr !== "string") return null;
+  const trimmed = sizeStr.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return parseInt(trimmed, 10);
+  }
+  const match = /^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/.exec(trimmed);
+  if (!match) return null;
+  const num = parseFloat(match[1]!);
+  const unit = match[2]!.toUpperCase();
+  switch (unit) {
+    case "B":
+    case "BYTES":
+      return Math.round(num);
+    case "K":
+    case "KB":
+    case "KIB":
+      return Math.round(num * 1024);
+    case "M":
+    case "MB":
+    case "MIB":
+      return Math.round(num * 1024 * 1024);
+    case "G":
+    case "GB":
+    case "GIB":
+      return Math.round(num * 1024 * 1024 * 1024);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Removes temporary files (.tmp) in the cache directory that exceed the maximum age.
+ */
+export function reapOrphanedTempFiles(
+  cacheDir: string,
+  maxAgeMs = DEFAULT_ORPHANED_TEMP_MAX_AGE_MS,
+): number {
+  if (!fs.existsSync(cacheDir)) return 0;
+  let reaped = 0;
+  const now = Date.now();
+  try {
+    const files = fs.readdirSync(cacheDir);
+    for (const file of files) {
+      if (file.endsWith(".tmp")) {
+        const fullPath = path.join(cacheDir, file);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (now - stat.mtimeMs > maxAgeMs) {
+            safeRemoveFile(fullPath);
+            reaped++;
+          }
+        } catch {
+          // ignore individual stat/remove errors
+        }
+      }
+    }
+  } catch {
+    // ignore read directory errors
+  }
+  return reaped;
+}
+
+/**
+ * Enforces maximum cache directory size by evicting least-recently used / oldest entries.
+ * Evicts until directory size is reduced to target headroom (80% of maxSizeBytes).
+ */
+export function enforceCacheStorageLimit(
+  cacheDir: string,
+  maxSizeBytes = DEFAULT_MAX_CACHE_SIZE_BYTES,
+  preserveHash?: string,
+): { evictedCount: number; freedBytes: number } {
+  if (!fs.existsSync(cacheDir) || maxSizeBytes <= 0) {
+    return { evictedCount: 0, freedBytes: 0 };
+  }
+
+  try {
+    const files = fs.readdirSync(cacheDir);
+    const jsonFiles: Array<{ path: string; hash: string; size: number; timestamp: number }> = [];
+    let totalSize = 0;
+
+    for (const file of files) {
+      if (file.endsWith(".json")) {
+        const fullPath = path.join(cacheDir, file);
+        const fileHash = file.slice(0, -5);
+        try {
+          const stat = fs.statSync(fullPath);
+          totalSize += stat.size;
+          let timestamp = stat.mtimeMs;
+          try {
+            const raw = fs.readFileSync(fullPath, "utf-8");
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.cachedAt === "number") {
+              timestamp = parsed.cachedAt;
+            }
+          } catch {
+            // keep stat.mtimeMs
+          }
+          jsonFiles.push({ path: fullPath, hash: fileHash, size: stat.size, timestamp });
+        } catch {
+          // ignore stat errors
+        }
+      }
+    }
+
+    if (totalSize <= maxSizeBytes) {
+      return { evictedCount: 0, freedBytes: 0 };
+    }
+
+    const targetSize = Math.floor(maxSizeBytes * 0.8);
+    // Sort oldest first (LRU order)
+    jsonFiles.sort((a, b) => a.timestamp - b.timestamp);
+
+    let evictedCount = 0;
+    let freedBytes = 0;
+
+    for (const item of jsonFiles) {
+      if (preserveHash && item.hash === preserveHash) {
+        continue;
+      }
+      if (totalSize - freedBytes <= targetSize) {
+        break;
+      }
+      safeRemoveFile(item.path);
+      evictedCount++;
+      freedBytes += item.size;
+    }
+
+    return { evictedCount, freedBytes };
+  } catch {
+    return { evictedCount: 0, freedBytes: 0 };
+  }
+}
 
 let activeRulesetVersion = DEFAULT_RULESET_VERSION;
 
@@ -92,6 +281,7 @@ export interface GetCacheEntryOptions {
   filePath?: string | undefined;
   cacheDir?: string | undefined;
   rulesetVersion?: string | undefined;
+  ttlMs?: number | undefined;
 }
 
 /**
@@ -136,6 +326,19 @@ export function getCacheEntry(options: GetCacheEntryOptions): CacheEntry | null 
       return null;
     }
 
+    // Invalidation: TTL expiration
+    const ttl =
+      options.ttlMs ??
+      (process.env.SECUREFLOW_CACHE_TTL
+        ? (parseDurationMs(process.env.SECUREFLOW_CACHE_TTL) ?? undefined)
+        : undefined);
+    if (ttl !== undefined && ttl > 0 && typeof parsed.cachedAt === "number") {
+      if (Date.now() - parsed.cachedAt > ttl) {
+        safeRemoveFile(cacheFile);
+        return null;
+      }
+    }
+
     // Validation: Result object must have violations array
     if (
       !parsed.result ||
@@ -162,6 +365,7 @@ export interface SetCacheEntryOptions {
   aiFindings?: AiFinding[] | undefined;
   cacheDir?: string | undefined;
   rulesetVersion?: string | undefined;
+  maxSizeBytes?: number | undefined;
 }
 
 /**
@@ -200,6 +404,15 @@ export function setCacheEntry(options: SetCacheEntryOptions): void {
       fs.writeFileSync(cacheFile, JSON.stringify(entry, null, 2), "utf-8");
       safeRemoveFile(tmpFile);
     }
+
+    // Storage budget management: LRU eviction and temp file cleanup
+    const maxBytes =
+      options.maxSizeBytes ??
+      (process.env.SECUREFLOW_CACHE_MAX_SIZE
+        ? (parseSizeBytes(process.env.SECUREFLOW_CACHE_MAX_SIZE) ?? DEFAULT_MAX_CACHE_SIZE_BYTES)
+        : DEFAULT_MAX_CACHE_SIZE_BYTES);
+    enforceCacheStorageLimit(cacheDir, maxBytes, hash);
+    reapOrphanedTempFiles(cacheDir);
   } catch {
     // Non-fatal write failure (e.g. read-only filesystem or disk full)
   }
@@ -239,11 +452,187 @@ export function clearCache(customDir?: string, cwd?: string): ClearCacheResult {
   }
 }
 
+export interface PruneCacheOptions {
+  ttlMs?: number | undefined;
+  maxSizeBytes?: number | undefined;
+  cacheDir?: string | undefined;
+  cwd?: string | undefined;
+}
+
+export interface PruneCacheResult {
+  prunedCount: number;
+  freedBytes: number;
+  remainingCount: number;
+  remainingBytes: number;
+  cacheDir: string;
+}
+
+/**
+ * Prunes expired or excess cache entries according to TTL and storage limit.
+ */
+export function pruneCache(options: PruneCacheOptions = {}): PruneCacheResult {
+  const cacheDir = resolveCacheDir(options.cacheDir, options.cwd);
+  if (!fs.existsSync(cacheDir)) {
+    return { prunedCount: 0, freedBytes: 0, remainingCount: 0, remainingBytes: 0, cacheDir };
+  }
+
+  // 1. Clean up orphaned temp files
+  reapOrphanedTempFiles(cacheDir, 0);
+
+  let prunedCount = 0;
+  let freedBytes = 0;
+  const now = Date.now();
+  const ttl = options.ttlMs;
+
+  try {
+    const files = fs.readdirSync(cacheDir);
+    for (const file of files) {
+      if (file.endsWith(".json")) {
+        const fullPath = path.join(cacheDir, file);
+        try {
+          const stat = fs.statSync(fullPath);
+          let shouldPrune = false;
+          try {
+            const raw = fs.readFileSync(fullPath, "utf-8");
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed.cachedAt !== "number") {
+              shouldPrune = true;
+            } else if (ttl !== undefined && ttl > 0 && now - parsed.cachedAt > ttl) {
+              shouldPrune = true;
+            }
+          } catch {
+            shouldPrune = true;
+          }
+
+          if (shouldPrune) {
+            safeRemoveFile(fullPath);
+            prunedCount++;
+            freedBytes += stat.size;
+          }
+        } catch {
+          // ignore file stat errors
+        }
+      }
+    }
+
+    // 2. Enforce maximum size limit if provided
+    if (options.maxSizeBytes !== undefined && options.maxSizeBytes > 0) {
+      const lruResult = enforceCacheStorageLimit(cacheDir, options.maxSizeBytes);
+      prunedCount += lruResult.evictedCount;
+      freedBytes += lruResult.freedBytes;
+    }
+
+    // 3. Compute remaining stats
+    let remainingCount = 0;
+    let remainingBytes = 0;
+    const remainingFiles = fs.readdirSync(cacheDir);
+    for (const file of remainingFiles) {
+      if (file.endsWith(".json")) {
+        try {
+          const stat = fs.statSync(path.join(cacheDir, file));
+          remainingCount++;
+          remainingBytes += stat.size;
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return {
+      prunedCount,
+      freedBytes,
+      remainingCount,
+      remainingBytes,
+      cacheDir,
+    };
+  } catch {
+    return { prunedCount, freedBytes, remainingCount: 0, remainingBytes: 0, cacheDir };
+  }
+}
+
+export interface CacheStatsReport {
+  cacheDir: string;
+  entryCount: number;
+  totalSizeBytes: number;
+  tempFileCount: number;
+  tempSizeBytes: number;
+  oldestEntryAt: number | null;
+  newestEntryAt: number | null;
+  rulesetVersions: Record<string, number>;
+}
+
+/**
+ * Returns diagnostic statistics about the scan cache.
+ */
+export function getCacheStats(customDir?: string, cwd?: string): CacheStatsReport {
+  const cacheDir = resolveCacheDir(customDir, cwd);
+  const report: CacheStatsReport = {
+    cacheDir,
+    entryCount: 0,
+    totalSizeBytes: 0,
+    tempFileCount: 0,
+    tempSizeBytes: 0,
+    oldestEntryAt: null,
+    newestEntryAt: null,
+    rulesetVersions: {},
+  };
+
+  if (!fs.existsSync(cacheDir)) {
+    return report;
+  }
+
+  try {
+    const files = fs.readdirSync(cacheDir);
+    for (const file of files) {
+      const fullPath = path.join(cacheDir, file);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (file.endsWith(".tmp")) {
+          report.tempFileCount++;
+          report.tempSizeBytes += stat.size;
+        } else if (file.endsWith(".json")) {
+          report.entryCount++;
+          report.totalSizeBytes += stat.size;
+
+          try {
+            const raw = fs.readFileSync(fullPath, "utf-8");
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.cachedAt === "number") {
+              const ts = parsed.cachedAt;
+              if (report.oldestEntryAt === null || ts < report.oldestEntryAt) {
+                report.oldestEntryAt = ts;
+              }
+              if (report.newestEntryAt === null || ts > report.newestEntryAt) {
+                report.newestEntryAt = ts;
+              }
+            }
+            if (parsed && typeof parsed.rulesetVersion === "string") {
+              report.rulesetVersions[parsed.rulesetVersion] =
+                (report.rulesetVersions[parsed.rulesetVersion] ?? 0) + 1;
+            }
+          } catch {
+            // ignore parse errors in stats
+          }
+        }
+      } catch {
+        // ignore stat errors
+      }
+    }
+  } catch {
+    // ignore directory read errors
+  }
+
+  return report;
+}
+
 export interface ScanFileWithCacheOptions {
   customIgnores?: RegExp[] | undefined;
+  customRules?: import("./custom-rules.js").CompiledCustomRule[] | undefined;
   cacheDir?: string | undefined;
   rulesetVersion?: string | undefined;
   noCache?: boolean | undefined;
+  ttlMs?: number | undefined;
+  maxSizeBytes?: number | undefined;
 }
 
 export interface ScanFileWithCacheResult {
@@ -270,6 +659,7 @@ export function scanFileWithCache(
       contentHash,
       cacheDir: options.cacheDir,
       rulesetVersion: options.rulesetVersion,
+      ttlMs: options.ttlMs,
     });
 
     if (cachedEntry) {
@@ -289,7 +679,7 @@ export function scanFileWithCache(
   }
 
   // Cache miss or --no-cache: analyze file
-  const result = scanFile(filePath, content, options.customIgnores);
+  const result = scanFile(filePath, content, options.customIgnores, options.customRules);
 
   if (!options.noCache) {
     setCacheEntry({
@@ -298,6 +688,7 @@ export function scanFileWithCache(
       result,
       cacheDir: options.cacheDir,
       rulesetVersion: options.rulesetVersion,
+      maxSizeBytes: options.maxSizeBytes,
     });
   }
 

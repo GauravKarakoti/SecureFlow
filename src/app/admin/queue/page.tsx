@@ -129,6 +129,79 @@ export default async function QueueMonitorPage() {
         </div>
       </div>
 
+      {/* Per-Installation Fairness & Queue Depth Section (#1980) */}
+      <div className="glass-card border border-white/10 rounded-xl p-6 relative overflow-hidden">
+        <h2 className="text-xl font-bold font-headline mb-2 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-blue-400" />
+          Per-Installation Queue Fairness
+        </h2>
+        <p className="text-sm text-zinc-400 mb-4">
+          Round-robin fair scheduling with a limit of{" "}
+          <span className="font-semibold text-white">
+            {metrics.installationConcurrencyLimit ?? 2} concurrent scans per installation
+          </span>
+          . Prevents large PR floods from starving small repositories.
+        </p>
+
+        {Object.keys(metrics.queueDepthPerInstallation || {}).length === 0 &&
+        Object.keys(metrics.activePerInstallation || {}).length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            No installations currently active or queued.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-zinc-300">
+              <thead className="text-xs uppercase bg-white/5 text-zinc-400 border-b border-white/10">
+                <tr>
+                  <th className="py-2.5 px-4 font-semibold">Installation ID</th>
+                  <th className="py-2.5 px-4 font-semibold">Waiting Queue Depth</th>
+                  <th className="py-2.5 px-4 font-semibold">Active Scans</th>
+                  <th className="py-2.5 px-4 font-semibold">Concurrency Limit</th>
+                  <th className="py-2.5 px-4 font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 font-mono text-xs">
+                {Array.from(
+                  new Set([
+                    ...Object.keys(metrics.queueDepthPerInstallation || {}),
+                    ...Object.keys(metrics.activePerInstallation || {}),
+                  ]),
+                ).map((instId) => {
+                  const depth = metrics.queueDepthPerInstallation?.[instId] ?? 0;
+                  const active = metrics.activePerInstallation?.[instId] ?? 0;
+                  const limit = metrics.installationConcurrencyLimit ?? 2;
+                  const isAtLimit = active >= limit;
+
+                  return (
+                    <tr key={instId} className="hover:bg-white/5 transition-colors">
+                      <td className="py-2 px-4 text-white font-medium">{instId}</td>
+                      <td className="py-2 px-4">{depth}</td>
+                      <td className="py-2 px-4">{active}</td>
+                      <td className="py-2 px-4">{limit}</td>
+                      <td className="py-2 px-4">
+                        {isAtLimit ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            At Concurrency Limit
+                          </span>
+                        ) : active > 0 ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-500/20 text-zinc-400 border border-zinc-500/30">
+                            Waiting
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-col gap-4 mt-2">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-bold tracking-tight">Pipeline Jobs</h2>

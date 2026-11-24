@@ -1,5 +1,165 @@
 # secureflow-cli
 
+## 3.14.0
+
+### Minor Changes
+
+- b404179: feat(cli): project-specific custom regex rules with ReDoS protection
+
+  - Added support for defining custom regex security rules in `.secureflow.json` (`rules` / `customRules`) with unique `id`, `pattern`, `globs`, `severity`, and `message`.
+  - Added startup AST validation of custom rules reporting schema and syntax errors with line and column numbers.
+  - Integrated ReDoS and catastrophic backtracking protection using sandboxed VM execution with configurable timeouts (`timeoutMs`, default 100ms) and string length bounds.
+  - Added custom rule labeling across all terminal, SARIF, Markdown, HTML, and CSV exporters (`[Custom Rule: <id>]`).
+  - Evaluated custom rule findings against configured `--fail-on` gating thresholds.
+  - Documented two comprehensive examples (internal token format and banned APIs) in `README.md` and `cli/README.md`.
+
+- 27cbf69: feat(security): encrypt stored code snippets and explanations at rest with an application key (#2016)
+
+  - Encrypted `codeSnippet` and `explanation` columns in Findings table with AES-256-GCM using `ENCRYPTION_KEY` / `ENCRYPTION_KEY_FILE`.
+  - Stored `encryptionKeyId` per row for unambiguous key mapping and seamless key rotation.
+  - Added transparent decryption on finding reads via Prisma query extension and API/actions endpoints.
+  - Maintained backward compatibility for existing unencrypted findings.
+  - Added CLI migration script (`scripts/migrate-encrypt-findings.ts`) to encrypt existing records in batches.
+  - Provided comprehensive documentation for zero-downtime key rotation (`docs/security/finding-encryption.md`).
+  - Added strict startup validation failing clearly if encryption is enabled without a valid encryption key.
+
+- 6601c63: feat(webhook): admin 'Redeliver' action for stored deliveries in the diagnostics page (#2013)
+
+  - Added `redeliverWebhookDelivery` service executing `POST /app/hook/deliveries/{delivery_id}/attempts` using GitHub App credentials and JWT.
+  - Added `/api/admin/webhooks/[id]/redeliver` API route protected by admin session authorization.
+  - Added rate limiting (10 attempts per minute per admin) and audit logging (`WEBHOOK_REDELIVER` action in `AuditLog`).
+  - Added responsive 'Redeliver' button to delivery diagnostics page for eligible rejected, failed, or repository-disabled events.
+  - Handled errors gracefully including missing permissions, expired 3-day retention windows, and network failures.
+
+- 861d82f: fix(github): handle primary and secondary GitHub API rate limits with throttling and retry-after (#2014)
+
+  - Integrated `@octokit/plugin-throttling` with handlers for GitHub primary and secondary API rate limits.
+  - Bounded retry-after delays with configurable maximums and automatic retries.
+  - Delayed and backed off queue jobs rather than moving them to DLQ on rate limits.
+  - Added GitHub API throttle metrics exposed in Prometheus (`secureflow_github_throttle_primary_total` and `secureflow_github_throttle_secondary_total`).
+  - Sanitized logged limit requests by redacting tokens, authorization headers, and excluding payloads.
+
+### Patch Changes
+
+- 21a4dd6: ci(security): harden SecureFlow's GitHub Actions workflows with SHA pinning, least privilege, actionlint, and zizmor (#2017)
+
+  - Pinned every third-party GitHub action to immutable 40-character commit SHAs with semantic version comments across all 13 workflows.
+  - Enforced top-level `permissions: contents: read` across all workflow files and restricted write permissions strictly to the jobs that require them.
+  - Added `actionlint` and `zizmor` lint jobs to the Core CI pipeline to enforce workflow correctness and security best practices on pull requests and pushes.
+  - Fixed CodeQL initialization inputs and sanitized script inputs to prevent template injection vulnerabilities.
+  - Added `persist-credentials: false` to checkouts to safeguard GitHub Actions tokens.
+
+- 61fcf12: docs: add architecture guide and component data flow (#2046)
+
+  - Comprehensive architectural specification explaining how the CLI, GitHub Action, Dashboard, and AI layer connect.
+  - End-to-end data flow Mermaid diagrams illustrating the full pipeline from code push to dashboard display.
+  - Failure handling topology, dead-letter queues (DLQ), and circuit breaker documentation.
+  - Contributor extension guide with step-by-step instructions for adding rules, AI providers, and dashboard pages.
+  - Updated README.md with cross-links to the Architecture & Contributor Guide.
+
+- c26b638: Report safe stderr diagnostics when threat-intelligence cache or local CISA
+  catalog deserialization fails, distinguish ordinary absence from unreadable or
+  invalid files, and document offline recovery without changing valid fallback
+  policies.
+- c838faf: chore(helm): [NSoC_2026] validate networkpolicy and egress templates against retention cronjob and worker pods (#1954)
+
+## 3.13.0
+
+### Minor Changes
+
+- b644f7d: feat(cli): add scan progress indicator, --quiet, and --verbose flags
+
+  - Display real-time progress indicator on stderr during file scanning when attached to an interactive terminal, automatically disabled when output is piped or redirected.
+  - Add `--quiet` (`-q`) flag to suppress progress, spinners, and informational logs, outputting only scan summaries and errors.
+  - Add `--verbose` flag to display per-file execution timing and skipped file details.
+  - Disallow combining `--quiet` and `--verbose` with a clear usage error.
+
+- c56d35f: feat(scanner): second verification pass for CRITICAL findings before a PR is blocked (#2007)
+- 8bc8978: Attach standard CWE identifiers (e.g. CWE-798, CWE-89) to findings, include them as SARIF rule tags, add them to compliance exports, and display them as clickable MITRE badges in the findings dashboard (#2008).
+- 88dc2c2: feat(rules): flag risky newly added dependencies in package manifests (typosquatting, install scripts) (#2003)
+- 5ff41e5: feat(scanner): configurable surrounding context lines for diff hunks (#2006)
+- de154ce: feat(rules): deterministic infrastructure-as-code checks for Dockerfile, Kubernetes and Terraform changes (#2004)
+- d8aa1d8: feat(config): installation-level default settings that repositories inherit and can override (#2010)
+- e23fe41: feat(notifications): in-app notification center with @mentions in finding notes and assignment alerts (#1979)
+- bf3e17d: feat(queue): per-installation concurrency limits and round-robin fair scheduling (#1980)
+- d92cb5d: feat(github): add hidden HTML marker, commit SHA, and scan time to sticky PR comments
+- 678e959: feat(scanner): configurable scan time budget and partial results (#1981)
+- 9775e5e: feat(scanner): built-in default ignore patterns for lockfiles, minified bundles, vendored code and snapshots (#1983)
+- 54f33ac: Add nightly scanner LLM stability evaluation check that re-scans golden fixtures across iterations, reports per-sample stability percentages, highlights runs below threshold, and publishes results to GitHub Actions job summaries (#2009).
+- cd99460: feat(scans): scheduled baseline scan of the default branch (#2011)
+
+  - Added opt-in scheduled baseline scanning for default branches in repositories.
+  - Implemented baseline file limit bounds (1-200, default 50) and frequency scheduling (daily, weekly, monthly).
+  - Distributed baseline scan jobs using fair queue scheduling across installations with concurrency limits.
+  - Tagged baseline findings with `BASELINE` and stored them under dedicated baseline container (`prNumber: 0`), preventing them from blocking PR checks.
+  - Added Baseline Findings dashboard tab and filterable queries in findings management.
+  - Added scheduled baseline settings section and manual "Run Baseline Scan Now" action in settings dashboard.
+
+- dd4da91: feat(config): skip draft pull requests and selected authors (bots) through .secureflow.json (#1982)
+- ac0100a: feat(pr): post remediation as GitHub suggested-change blocks when the fix is a small safe edit (#2005)
+- f4a6d7f: feat(ai): verify generated patches apply cleanly before showing them (#1977)
+- f31e556: feat(rules): deterministic security checks for changed GitHub Actions workflows (#2002)
+
+### Patch Changes
+
+- 9c86afd: feat(pr): minimize outdated comments and delete-old-and-create sticky report on pushes (#2012)
+
+  - Added `replaceSecureFlowComment` and `deleteCommentSafely` to delete old SecureFlow comments before posting a clean new report comment.
+  - Added `minimizeOutdatedComment` using GitHub GraphQL `minimizeComment` mutation to mark stale comments as OUTDATED.
+  - Added `findAllSecureFlowComments` to reliably discover all historical comments across pagination.
+  - Added support for `replaceOldComments` option in `upsertSecureFlowComment`.
+  - Handled graceful fallback when old comments were deleted or when deletion API permissions are restricted.
+
+- e20ffff: verify(docker): [NSoC_2026] verify Dockerfile and heist prompt-guard suites without regression (#1794)
+
+## 3.12.0
+
+### Minor Changes
+
+- 0fba786: Show CODEOWNERS attribution for active pull request findings using the base revision.
+- 493232f: ci(release): sign container images with cosign and attach SBOM and provenance attestations (#1926)
+- e52c1f7: feat(findings): create a GitHub issue from a finding with a redacted, pre-filled description (#1987)
+- ce86d37: feat(triage): assign findings to a team member and add an 'Assigned to me' filter (#1921)
+- 6dceb03: feat(triage): add reviewer notes (comment thread) to a finding (#1920)
+- 6d57ec2: feat(triage): [NSoC_2026] finding triage dismissal, stable fingerprinting, and scan-time suppression (#1702)
+
+  - Validate triage dismissal action with required category (`FALSE_POSITIVE`, `ACCEPTED_RISK`, `WONT_FIX`) and min 5 characters reason.
+  - Enforce deterministic content fingerprinting ignoring line numbers to maintain suppression across line shifts.
+  - Suppress dismissed findings in scan pipeline, preventing PR check blocks and excluding them from risk scores.
+  - Display suppressed findings count in PR comment report.
+  - Include end-to-end integration test coverage for all #1702 acceptance criteria.
+
+- 62aaa6d: feat(scanner): handle zero analyzed files in PR scan with neutral check run and descriptive message
+- 0180f10: feat(auth): add read-only Viewer and Triager roles for installation members (#1922)
+- 6b077c4: feat(scans): compare two scans of the same pull request to show what is new, fixed or unchanged (#1923)
+- c647920: feat(scanner): per-finding confidence score and configurable threshold for PR comment (#1924)
+- ae063ad: feat(scanner): detect the language and framework of each changed file and pass it as scan context (#1925)
+- fa10c3d: feat(config): [NSoC_2026] add schema.json for .secureflow.json validation (#1917)
+- e850dc3: feat(webhook): add a webhook delivery diagnostics page showing recent events and why they were ignored (#1928)
+
+### Patch Changes
+
+- 5c2896a: Add devcontainer and Codespaces configuration with Docker Compose for one-click contributor setup (#1985).
+- 94c2041: Add Helm values.schema.json validation and negative CI tests to reject invalid chart configurations (#1984).
+- 2a63bea: Separate expired suppression rules from active rules in the admin console and require explicit renewal with a future expiry before editing them.
+- 7f034f5: test(helm): add helm-unittest and chart-testing checks for the Helm chart in CI (#1927)
+
+## 3.11.0
+
+### Minor Changes
+
+- fd11fd4: feat(cli): add LRU eviction, TTL expiry, max storage limits, and cache-prune/cache-stats commands to scan cache (#1934)
+- 94726bd: feat(cli): add recursive directory scanning with workspace path sandboxing and non-git fallback (#1933)
+- 491ecb1: feat(cli): add --fail-on severity thresholds, exit codes (0, 1, 2), and one-line severity count summary
+- 1e57feb: feat(ui): make the dashboard tables usable on phones (card layout, sticky headers, horizontal scroll hints) (#1929)
+- c9fb1c1: feat(policies): backtest a changed policy against recent scans to preview its impact (#1892)
+- c8a0be0: Add Export CSV and Export JSON buttons to findings dashboard with active filters, sorting, and full streaming support
+- a7ae4d0: feat(cli): support gitignore-style .secureflowignore with default ignores, negation, and verbose skipped file counts (#1827)
+
+### Patch Changes
+
+- d03d4bb: fix(armor): isolate deterministic secret fingerprints by repository and normalize whitespace line-drift (#1935)
+
 ## 3.10.0
 
 ### Minor Changes

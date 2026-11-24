@@ -35,7 +35,8 @@ Common labels
 */}}
 {{- define "secureflow.labels" -}}
 helm.sh/chart: {{ include "secureflow.chart" . }}
-{{ include "secureflow.selectorLabels" . }}
+app.kubernetes.io/name: {{ include "secureflow.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -58,6 +59,15 @@ Selector labels for worker
 app.kubernetes.io/name: {{ include "secureflow.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: worker
+{{- end }}
+
+{{/*
+Selector labels for retention cronjob
+*/}}
+{{- define "secureflow.retentionSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "secureflow.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: retention
 {{- end }}
 
 {{/*
@@ -135,6 +145,9 @@ Resolve Application Image
 {{- $registry := default .Values.global.imageRegistry "" -}}
 {{- $repository := .Values.app.image.repository -}}
 {{- $tag := default .Chart.AppVersion .Values.app.image.tag -}}
+{{- if not $tag -}}
+{{- fail "ERROR: Application image tag is required. Set app.image.tag or ensure Chart.appVersion is defined." -}}
+{{- end -}}
 {{- if $registry -}}
 {{- printf "%s/%s:%s" $registry $repository $tag -}}
 {{- else -}}
@@ -149,6 +162,9 @@ Resolve Worker Image
 {{- $registry := default .Values.global.imageRegistry "" -}}
 {{- $repository := default .Values.app.image.repository .Values.worker.image.repository -}}
 {{- $tag := default (default .Chart.AppVersion .Values.app.image.tag) .Values.worker.image.tag -}}
+{{- if not $tag -}}
+{{- fail "ERROR: Worker image tag is required. Set worker.image.tag, app.image.tag, or ensure Chart.appVersion is defined." -}}
+{{- end -}}
 {{- if $registry -}}
 {{- printf "%s/%s:%s" $registry $repository $tag -}}
 {{- else -}}

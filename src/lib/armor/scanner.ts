@@ -9,30 +9,56 @@ import {
 } from "./fingerprint";
 import { normalizeFindingTypeLabel } from "@/lib/finding-taxonomy";
 import { normalizeSeverity, type Severity } from "@/lib/severity";
-import { parseUnifiedPatch, renderNumberedLines } from "./diff";
-import { shouldIgnorePath } from "./ignore-rules";
-import { maskIngressFileContent, maskSecrets } from "./secret-masking";
-import { detectSecretsInFiles, mergeFindings } from "./secret-detector";
+import {
+  parseUnifiedPatch,
+  renderNumberedLines,
+  renderDiffWithContext,
+  changedLineNumbers,
+  type RenderDiffOptions,
+} from "./diff";
+import { maskIngressFileContent } from "./secret-masking";
 import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
+import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
+import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
+import {
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
+  resolveContextLines,
+  DEFAULT_CONTEXT_LINES,
+  MAX_CONTEXT_LINES,
+} from "@/lib/scanner/gate-config";
 
 export type ScanFinding = {
   type: string;
-  /** Canonical severity — see `@/lib/severity` for parsing and ordering. */
   severity: Severity;
   description: string;
   fileLocation: string;
   codeSnippet: string;
+  remediation?: string;
   lineStart?: number;
   lineEnd?: number;
   dynamicFingerprint?: string;
   signatureVersion?: string;
   matchedSignatures?: string[];
   isZeroDay?: boolean;
+  language?: string;
+  framework?: string;
+  confidence?: ConfidenceLevel;
+  confidenceReason?: string;
+  remediation?: string;
+  cwe?: string;
+  verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
+  verificationReason?: string;
+  verificationRawResponse?: string;
 };
 
 export interface FileChange {
   filename: string;
   patch: string;
+  content?: string;
 }
 
 export class ScannerTimeoutError extends Error {
@@ -42,18 +68,6 @@ export class ScannerTimeoutError extends Error {
   }
 }
 
-/**
- * Redact known secret formats and high-entropy strings.
- *
- * The rules moved to `./secret-masking` (#591). They were a wall of sequential
- * `.replace()` calls whose ordering was accidental — the `sk-proj-` rule sat
- * below the broader `sk-` rule and could never fire — and they were missing the
- * shapes that matter most: PEM private keys, `DB_PASSWORD = "…"` assignments,
- * non-URI connection strings, and the high-entropy check this comment used to
- * promise without implementing.
- *
- * Re-exported here so the ~10 existing importers and their tests are unchanged.
- */
 export { maskSecrets, maskFindingText } from "./secret-masking";
 import { maskFindingText } from "./secret-masking";
 export {
@@ -71,34 +85,13 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || "dummy-key-for-build",
 });
 
-/**
- * Model used when `AI_MODEL` is not set, the same default as the other Groq callers.
- *
- * `openai/gpt-oss-20b` is the value `.env.example` sets and Groq's replacement
- * for `llama-3.1-8b-instant`, which was the default here until Groq shut it down
- * on 2026-08-16 (https://console.groq.com/docs/deprecations).
- */
 export const DEFAULT_SCAN_MODEL = "openai/gpt-oss-20b";
-
-/**
- * Fallback Groq models used when the primary model encounters rate limits (429) or timeouts (#1182).
- */
 export const SCAN_FALLBACK_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"] as const;
 
-/**
- * Groq model id for the PR scan.
- *
- * `AI_MODEL` is optional (`src/lib/env.ts`, README), so it cannot be asserted non-null:
- * an unset value sent a request with no `model`, and Groq rejects that, failing every scan.
- * Read per call rather than at import so a changed environment is picked up.
- */
 export function resolveScanModel(configured: string | undefined = process.env.AI_MODEL): string {
   return configured?.trim() || DEFAULT_SCAN_MODEL;
 }
 
-/**
- * Return ordered chain of scan models for resilient failover (#1182).
- */
 export function getScanModelChain(configured?: string): string[] {
   const primary = resolveScanModel(configured);
   const fallbacks = SCAN_FALLBACK_MODELS.filter((m) => m !== primary);
@@ -108,9 +101,6 @@ export function getScanModelChain(configured?: string): string[] {
 export const DEFAULT_DIFF_FILE_MAX_CHARS = 50_000;
 export const DEFAULT_DIFF_CHUNK_MAX_CHARS = 32_000;
 
-// Strict parsing, matching parseMaxWebhookBytes: parseInt accepts prefixes,
-// so DIFF_FILE_MAX_CHARS=50000oops or =50e3 would silently parse as 50000/50
-// and quietly change the scan budget.
 export function resolveDiffFileMaxChars(configured?: string): number {
   const val = (configured ?? process.env.DIFF_FILE_MAX_CHARS)?.trim();
   const n = val ? Number(val) : NaN;
@@ -128,37 +118,23 @@ export interface SkippedFile {
   reason: "oversized" | "deadline" | "binary";
 }
 
-// --- Timeout / deadline guards -------------------------------------------------------------
-// A single malformed or maliciously-crafted diff (e.g. one engineered to make the LLM hang,
-// or a PR large enough to spawn many batches) must never be able to hang the scan indefinitely
-// or exhaust memory. These bound worst-case behavior explicitly rather than relying on the
-// HTTP client's own defaults (Groq's SDK default is 1 minute per request, with no cap at all
-// on the number of batches a large PR can produce).
-const SCAN_REQUEST_TIMEOUT_MS = 120_000; // hard cap per individual LLM call
-const MAX_TOTAL_SCAN_MS = 300_000; // hard cap across the whole scanPullRequest() call
-const MAX_RETRY_WAIT_MS = 15_000; // cap on any single rate-limit backoff wait
-
-// --- Recursive sanitization guards ---------------------------------------------------------
-// A single pass of `<`/`>` escaping can be defeated by nesting or stacking encodings (e.g.
-// HTML-entity-encoded entities, unicode escape sequences, zero-width characters used to split
-// up flagged keywords). sanitizeRecursively() normalizes until stable or these caps are hit,
-// so the normalization loop itself can't become a new hang/memory vector.
+const MAX_RETRY_WAIT_MS = 15_000;
 const MAX_SANITIZE_ITERATIONS = 5;
 const MAX_SANITIZED_LENGTH = 100_000;
 
-// The ignore rules themselves moved to `./ignore-rules` (#704). They were three
-// `.includes()` checks against the whole path, which is substring matching with
-// no directory or filename boundary: `'build/'` also matched `prebuild/`,
-// `'dist/'` also matched `redist/`, and `'package.json'` also matched
-// `tools/package.json.generator.ts`. Every one of those files was dropped from
-// the scan with no warning, and the pull request still got a clean report.
-//
-// Re-exported so the existing importers of the constants are unchanged.
 import {
   IGNORED_EXTENSIONS,
   IGNORED_DIRECTORIES,
   IGNORED_BASENAMES,
+  DEFAULT_LOCKFILES,
+  DEFAULT_IGNORE_PATTERNS,
+  DEFAULT_IGNORE_DIRECTORIES,
+  isDefaultIgnored,
+  isForceIncluded,
+  isSkippedByDefault,
+  resolveDefaultSkippedFiles,
   ignoreReasonFor,
+  shouldIgnorePath,
   parseExpiryDateUtc,
   parseIgnoreRuleLine,
   parseSecureFlowIgnore,
@@ -166,13 +142,22 @@ import {
   type ExpiredIgnoreRule,
   type SecureFlowIgnoreConfig,
   type ParseSecureFlowIgnoreOptions,
+  type IgnoreCheckOptions,
 } from "./ignore-rules";
 
 export {
   IGNORED_EXTENSIONS,
   IGNORED_DIRECTORIES,
   IGNORED_BASENAMES,
+  DEFAULT_LOCKFILES,
+  DEFAULT_IGNORE_PATTERNS,
+  DEFAULT_IGNORE_DIRECTORIES,
+  isDefaultIgnored,
+  isForceIncluded,
+  isSkippedByDefault,
+  resolveDefaultSkippedFiles,
   ignoreReasonFor,
+  shouldIgnorePath,
   parseExpiryDateUtc,
   parseIgnoreRuleLine,
   parseSecureFlowIgnore,
@@ -180,112 +165,18 @@ export {
   type ExpiredIgnoreRule,
   type SecureFlowIgnoreConfig,
   type ParseSecureFlowIgnoreOptions,
+  type IgnoreCheckOptions,
 };
 
-/**
- * Translate one glob into a regular-expression source, reading it left to right.
- *
- * This was a chain of `replace` calls over the already-escaped string, and two
- * of the steps misread text an earlier step had produced:
- *
- *  - The single-`*` step skipped any `*` next to a `.`, to leave alone the `.*`
- *    that `**` had become. An escaped literal dot looks the same, so the `*` in
- *    `config.*` (escaped to `config\.*`) survived as a regex quantifier — "zero
- *    or more dots" — and `config.*` never matched `config.json`, nor
- *    `*.test.*` `src/a.test.ts`.
- *  - The trailing-`/**` step was written `/\*\**`, whose second `*` is
- *    optional, so it also rewrote a plain `/*`: `src/*.ts` matched
- *    `src/a/b.ts` and even `src.ts`.
- *
- * A single pass over the glob leaves nothing for a later step to misread.
- */
-export function globToRegexSource(glob: string): string {
-  let out = "";
+import { globToRegexSource, compileIgnorePatterns } from "./ignore-rules";
+export { globToRegexSource, compileIgnorePatterns } from "./ignore-rules";
 
-  for (let i = 0; i < glob.length;) {
-    if (glob.startsWith("/**", i) && i + 3 === glob.length) {
-      out += "(?:/.*)?"; // trailing `/**`: the directory itself or anything below it
-      i += 3;
-    } else if (glob.startsWith("**/", i)) {
-      out += "(?:.*/)?"; // any number of directories, including none
-      i += 3;
-    } else if (glob.startsWith("**", i)) {
-      // `**` is only recursive as a whole path segment; `a**b` is one segment.
-      const segmentStart = i === 0 || glob[i - 1] === "/";
-      const segmentEnd = i + 2 === glob.length || glob[i + 2] === "/";
-      out += segmentStart && segmentEnd ? ".*" : "[^/]*";
-      i += 2;
-    } else if (glob[i] === "*") {
-      out += "[^/]*";
-      i += 1;
-    } else if (glob[i] === "?") {
-      out += "[^/]";
-      i += 1;
-    } else {
-      out += glob[i]!.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-      i += 1;
-    }
-  }
-
-  return out;
-}
-
-export function compileIgnorePatterns(patterns: string[]): RegExp[] {
-  return patterns
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0 && !p.startsWith("#"))
-    .map((p) => {
-      const pattern = p.replace(/\\/g, "/");
-      const hasLeadingSlash = pattern.startsWith("/");
-      const cleanPattern = hasLeadingSlash ? pattern.slice(1) : pattern;
-      const patternWithoutTrailingSlash = cleanPattern.endsWith("/")
-        ? cleanPattern.slice(0, -1)
-        : cleanPattern;
-      const isRootRelative = hasLeadingSlash || patternWithoutTrailingSlash.includes("/");
-
-      let glob = cleanPattern;
-      if (glob.endsWith("/")) {
-        glob += "**";
-      }
-
-      const regexStr = globToRegexSource(glob);
-
-      if (isRootRelative) {
-        return new RegExp(`^${regexStr}$`, "i");
-      } else {
-        return new RegExp(`(^|/)${regexStr}$`, "i");
-      }
-    });
-}
-
-/**
- * Whether the scanner should skip `filename`.
- *
- * Kept here with its original name and signature — roughly ten call sites and
- * their tests import it from this module — but the matching now lives in
- * `./ignore-rules`, where directory rules are matched on path segments and
- * configuration files on the basename. See that module for why the previous
- * substring matching was a security problem rather than a tidiness one.
- */
 export function shouldIgnore(filename: string, customIgnores: RegExp[] = []): boolean {
   return shouldIgnorePath(filename, customIgnores);
 }
 
-/**
- * Highest code point Unicode defines. `String.fromCodePoint` throws a
- * RangeError above this, which would escape `sanitizeRecursively()`.
- */
 const MAX_CODE_POINT = 0x10ffff;
 
-/**
- * Turn a numeric character reference into its character, or `null` when the
- * reference is malformed and should be left alone.
- *
- * `String.fromCharCode(parseInt(...))` was wrong twice over: it truncates
- * astral code points (`&#x1F600;` became U+F600, a private-use glyph), and an
- * unparseable reference such as `&#xZZ;` produced `fromCharCode(NaN)` \u2014 a NUL
- * byte injected straight into the text handed to the model.
- */
 function decodeNumericReference(digits: string, radix: 10 | 16): string | null {
   if (!digits) return null;
 
@@ -298,7 +189,6 @@ function decodeNumericReference(digits: string, radix: 10 | 16): string | null {
     return null;
   }
 
-  // Lone surrogates are not valid scalar values and corrupt downstream encoding.
   if (codePoint >= 0xd800 && codePoint <= 0xdfff) return null;
 
   return String.fromCodePoint(codePoint);
@@ -313,7 +203,6 @@ function decode(str: string): string {
     if (entity === "&quot;") return '"';
     if (entity === "&apos;") return "'";
 
-    // `&#x41;` and `&#X41;` are both valid hexadecimal references.
     const hexMatch = entity.match(/^&#[xX](.+);$/);
     if (hexMatch) {
       return decodeNumericReference(hexMatch[1], 16) ?? entity;
@@ -332,13 +221,7 @@ function decodeOneLayer(input: string): string {
   let out = decode(input);
 
   out = out.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, "");
-
-  // Strip C0/C1 control characters (keeping tab, newline and carriage return).
-  // A NUL or other control byte carries no meaning in source text but can be
-  // used to split a flagged keyword apart, which is exactly what this
-  // normalisation loop exists to prevent.
   out = out.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
-
   out = out.normalize("NFKC");
 
   return out;
@@ -364,23 +247,54 @@ export function sanitizeRecursively(input: string): string {
   return current;
 }
 
+export function extractAddedLines(patch: string, options?: RenderDiffOptions): string {
+  if (!options) {
+    return renderNumberedLines(parseUnifiedPatch(patch));
+  }
+  return renderDiffWithContext(patch, options);
+}
+
 /**
- * Turn a unified diff patch into the numbered snippet handed to the model.
- *
- * The parsing itself now lives in `./diff`, which the webhook worker reads too.
- * It used to live here, and the worker carried its own second implementation
- * that had never received any of the fixes this one accumulated — so the line
- * numbers the model was given and the line numbers a review comment could be
- * anchored on drifted apart inside the same hunk (#589). One parser, one
- * numbering, both callers.
- *
- * Emits added and context lines with their line number in the *new* file.
- * Deleted lines are skipped: they no longer exist in the merged result, and the
- * scan prompt instructs the model to flag anything it sees, so surfacing them
- * would produce findings against code the PR removes.
+ * Ensures findings are only reported on lines that were actually changed or added (#2006).
+ * Unchanged context lines are never allowed to have reported findings.
  */
-export function extractAddedLines(patch: string): string {
-  return renderNumberedLines(parseUnifiedPatch(patch));
+export function filterFindingsToChangedLines(
+  findings: ScanFinding[],
+  files: FileChange[],
+): ScanFinding[] {
+  const changedLinesByFile = new Map<string, Set<number>>();
+  for (const file of files) {
+    if (file.patch) {
+      changedLinesByFile.set(file.filename, changedLineNumbers(parseUnifiedPatch(file.patch)));
+    }
+  }
+
+  return findings.filter((finding) => {
+    const changed = changedLinesByFile.get(finding.fileLocation);
+    if (!changed || changed.size === 0) {
+      return true;
+    }
+
+    if (typeof finding.lineStart === "number") {
+      if (changed.has(finding.lineStart)) {
+        return true;
+      }
+      if (typeof finding.lineEnd === "number" && finding.lineEnd >= finding.lineStart) {
+        for (let l = finding.lineStart; l <= finding.lineEnd; l++) {
+          if (changed.has(l)) {
+            finding.lineStart = l;
+            return true;
+          }
+        }
+      }
+      console.log(
+        `🛡️ Filtered finding on unchanged context line ${finding.lineStart} in ${finding.fileLocation}: only changed lines are reported (#2006).`,
+      );
+      return false;
+    }
+
+    return true;
+  });
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -419,9 +333,7 @@ export function filterFalsePositives(
     const lowerSnippet = (finding.codeSnippet || "").toLowerCase();
     const lowerFile = finding.fileLocation.toLowerCase();
 
-    // 1. Filter out mock secrets in environment templates
     if (lowerFile.includes(".env.example") || lowerFile.includes(".env.sample")) {
-      // Drop if it contains a known placeholder word or structural brackets
       if (combinedPlaceholders.some((safeWord) => lowerSnippet.includes(safeWord))) {
         console.log(
           `🧹 Filtered false positive in ${finding.fileLocation}: Contained mock placeholder syntax.`,
@@ -429,19 +341,14 @@ export function filterFalsePositives(
         return false;
       }
 
-      // Drop if the value is empty, e.g., API_KEY= or API_KEY="" or API_KEY=''
       if (/=\s*(""|''|)$/.test(lowerSnippet)) {
         console.log(`🧹 Filtered false positive in ${finding.fileLocation}: Value is empty.`);
         return false;
       }
     }
 
-    // 2. Filter out mock credentials in seed files
     if (lowerFile.includes("seed.ts")) {
       if (combinedPlaceholders.some((safeWord) => lowerSnippet.includes(safeWord))) return false;
-      // A bare console.log/console.error in a seed file is noise, but
-      // `console.log(process.env...)` is the exact contextual leak the core
-      // rule says we MUST flag — never drop those, even in seed files.
       if (
         (lowerSnippet.includes("console.error") || lowerSnippet.includes("console.log")) &&
         !lowerSnippet.includes("process.env")
@@ -450,10 +357,6 @@ export function filterFalsePositives(
       }
     }
 
-    // 3. Filter out false logic flaws in Prisma schemas.
-    // Match Prisma field types (`id Int`, `name String`) on word boundaries —
-    // a bare `includes('int'/'string')` also swallowed real findings whose
-    // snippet merely contained print, point, constraint, fingerprint, mint, ...
     if (lowerFile.includes("schema.prisma")) {
       if (/\bint\b/.test(lowerSnippet) || /\bstring\b/.test(lowerSnippet)) return false;
     }
@@ -468,20 +371,6 @@ export interface ScannerPolicy {
 }
 
 export class ArmorIQScanner {
-  /**
-   * Merges the expanded multi-language registry into the shared engine (#751).
-   *
-   * At construction rather than lazily before each scan, because the merge sets
-   * the engine's active version: a lazy warm could fire *after* a caller had
-   * rotated the database and would quietly put the version back. Warming once,
-   * up front, means any later `rotateSignatureDatabase` or
-   * `updateSignatureDatabase` is the last word, which is what a caller reaching
-   * for those expects.
-   *
-   * `ensureExpandedSignaturesLoaded` catches its own validation failures and
-   * leaves the engine on `DEFAULT_PAYLOAD_SIGNATURES`, so a malformed addition
-   * cannot take down the scan path from a constructor.
-   */
   constructor() {
     const report = ensureExpandedSignaturesLoaded();
 
@@ -492,47 +381,50 @@ export class ArmorIQScanner {
     }
   }
 
-  /**
-   * Rotate signature database dynamically to adapt to zero-day payload structures.
-   *
-   * Note that this *replaces* the database rather than adding to it, so it drops
-   * both `DEFAULT_PAYLOAD_SIGNATURES` and the expanded registry. Use
-   * `updateSignatureDatabase` to add without discarding.
-   */
   rotateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
     dynamicFingerprintEngine.rotateSignatures(signatures, version);
   }
 
-  /**
-   * Dynamically update active signature database with new payload patterns.
-   */
   updateSignatureDatabase(signatures: PayloadSignature[], version?: string): void {
     dynamicFingerprintEngine.updateSignatureDatabase(signatures, version);
   }
 
-  /**
-   * Get active signature database version.
-   */
   getSignatureVersion(): string {
     return dynamicFingerprintEngine.getActiveVersion();
   }
 
   public lastSuppressionResult: InlineSuppressionResult | null = null;
   public lastSkippedFiles: SkippedFile[] = [];
+  public lastAnalyzedFiles: string[] = [];
+  public lastDefaultSkippedCount: number = 0;
+  public lastDefaultSkippedFiles: string[] = [];
 
   async scanPullRequest(
     files: FileChange[],
     activePolicies: ScannerPolicy[] = [],
     customIgnores: string[] = [],
     customPlaceholders: string[] = [],
+    repositoryId: string = "default-repo",
+    ignoreOptions?: IgnoreCheckOptions,
+    timeoutOptions?: {
+      timeoutBudgetMs?: number;
+      requestTimeoutMs?: number;
+      contextLines?: number;
+    },
   ): Promise<ScanFinding[]> {
     const scanStartedAt = Date.now();
-    const deadlineExceeded = () => Date.now() - scanStartedAt > MAX_TOTAL_SCAN_MS;
+    const effectiveTotalScanMs = timeoutOptions?.timeoutBudgetMs ?? resolveScanTimeoutBudgetMs();
+    const effectiveRequestTimeoutMs =
+      timeoutOptions?.requestTimeoutMs ?? resolveScanRequestTimeoutMs();
+    const effectiveContextLines = resolveContextLines(timeoutOptions?.contextLines);
+    const deadlineExceeded = () => Date.now() - scanStartedAt > effectiveTotalScanMs;
 
     let currentBatch = "";
     let currentBatchFiles: string[] = [];
     const allFindings: ScanFinding[] = [];
     const skippedFiles: SkippedFile[] = [];
+    const analyzedFiles: string[] = [];
+    const detectedFileMap = new Map<string, { language: string; framework?: string }>();
     const ABSOLUTE_MAX_FILE_SIZE = resolveDiffFileMaxChars();
     const MAX_COMBINED_LENGTH = resolveDiffChunkMaxChars();
 
@@ -548,7 +440,7 @@ export class ArmorIQScanner {
           combinedIgnores = parsed.ignoredPaths;
           combinedPlaceholders = parsed.placeholders;
         }
-      } catch (e) {
+      } catch {
         // Ignore fs or path resolution issues
       }
     }
@@ -570,33 +462,71 @@ export class ArmorIQScanner {
     const deterministicFindings = runDeterministicPrecheck(files, {
       customPlaceholders: combinedPlaceholders,
       customIgnores: combinedIgnores,
+      repositoryId,
     });
+
+    // Deterministic dependency security checks for manifests (#2003).
+    const dependencyFindings = runDependencySecurityRules(files, { repositoryId });
+    // Deterministic workflow security rules for files under .github/workflows/ (#2002).
+    const workflowFindings = runWorkflowSecurityRules(files, { repositoryId });
+    // Deterministic infrastructure-as-code rules for Dockerfile, Kubernetes, Terraform (#2004).
+    const iacFindings = runIacSecurityRules(files, { repositoryId });
+    const allDeterministicFindings = [
+      ...deterministicFindings,
+      ...dependencyFindings,
+      ...workflowFindings,
+      ...iacFindings,
+    ];
+
+    const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
+
+    const { skippedByDefault, skippedCount, exemptSecretFiles } = resolveDefaultSkippedFiles(
+      files,
+      combinedIgnores,
+      {
+        includeDefaults: ignoreOptions?.includeDefaults,
+        forceInclude: Array.isArray(ignoreOptions?.forceInclude)
+          ? (ignoreOptions?.forceInclude as string[])
+          : undefined,
+        hasDeterministicSecrets: (file) => deterministicFilesWithSecrets.has(file.filename),
+      },
+    );
+
+    this.lastDefaultSkippedCount = skippedCount;
+    this.lastDefaultSkippedFiles = Array.from(skippedByDefault);
 
     for (const file of files) {
       if (deadlineExceeded()) {
         deadlineHit = true;
         console.warn(
-          `⏱️ Scan deadline (${MAX_TOTAL_SCAN_MS / 1000}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
+          `⏱️ Scan deadline (${Math.round(effectiveTotalScanMs / 1000)}s) exceeded — skipping remaining files starting at ${file.filename}. Returning partial findings.`,
         );
         skippedFiles.push({ filename: file.filename, reason: "deadline" });
         break;
       }
 
-      // The reason is logged alongside the filename. A file that is skipped is
-      // a file the scan never read, and the pull request still gets a clean
-      // report — so when a skip is wrong, the log line naming the rule that
-      // fired is the only thing that makes it findable.
-      const ignoreReason = ignoreReasonFor(file.filename, compiledCustomIgnores);
-      if (ignoreReason) {
-        console.log(`🛡️ Skipping ignored file (${ignoreReason}): ${file.filename}`);
+      if (skippedByDefault.has(file.filename)) {
+        console.log(`🛡️ Skipping default-ignored file: ${file.filename}`);
         continue;
+      }
+
+      if (!exemptSecretFiles.has(file.filename)) {
+        const ignoreReason = ignoreReasonFor(file.filename, compiledCustomIgnores, ignoreOptions);
+        if (ignoreReason) {
+          console.log(`🛡️ Skipping ignored file (${ignoreReason}): ${file.filename}`);
+          continue;
+        }
       }
 
       if (!file.patch || file.patch.trim() === "") {
         continue;
       }
 
-      const addedLines = extractAddedLines(file.patch);
+      const addedLines = renderDiffWithContext(file.patch, {
+        contextLines: effectiveContextLines,
+        fullContent: file.content,
+        markContext: true,
+      });
 
       if (!addedLines || addedLines.trim().length === 0) {
         continue;
@@ -640,10 +570,16 @@ export class ArmorIQScanner {
           "missing binary range checks (signal * (signal - 1) === 0 for binary signals), " +
           "and soundness bugs where a malicious prover could satisfy constraints with an invalid witness.";
       }
+
+      analyzedFiles.push(file.filename);
       const sanitizedLines = sanitizeRecursively(addedLines);
       const maskedLines = maskIngressFileContent(sanitizedLines);
+      const detectedContext = detectFileLanguage(file.filename, file.patch);
+      detectedFileMap.set(file.filename, detectedContext);
+      const contextHeader = `[File Context: Language=${detectedContext.language}${detectedContext.framework ? `, Framework=${detectedContext.framework}` : ""}]`;
       const wrapperOverhead =
-        `<file name="${file.filename}" context_warning="${fileContext}">\n\n</file>\n\n`.length;
+        `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>\n${contextHeader}\n\n</file>\n\n`
+          .length;
       const maxContentSize = MAX_COMBINED_LENGTH - wrapperOverhead;
 
       let fileContent = maskedLines;
@@ -655,7 +591,8 @@ export class ArmorIQScanner {
         fileContent = fileContent.substring(0, truncateIndex) + truncationMsg;
       }
 
-      const fileContentBlock = `<file name="${file.filename}" context_warning="${fileContext}">
+      const fileContentBlock = `<file name="${file.filename}" language="${detectedContext.language}"${detectedContext.framework ? ` framework="${detectedContext.framework}"` : ""}${fileContext ? ` context_warning="${fileContext}"` : ""}>
+${contextHeader}
 ${fileContent}
 </file>
 
@@ -698,6 +635,11 @@ The changes are organized under individual <file> tags.
 CRITICAL RULES SCOPED BY FILE TYPE:
 - For '.env.example' or '.env' files: ONLY flag a line if the right side of the equals sign contains a REAL, active credential (e.g., a long random alphanumeric string, a hash, or a valid token). DO NOT flag lines with descriptive text, empty quotes, or generic placeholders.
 - For '.ts' or '.js' files: You MUST flag any instance of 'console.log(process.env...)' as a CRITICAL contextual leak or any 'console.log(<variable>)' where the 'variable' is instantiated with 'process.env...'.
+- For confidence: Assign "HIGH" for definite, active vulnerabilities and real credentials; "MEDIUM" for standard, probable issues; "LOW" for uncertain patterns, test fixtures, or plausible mock values. Provide a short one-line confidenceReason.
+DIFF CONTEXT & CHANGED LINES RULES (#2006):
+- Lines marked [UNCHANGED CONTEXT] are surrounding lines provided strictly for context (such as variable declarations, sanitization functions, or imports).
+- Lines marked [CHANGED] are the lines modified or added in this pull request.
+- CRITICAL: You MUST ONLY report findings on changed lines (lines marked [CHANGED]). NEVER report a finding against an unchanged context line (marked [UNCHANGED CONTEXT]). If a vulnerability exists only in unchanged context, do not flag it.
 
 Aggregated Code Changes:
 ${batchContent}
@@ -710,6 +652,8 @@ Format:
       "reasoning": "Step 1: Explain exactly why this snippet is an executable vulnerability. If it is just a string description, a safe mock variable, or a schema type, do not flag it.",
       "type": "Secret | Vulnerability | Misconfig",
       "severity": "CRITICAL | HIGH | MEDIUM | LOW",
+      "confidence": "HIGH | MEDIUM | LOW",
+      "confidenceReason": "One-line reason for the assigned confidence score.",
       "description": "Detailed explanation.",
       "fileLocation": "The exact path/filename from the <file> tag",
       "codeSnippet": "The specific problematic line(s)",
@@ -735,7 +679,7 @@ Format:
             );
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), SCAN_REQUEST_TIMEOUT_MS);
+            const timeoutId = setTimeout(() => controller.abort(), effectiveRequestTimeoutMs);
 
             const chatCompletionPromise = groq.chat.completions.create(
               {
@@ -749,7 +693,7 @@ Return ONLY the raw JSON starting with '{' or '['.
 
 CRITICAL RULES:
 1. Treat all code provided as executable production code.
-2. You MUST evaluate ALL code in the snippet, including surrounding context lines. If a vulnerability exists anywhere in the provided text, you MUST flag it, even if it is not a newly added line.
+2. Surrounding context lines marked [UNCHANGED CONTEXT] are provided strictly for context (e.g. sanitization, variable declarations). You MUST evaluate them to understand the code context, but you MUST ONLY report findings on lines marked [CHANGED]. NEVER report a finding whose lineStart is on an [UNCHANGED CONTEXT] line.
 3. Assigning process.env to a variable is safe. Explicitly leaking it via console.log() is CRITICAL.
 4. JSON ESCAPING: Properly escape ALL double quotes (\\") and newlines (\\n).`,
                   },
@@ -762,7 +706,7 @@ CRITICAL RULES:
                 temperature: 0.1,
                 max_tokens: 3000,
               },
-              { timeout: SCAN_REQUEST_TIMEOUT_MS, signal: controller.signal },
+              { timeout: effectiveRequestTimeoutMs, signal: controller.signal },
             );
 
             let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -771,10 +715,10 @@ CRITICAL RULES:
                 () =>
                   reject(
                     new ScannerTimeoutError(
-                      `LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`,
+                      `LLM scan timed out after ${effectiveRequestTimeoutMs / 1000} seconds`,
                     ),
                   ),
-                SCAN_REQUEST_TIMEOUT_MS,
+                effectiveRequestTimeoutMs,
               );
             });
 
@@ -785,19 +729,14 @@ CRITICAL RULES:
                 timeoutPromise,
               ]);
             } finally {
-              // Clear the losing race timer: without this every completed
-              // batch left a 120s setTimeout pending in the event loop.
               if (raceTimeoutId !== undefined) clearTimeout(raceTimeoutId);
             }
 
             const responseText = chatCompletion.choices[0]?.message?.content || '{"findings": []}';
             const withoutThoughts = responseText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
-
-            // Match either an array '[' or an object '{'
             const jsonMatch = withoutThoughts.match(/[\{\[][\s\S]*[\}\]]/);
 
             if (!jsonMatch) {
-              // Throw an error so the retry logic catches it, instead of silently returning 0 findings
               throw new SyntaxError("LLM refused to scan or returned non-JSON text.");
             }
 
@@ -818,7 +757,6 @@ CRITICAL RULES:
             let rawFindings: unknown[] = [];
 
             if (Array.isArray(result)) {
-              // If the LLM returned a raw array: [ {...} ]
               rawFindings = result;
             } else if (
               result &&
@@ -826,10 +764,8 @@ CRITICAL RULES:
               "findings" in result &&
               Array.isArray((result as { findings: unknown[] }).findings)
             ) {
-              // If the LLM perfectly followed instructions: { "findings": [...] }
               rawFindings = (result as { findings: unknown[] }).findings;
             } else if (result && typeof result === "object") {
-              // If the LLM hallucinated keys, loop through the entire object and combine ALL arrays
               const obj = result as Record<string, unknown>;
               for (const key of Object.keys(obj)) {
                 const val = obj[key];
@@ -856,27 +792,31 @@ CRITICAL RULES:
               }
 
               const fileLoc = String(f.fileLocation || "Unknown file path");
-              // Normalised on write, the way severity already is. The column was
-              // taking the model's phrasing verbatim, so `"hardcoded_secret"` and
-              // `"Secrets"` were distinct values that no dashboard query matched
-              // (#590). The taxonomy still recognises every legacy spelling on
-              // read, so old rows keep counting.
               const findingType = normalizeFindingTypeLabel(f.type);
 
               const dynFp = computeDynamicFingerprint(
-                "default-repo",
+                repositoryId,
                 fileLoc,
                 findingType,
                 normalizedSnippet,
               );
 
+              const rawConfidence = f.confidence;
+              const confidence = normalizeConfidence(rawConfidence, DEFAULT_CONFIDENCE);
+              const confidenceReason =
+                typeof f.confidenceReason === "string" && f.confidenceReason.trim()
+                  ? f.confidenceReason.trim()
+                  : typeof f.confidence_reason === "string" && f.confidence_reason.trim()
+                    ? f.confidence_reason.trim()
+                    : typeof f.reason === "string" && f.reason.trim()
+                      ? f.reason.trim()
+                      : undefined;
+
               return {
                 type: findingType,
-                // Shared normalization rather than a local valid-list: the model
-                // routinely answers with "moderate", "sev1" or "error" instead of
-                // one of the five canonical levels, and the local check discarded
-                // all of those down to MEDIUM.
                 severity: normalizeSeverity(f.severity),
+                confidence,
+                ...(confidenceReason ? { confidenceReason } : {}),
                 description: String(f.description || "No description provided."),
                 fileLocation: fileLoc,
                 codeSnippet: normalizedSnippet,
@@ -886,17 +826,29 @@ CRITICAL RULES:
                 signatureVersion: dynFp.signatureVersion,
                 matchedSignatures: dynFp.matchedSignatures.map((s) => s.id),
                 isZeroDay: dynFp.isZeroDayDetected,
+                language: (
+                  detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet)
+                ).language,
+                ...((detectedFileMap.get(fileLoc) || detectFileLanguage(fileLoc, normalizedSnippet))
+                  .framework
+                  ? {
+                      framework: (
+                        detectedFileMap.get(fileLoc) ||
+                        detectFileLanguage(fileLoc, normalizedSnippet)
+                      ).framework,
+                    }
+                  : {}),
               };
             });
 
-            findings = filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
-              ...f,
-              // Through the full pass, which adds the `scrubCredentials` rules
-              // the logger and the error handler already apply, so the same
-              // vocabulary covers a credential wherever it surfaces.
-              description: maskFindingText(f.description),
-              codeSnippet: maskFindingText(f.codeSnippet),
-            }));
+            findings = filterFindingsToChangedLines(
+              filterFalsePositives(sanitizedFindings, combinedPlaceholders).map((f) => ({
+                ...f,
+                description: maskFindingText(f.description),
+                codeSnippet: maskFindingText(f.codeSnippet),
+              })),
+              files,
+            );
             success = true;
           } catch (error: unknown) {
             lastError = error;
@@ -906,7 +858,6 @@ CRITICAL RULES:
               headers?: Record<string, unknown> | { get?: (k: string) => string | null };
             };
 
-            // 🛡️ JSON PARSE FALLBACK CATCH
             if (error instanceof SyntaxError) {
               console.warn(
                 `⚠️ Failed to parse extracted JSON. Retrying... (${retries} attempts left)`,
@@ -917,7 +868,7 @@ CRITICAL RULES:
 
             if (error instanceof ScannerTimeoutError || errObj?.name === "AbortError") {
               throw new ScannerTimeoutError(
-                `LLM scan timed out after ${SCAN_REQUEST_TIMEOUT_MS / 1000} seconds`,
+                `LLM scan timed out after ${effectiveRequestTimeoutMs / 1000} seconds`,
               );
             }
             if (errObj?.status === 429) {
@@ -933,7 +884,7 @@ CRITICAL RULES:
               const requestedWait = retryAfterHeader
                 ? parseInt(retryAfterHeader, 10) * 1000
                 : (4 - retries) * 25000;
-              const remainingBudget = MAX_TOTAL_SCAN_MS - (Date.now() - scanStartedAt);
+              const remainingBudget = effectiveTotalScanMs - (Date.now() - scanStartedAt);
               const waitTime = Math.max(
                 0,
                 Math.min(requestedWait, MAX_RETRY_WAIT_MS, remainingBudget),
@@ -960,7 +911,7 @@ CRITICAL RULES:
               errObj?.name === "APIConnectionTimeoutError"
             ) {
               console.warn(
-                `⏱️ LLM request exceeded ${SCAN_REQUEST_TIMEOUT_MS / 1000}s timeout. Retrying... (${retries} attempts left)`,
+                `⏱️ LLM request exceeded ${effectiveRequestTimeoutMs / 1000}s timeout. Retrying... (${retries} attempts left)`,
               );
               retries--;
               if (deadlineExceeded()) {
@@ -1023,14 +974,15 @@ CRITICAL RULES:
 
     if (deadlineHit) {
       console.warn(
-        `⚠️ scanPullRequest() returned partial results: ${allFindings.length} finding(s) from a scan that hit its ${MAX_TOTAL_SCAN_MS / 1000}s deadline.`,
+        `⚠️ scanPullRequest() returned partial results: ${allFindings.length} finding(s) from a scan that hit its ${effectiveTotalScanMs / 1000}s deadline.`,
       );
     }
 
-    const combinedFindings = mergePrecheckWithLlmFindings(deterministicFindings, allFindings);
+    const combinedFindings = mergePrecheckWithLlmFindings(allDeterministicFindings, allFindings);
     const suppressionResult = applyInlineSuppression(combinedFindings, files);
     this.lastSuppressionResult = suppressionResult;
     this.lastSkippedFiles = skippedFiles;
+    this.lastAnalyzedFiles = analyzedFiles;
 
     return suppressionResult.activeFindings;
   }
@@ -1038,4 +990,15 @@ CRITICAL RULES:
 
 export { detectSecretsInFiles, mergeFindings } from "./secret-detector";
 export { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./precheck";
+export {
+  runDependencySecurityRules,
+  scanDependencyManifest,
+  isDependencyManifest,
+} from "@/lib/rules/dependency-rules";
+export {
+  runWorkflowSecurityRules,
+  scanWorkflowFile,
+  isWorkflowFile,
+} from "@/lib/rules/workflow-rules";
+export { runIacSecurityRules, scanIacFile, isIacFile, IAC_RULE_IDS } from "@/lib/rules/iac-rules";
 export const scanner = new ArmorIQScanner();

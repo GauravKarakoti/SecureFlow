@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "reasoning": "Step 1: The test helper contains a mock token pattern that resembles a credential. However, this is inside a test directory with a static test string.",
+      "type": "Secret",
+      "severity": "LOW",
+      "confidence": "LOW",
+      "confidenceReason": "Uncertain finding: test fixture credential pattern with plausible mock value.",
+      "description": "Potential credential pattern found in test fixture file.",
+      "fileLocation": "tests/fixtures/mock-auth.ts",
+      "codeSnippet": "export const TEST_BEARER_TOKEN = \"test_token_placeholder_abc1234567890\";",
+      "lineStart": 1,
+      "lineEnd": 1
+    }
+  ]
+}

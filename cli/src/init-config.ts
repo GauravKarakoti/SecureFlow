@@ -8,7 +8,7 @@ import {
   type ConfigValidationReport,
   validateSecureFlowJson,
   validateSecureFlowIgnore,
-} from "./contracts/config-schema.js";
+} from "./contracts/index.js";
 
 export interface InitConfigOptions {
   targetDir?: string | undefined;

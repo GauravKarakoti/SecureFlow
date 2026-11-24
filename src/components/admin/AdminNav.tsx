@@ -11,12 +11,15 @@ import {
   ArrowLeft,
   Activity,
   Cpu,
+  Webhook,
 } from "lucide-react";
 
 const ADMIN_NAV = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard, exact: true },
   { name: "Queue Monitor", href: "/admin/queue", icon: Activity, exact: false },
+  { name: "Webhook Deliveries", href: "/admin/webhooks", icon: Webhook, exact: false },
   { name: "Suppression Rules", href: "/admin/suppression-rules", icon: ShieldAlert, exact: false },
+  { name: "Installation Settings", href: "/admin/settings", icon: Cpu, exact: false },
   { name: "Users", href: "/admin/users", icon: Users, exact: false },
   { name: "Audit Logs", href: "/admin/logs", icon: ScrollText, exact: false },
 ];

@@ -248,6 +248,181 @@ export function renderNumberedLines(parsed: ParsedPatch): string {
   return parsed.lines.map((line) => `${line.number}: ${line.content}`).join("\n");
 }
 
+export interface RenderDiffOptions {
+  /**
+   * Maximum unchanged context lines to include before and after each changed hunk/block.
+   * Capped between 0 and 20. Defaults to 5 (#2006).
+   */
+  contextLines?: number;
+  /**
+   * Optional full file content of the new version of the file.
+   * If provided, allows fetching unchanged lines around each hunk even if the patch had fewer (#2006).
+   */
+  fullContent?: string;
+  /**
+   * Whether to prefix lines with [CHANGED] and [UNCHANGED CONTEXT].
+   * Defaults to true (#2006).
+   */
+  markContext?: boolean;
+}
+
+/**
+ * Derives the set of new-side line numbers that were added or modified in the patch (#2006).
+ */
+export function changedLineNumbers(parsed: ParsedPatch): Set<number> {
+  return new Set(addedLines(parsed).map((l) => l.number));
+}
+
+/**
+ * Renders diff lines with a configurable number of unchanged context lines (#2006).
+ * Changed lines are marked with `[CHANGED]` and unchanged lines with `[UNCHANGED CONTEXT]`.
+ * Capped between 0 and 20 context lines.
+ */
+export function renderNumberedLinesWithContext(
+  parsed: ParsedPatch,
+  options?: RenderDiffOptions,
+): string {
+  const rawContext = options?.contextLines;
+  const maxContext =
+    typeof rawContext === "number" && Number.isFinite(rawContext)
+      ? Math.max(0, Math.min(20, Math.floor(rawContext)))
+      : 5;
+  const markContext = options?.markContext !== false;
+
+  const added = parsed.lines.filter((l) => l.kind === "added");
+  if (added.length === 0) return "";
+
+  if (options?.fullContent !== undefined) {
+    const fileLines = options.fullContent.split("\n");
+    const intervals: Array<{ start: number; end: number }> = [];
+    let currentStart = added[0].number;
+    let currentEnd = added[0].number;
+
+    for (let i = 1; i < added.length; i++) {
+      const num = added[i].number;
+      if (num === currentEnd + 1) {
+        currentEnd = num;
+      } else {
+        intervals.push({ start: currentStart, end: currentEnd });
+        currentStart = num;
+        currentEnd = num;
+      }
+    }
+    intervals.push({ start: currentStart, end: currentEnd });
+
+    const expandedRanges: Array<{ start: number; end: number }> = [];
+    for (const interval of intervals) {
+      const start = Math.max(1, interval.start - maxContext);
+      const end = Math.min(fileLines.length, interval.end + maxContext);
+      expandedRanges.push({ start, end });
+    }
+
+    const mergedRanges: Array<{ start: number; end: number }> = [];
+    for (const range of expandedRanges) {
+      if (mergedRanges.length === 0) {
+        mergedRanges.push({ ...range });
+      } else {
+        const last = mergedRanges[mergedRanges.length - 1];
+        if (range.start <= last.end + 1) {
+          last.end = Math.max(last.end, range.end);
+        } else {
+          mergedRanges.push({ ...range });
+        }
+      }
+    }
+
+    const addedMap = new Map<number, string>();
+    for (const l of added) {
+      addedMap.set(l.number, l.content);
+    }
+
+    const resultLines: string[] = [];
+    for (const range of mergedRanges) {
+      for (let lineNum = range.start; lineNum <= range.end; lineNum++) {
+        const isAdded = addedMap.has(lineNum);
+        const content = isAdded ? addedMap.get(lineNum)! : (fileLines[lineNum - 1] ?? "");
+        if (markContext) {
+          resultLines.push(
+            `${lineNum}: ${isAdded ? "[CHANGED]" : "[UNCHANGED CONTEXT]"} ${content}`,
+          );
+        } else {
+          resultLines.push(`${lineNum}: ${content}`);
+        }
+      }
+    }
+    return resultLines.join("\n");
+  }
+
+  const lines = parsed.lines;
+  const addedIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].kind === "added") addedIndices.push(i);
+  }
+
+  if (maxContext === 0) {
+    return lines
+      .filter((l) => l.kind === "added")
+      .map((l) =>
+        markContext ? `${l.number}: [CHANGED] ${l.content}` : `${l.number}: ${l.content}`,
+      )
+      .join("\n");
+  }
+
+  const keepIndices = new Set<number>();
+  for (const addedIdx of addedIndices) {
+    keepIndices.add(addedIdx);
+    for (let c = 1; c <= maxContext; c++) {
+      const before = addedIdx - c;
+      if (before >= 0 && lines[before].kind === "context") {
+        keepIndices.add(before);
+      } else if (before >= 0 && lines[before].kind === "added") {
+        // another added line, continue
+      } else {
+        break;
+      }
+    }
+    for (let c = 1; c <= maxContext; c++) {
+      const after = addedIdx + c;
+      if (after < lines.length && lines[after].kind === "context") {
+        keepIndices.add(after);
+      } else if (after < lines.length && lines[after].kind === "added") {
+        // another added line, continue
+      } else {
+        break;
+      }
+    }
+  }
+
+  const sortedIndices = Array.from(keepIndices).sort((a, b) => a - b);
+  return sortedIndices
+    .map((idx) => {
+      const l = lines[idx];
+      if (markContext) {
+        return `${l.number}: ${l.kind === "added" ? "[CHANGED]" : "[UNCHANGED CONTEXT]"} ${l.content}`;
+      }
+      return `${l.number}: ${l.content}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Parses a patch and renders numbered lines with context (#2006).
+ */
+export function renderDiffWithContext(patch: string, options?: RenderDiffOptions): string {
+  if (!patch) return "";
+  const parsed = parseUnifiedPatch(patch);
+  return renderNumberedLinesWithContext(parsed, options);
+}
+
+/**
+ * Estimates the token count for a diff hunk rendered with context lines (#2006).
+ */
+export function estimateDiffTokens(patch: string, options?: RenderDiffOptions): number {
+  if (!patch) return 0;
+  const rendered = renderDiffWithContext(patch, options);
+  return Math.max(1, Math.ceil(rendered.length / 4));
+}
+
 /**
  * The new-side line numbers GitHub will accept an inline review comment on.
  *

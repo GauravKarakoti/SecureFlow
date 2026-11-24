@@ -1,4 +1,4 @@
-/**
+﻿/**
  * End-to-End (E2E) Test Suite for SecureFlow CLI binary (#1245).
  *
  * Spawns the compiled CLI binary (dist/index.js) in real subshells against
@@ -107,13 +107,13 @@ describe("CLI End-to-End (E2E) Test Suite (#1245)", () => {
       expect(res.stderr).toMatch(/(?:Unknown|Invalid) severity/);
     });
 
-    it("fails with exit code 1 when executed outside of a git repository", () => {
+    it("scans current directory when executed outside of a git repository", () => {
       const nonGitDir = path.join(tempBaseDir, "non-git-dir");
       fs.mkdirSync(nonGitDir, { recursive: true });
 
       const res = runCli([], nonGitDir);
-      expect(res.status).toBe(1);
-      expect(res.stderr).toMatch(/(?:Git error|Not a git repository)/);
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("SecureFlow scan passed");
     });
 
     it("displays mcp help message with secureflow mcp --help and exits 0", () => {

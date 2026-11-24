@@ -1,7 +1,13 @@
 import { severityBadge } from "@/lib/severity";
-import { SECUREFLOW_COMMENT_MARKER } from "./sticky-comment";
+import {
+  loadBaseCodeOwners,
+  ownersForPath,
+  type CodeOwnersBase,
+  type CodeOwnersClient,
+} from "./codeowners";
+import { SECUREFLOW_COMMENT_MARKER, formatScanMetadata } from "./sticky-comment";
 
-export { SECUREFLOW_COMMENT_MARKER };
+export { SECUREFLOW_COMMENT_MARKER, formatScanMetadata };
 
 /**
  * The summary comment the webhook worker posts on a pull request.
@@ -26,6 +32,9 @@ export interface ScanReportFinding {
   explanation?: string | null;
   remediation?: string | null;
   promptInjectionSuspected?: boolean;
+  verifiedPatch?: boolean;
+  readyFix?: boolean;
+  patchNote?: string;
 }
 
 export interface SuppressedFindingReport {
@@ -78,10 +87,18 @@ export interface ScanReportSummaryInput {
   ruleSuppressedCount?: number;
   /** Scanned commit SHA to show in the report. */
   commitSha?: string | null;
+  /** Scan timestamp to show in the report. */
+  scanTime?: string | Date | null;
   /** Ignore rules (.secureflowignore) that have expired. */
   expiredIgnoreRules?: readonly ExpiredIgnoreRuleReport[];
   /** Policy scopes applied to changed files (#1868). */
   appliedPolicyScopes?: readonly AppliedPolicyScopeReport[];
+  /** Number of files skipped by built-in default ignore patterns (#1983). */
+  defaultSkippedCount?: number;
+  ownership?: {
+    byPath: ReadonlyMap<string, readonly string[]>;
+    inlinePaths: readonly string[];
+  };
 }
 
 /** Quote every line of `text`, so a multi-paragraph value stays one blockquote. */
@@ -110,6 +127,39 @@ export function toCodeSpan(value: string): string {
 const INJECTION_WARNING = (severity: unknown) =>
   `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${severityBadge(severity)} badge from the static scanner above the AI narrative.\n\n`;
 
+function formatOwners(owners: readonly string[] | undefined): string {
+  return owners?.length ? owners.map(toCodeSpan).join(", ") : "Unowned";
+}
+
+function renderOwnershipSummary(
+  findings: readonly ScanReportFinding[],
+  { byPath, inlinePaths }: NonNullable<ScanReportSummaryInput["ownership"]>,
+): string {
+  const owners = new Map<string, number>();
+  for (const path of [...findings.map((finding) => finding.fileLocation), ...inlinePaths]) {
+    const assigned = byPath.get(path);
+    for (const owner of assigned?.length ? assigned : ["Unowned"]) {
+      owners.set(owner, (owners.get(owner) ?? 0) + 1);
+    }
+  }
+
+  if (owners.size === 0) return "";
+  const counts = [...owners]
+    .map(([owner, count]) => `${owner === "Unowned" ? owner : toCodeSpan(owner)} (${count})`)
+    .join(", ");
+  let body = `**By owner:** ${counts}\n\n`;
+  if (inlinePaths.length) {
+    const paths = new Map<string, number>();
+    for (const path of inlinePaths) paths.set(path, (paths.get(path) ?? 0) + 1);
+    body += "#### Owners of findings posted inline\n\n";
+    for (const [path, count] of paths) {
+      body += `- ${toCodeSpan(path)} (${count}) — ${formatOwners(byPath.get(path))}\n`;
+    }
+    body += "\n";
+  }
+  return body;
+}
+
 export function renderScanReportSummary({
   findings,
   totalFindings,
@@ -120,17 +170,22 @@ export function renderScanReportSummary({
   previouslyDismissedCount = 0,
   ruleSuppressedCount = 0,
   commitSha,
+  scanTime,
   expiredIgnoreRules = [],
   appliedPolicyScopes = [],
+  defaultSkippedCount = 0,
+  ownership,
 }: ScanReportSummaryInput): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
 
-  if (commitSha) {
-    body += `Scanned commit: \`${commitSha}\`\n\n`;
-  }
+  body += formatScanMetadata({ commitSha, scanTime });
 
   body += `⚠️ Detected **${totalFindings}** potential issues matching your code policies. Please review them before merging.\n\n`;
+
+  if (defaultSkippedCount > 0) {
+    body += `ℹ️ **${defaultSkippedCount} file${defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.\n\n`;
+  }
 
   if (appliedPolicyScopes && appliedPolicyScopes.length > 0) {
     body += `### 📁 Policy Scopes Applied (${appliedPolicyScopes.length})\n\n`;
@@ -166,6 +221,8 @@ export function renderScanReportSummary({
     body += `📍 **${inlineCount}** finding(s) are annotated inline on the exact changed lines below.\n\n`;
   }
 
+  if (ownership) body += renderOwnershipSummary(findings, ownership);
+
   if (suppressedFindings.length > 0) {
     body += `🔕 **${suppressedFindings.length}** finding(s) suppressed via inline directives.\n\n`;
   }
@@ -176,6 +233,7 @@ export function renderScanReportSummary({
 
   for (const f of findings) {
     body += `#### ${severityBadge(f.severity)} | **${f.type}** in ${toCodeSpan(f.fileLocation)}\n`;
+    if (ownership) body += `**Owners:** ${formatOwners(ownership.byPath.get(f.fileLocation))}\n\n`;
     if (f.id) {
       body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${f.id})\n\n`;
     }
@@ -183,8 +241,12 @@ export function renderScanReportSummary({
       body += INJECTION_WARNING(f.severity);
     }
     body += `${toBlockquote(f.explanation ?? "")}\n\n`;
-    body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n`;
+    const patchBadge = f.verifiedPatch ? " (Verified Ready Fix)" : "";
+    body += `<details>\n<summary><b>🛠️ View Remediation Suggestions${patchBadge}</b></summary>\n\n`;
     body += `${f.remediation ?? ""}\n\n`;
+    if (f.patchNote) {
+      body += `> ℹ️ ${f.patchNote}\n\n`;
+    }
     body += `</details>\n\n`;
     body += `---\n\n`;
   }
@@ -218,4 +280,20 @@ export function renderScanReportSummary({
   }
 
   return body;
+}
+
+export async function renderScanReportWithBaseOwners(
+  client: CodeOwnersClient,
+  base: CodeOwnersBase,
+  input: ScanReportSummaryInput,
+  inlinePaths: readonly string[],
+): Promise<string> {
+  const rules = await loadBaseCodeOwners(client, base);
+  if (!rules) return renderScanReportSummary(input);
+
+  const paths = new Set([...input.findings.map((finding) => finding.fileLocation), ...inlinePaths]);
+  const byPath = new Map([...paths].map((path) => [path, ownersForPath(rules, path)]));
+  const annotated = renderScanReportSummary({ ...input, ownership: { byPath, inlinePaths } });
+  // Keep the existing report usable if the optional labels exceed the GitHub body limit.
+  return Buffer.byteLength(annotated) <= 65_536 ? annotated : renderScanReportSummary(input);
 }

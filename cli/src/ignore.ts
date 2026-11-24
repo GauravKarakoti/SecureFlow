@@ -27,6 +27,31 @@ export interface ParseSecureFlowIgnoreOptions {
 }
 
 /**
+ * Default patterns skipped automatically by SecureFlow.
+ * Includes package manager dependencies, build output, coverage reports, and lockfiles.
+ */
+export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
+  "node_modules/",
+  ".git/",
+  "dist/",
+  "build/",
+  ".next/",
+  "out/",
+  "coverage/",
+  "target/",
+  ".turbo/",
+  ".cache/",
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  "Cargo.lock",
+  "Gemfile.lock",
+  "poetry.lock",
+  "composer.lock",
+];
+
+/**
  * Normalizes a file path for consistent matching against ignore patterns:
  * converts backslashes to forward slashes, removes leading `./` or `/`.
  */
@@ -362,19 +387,29 @@ export function globToRegexSource(glob: string): string {
 
 /**
  * Compiles an array of glob strings into RegExp patterns for path matching.
+ * Supports gitignore-style negation patterns prefixed with '!'.
  */
 export function compileIgnorePatterns(patterns: string[]): RegExp[] {
   return patterns
     .map((p) => p.trim())
     .filter((p) => p.length > 0 && !p.startsWith("#"))
     .map((p) => {
-      const pattern = p.replace(/\\/g, "/");
-      const hasLeadingSlash = pattern.startsWith("/");
-      const cleanPattern = hasLeadingSlash ? pattern.slice(1) : pattern;
+      let raw = p.replace(/\\/g, "/");
+      let isNegated = false;
+      if (raw.startsWith("!")) {
+        isNegated = true;
+        raw = raw.slice(1).trim();
+      }
+
+      const hasLeadingSlash = raw.startsWith("/");
+      const cleanPattern = hasLeadingSlash ? raw.slice(1) : raw;
 
       let glob = cleanPattern;
+      let matchDir = false;
       if (glob.endsWith("/")) {
         glob += "**";
+      } else if (!glob.includes("*") && !glob.includes("?") && !glob.includes(".")) {
+        matchDir = true;
       }
 
       const patternWithoutTrailingSlash = cleanPattern.endsWith("/")
@@ -382,18 +417,23 @@ export function compileIgnorePatterns(patterns: string[]): RegExp[] {
         : cleanPattern;
       const isRootRelative = hasLeadingSlash || patternWithoutTrailingSlash.includes("/");
 
-      const regexStr = globToRegexSource(glob);
-
-      if (isRootRelative) {
-        return new RegExp(`^${regexStr}$`, "i");
-      } else {
-        return new RegExp(`(^|/)${regexStr}$`, "i");
+      let regexStr = globToRegexSource(glob);
+      if (matchDir) {
+        regexStr += "(?:/.*)?";
       }
+
+      const regex = isRootRelative
+        ? new RegExp(`^${regexStr}$`, "i")
+        : new RegExp(`(^|/)${regexStr}$`, "i");
+
+      Object.assign(regex, { isNegated, rawPattern: p });
+      return regex;
     });
 }
 
 /**
  * Checks whether a given file path matches any compiled ignore regular expression.
+ * Evaluates rules in order so that negation patterns (`!pattern`) can re-include paths.
  */
 export function shouldIgnorePath(filename: string, customIgnores: RegExp[] = []): boolean {
   if (!filename || !customIgnores || customIgnores.length === 0) {
@@ -401,7 +441,24 @@ export function shouldIgnorePath(filename: string, customIgnores: RegExp[] = [])
   }
 
   const normalized = normalizeScanPath(filename);
-  return customIgnores.some((pattern) => pattern.test(normalized));
+  let ignored = false;
+
+  for (const pattern of customIgnores) {
+    if (pattern.test(normalized)) {
+      const isNegated = Boolean((pattern as any).isNegated);
+      ignored = !isNegated;
+    }
+  }
+
+  return ignored;
+}
+
+/**
+ * Returns compiled RegExp patterns combining default ignore patterns with any user-defined ignore patterns.
+ * Default patterns are placed first so that user-defined negation patterns (`!pattern`) can override them.
+ */
+export function getEffectiveIgnorePatterns(userPatterns: string[] = []): RegExp[] {
+  return compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS, ...userPatterns]);
 }
 
 /**

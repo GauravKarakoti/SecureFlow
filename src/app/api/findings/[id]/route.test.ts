@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 
 const {
   authMock,
+  canMock,
   findingFindFirstMock,
   findingFindUniqueMock,
   findingUpdateMock,
@@ -19,6 +20,7 @@ const {
   checkRateLimitDetailedMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
+  canMock: vi.fn(() => true),
   findingFindFirstMock: vi.fn(),
   findingFindUniqueMock: vi.fn(),
   findingUpdateMock: vi.fn(),
@@ -29,6 +31,10 @@ const {
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
+
+vi.mock("@/lib/auth/permissions", () => ({
+  can: canMock,
+}));
 
 vi.mock("@/lib/prisma", () => ({
   default: {
@@ -108,6 +114,7 @@ const OWNERSHIP_FINDING = {
 describe("GET /api/findings/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    canMock.mockReturnValue(true);
     checkRateLimitDetailedMock.mockResolvedValue({
       allowed: true,
       limit: 120,
@@ -135,7 +142,7 @@ describe("GET /api/findings/[id]", () => {
   });
 
   it("returns 200 with full finding details", async () => {
-    authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
     findingFindFirstMock.mockResolvedValueOnce(FULL_FINDING);
     const req = new NextRequest("http://localhost/api/findings/finding-1");
     const res = await GET(req, { params: Promise.resolve({ id: "finding-1" }) });
@@ -147,10 +154,11 @@ describe("GET /api/findings/[id]", () => {
   });
 
   it("sets Cache-Control: private, no-store on success", async () => {
-    authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
     findingFindFirstMock.mockResolvedValueOnce(FULL_FINDING);
     const req = new NextRequest("http://localhost/api/findings/finding-1");
     const res = await GET(req, { params: Promise.resolve({ id: "finding-1" }) });
+    expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toContain("private");
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
@@ -159,6 +167,7 @@ describe("GET /api/findings/[id]", () => {
 describe("PATCH /api/findings/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    canMock.mockReturnValue(true);
     checkRateLimitDetailedMock.mockResolvedValue({
       allowed: true,
       limit: 120,
@@ -246,7 +255,7 @@ describe("PATCH /api/findings/[id]", () => {
   });
 
   it("updates triageStatus and returns 200", async () => {
-    authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
     findingFindFirstMock.mockResolvedValueOnce(OWNERSHIP_FINDING);
     findingFindFirstMock.mockResolvedValueOnce({ ...FULL_FINDING, severity: "HIGH" });
     const req = new NextRequest("http://localhost/api/findings/finding-1", {
@@ -260,7 +269,7 @@ describe("PATCH /api/findings/[id]", () => {
   });
 
   it("updates severity and returns 200", async () => {
-    authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
     findingFindFirstMock.mockResolvedValueOnce(OWNERSHIP_FINDING);
     findingFindFirstMock.mockResolvedValueOnce({ ...FULL_FINDING, severity: "CRITICAL" });
     const req = new NextRequest("http://localhost/api/findings/finding-1", {
@@ -289,6 +298,7 @@ describe("PATCH /api/findings/[id]", () => {
 describe("DELETE /api/findings/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    canMock.mockReturnValue(true);
     checkRateLimitDetailedMock.mockResolvedValue({
       allowed: true,
       limit: 30,
@@ -316,7 +326,7 @@ describe("DELETE /api/findings/[id]", () => {
   });
 
   it("returns 204 and deletes the finding", async () => {
-    authMock.mockResolvedValueOnce({ user: { id: "user-1" } });
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
     findingFindFirstMock.mockResolvedValueOnce({ id: "finding-1" });
     const req = new NextRequest("http://localhost/api/findings/finding-1", { method: "DELETE" });
     const res = await DELETE(req, { params: Promise.resolve({ id: "finding-1" }) });

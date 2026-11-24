@@ -29,9 +29,28 @@ vi.mock("@/lib/prisma", () => ({
     repository: { findUnique: vi.fn(), findMany: vi.fn(async () => []) },
     finding: { findFirst: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn() },
     findingTriage: { findMany: vi.fn(async () => []) },
+    notification: {
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => []),
+      findUnique: vi.fn(async () => null),
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async (args: any) => ({ id: "mock-notif-1", ...args?.data })),
+      update: vi.fn(async (args: any) => ({ id: "mock-notif-1", ...args?.data })),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+      delete: vi.fn(async () => ({ id: "mock-notif-1" })),
+    },
     policyTemplate: { findMany: vi.fn(async () => []) },
     userPolicyToggle: { findMany: vi.fn(async () => []) },
     webhookEvent: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({})) },
+    webhookDelivery: {
+      count: vi.fn(async () => 0),
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+      create: vi.fn(async () => ({})),
+      update: vi.fn(async () => ({})),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+      groupBy: vi.fn(async () => []),
+    },
   },
   getDatabaseConnectionString: vi.fn(() => undefined),
   getPgPoolConfig: vi.fn(() => ({})),
@@ -52,7 +71,6 @@ vi.mock("ioredis", () => {
   return { default: Redis };
 });
 
-// Stub next-auth so importing @/auth never tries to read next.config.js.
 vi.mock("next-auth", () => ({
   default: vi.fn(() => ({
     handlers: {},
@@ -60,6 +78,15 @@ vi.mock("next-auth", () => ({
     signOut: vi.fn(),
     auth: vi.fn(async () => null),
   })),
+  useSession: vi.fn(() => ({ data: null, status: "unauthenticated" })),
+}));
+
+vi.mock("next-auth/react", () => ({
+  default: vi.fn(),
+  useSession: vi.fn(() => ({ data: null, status: "unauthenticated" })),
+  signOut: vi.fn(),
+  signIn: vi.fn(),
+  SessionProvider: ({ children }: any) => children,
 }));
 
 // Stub @/auth directly so test files that import it get a simple mock.

@@ -9,7 +9,8 @@
  *    const result = await processScanJob(jobData, onProgress);
  */
 
-import { scanner } from "@/lib/armor/scanner";
+import { scanner, ScannerTimeoutError } from "@/lib/armor/scanner";
+import { estimateDiffTokens } from "@/lib/armor/diff";
 import { iq } from "@/lib/armor/iq";
 import { computeFingerprint } from "@/lib/armor/fingerprint";
 import { developerReceivesAISecurityExplanations } from "@/ai/flows/developer-receives-ai-security-explanations";
@@ -17,10 +18,25 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
-import { upsertSecureFlowComment, SECUREFLOW_COMMENT_MARKER } from "@/lib/github/sticky-comment";
+import {
+  upsertSecureFlowComment,
+  SECUREFLOW_COMMENT_MARKER,
+  formatScanMetadata,
+} from "@/lib/github/sticky-comment";
 import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
+import { getZeroScanReason, type ZeroScanReason } from "./zero-scan";
+import {
+  compileIgnorePatterns,
+  ignoreReasonFor,
+  resolveDefaultSkippedFiles,
+} from "@/lib/armor/ignore-rules";
+import { runDeterministicPrecheck } from "@/lib/armor/precheck";
+import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
+import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
+import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { resolveIacRuleOptions } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -49,7 +65,19 @@ import {
   formatGateSummaryLine,
   DEFAULT_GATE_CONFIG,
   type GateConfig,
+  resolveScanTimeoutBudgetMs,
+  resolveScanRequestTimeoutMs,
+  resolveVerifyCritical,
+  resolveContextLines,
+  resolveSuggestionsConfig,
 } from "./gate-config";
+import { buildEffectiveGateConfig } from "./installation-settings";
+import { verifyCriticalFindings } from "./critical-verification";
+import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
+import {
+  buildInlineReviewComments,
+  postSuggestedChangesReview,
+} from "@/lib/github/suggested-changes";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
   getActiveSuppressionRules,
@@ -63,10 +91,11 @@ import {
 } from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
-import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry";
+import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
+import { isConfidenceAtLeast } from "@/lib/confidence";
 
 /** Maximum files to process in a single batch before yielding. */
 const CHUNK_SIZE = 10;
@@ -89,22 +118,18 @@ export interface ScanJobResult {
   scannedFiles: number;
   vulnerabilitiesFound: number;
   riskScore: number;
-  /**
-   * The stored `PolicyDecision` member, not the scanner's phrasing.
-   *
-   * `workerPool` writes this straight into `ScanJob.policyDecision`, so the
-   * conversion belongs here rather than at that call site — returning
-   * `'REVIEW REQUIRED'` from a field typed `string` is what made every non-PASS
-   * scan fail its completion update (#747).
-   */
   policyDecision: "PASS" | "REVIEW" | "BLOCK";
-  /** The scanner's verdict as `iq.evaluateFindings` phrased it, for logs and copy. */
   verdict: string;
   findings: EnrichedScanFinding[];
   skippedFiles?: Array<{ filename: string; reason: string }>;
   reusedFromCache?: boolean;
   expiredIgnoreRules?: ExpiredIgnoreRule[];
   appliedPolicyScopes?: AppliedScopeSummary[];
+  analyzedFiles?: string[];
+  zeroScanReason?: ZeroScanReason;
+  defaultSkippedCount?: number;
+  isPartial?: boolean;
+  timedOut?: boolean;
 }
 
 export interface ScanProgress {
@@ -117,14 +142,6 @@ export interface ScanProgress {
 
 type ProgressCallback = (progress: ScanProgress) => void;
 
-/**
- * A chunk of the pull request could not be scanned.
- *
- * `scanner.scanPullRequest` throws once its own retries are exhausted precisely so a scan
- * the LLM never completed cannot be reported as clean (6452440). Swallowing that error
- * here and carrying on turned an unavailable analysis engine back into a `PASS` check
- * run with zero findings, for the webhook worker as well as the queued path.
- */
 export class ScanIncompleteError extends Error {
   constructor(
     readonly failedFiles: readonly string[],
@@ -136,49 +153,12 @@ export class ScanIncompleteError extends Error {
   }
 }
 
-/**
- * Which of the engine's side effects to run.
- *
- * `src/lib/queue/worker.ts` calls `processScanJob` for the scanning and then
- * does its own reporting and persistence: it posts a check run, updates the
- * pending pull request comment with inline review annotations, writes the
- * `AuditLog` row and creates the `ScanResult`. Every one of those is also a
- * phase of this function.
- *
- * That duplication has been invisible so far only because both of the engine's
- * writes failed: the check run and comment were posted twice, and the
- * persistence phase threw on a column name (#747) and was swallowed. Fixing the
- * persistence would have turned a latent duplicate into two `ScanResult` rows
- * per webhook scan, so the caller now says which half of the work it wants.
- *
- * Both default to `true`, which is what the queued path (`/api/findings` →
- * `workerPool`) needs — it has no other reporting of its own.
- */
 export interface ProcessScanJobOptions {
-  /** Post the GitHub check run and pull request comment. */
   report?: boolean;
-  /** Write the `PullRequest`, `ScanResult`, `Finding` and `AuditLog` rows. */
   persist?: boolean;
-  /**
-   * Request an AI explanation for each active finding.
-   *
-   * The webhook worker explains the findings itself (and masks the output) before it
-   * posts them, so enriching here as well paid for every explanation twice and threw
-   * the first copy away.
-   */
   enrich?: boolean;
 }
 
-/**
- * Process a scan job from the queue.
- *
- * This is the main entry point for background scan processing. It:
- * 1. Fetches PR files from GitHub
- * 2. Scans files in chunks with progress reporting
- * 3. Enriches findings with AI explanations
- * 4. Posts results to GitHub (PR comment/check)
- * 5. Persists results to the database
- */
 export async function processScanJob(
   data: ScanJobData,
   onProgress: ProgressCallback = () => {},
@@ -206,7 +186,6 @@ export async function processScanJob(
   log.info(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
   console.log(`[ScanEngine] Starting scan for ${repositoryFullName}#${prNumber}`);
 
-  // --- Phase 1: Fetch files from GitHub ---
   onProgress({
     phase: "starting",
     scannedFiles: 0,
@@ -221,17 +200,8 @@ export async function processScanJob(
     privateKey,
     ...(customOctokit ? { Octokit: customOctokit } : {}),
   });
-  // Narrowed rather than asserted: `installationId` is `number | string` because
-  // the route accepts either and BullMQ round-trips job data through JSON.
   const octokit = await appClient.getInstallationOctokit(parseInstallationId(installationId));
 
-  // Ignore rules decide what the scan does not read, so they are taken from the
-  // pull request's base branch and never from its head: the head is the author's
-  // own branch, and a pull request that adds a `.secureflowignore` containing
-  // `**` would otherwise skip every file in it. See `./ignore-config`.
-  //
-  // `initialCustomIgnores` / `initialCustomPlaceholders` are server-supplied
-  // (never request fields) and are kept as an addition to the repository's own.
   let repositoryGateConfig: GateConfig = { ...DEFAULT_GATE_CONFIG };
   let repositoryIgnoreConfig: SecureFlowIgnoreConfig = {
     ignoredPaths: [],
@@ -256,7 +226,6 @@ export async function processScanJob(
       baseRef,
     });
   } catch (err) {
-    // Scanning without ignore rules is the safe direction: it can only cover more.
     log.warn(`[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`, {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -264,6 +233,39 @@ export async function processScanJob(
       `[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`,
       err,
     );
+  }
+
+  // Hierarchical settings resolution: Built-in -> Installation -> Repository (.secureflow.json) (#2010)
+  try {
+    const instId = String(installationId || "default");
+    const instRecord =
+      (await (prisma as any).installationSettings?.findUnique?.({
+        where: { installationId: instId },
+      })) ||
+      (instId !== "default"
+        ? await (prisma as any).installationSettings?.findUnique?.({
+            where: { installationId: "default" },
+          })
+        : null);
+
+    if (instRecord) {
+      repositoryGateConfig = buildEffectiveGateConfig(repositoryGateConfig, {
+        installationId: instRecord.installationId,
+        gateBlockOn: instRecord.gateBlockOn,
+        gateReviewOn: instRecord.gateReviewOn,
+        minCommentConfidence: instRecord.minCommentConfidence,
+        includeDefaults: instRecord.includeDefaults,
+        skipDrafts: instRecord.skipDrafts,
+        skipAuthors: instRecord.skipAuthors,
+        lockedSettings: instRecord.lockedSettings,
+      });
+    } else {
+      repositoryGateConfig = buildEffectiveGateConfig(repositoryGateConfig, null);
+    }
+  } catch (err) {
+    log.warn(`[ScanEngine] Could not load installation settings for ${repositoryFullName}:`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   if (repositoryIgnoreConfig.warnings && repositoryIgnoreConfig.warnings.length > 0) {
@@ -277,10 +279,13 @@ export async function processScanJob(
     ...(initialCustomPlaceholders ?? []),
     ...repositoryIgnoreConfig.placeholders,
   ];
+  const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
-  // If no file changes provided, fetch from GitHub
   let fileChanges = initialFileChanges;
-  if (fileChanges.length === 0) {
+  if (
+    (!fileChanges || fileChanges.length === 0) &&
+    typeof (octokit as any)?.paginate?.iterator === "function"
+  ) {
     const { owner, repo } = splitRepositoryFullName(repositoryFullName);
     const result = await fetchPullRequestFiles(octokit as any, {
       owner,
@@ -291,12 +296,12 @@ export async function processScanJob(
       .filter((f: any) => f.patch && f.status !== "removed")
       .map((f: any) => ({ filename: f.filename, patch: f.patch }));
   }
+  fileChanges = fileChanges ?? [];
 
   const totalFiles = fileChanges.length;
   log.info(`[ScanEngine] Scanning ${totalFiles} files`);
   console.log(`[ScanEngine] Scanning ${totalFiles} files`);
 
-  // --- Scan Cache Check (Deduplicate synchronize / force-push events) ---
   let policyVersion = "1.0.0";
   if (userId) {
     try {
@@ -318,7 +323,31 @@ export async function processScanJob(
 
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
+  let allAnalyzedFiles: string[] = [];
   const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+  let budgetExceeded = false;
+
+  const ignoreOptions = {
+    includeDefaults: repositoryGateConfig.includeDefaults,
+    forceInclude: repositoryGateConfig.forceInclude,
+  };
+
+  const precheckFindings = runDeterministicPrecheck(fileChanges, {
+    customPlaceholders,
+    customIgnores,
+    repositoryId,
+  });
+  const precheckFilesWithSecrets = new Set(precheckFindings.map((f) => f.fileLocation));
+
+  const {
+    skippedByDefault,
+    skippedCount: defaultSkippedCount,
+    exemptSecretFiles,
+  } = resolveDefaultSkippedFiles(fileChanges, customIgnores, {
+    includeDefaults: repositoryGateConfig.includeDefaults,
+    forceInclude: repositoryGateConfig.forceInclude,
+    hasDeterministicSecrets: (file) => precheckFilesWithSecrets.has(file.filename),
+  });
 
   const appliedPolicyScopes = collectAppliedScopes(fileChanges, repositoryGateConfig.policyScopes);
 
@@ -326,6 +355,7 @@ export async function processScanJob(
   if (cachedFindings) {
     reusedFromCache = true;
     allFindings = cachedFindings.map((f) => ({ ...f }));
+    allAnalyzedFiles = fileChanges.map((f) => f.filename);
     log.info(
       `[ScanEngine] Reusing ${allFindings.length} scan findings from cache for ${repositoryFullName}#${prNumber}`,
     );
@@ -341,7 +371,6 @@ export async function processScanJob(
       progress: 80,
     });
   } else {
-    // --- Phase 2: Scan files in chunks ---
     onProgress({
       phase: "scanning",
       scannedFiles: 0,
@@ -351,8 +380,11 @@ export async function processScanJob(
     });
 
     let scannedFiles = 0;
+    const timeoutBudgetMs = resolveScanTimeoutBudgetMs(repositoryGateConfig);
+    const requestTimeoutMs = resolveScanRequestTimeoutMs(repositoryGateConfig);
+    const scanStartedAt = Date.now();
+    budgetExceeded = false;
 
-    // Group files by their applicable policy scope (#1868)
     const fileGroups = groupFilesByPolicyScope(
       fileChanges,
       activePolicies as any[],
@@ -363,25 +395,103 @@ export async function processScanJob(
       for (let i = 0; i < group.files.length; i += CHUNK_SIZE) {
         const chunk = group.files.slice(i, i + CHUNK_SIZE);
 
+        if (budgetExceeded || Date.now() - scanStartedAt >= timeoutBudgetMs) {
+          budgetExceeded = true;
+          for (const f of chunk) {
+            allSkippedFiles.push({
+              filename: f.filename,
+              reason: `Scan time budget of ${Math.round(timeoutBudgetMs / 1000)}s exceeded`,
+            });
+          }
+          continue;
+        }
+
         try {
-          const chunkFindings = await scanner.scanPullRequest(
-            chunk,
-            group.policies as any[],
-            customIgnores,
-            customPlaceholders,
-          );
+          const hasCustomIgnoreOptions =
+            repositoryGateConfig.includeDefaults !== undefined ||
+            (repositoryGateConfig.forceInclude && repositoryGateConfig.forceInclude.length > 0);
+
+          const hasCustomTimeouts =
+            repositoryGateConfig.timeoutBudget !== undefined ||
+            repositoryGateConfig.timeoutBudgetSeconds !== undefined ||
+            repositoryGateConfig.requestTimeout !== undefined ||
+            repositoryGateConfig.requestTimeoutSeconds !== undefined ||
+            repositoryGateConfig.contextLines !== undefined;
+
+          const remainingBudgetMs = Math.max(0, timeoutBudgetMs - (Date.now() - scanStartedAt));
+          const timeoutOptions = {
+            timeoutBudgetMs: remainingBudgetMs,
+            requestTimeoutMs,
+            contextLines: repositoryGateConfig.contextLines,
+          };
+
+          const chunkFindings =
+            hasCustomIgnoreOptions || hasCustomTimeouts
+              ? await scanner.scanPullRequest(
+                  chunk,
+                  group.policies as any[],
+                  customIgnores,
+                  customPlaceholders,
+                  repositoryId || "default-repo",
+                  ignoreOptions,
+                  timeoutOptions,
+                )
+              : await scanner.scanPullRequest(
+                  chunk,
+                  group.policies as any[],
+                  customIgnores,
+                  customPlaceholders,
+                );
           allFindings.push(...chunkFindings);
           if (scanner.lastSkippedFiles && scanner.lastSkippedFiles.length > 0) {
             allSkippedFiles.push(...scanner.lastSkippedFiles);
           }
+          if (scanner.lastAnalyzedFiles && scanner.lastAnalyzedFiles.length > 0) {
+            allAnalyzedFiles.push(...scanner.lastAnalyzedFiles);
+          } else if (scanner.lastAnalyzedFiles === undefined) {
+            const scannableChunkFiles = chunk
+              .filter(
+                (f) =>
+                  !skippedByDefault.has(f.filename) &&
+                  (exemptSecretFiles.has(f.filename) ||
+                    ignoreReasonFor(f.filename, compiledCustomIgnores, ignoreOptions) === null),
+              )
+              .map((f) => f.filename);
+            allAnalyzedFiles.push(...scannableChunkFiles);
+          }
         } catch (err) {
+          const isTimeout =
+            err instanceof ScannerTimeoutError ||
+            (err instanceof Error &&
+              (err.name === "ScannerTimeoutError" ||
+                /timed out|timeout|deadline/i.test(err.message))) ||
+            Date.now() - scanStartedAt >= timeoutBudgetMs;
+
+          if (isTimeout) {
+            budgetExceeded = true;
+            log.warn(
+              `[ScanEngine] Scan timeout budget exceeded for chunk ${i}-${i + chunk.length}:`,
+              {
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+            console.warn(
+              `[ScanEngine] Scan timeout budget exceeded for chunk ${i}-${i + chunk.length}:`,
+              err,
+            );
+            for (const f of chunk) {
+              allSkippedFiles.push({
+                filename: f.filename,
+                reason: `Scan timeout budget of ${Math.round(timeoutBudgetMs / 1000)}s exceeded`,
+              });
+            }
+            continue;
+          }
+
           log.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, {
             error: err instanceof Error ? err.message : String(err),
           });
           console.error(`[ScanEngine] Error scanning chunk ${i}-${i + chunk.length}:`, err);
-          // Fail the scan rather than continue: findings from the other chunks would be
-          // evaluated as if these files were clean, and a PR whose risky file sat in this
-          // chunk would pass.
           throw new ScanIncompleteError(
             chunk.map((file) => file.filename),
             err,
@@ -400,26 +510,78 @@ export async function processScanJob(
           progress,
         });
 
-        // Update database progress
         await updateScanJobProgress(scanJobId, {
           scannedFiles,
           vulnerabilitiesFound: vulnCount,
         }).catch(() => {});
 
-        // Yield to event loop between chunks
         if (scannedFiles < totalFiles) {
           await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
         }
       }
     }
 
-    // Persist raw findings in scan cache for subsequent synchronize events
     await setCachedScan(cacheKey, allFindings).catch((err) => {
       console.warn("[ScanEngine] Failed to save findings to scan cache:", err);
     });
   }
 
-  // --- Phase 3: Enrich findings with AI explanations ---
+  // Ensure deterministic dependency security checks are present (#2003)
+  const dependencyRuleFindings = runDependencySecurityRules(fileChanges, { repositoryId });
+  for (const df of dependencyRuleFindings) {
+    const alreadyExists = allFindings.some(
+      (f) =>
+        f.fileLocation === df.fileLocation &&
+        f.lineStart === df.lineStart &&
+        f.matchedSignatures?.some((s) => df.matchedSignatures?.includes(s)),
+    );
+    if (!alreadyExists) {
+      allFindings.push(df);
+    }
+  }
+
+  // Ensure deterministic workflow security rules are present (#2002)
+  const workflowRuleFindings = runWorkflowSecurityRules(fileChanges, { repositoryId });
+  for (const wf of workflowRuleFindings) {
+    const alreadyExists = allFindings.some(
+      (f) =>
+        f.fileLocation === wf.fileLocation &&
+        f.lineStart === wf.lineStart &&
+        f.matchedSignatures?.some((s) => wf.matchedSignatures?.includes(s)),
+    );
+    if (!alreadyExists) {
+      allFindings.push(wf);
+    }
+  }
+
+  // Ensure deterministic IaC security rules are present (#2004)
+  const iacOptions = resolveIacRuleOptions(repositoryGateConfig);
+  const iacRuleFindings = runIacSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: iacOptions.enabled,
+    disabledRules: iacOptions.disabledRules,
+  });
+  for (const iac of iacRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === iac.fileLocation && f.lineStart === iac.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === iac.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === iac.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        iac.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = iac;
+      }
+    } else {
+      allFindings.push(iac);
+    }
+  }
+
   onProgress({
     phase: "enriching",
     scannedFiles: totalFiles,
@@ -428,8 +590,6 @@ export async function processScanJob(
     progress: 90,
   });
 
-  // Compute fingerprints. `EnrichedScanFinding` declares the field; `ScanFinding`
-  // does not, which is what made this assignment a type error (#747).
   allFindings.forEach((f) => {
     f.fingerprint = computeFingerprint(repositoryId, f.fileLocation, f.type, f.codeSnippet);
   });
@@ -443,7 +603,6 @@ export async function processScanJob(
     });
   }
 
-  // Check for suppressed (dismissed) findings
   const suppressedFingerprints = new Set<string>();
   if (repositoryId) {
     const dismissed = await prisma.findingTriage.findMany({
@@ -460,7 +619,6 @@ export async function processScanJob(
     (f) => !f.fingerprint || !suppressedFingerprints.has(f.fingerprint),
   );
 
-  // Apply installation-wide suppression rules after repository fingerprint dismissals (#1891)
   let activeFindings = nonDismissedFindings;
   let ruleSuppressedFindings: EnrichedScanFinding[] = [];
 
@@ -493,7 +651,6 @@ export async function processScanJob(
     });
   }
 
-  // Enrich active findings with AI explanations in batches to prevent rate-limit storms (thundering herd)
   const enrichedFindings: EnrichedScanFinding[] = [];
 
   for (let i = 0; i < activeFindings.length; i += AI_ENRICHMENT_CONCURRENCY) {
@@ -529,9 +686,31 @@ export async function processScanJob(
     enrichedFindings.push(...batchResults);
   }
 
-  const decision = iq.evaluateFindings(activeFindings, repositoryGateConfig);
+  // #2007: Run verification pass for CRITICAL findings before evaluating gate
+  if (
+    repositoryGateConfig.verifyCritical ||
+    repositoryGateConfig.verifyCriticalFindings ||
+    resolveVerifyCritical(repositoryGateConfig)
+  ) {
+    await verifyCriticalFindings(enrichedFindings, {
+      gateConfig: repositoryGateConfig,
+      fileChanges,
+      policies: (activePolicies as any[]) || [],
+    });
+    for (let j = 0; j < activeFindings.length; j++) {
+      if (enrichedFindings[j]) {
+        activeFindings[j].verificationStatus = enrichedFindings[j].verificationStatus;
+        activeFindings[j].verificationReason = enrichedFindings[j].verificationReason;
+        activeFindings[j].verificationRawResponse = enrichedFindings[j].verificationRawResponse;
+      }
+    }
+  }
 
-  // --- Phase 5: Post to GitHub ---
+  const decision = iq.evaluateFindings(enrichedFindings, repositoryGateConfig);
+  const analyzedFilesCount = reusedFromCache ? totalFiles : allAnalyzedFiles.length;
+  const zeroScanReason =
+    analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
+
   onProgress({
     phase: "posting",
     scannedFiles: totalFiles,
@@ -545,7 +724,6 @@ export async function processScanJob(
       const { owner, repo } = splitRepositoryFullName(repositoryFullName);
       const gateSummary = formatGateSummaryLine(repositoryGateConfig);
 
-      // Create check run
       const checkNoticeParts: string[] = [];
       if (gateSummary) checkNoticeParts.push(gateSummary);
       if (allSkippedFiles.length > 0) {
@@ -555,34 +733,64 @@ export async function processScanJob(
       }
       const checkNotice = checkNoticeParts.length > 0 ? checkNoticeParts.join("\n\n") : undefined;
 
+      const isPartialScan = budgetExceeded || allSkippedFiles.length > 0;
+
       await postScanCheckRun(octokit as any, {
         owner,
         repo,
         headSha,
         decision,
         findingsCount: enrichedFindings.length,
-        fileCount: totalFiles,
+        fileCount: analyzedFilesCount,
+        emptyReason: analyzedFilesCount === 0 ? zeroScanReason : undefined,
         notice: checkNotice,
         findings: enrichedFindings,
+        isPartial: isPartialScan,
+        unscannedFiles: allSkippedFiles,
+        conclusion: isPartialScan ? "neutral" : undefined,
       });
 
-      // Post PR comment if there are findings, skipped files, or expired ignore rules
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
       const previouslyDismissedCount = allFindings.length - nonDismissedFindings.length;
+
+      const minConfidence = repositoryGateConfig.minCommentConfidence ?? "MEDIUM";
+      const visibleFindings = enrichedFindings.filter((f) =>
+        isConfidenceAtLeast(f.confidence, minConfidence),
+      );
+      const hiddenByConfidenceCount = enrichedFindings.length - visibleFindings.length;
+
       if (
         enrichedFindings.length > 0 ||
         allSkippedFiles.length > 0 ||
         expiredRules.length > 0 ||
-        ruleSuppressedFindings.length > 0
+        ruleSuppressedFindings.length > 0 ||
+        analyzedFilesCount === 0 ||
+        defaultSkippedCount > 0
       ) {
+        const scanTime = new Date().toISOString();
         let body = `${SECUREFLOW_COMMENT_MARKER}\n### 🛡️ SecureFlow AI Security Report\n\n`;
-        if (headSha) {
-          body += `Scanned commit: \`${headSha}\`\n\n`;
+        if (typeof formatScanMetadata === "function") {
+          body += formatScanMetadata({ commitSha: headSha, scanTime });
+        } else {
+          if (headSha) {
+            body += `Scanned commit: \`${headSha}\`\n`;
+          }
+          body += `Scan time: \`${scanTime}\`\n\n`;
         }
         if (enrichedFindings.length > 0) {
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
+        } else if (analyzedFilesCount === 0) {
+          body += `⚪ Nothing to scan: ${zeroScanReason}.\n\n`;
         } else {
           body += `✅ No security vulnerabilities detected in scanned files.\n\n`;
+        }
+
+        if (defaultSkippedCount > 0) {
+          body += `ℹ️ **${defaultSkippedCount} file${defaultSkippedCount === 1 ? "" : "s"}** skipped by default ignore patterns.\n\n`;
+        }
+
+        if (hiddenByConfidenceCount > 0) {
+          body += `🛡️ **${hiddenByConfidenceCount} lower-confidence finding${hiddenByConfidenceCount === 1 ? "" : "s"}** below the \`${minConfidence}\` confidence threshold ${hiddenByConfidenceCount === 1 ? "was" : "were"} hidden from this comment (all findings remain visible in dashboard).\n\n`;
         }
 
         if (expiredRules.length > 0) {
@@ -616,11 +824,20 @@ export async function processScanJob(
 
         const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
 
-        enrichedFindings.forEach((f) => {
+        visibleFindings.forEach((f) => {
           body += `#### ${severityBadge(f.severity)} | **${f.type}** in \`${f.fileLocation}\`\n`;
           const findingId = (f as any).id;
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
+          if (f.verificationStatus === "UNVERIFIED") {
+            body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
+          } else if (f.verificationStatus === "CONFIRMED") {
+            body += `> 🛡️ **Verification: CONFIRMED**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
+          }
+          if (f.confidence) {
+            const reasonSuffix = f.confidenceReason ? ` — ${f.confidenceReason}` : "";
+            body += `> **Confidence:** ${f.confidence}${reasonSuffix}\n\n`;
           }
           if (f.promptInjectionSuspected) {
             body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.**\n\n`;
@@ -635,17 +852,49 @@ export async function processScanJob(
           issueNumber: prNumber,
           body,
         });
+
+        // Post suggested changes as inline review comments when enabled (#2005)
+        const suggestionsConfig = resolveSuggestionsConfig(repositoryGateConfig);
+        if (
+          suggestionsConfig.enabled &&
+          fileChanges.length > 0 &&
+          octokit?.rest?.pulls?.createReview
+        ) {
+          const commentableLinesByFile = new Map<string, Set<number>>();
+          for (const file of fileChanges) {
+            if (file.patch) {
+              commentableLinesByFile.set(
+                file.filename,
+                commentableLineNumbers(parseUnifiedPatch(file.patch)),
+              );
+            }
+          }
+
+          const { inlineComments } = buildInlineReviewComments(
+            enrichedFindings,
+            commentableLinesByFile,
+            { suggestionsConfig },
+          );
+
+          if (inlineComments.length > 0) {
+            await postSuggestedChangesReview(octokit, {
+              owner,
+              repo,
+              pullNumber: prNumber,
+              commitId: headSha,
+              comments: inlineComments,
+            });
+          }
+        }
       }
     } catch (err) {
       log.error(`[ScanEngine] Failed to post to GitHub:`, {
         error: err instanceof Error ? err.message : String(err),
       });
       console.error(`[ScanEngine] Failed to post to GitHub:`, err);
-      // Don't throw — the scan results are still valid even if posting fails
     }
   }
 
-  // --- Phase 6: Persist to database ---
   let persistenceError: string | null = null;
 
   if (persist && repositoryId) {
@@ -658,8 +907,6 @@ export async function processScanJob(
         prNumber,
       });
 
-      // Suppressed findings are still stored, so a reversed triage decision does
-      // not lose its history, but they are excluded from the score.
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
       );
@@ -669,25 +916,40 @@ export async function processScanJob(
         ...ruleSuppressedFindings,
       ];
 
+      const isPartialScan = budgetExceeded || allSkippedFiles.length > 0;
+      const scanGateConfig = isPartialScan
+        ? {
+            ...repositoryGateConfig,
+            isPartialScan: true,
+            isPartial: true,
+            skippedFiles: allSkippedFiles.map((f) => f.filename),
+          }
+        : repositoryGateConfig;
+
       await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
           headSha,
-          gateConfig: repositoryGateConfig,
+          gateConfig: scanGateConfig,
           decision,
           scoredFindings: activeFindings,
           findingsToPersist,
         }),
       });
 
-      // Persist scan input for policy backtesting and impact preview (#1892)
       if (
         (prisma as any).storedScanInput &&
         typeof (prisma as any).storedScanInput.create === "function" &&
         fileChanges.length > 0
       ) {
+        const effectiveContext = resolveContextLines(repositoryGateConfig.contextLines);
         const tokenEstimate = fileChanges.reduce(
-          (sum, f) => sum + Math.max(1, Math.ceil((f.patch || "").length / 4)),
+          (sum, f) =>
+            sum +
+            estimateDiffTokens(f.patch, {
+              contextLines: effectiveContext,
+              fullContent: f.content,
+            }),
           0,
         );
         await (prisma as any).storedScanInput
@@ -707,8 +969,6 @@ export async function processScanJob(
           });
       }
 
-      // Auto-resolve open findings from earlier scans of this PR that are now gone (#1869)
-      const isPartialScan = allSkippedFiles.length > 0;
       await autoResolveFixedFindings({
         repositoryId,
         pullRequestId: dbPr.id,
@@ -724,7 +984,6 @@ export async function processScanJob(
         });
       });
 
-      // Audit log
       if (userId) {
         await prisma.auditLog.create({
           data: sanitizeAuditLogInput({
@@ -755,9 +1014,7 @@ export async function processScanJob(
     }
   }
 
-  // --- Phase 7: Real-time alerts (Slack & Teams) ---
   if (userId && enrichedFindings.length > 0) {
-    // 1. High-severity Slack alert for findings
     try {
       const owner = await prisma.user.findUnique({
         where: { id: userId },
@@ -776,7 +1033,6 @@ export async function processScanJob(
       console.error(`[ScanEngine] Slack notification step failed:`, err);
     }
 
-    // 2. BLOCKED scan multi-channel notification (Slack & Teams)
     const isBlockedDecision = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
 
     if (isBlockedDecision) {
@@ -800,7 +1056,6 @@ export async function processScanJob(
     }
   }
 
-  // --- Done ---
   onProgress({
     phase: "completed",
     scannedFiles: totalFiles,
@@ -824,15 +1079,20 @@ export async function processScanJob(
 
   return {
     scanJobId,
-    scannedFiles: totalFiles,
+    scannedFiles: analyzedFilesCount,
+    analyzedFiles: allAnalyzedFiles,
     vulnerabilitiesFound: enrichedFindings.length,
     riskScore,
     policyDecision: storedPolicyDecision(decision),
     verdict: decision,
     findings: enrichedFindings,
     skippedFiles: allSkippedFiles,
+    isPartial: budgetExceeded || allSkippedFiles.length > 0,
+    timedOut: budgetExceeded,
     reusedFromCache,
     expiredIgnoreRules: repositoryIgnoreConfig.expiredRules ?? [],
     appliedPolicyScopes,
+    zeroScanReason,
+    defaultSkippedCount,
   };
 }

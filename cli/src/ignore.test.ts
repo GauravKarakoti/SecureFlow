@@ -8,6 +8,8 @@ import {
   shouldIgnorePath,
   normalizeScanPath,
   loadSecureFlowIgnore,
+  DEFAULT_IGNORE_PATTERNS,
+  getEffectiveIgnorePatterns,
 } from "./ignore.js";
 import { scanFile, shouldScanFile } from "./scanner.js";
 
@@ -235,6 +237,132 @@ no-reason/**
     it("returns null when ignore file does not exist", () => {
       const result = loadSecureFlowIgnore(undefined, tempDir);
       expect(result).toBeNull();
+    });
+
+    it("falls back to default ignore patterns when ignore file is missing", () => {
+      const result = loadSecureFlowIgnore(undefined, tempDir);
+      expect(result).toBeNull();
+
+      const effectiveIgnores = getEffectiveIgnorePatterns(result?.config.ignoredPaths ?? []);
+      expect(shouldIgnorePath("node_modules/axios/index.js", effectiveIgnores)).toBe(true);
+      expect(shouldIgnorePath("dist/bundle.js", effectiveIgnores)).toBe(true);
+      expect(shouldIgnorePath("package-lock.json", effectiveIgnores)).toBe(true);
+      expect(shouldIgnorePath("src/index.ts", effectiveIgnores)).toBe(false);
+    });
+  });
+
+  describe("Negation patterns (!)", () => {
+    it("allows un-ignoring specific files with !pattern", () => {
+      const patterns = compileIgnorePatterns(["fixtures/**", "!fixtures/keep.ts"]);
+
+      expect(shouldIgnorePath("fixtures/other.ts", patterns)).toBe(true);
+      expect(shouldIgnorePath("fixtures/nested/other.ts", patterns)).toBe(true);
+      expect(shouldIgnorePath("fixtures/keep.ts", patterns)).toBe(false);
+      expect(shouldIgnorePath("src/app.ts", patterns)).toBe(false);
+    });
+
+    it("evaluates negation in sequential rule order where later rules override earlier ones", () => {
+      const reIgnored = compileIgnorePatterns(["!important.ts", "*.ts"]);
+      expect(shouldIgnorePath("important.ts", reIgnored)).toBe(true);
+
+      const unIgnored = compileIgnorePatterns(["*.ts", "!important.ts"]);
+      expect(shouldIgnorePath("important.ts", unIgnored)).toBe(false);
+      expect(shouldIgnorePath("other.ts", unIgnored)).toBe(true);
+    });
+
+    it("allows negating default ignore patterns such as vendored packages", () => {
+      const patterns = getEffectiveIgnorePatterns(["!node_modules/my-vendored-lib/**"]);
+
+      expect(shouldIgnorePath("node_modules/other-lib/index.js", patterns)).toBe(true);
+      expect(shouldIgnorePath("node_modules/my-vendored-lib/index.js", patterns)).toBe(false);
+    });
+
+    it("handles negation in nested directories", () => {
+      const patterns = compileIgnorePatterns([
+        "packages/api/fixtures/**",
+        "!packages/api/fixtures/keep.json",
+      ]);
+
+      expect(shouldIgnorePath("packages/api/fixtures/data.json", patterns)).toBe(true);
+      expect(shouldIgnorePath("packages/api/fixtures/nested/data.json", patterns)).toBe(true);
+      expect(shouldIgnorePath("packages/api/fixtures/keep.json", patterns)).toBe(false);
+    });
+  });
+
+  describe("Default ignore patterns and nested directories", () => {
+    const defaultIgnores = compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
+
+    it.each([
+      "node_modules/lodash/index.js",
+      "packages/web/node_modules/react/index.js",
+      "apps/backend/deep/node_modules/pg/index.js",
+      "dist/bundle.js",
+      "packages/cli/dist/index.js",
+      "build/app.js",
+      "client/build/static/js/main.js",
+      ".next/server/pages.js",
+      "apps/web/.next/cache/data.json",
+      "coverage/lcov.info",
+      "sub/coverage/index.html",
+      "target/debug/app",
+      "package-lock.json",
+      "packages/ui/package-lock.json",
+      "yarn.lock",
+      "backend/yarn.lock",
+      "pnpm-lock.yaml",
+      "nested/dir/pnpm-lock.yaml",
+      "Cargo.lock",
+      "crates/core/Cargo.lock",
+      "Gemfile.lock",
+      "poetry.lock",
+      "composer.lock",
+    ])("skips default path %s", (path) => {
+      expect(shouldIgnorePath(path, defaultIgnores)).toBe(true);
+    });
+
+    it.each([
+      "src/index.ts",
+      "src/components/Button.tsx",
+      "packages/core/src/service.ts",
+      "lib/auth.ts",
+      "distribution.ts",
+      "src/rebuild.ts",
+    ])("does not skip normal source file %s", (path) => {
+      expect(shouldIgnorePath(path, defaultIgnores)).toBe(false);
+    });
+
+    it("matches directory pattern without trailing slash in root and nested directories", () => {
+      const patterns = compileIgnorePatterns(["fixtures", "vendor"]);
+
+      expect(shouldIgnorePath("fixtures/data.json", patterns)).toBe(true);
+      expect(shouldIgnorePath("packages/app/fixtures/data.json", patterns)).toBe(true);
+      expect(shouldIgnorePath("vendor/lib.js", patterns)).toBe(true);
+      expect(shouldIgnorePath("sub/vendor/lib.js", patterns)).toBe(true);
+      expect(shouldIgnorePath("fixtures.json", patterns)).toBe(false);
+      expect(shouldIgnorePath("my_fixtures/data.json", patterns)).toBe(false);
+    });
+
+    it("scanFile skips node_modules and build directories by default even with no customIgnores", () => {
+      const nodeModulesResult = scanFile(
+        "node_modules/pkg/index.js",
+        'console.log("Secret:", process.env.SECRET_KEY);',
+      );
+      expect(nodeModulesResult.skipped).toBe("matched .secureflowignore");
+      expect(nodeModulesResult.violations).toHaveLength(0);
+
+      const distResult = scanFile(
+        "packages/app/dist/bundle.js",
+        'console.log("Secret:", process.env.SECRET_KEY);',
+      );
+      expect(distResult.skipped).toBe("matched .secureflowignore");
+      expect(distResult.violations).toHaveLength(0);
+
+      const normalResult = scanFile(
+        "src/app.ts",
+        'console.log("Secret:", process.env.SECRET_KEY);',
+      );
+      expect(normalResult.skipped).toBeUndefined();
+      expect(normalResult.violations).toHaveLength(1);
     });
   });
 

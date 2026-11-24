@@ -16,6 +16,12 @@ import {
   OUTBOUND_EVENT_TYPES,
   type OutboundEventType,
 } from "@/lib/webhooks/outbound-dispatcher";
+import { can, assertCan } from "@/lib/auth/permissions";
+import {
+  resolveEffectiveSettings,
+  type EffectiveResolvedSettings,
+} from "@/lib/scanner/installation-settings";
+import { getInstallationSettings } from "@/lib/actions/installation-settings";
 
 export async function updateSlackWebhook(url: string | null) {
   const session = await auth();
@@ -24,8 +30,8 @@ export async function updateSlackWebhook(url: string | null) {
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  assertCan(session?.user, null, "settings:edit");
 
-  // Strict Slack webhook URL validation
   if (url !== null && url.trim() !== "") {
     assertSlackWebhookUrl(url);
   }
@@ -62,8 +68,8 @@ export async function updateTeamsWebhook(url: string | null) {
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  assertCan(session?.user, null, "settings:edit");
 
-  // Strict Teams webhook URL validation
   if (url !== null && url.trim() !== "") {
     assertTeamsWebhookUrl(url);
   }
@@ -179,6 +185,12 @@ export interface RepoBadgeSetting {
   codeScanningEnabled: boolean;
   codeScanningWarning?: string | null;
   latestStatus?: string | null;
+  baselineScanEnabled?: boolean;
+  baselineFrequency?: string;
+  baselineFileLimit?: number;
+  lastBaselineScanAt?: Date | null;
+  lastBaselineScanStatus?: string | null;
+  effectiveSettings?: EffectiveResolvedSettings;
 }
 
 export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSetting[]> {
@@ -186,23 +198,38 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
   const userId = session?.user?.id;
   if (!userId) return [];
 
-  const repos = await prisma.repository.findMany({
-    where: { userId, isActive: true },
-    select: {
-      id: true,
-      fullName: true,
-      owner: true,
-      publicBadgeEnabled: true,
-      codeScanningEnabled: true,
-      codeScanningWarning: true,
-      pullRequests: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { status: true },
+  const [repos, installationSettings] = await Promise.all([
+    prisma.repository.findMany({
+      where: { userId, isActive: true },
+      select: {
+        id: true,
+        fullName: true,
+        owner: true,
+        publicBadgeEnabled: true,
+        codeScanningEnabled: true,
+        codeScanningWarning: true,
+        baselineScanEnabled: true,
+        baselineFrequency: true,
+        baselineFileLimit: true,
+        lastBaselineScanAt: true,
+        lastBaselineScanStatus: true,
+        pullRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            status: true,
+            scanResults: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { gateConfig: true },
+            },
+          },
+        },
       },
-    },
-    orderBy: { fullName: "asc" },
-  });
+      orderBy: { fullName: "asc" },
+    }),
+    getInstallationSettings("default"),
+  ]);
 
   return (
     repos as Array<{
@@ -212,17 +239,36 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       publicBadgeEnabled: boolean;
       codeScanningEnabled: boolean;
       codeScanningWarning?: string | null;
-      pullRequests: Array<{ status: string }>;
+      baselineScanEnabled?: boolean;
+      baselineFrequency?: string;
+      baselineFileLimit?: number;
+      lastBaselineScanAt?: Date | null;
+      lastBaselineScanStatus?: string | null;
+      pullRequests: Array<{
+        status: string;
+        scanResults?: Array<{ gateConfig?: any }>;
+      }>;
     }>
-  ).map((repo) => ({
-    id: repo.id,
-    fullName: repo.fullName,
-    owner: repo.owner,
-    publicBadgeEnabled: repo.publicBadgeEnabled,
-    codeScanningEnabled: repo.codeScanningEnabled,
-    codeScanningWarning: repo.codeScanningWarning ?? null,
-    latestStatus: repo.pullRequests[0]?.status ?? null,
-  }));
+  ).map((repo) => {
+    const latestGateConfig = repo.pullRequests[0]?.scanResults?.[0]?.gateConfig ?? null;
+    const effectiveSettings = resolveEffectiveSettings(latestGateConfig, installationSettings);
+
+    return {
+      id: repo.id,
+      fullName: repo.fullName,
+      owner: repo.owner,
+      publicBadgeEnabled: repo.publicBadgeEnabled,
+      codeScanningEnabled: repo.codeScanningEnabled,
+      codeScanningWarning: repo.codeScanningWarning ?? null,
+      latestStatus: repo.pullRequests[0]?.status ?? null,
+      baselineScanEnabled: repo.baselineScanEnabled ?? false,
+      baselineFrequency: repo.baselineFrequency ?? "weekly",
+      baselineFileLimit: repo.baselineFileLimit ?? 50,
+      lastBaselineScanAt: repo.lastBaselineScanAt ?? null,
+      lastBaselineScanStatus: repo.lastBaselineScanStatus ?? null,
+      effectiveSettings,
+    };
+  });
 }
 
 export async function updateRepositoryPublicBadge(
@@ -400,6 +446,12 @@ export async function createApiToken(input: CreateApiTokenInput): Promise<Create
   if (!userId) {
     throw new Error("Unauthorized");
   }
+  if (!can(session?.user, null, "api_tokens:manage")) {
+    return {
+      success: false,
+      error: "Permission denied: Only administrators can create API tokens.",
+    };
+  }
 
   const name = input?.name?.trim();
   if (!name || name.length < 1 || name.length > 100) {
@@ -431,7 +483,6 @@ export async function createApiToken(input: CreateApiTokenInput): Promise<Create
     }
     expiresAt = customDate;
   } else {
-    // Default to 30 days
     expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   }
 
@@ -492,6 +543,12 @@ export async function revokeApiToken(tokenId: string): Promise<RevokeApiTokenRes
   const userId = session?.user?.id;
   if (!userId) {
     throw new Error("Unauthorized");
+  }
+  if (!can(session?.user, null, "api_tokens:manage")) {
+    return {
+      success: false,
+      error: "Permission denied: Only administrators can revoke API tokens.",
+    };
   }
 
   const token = await prisma.apiToken.findFirst({
@@ -570,9 +627,6 @@ export interface OutboundWebhookDeliveryView {
   createdAt: Date;
 }
 
-/**
- * Fetch all outbound webhooks configured by the authenticated user with recent delivery summaries.
- */
 export async function getOutboundWebhooks(): Promise<OutboundWebhookView[]> {
   const session = await auth();
   const userId = session?.user?.id;
@@ -611,10 +665,6 @@ export async function getOutboundWebhooks(): Promise<OutboundWebhookView[]> {
   }));
 }
 
-/**
- * Register a new outbound webhook endpoint with SSRF validation and cryptographic secret generation.
- * Returns the plain secret once upon creation.
- */
 export async function createOutboundWebhook(input: {
   url: string;
   events: string[];
@@ -636,7 +686,6 @@ export async function createOutboundWebhook(input: {
     throw new Error("Unauthorized");
   }
 
-  // 1. Events validation
   if (!Array.isArray(input.events) || input.events.length === 0) {
     return { success: false, error: "Please select at least one event." };
   }
@@ -649,13 +698,11 @@ export async function createOutboundWebhook(input: {
     };
   }
 
-  // 2. SSRF & URL validation
   const validation = await validateOutboundWebhookUrl(input.url);
   if (!validation.ok) {
     return { success: false, error: validation.error };
   }
 
-  // 3. Generate per-endpoint secret
   const secret = generateOutboundWebhookSecret();
 
   const created = await prisma.outboundWebhook.create({
@@ -683,9 +730,6 @@ export async function createOutboundWebhook(input: {
   };
 }
 
-/**
- * Delete an outbound webhook endpoint.
- */
 export async function deleteOutboundWebhook(
   webhookId: string,
 ): Promise<{ success: boolean; error?: string }> {
@@ -711,9 +755,6 @@ export async function deleteOutboundWebhook(
   return { success: true };
 }
 
-/**
- * Toggle an outbound webhook endpoint enabled status.
- */
 export async function toggleOutboundWebhook(
   webhookId: string,
   enabled: boolean,
@@ -741,9 +782,6 @@ export async function toggleOutboundWebhook(
   return { success: true };
 }
 
-/**
- * Retrieve delivery logs for a given webhook endpoint.
- */
 export async function getOutboundWebhookDeliveries(
   webhookId: string,
   limit: number = 20,
@@ -777,9 +815,6 @@ export async function getOutboundWebhookDeliveries(
   }));
 }
 
-/**
- * Trigger a test delivery (ping) to verify endpoint connectivity.
- */
 export async function testOutboundWebhook(webhookId: string): Promise<{
   success: boolean;
   statusCode?: number | null;
@@ -824,3 +859,9 @@ export async function testOutboundWebhook(webhookId: string): Promise<{
   revalidatePath("/dashboard/settings");
   return outcome;
 }
+
+export {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreferencesDto,
+} from "@/lib/actions/notifications";

@@ -271,4 +271,18 @@ describe("FindingsClient Component (#633)", () => {
     render(<FindingsClient {...defaultProps} findings={[reopenedFinding]} total={1} />);
     expect(screen.getByText(/previous dismissal expired on 2026-11-20/)).toBeInTheDocument();
   });
+
+  it("renders note count badge when finding has notes (#1920)", () => {
+    const findingWithNotes: any = {
+      ...mockFindings[0],
+      noteCount: 3,
+    };
+
+    render(<FindingsClient {...defaultProps} findings={[findingWithNotes]} total={1} />);
+
+    const badge = screen.getByTestId("finding-note-count");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("3");
+    expect(badge).toHaveAttribute("title", "3 reviewer notes");
+  });
 });

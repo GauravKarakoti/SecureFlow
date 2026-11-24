@@ -159,7 +159,7 @@ export async function getThreatIntelCacheWithSwr<T>(
     }
   }
 
-  if (!raw) return null;
+  if (raw === null) return null;
 
   try {
     const envelope = JSON.parse(raw) as ThreatIntelCacheEnvelope<T>;
@@ -217,6 +217,9 @@ export async function getThreatIntelCacheWithSwr<T>(
       cachedAt: envelope.cachedAt,
     };
   } catch {
+    console.warn(
+      "[SecureFlow Threat Intel] Could not deserialize cached threat intelligence. Discarding this memory entry; refresh the feed to recover.",
+    );
     memoryCache.delete(redisKey);
     return null;
   }

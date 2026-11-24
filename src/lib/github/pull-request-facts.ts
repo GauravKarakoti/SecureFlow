@@ -39,7 +39,7 @@ export type PullRequestState = "OPEN" | "CLOSED" | "MERGED";
 export type PullRequestActionKind = "scan" | "metadata" | "ignore";
 
 /** Actions that justify a full scan. Unchanged from the previous inline list. */
-export const SCANNABLE_ACTIONS = ["opened", "synchronize", "reopened"] as const;
+export const SCANNABLE_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"] as const;
 
 /**
  * Actions that update the stored row without scanning.

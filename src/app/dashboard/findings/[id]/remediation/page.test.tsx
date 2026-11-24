@@ -175,4 +175,41 @@ describe("RemediationPage client component (#1372)", () => {
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith("Failed to create pull request"));
   });
+
+  it("displays Verified Ready Fix badge when patch is verified", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ...patchBody,
+        verified: true,
+      }),
+    );
+    render(<RemediationPage />);
+    await generatePatch();
+
+    expect(screen.getByText("✅ Verified Ready Fix")).toBeInTheDocument();
+  });
+
+  it("never displays failing patches as ready fixes and surfaces short note", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        success: true,
+        verified: false,
+        readyFix: false,
+        note: "AI patch failed verification and was discarded.",
+        patch: { patchDiff: "" },
+      }),
+    );
+    render(<RemediationPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Generate Remediation Patch/ }));
+
+    await screen.findByRole("alert");
+    expect(
+      screen.getByText("AI patch failed verification and was discarded."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("patch-diff-viewer")).not.toBeInTheDocument();
+    expect(screen.queryByText("✅ Verified Ready Fix")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Approve & create draft PR/ }),
+    ).not.toBeInTheDocument();
+  });
 });

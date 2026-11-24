@@ -139,6 +139,24 @@ export function evaluateSampleMatch(
     }
   }
 
+  // Confidence check if specified (#1924)
+  if (sample.expected.expectedConfidence) {
+    const expectedConf = sample.expected.expectedConfidence;
+    const matchesConfidence = findings.some((f) => f.confidence === expectedConf);
+    if (!matchesConfidence) {
+      const actualConfidences = findings.map((f) => f.confidence ?? "MEDIUM");
+      return {
+        passed: false,
+        detectedCount,
+        expectedCategory: sample.expected.category,
+        actualCategories,
+        expectedMinSeverity: sample.expected.minSeverity,
+        actualSeverities,
+        reason: `Expected confidence ${expectedConf}, but received [${actualConfidences.join(", ")}].`,
+      };
+    }
+  }
+
   return {
     passed: true,
     detectedCount,

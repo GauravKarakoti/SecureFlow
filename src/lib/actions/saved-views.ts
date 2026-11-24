@@ -14,6 +14,7 @@ export interface SavedViewFilters {
   to?: string | null;
   sort?: string;
   expiring?: string | null;
+  assignee?: string | null;
 }
 
 export interface SavedViewDto {
@@ -77,6 +78,9 @@ export async function sanitizeViewFilters(
   }
   if (typeof filters.expiring === "string" && filters.expiring.trim()) {
     sanitized.expiring = filters.expiring.trim();
+  }
+  if (typeof filters.assignee === "string" && filters.assignee.trim()) {
+    sanitized.assignee = filters.assignee.trim();
   }
 
   return sanitized;

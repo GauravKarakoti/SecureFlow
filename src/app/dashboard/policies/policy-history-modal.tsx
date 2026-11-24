@@ -126,7 +126,7 @@ export function PolicyHistoryModal({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 pt-3">
             {/* Version List Sidebar */}
-            <div className="space-y-2 overflow-y-auto max-h-[50vh] pr-1 border-r border-white/10">
+            <div className="space-y-2 overflow-y-auto max-h-[50vh] pr-1 border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
               <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
                 Versions ({versions.length})
               </div>
@@ -138,7 +138,7 @@ export function PolicyHistoryModal({
                   aria-pressed={selectedVersionId === ver.id}
                   aria-label={`Select policy version ${ver.versionNumber}`}
                   data-testid={`version-item-${ver.versionNumber}`}
-                  className={`w-full text-left p-2.5 rounded-lg border transition-all text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  className={`w-full text-left p-2.5 rounded-lg border transition-all text-xs min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     selectedVersionId === ver.id
                       ? "bg-primary/10 border-primary/40 text-white"
                       : "bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10"
@@ -164,7 +164,7 @@ export function PolicyHistoryModal({
             <div className="md:col-span-2 flex flex-col min-h-0 space-y-3">
               {selectedVersion && (
                 <>
-                  <div className="flex items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10 text-xs gap-3">
                     <div>
                       <span className="text-zinc-400">Comparing </span>
                       <strong className="text-white">
@@ -178,7 +178,7 @@ export function PolicyHistoryModal({
                       onClick={handleRollback}
                       disabled={isRollingBack}
                       data-testid="restore-version-button"
-                      className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground h-8 text-xs font-medium"
+                      className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground min-h-[44px] text-xs font-medium"
                     >
                       {isRollingBack ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />

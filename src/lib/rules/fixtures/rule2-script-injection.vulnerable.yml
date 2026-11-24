@@ -1,0 +1,14 @@
+name: Vulnerable Script Injection
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: read
+
+jobs:
+  print-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print issue title
+        run: echo "Issue title is ${{ github.event.issue.title }}"

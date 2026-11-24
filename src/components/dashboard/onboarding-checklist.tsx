@@ -207,8 +207,8 @@ export default function OnboardingChecklist({
       description:
         "Confirm GitHub webhooks are reaching your SecureFlow deployment and HMAC signatures match.",
       isComplete: isWebhookReceived,
-      fixHref: "/docs/runbook.md#1-webhook-deliveries-failing",
-      fixLabel: "Webhook runbook",
+      fixHref: "/admin/webhooks",
+      fixLabel: "Webhook Deliveries",
       action: (
         <div className="flex items-center gap-2">
           <Button
@@ -221,6 +221,12 @@ export default function OnboardingChecklist({
             <Send className={`w-3.5 h-3.5 ${isSendingTest ? "animate-spin" : ""}`} />
             {isSendingTest ? "Testing..." : "Send Test Event"}
           </Button>
+          <Link
+            href="/admin/webhooks"
+            className="text-xs text-muted-foreground hover:text-white underline font-medium"
+          >
+            Deliveries
+          </Link>
           {!isWebhookReceived && (
             <Link
               href="/docs/runbook.md#1-webhook-deliveries-failing"

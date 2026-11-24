@@ -260,65 +260,70 @@ carries the `secureflow-metrics: "true"` label and the named port
 `service.portName`, which the optional ServiceMonitor selects, so each app pod
 is scraped once. The Service type and port come from `app.service.*`.
 
-| Parameter                    | Description                                     | Default          |
-| ---------------------------- | ----------------------------------------------- | ---------------- |
-| `app.replicaCount`           | Number of Next.js app replicas                  | `2`              |
-| `app.image.repository`       | Next.js container image repository              | `secureflow/app` |
-| `app.service.port`           | Application service port                        | `9002`           |
-| `service.portName`           | Port name of the application Service, selected by ServiceMonitor | `http`           |
-| `app.autoscaling.enabled`    | Enable HorizontalPodAutoscaler for app          | `false`          |
-| `app.podDisruptionBudget.enabled`    | Enable PodDisruptionBudget for app              | `true`           |
-| `app.podDisruptionBudget.minAvailable` | Minimum available app replicas during voluntary disruptions | `1` |
-| `app.resources.requests`     | Enforced CPU and memory requests for app container | `cpu: 250m, memory: 512Mi, ephemeral-storage: 512Mi` |
-| `app.resources.limits`       | Enforced CPU and memory limits for app container   | `cpu: 1000m, memory: 1024Mi, ephemeral-storage: 2Gi` |
-| `worker.enabled`             | Enable background queue workers                 | `true`           |
-| `worker.replicaCount`        | Number of worker replicas                       | `2`              |
-| `worker.concurrency`         | Scan concurrency per worker                     | `5`              |
-| `worker.resources.requests`  | Enforced CPU and memory requests for worker container (OOM protection during heavy AST/SBOM scans) | `cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi` |
-| `worker.resources.limits`    | Enforced CPU and memory limits for worker container | `cpu: 2000m, memory: 2Gi, ephemeral-storage: 10Gi` |
-| `worker.autoscaling.enabled` | Enable HorizontalPodAutoscaler for workers      | `false`          |
-| `worker.autoscaling.queueTrigger.enabled` | Enable queue-depth external metric HPA trigger for BullMQ queues (#1797) | `false` |
-| `worker.autoscaling.queueTrigger.metricName` | Metric name for BullMQ queue length external metric | `secureflow_bullmq_scan_queue_waiting` |
-| `worker.autoscaling.queueTrigger.targetAverageValue` | Target queue waiting jobs threshold for triggering scale out | `10` |
-| `worker.autoscaling.queueTrigger.metricType` | Target metric type (`Value` or `AverageValue`) | `Value` |
-| `worker.localInference.enabled` | Enable local AI inference with VRAM limits and concurrency controls (#1797) | `false` |
-| `worker.localInference.url` | Endpoint URL of local LLM inference server (Ollama / vLLM) | `http://ollama.ai.svc.cluster.local:11434/v1` |
-| `worker.localInference.model` | Default local inference model ID | `llama3` |
-| `worker.localInference.fallbackModels` | Comma-separated list of fallback local models during VRAM pressure | `llama3.2:3b,llama3.2:1b` |
-| `worker.localInference.vramConcurrencyThreshold` | Maximum concurrent local inference generations before queueing/failover | `1` |
-| `worker.localInference.maxQueueWaitMs` | Maximum milliseconds to wait in local inference semaphore queue | `30000` |
-| `worker.localInference.resources.limits` | Hardware accelerator / GPU resource limits for worker inference pods | `nvidia.com/gpu: 1` |
-| `worker.localInference.resources.requests` | Hardware accelerator / GPU resource requests for worker inference pods | `nvidia.com/gpu: 1` |
-| `worker.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for workers          | `true`           |
-| `worker.podDisruptionBudget.minAvailable` | Minimum available worker replicas during voluntary disruptions | `1` |
-| `worker.terminationGracePeriodSeconds` | Pod termination grace period in seconds (default 35s, worker shutdown 25s) | `35` |
-| `worker.lifecycle`           | Container lifecycle hooks (e.g. preStop sleep to allow endpoint draining) | `preStop: exec: command: ["/bin/sh", "-c", "sleep 2"]` |
-| `worker.affinity`            | Node affinity and pod anti-affinity rules for workers | *(preconfigured for worker/compute nodes)* |
-| `resourceQuota.enabled`      | Enable Kubernetes namespace ResourceQuota budget | `true`           |
-| `resourceQuota.hard`         | Hard compute and object limits for the namespace | *(4 CPU / 8Gi req, 8 CPU / 16Gi limit)* |
-| `limitRange.enabled`         | Enable Kubernetes LimitRange for default container bounds | `true`           |
-| `limitRange.limits`          | Default requests, default limits, min and max bounds for containers | *(preconfigured defaults)* |
-| `migration.enabled`          | Enable automated database schema migration hook | `true`           |
-| `retention.enabled`          | Enable scheduled data retention cleanup CronJob | `true`           |
-| `retention.schedule`         | Cron schedule for data retention                | `0 2 * * *`      |
-| `ingress.enabled`            | Enable Ingress resource                         | `false`          |
-| `ingress.className`          | Ingress controller class name                   | `nginx`          |
-| `secrets.existingSecret`     | Name of pre-created secret for credentials      | `""`             |
-| `secrets.authSecret`         | Authentication secret for NextAuth session JWTs (required if `existingSecret` is empty) | `""`             |
-| `networkPolicy.enabled`      | Enable Kubernetes NetworkPolicies to enforce least-privilege ingress to postgresql/redis and default-deny worker egress | `false`          |
-| `networkPolicy.workerEgress.whitelistedEndpoints` | Explicitly whitelisted external API endpoints with `name`, `cidrs`, `ports`, and optional `description` | `[]` |
-| `networkPolicy.workerEgress.extraEgressRules` | Additional custom Kubernetes NetworkPolicy egress rule definitions | `[]` |
-| `networkPolicy.workerEgress.externalCIDRs` | Public IPv4 CIDRs allowed for external worker egress (legacy flat format) | `[]` |
-| `networkPolicy.workerEgress.externalPorts` | TCP destination ports permitted for `externalCIDRs` | `[443]` |
-| `networkPolicy.workerEgress.dns.namespace` | Namespace of the cluster DNS service | `kube-system` |
-| `networkPolicy.workerEgress.dns.podLabels` | Pod selector labels for the cluster DNS service | `k8s-app: kube-dns` |
-| `networkPolicy.workerEgress.dns.ports` | Ports permitted for DNS resolution queries (UDP and TCP) | `[53]` |
-| `postgresql.enabled`         | Deploy in-cluster PostgreSQL StatefulSet        | `true`           |
-| `postgresql.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for PostgreSQL   | `false`          |
-| `postgresql.external.host`   | Hostname of external PostgreSQL instance        | `""`             |
-| `redis.enabled`              | Deploy in-cluster Redis StatefulSet             | `true`           |
-| `redis.podDisruptionBudget.enabled` | Enable PodDisruptionBudget for Redis            | `false`          |
-| `redis.external.url`         | Connection URI for external Redis instance      | `""`             |
+| Parameter                    | Type    | Description                                     | Default          |
+| ---------------------------- | ------- | ----------------------------------------------- | ---------------- |
+| `app.replicaCount`           | `integer` | Number of Next.js app replicas                  | `2`              |
+| `app.image.repository`       | `string`  | Next.js container image repository              | `secureflow/app` |
+| `app.image.tag`              | `string`  | Next.js container image tag override            | `""`             |
+| `app.image.pullPolicy`       | `string`  | Next.js container image pull policy             | `IfNotPresent`   |
+| `app.service.type`           | `string`  | Kubernetes Service type for the app             | `ClusterIP`      |
+| `app.service.port`           | `integer` | Application service port                        | `9002`           |
+| `service.portName`           | `string`  | Port name of the application Service, selected by ServiceMonitor | `http`           |
+| `app.autoscaling.enabled`    | `boolean` | Enable HorizontalPodAutoscaler for app          | `false`          |
+| `app.podDisruptionBudget.enabled`    | `boolean` | Enable PodDisruptionBudget for app              | `true`           |
+| `app.podDisruptionBudget.minAvailable` | `integer/string` | Minimum available app replicas during voluntary disruptions | `1` |
+| `app.resources.requests`     | `object`  | Enforced CPU and memory requests for app container | `cpu: 250m, memory: 512Mi, ephemeral-storage: 512Mi` |
+| `app.resources.limits`       | `object`  | Enforced CPU and memory limits for app container   | `cpu: 1000m, memory: 1024Mi, ephemeral-storage: 2Gi` |
+| `worker.enabled`             | `boolean` | Enable background queue workers                 | `true`           |
+| `worker.replicaCount`        | `integer` | Number of worker replicas                       | `2`              |
+| `worker.image.repository`    | `string`  | Worker container image repository               | `secureflow/worker` |
+| `worker.image.tag`           | `string`  | Worker container image tag override             | `""`             |
+| `worker.concurrency`         | `integer` | Scan concurrency per worker                     | `5`              |
+| `worker.resources.requests`  | `object`  | Enforced CPU and memory requests for worker container (OOM protection during heavy AST/SBOM scans) | `cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi` |
+| `worker.resources.limits`    | `object`  | Enforced CPU and memory limits for worker container | `cpu: 2000m, memory: 2Gi, ephemeral-storage: 10Gi` |
+| `worker.autoscaling.enabled` | `boolean` | Enable HorizontalPodAutoscaler for workers      | `false`          |
+| `worker.autoscaling.queueTrigger.enabled` | `boolean` | Enable queue-depth external metric HPA trigger for BullMQ queues (#1797) | `false` |
+| `worker.autoscaling.queueTrigger.metricName` | `string`  | Metric name for BullMQ queue length external metric | `secureflow_bullmq_scan_queue_waiting` |
+| `worker.autoscaling.queueTrigger.targetAverageValue` | `integer/string` | Target queue waiting jobs threshold for triggering scale out | `10` |
+| `worker.autoscaling.queueTrigger.metricType` | `string`  | Target metric type (`Value` or `AverageValue`) | `Value` |
+| `worker.localInference.enabled` | `boolean` | Enable local AI inference with VRAM limits and concurrency controls (#1797) | `false` |
+| `worker.localInference.url`  | `string`  | Endpoint URL of local LLM inference server (Ollama / vLLM) | `http://ollama.ai.svc.cluster.local:11434/v1` |
+| `worker.localInference.model` | `string`  | Default local inference model ID | `llama3` |
+| `worker.localInference.fallbackModels` | `string` | Comma-separated list of fallback local models during VRAM pressure | `llama3.2:3b,llama3.2:1b` |
+| `worker.localInference.vramConcurrencyThreshold` | `integer` | Maximum concurrent local inference generations before queueing/failover | `1` |
+| `worker.localInference.maxQueueWaitMs` | `integer` | Maximum milliseconds to wait in local inference semaphore queue | `30000` |
+| `worker.localInference.resources.limits` | `object` | Hardware accelerator / GPU resource limits for worker inference pods | `nvidia.com/gpu: 1` |
+| `worker.localInference.resources.requests` | `object` | Hardware accelerator / GPU resource requests for worker inference pods | `nvidia.com/gpu: 1` |
+| `worker.podDisruptionBudget.enabled` | `boolean` | Enable PodDisruptionBudget for workers          | `true`           |
+| `worker.podDisruptionBudget.minAvailable` | `integer/string` | Minimum available worker replicas during voluntary disruptions | `1` |
+| `worker.terminationGracePeriodSeconds` | `integer` | Pod termination grace period in seconds (default 35s, worker shutdown 25s) | `35` |
+| `worker.lifecycle`           | `object`  | Container lifecycle hooks (e.g. preStop sleep to allow endpoint draining) | `preStop: exec: command: ["/bin/sh", "-c", "sleep 2"]` |
+| `worker.affinity`            | `object`  | Node affinity and pod anti-affinity rules for workers | *(preconfigured for worker/compute nodes)* |
+| `resourceQuota.enabled`      | `boolean` | Enable Kubernetes namespace ResourceQuota budget | `true`           |
+| `resourceQuota.hard`         | `object`  | Hard compute and object limits for the namespace | *(4 CPU / 8Gi req, 8 CPU / 16Gi limit)* |
+| `limitRange.enabled`         | `boolean` | Enable Kubernetes LimitRange for default container bounds | `true`           |
+| `limitRange.limits`          | `array`   | Default requests, default limits, min and max bounds for containers | *(preconfigured defaults)* |
+| `migration.enabled`          | `boolean` | Enable automated database schema migration hook | `true`           |
+| `retention.enabled`          | `boolean` | Enable scheduled data retention cleanup CronJob | `true`           |
+| `retention.schedule`         | `string`  | Cron schedule for data retention                | `0 2 * * *`      |
+| `ingress.enabled`            | `boolean` | Enable Ingress resource                         | `false`          |
+| `ingress.className`          | `string`  | Ingress controller class name                   | `nginx`          |
+| `secrets.existingSecret`     | `string`  | Name of pre-created secret for credentials      | `""`             |
+| `secrets.authSecret`         | `string`  | Authentication secret for NextAuth session JWTs (required if `existingSecret` is empty) | `""`             |
+| `networkPolicy.enabled`      | `boolean` | Enable Kubernetes NetworkPolicies to enforce least-privilege ingress to postgresql/redis and default-deny worker egress | `false`          |
+| `networkPolicy.workerEgress.whitelistedEndpoints` | `array` | Explicitly whitelisted external API endpoints with `name`, `cidrs`, `ports`, and optional `description` | `[]` |
+| `networkPolicy.workerEgress.extraEgressRules` | `array` | Additional custom Kubernetes NetworkPolicy egress rule definitions | `[]` |
+| `networkPolicy.workerEgress.externalCIDRs` | `array` | Public IPv4 CIDRs allowed for external worker egress (legacy flat format) | `[]` |
+| `networkPolicy.workerEgress.externalPorts` | `array` | TCP destination ports permitted for `externalCIDRs` | `[443]` |
+| `networkPolicy.workerEgress.dns.namespace` | `string` | Namespace of the cluster DNS service | `kube-system` |
+| `networkPolicy.workerEgress.dns.podLabels` | `object` | Pod selector labels for the cluster DNS service | `k8s-app: kube-dns` |
+| `networkPolicy.workerEgress.dns.ports` | `array` | Ports permitted for DNS resolution queries (UDP and TCP) | `[53]` |
+| `postgresql.enabled`         | `boolean` | Deploy in-cluster PostgreSQL StatefulSet        | `true`           |
+| `postgresql.podDisruptionBudget.enabled` | `boolean` | Enable PodDisruptionBudget for PostgreSQL   | `false`          |
+| `postgresql.external.host`   | `string`  | Hostname of external PostgreSQL instance        | `""`             |
+| `redis.enabled`              | `boolean` | Deploy in-cluster Redis StatefulSet             | `true`           |
+| `redis.podDisruptionBudget.enabled` | `boolean` | Enable PodDisruptionBudget for Redis            | `false`          |
+| `redis.external.url`         | `string`  | Connection URI for external Redis instance      | `""`             |
 
 ---
 

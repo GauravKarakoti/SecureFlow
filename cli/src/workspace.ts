@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { shouldIgnorePath } from "./ignore.js";
 
 export interface WorkspacePaths {
   cliDir: string;
@@ -105,4 +106,153 @@ export function sandboxWorkspacePath(
   }
 
   return canonicalTarget;
+}
+
+export const DEFAULT_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+export const DEFAULT_DIR_SCAN_EXCLUDES = new Set([
+  "node_modules",
+  ".git",
+  ".next",
+  "dist",
+  "build",
+  ".turbo",
+  "coverage",
+  ".secureflow",
+]);
+
+/**
+ * Fast heuristic to determine if a file is binary.
+ * Reads up to the first 8000 bytes and checks for null bytes (\0).
+ */
+export function isBinaryFile(filePath: string, buffer?: Buffer): boolean {
+  try {
+    let buf = buffer;
+    if (!buf) {
+      const fd = fs.openSync(filePath, "r");
+      const readBuf = Buffer.alloc(8000);
+      const bytesRead = fs.readSync(fd, readBuf, 0, 8000, 0);
+      fs.closeSync(fd);
+      buf = readBuf.subarray(0, bytesRead);
+    }
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] === 0) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export interface DiscoverWorkspaceFilesOptions {
+  workspaceRoot?: string | undefined;
+  customIgnores?: RegExp[] | undefined;
+  maxFileSizeBytes?: number | undefined;
+  skipBinary?: boolean | undefined;
+  maxDepth?: number | undefined;
+}
+
+/**
+ * Recursively discovers files in targetDir with workspace sandboxing, symlink escape protection,
+ * cycle avoidance, .secureflowignore matching, and binary/oversized file exclusion.
+ */
+export function discoverWorkspaceFiles(
+  targetDir: string,
+  options: DiscoverWorkspaceFilesOptions = {},
+): string[] {
+  const root = options.workspaceRoot ? path.resolve(options.workspaceRoot) : process.cwd();
+  const maxSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
+  const skipBinary = options.skipBinary ?? true;
+  const maxDepth = options.maxDepth ?? 30;
+  const customIgnores = options.customIgnores ?? [];
+
+  let sandboxedTarget: string;
+  try {
+    sandboxedTarget = sandboxWorkspacePath(targetDir, root);
+  } catch (err) {
+    if (err instanceof PathTraversalError) {
+      console.warn(`⚠️  [SecureFlow] Target directory rejected: ${err.message}`);
+      return [];
+    }
+    throw err;
+  }
+
+  if (!fs.existsSync(sandboxedTarget)) {
+    return [];
+  }
+
+  const targetStat = fs.statSync(sandboxedTarget);
+  if (!targetStat.isDirectory()) {
+    if (targetStat.size > maxSizeBytes) return [];
+    if (skipBinary && isBinaryFile(sandboxedTarget)) return [];
+    const rel = path.relative(root, sandboxedTarget).replace(/\\/g, "/");
+    return [rel];
+  }
+
+  const results: string[] = [];
+  const visitedRealPaths = new Set<string>();
+
+  function walk(currentDir: string, depth: number): void {
+    if (depth > maxDepth) return;
+
+    let realCurrent: string;
+    try {
+      realCurrent = fs.realpathSync(currentDir);
+    } catch {
+      return;
+    }
+
+    if (visitedRealPaths.has(realCurrent)) {
+      return;
+    }
+    visitedRealPaths.add(realCurrent);
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryName = entry.name;
+      if (DEFAULT_DIR_SCAN_EXCLUDES.has(entryName)) {
+        continue;
+      }
+
+      const fullEntryPath = path.join(currentDir, entryName);
+
+      let sandboxedEntry: string;
+      try {
+        sandboxedEntry = sandboxWorkspacePath(fullEntryPath, root);
+      } catch {
+        continue; // Skip symlinks escaping the workspace boundary
+      }
+
+      const relativePath = path.relative(root, sandboxedEntry).replace(/\\/g, "/");
+
+      if (shouldIgnorePath(relativePath, customIgnores)) {
+        continue;
+      }
+
+      try {
+        const itemStat = fs.statSync(sandboxedEntry);
+        if (itemStat.isDirectory()) {
+          walk(sandboxedEntry, depth + 1);
+        } else if (itemStat.isFile()) {
+          if (itemStat.size > maxSizeBytes) {
+            continue;
+          }
+          if (skipBinary && isBinaryFile(sandboxedEntry)) {
+            continue;
+          }
+          results.push(relativePath);
+        }
+      } catch {
+        // ignore unreadable files
+      }
+    }
+  }
+
+  walk(sandboxedTarget, 0);
+  return results.sort();
 }

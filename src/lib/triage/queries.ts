@@ -1,7 +1,8 @@
 import prisma from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
-import { SUPPRESSED_STATUSES, isSuppressedStatus, type TriageStatus } from "./statuses";
-import { isSuppressionActive, activeSuppressionWhere } from "./expiry";
+import { SUPPRESSED_STATUSES, type TriageStatus } from "./statuses";
+import { isSuppressionActive } from "./expiry";
+import { activeSuppressionWhere } from "./expiry-server";
 
 /**
  * Triage lookups for the dashboard (#689, #1503).
@@ -15,6 +16,14 @@ export type { TriageStatus };
 export const MAX_SUPPRESSED_FINGERPRINTS = 5_000;
 export const MAX_TRIAGE_ROWS = 5_000;
 
+export interface TriageAssignee {
+  id: string;
+  name: string | null;
+  email: string | null;
+  codename: string | null;
+  image: string | null;
+}
+
 export interface TriageEntry {
   status: string;
   note: string | null;
@@ -22,6 +31,8 @@ export interface TriageEntry {
   expiresAt?: Date | null;
   resolvedAt?: Date | null;
   resolvedCommitSha?: string | null;
+  assigneeId?: string | null;
+  assignee?: TriageAssignee | null;
 }
 
 export interface UserTriage {
@@ -95,6 +106,16 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
       expiresAt: true,
       resolvedAt: true,
       resolvedCommitSha: true,
+      assigneeId: true,
+      assignee: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          codename: true,
+          image: true,
+        },
+      },
     },
     orderBy: { updatedAt: "desc" },
     take: MAX_TRIAGE_ROWS + 1,
@@ -115,6 +136,8 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
       expiresAt: row.expiresAt,
       resolvedAt: row.resolvedAt,
       resolvedCommitSha: row.resolvedCommitSha,
+      assigneeId: row.assigneeId,
+      assignee: row.assignee,
     });
 
     if (isSuppressionActive({ status: row.status, expiresAt: row.expiresAt }, now)) {

@@ -1,0 +1,16 @@
+name: Safe Script Injection Prevention
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: read
+
+jobs:
+  print-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print issue title safely
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: echo "Issue title is $ISSUE_TITLE"

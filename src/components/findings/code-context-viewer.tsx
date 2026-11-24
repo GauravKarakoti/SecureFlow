@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Terminal, Copy, Check, FileCode, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { maskSecrets } from "@/lib/armor/secret-masking";
+import { detectFileLanguage } from "@/lib/scanner/language-detector";
 
 export interface CodeContextViewerProps {
   codeSnippet?: string | null | undefined;
@@ -76,6 +77,12 @@ export function CodeContextViewer({
         <div className="flex items-center gap-2 font-mono text-muted-foreground truncate">
           <Terminal className="w-3.5 h-3.5 text-primary shrink-0" />
           <span className="text-foreground/90 font-medium truncate">{fileName}</span>
+          <span
+            data-testid="code-viewer-language"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-muted-foreground uppercase font-sans"
+          >
+            {detectFileLanguage(fileLocation || "").language}
+          </span>
         </div>
         <Button
           variant="ghost"

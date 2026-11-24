@@ -1,0 +1,186 @@
+suite: test networkpolicy templates
+templates:
+  - networkpolicy.yaml
+
+values:
+  - ../values.yaml
+
+tests:
+  - it: should not render network policy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render postgresql, redis, and worker-egress network policies when networkPolicy is enabled
+    set:
+      networkPolicy.enabled: true
+      secrets.authSecret: local-test-only
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-postgresql
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-redis
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-worker-egress
+
+  - it: should allow ingress to postgresql from app, worker, migration, and retention components
+    set:
+      networkPolicy.enabled: true
+      secrets.authSecret: local-test-only
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow-postgresql
+      - equal:
+          path: spec.policyTypes[0]
+          value: Ingress
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 5432
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].key
+          value: app.kubernetes.io/component
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: app
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: worker
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: migration
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: retention
+
+  - it: should allow ingress to redis from app, worker, migration, and retention components
+    set:
+      networkPolicy.enabled: true
+      secrets.authSecret: local-test-only
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow-redis
+      - equal:
+          path: spec.policyTypes[0]
+          value: Ingress
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 6379
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].key
+          value: app.kubernetes.io/component
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: app
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: worker
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: migration
+      - contains:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          content: retention
+
+  - it: should configure worker egress with DNS, postgresql, and redis while locking down external egress
+    set:
+      networkPolicy.enabled: true
+      secrets.authSecret: local-test-only
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-secureflow-worker-egress
+      - equal:
+          path: spec.policyTypes[0]
+          value: Egress
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: worker
+      # DNS egress ports
+      - equal:
+          path: spec.egress[0].ports[0].protocol
+          value: UDP
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 53
+      - equal:
+          path: spec.egress[0].ports[1].protocol
+          value: TCP
+      - equal:
+          path: spec.egress[0].ports[1].port
+          value: 53
+      # Internal postgresql egress (port 5432)
+      - equal:
+          path: spec.egress[1].ports[0].port
+          value: 5432
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: postgresql
+      # Internal redis egress (port 6379)
+      - equal:
+          path: spec.egress[2].ports[0].port
+          value: 6379
+      - equal:
+          path: spec.egress[2].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: redis
+
+  - it: should not render postgresql policy when postgresql is disabled
+    set:
+      networkPolicy.enabled: true
+      postgresql.enabled: false
+      secrets.authSecret: local-test-only
+    asserts:
+      - notContainsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-postgresql
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-redis
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-worker-egress
+
+  - it: should not render redis policy when redis is disabled
+    set:
+      networkPolicy.enabled: true
+      redis.enabled: false
+      secrets.authSecret: local-test-only
+    asserts:
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-postgresql
+      - notContainsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-redis
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-worker-egress
+
+  - it: should not render worker egress when worker is disabled
+    set:
+      networkPolicy.enabled: true
+      worker.enabled: false
+      secrets.authSecret: local-test-only
+    asserts:
+      - notContainsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: RELEASE-NAME-secureflow-worker-egress

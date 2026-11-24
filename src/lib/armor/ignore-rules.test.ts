@@ -3,6 +3,9 @@ import {
   IGNORED_BASENAMES,
   IGNORED_DIRECTORIES,
   IGNORED_EXTENSIONS,
+  DEFAULT_LOCKFILES,
+  DEFAULT_IGNORE_PATTERNS,
+  DEFAULT_IGNORE_DIRECTORIES,
   basenameOf,
   hasIgnoredBasename,
   hasIgnoredExtension,
@@ -12,6 +15,10 @@ import {
   pathSegments,
   shouldIgnorePath,
   parseSecureFlowIgnore,
+  isDefaultIgnored,
+  isForceIncluded,
+  isSkippedByDefault,
+  resolveDefaultSkippedFiles,
 } from "./ignore-rules";
 import { compileIgnorePatterns, shouldIgnore } from "./scanner";
 
@@ -428,6 +435,172 @@ describe("parseSecureFlowIgnore and entry expiration (#1811)", () => {
         expect.stringContaining('Ignore rule "unexplained/**" has no reason specified.'),
       );
       warnSpy.mockRestore();
+    });
+  });
+
+  describe("built-in default ignore patterns (#1983)", () => {
+    it("includes common lockfiles in default ignore patterns", () => {
+      const lockfiles = [
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "bun.lock",
+        "Cargo.lock",
+        "Gemfile.lock",
+        "composer.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "flake.lock",
+      ];
+
+      for (const lf of lockfiles) {
+        expect(isDefaultIgnored(lf)).toBe(true);
+        expect(isDefaultIgnored(`packages/core/${lf}`)).toBe(true);
+        expect(shouldIgnorePath(lf)).toBe(true);
+      }
+    });
+
+    it("ignores minified bundles and source maps", () => {
+      expect(isDefaultIgnored("bundle.min.js")).toBe(true);
+      expect(isDefaultIgnored("assets/style.min.css")).toBe(true);
+      expect(isDefaultIgnored("vendor/app.min.mjs")).toBe(true);
+      expect(isDefaultIgnored("vendor/app.min.cjs")).toBe(true);
+      expect(isDefaultIgnored("dist/main.js.map")).toBe(true);
+      expect(isDefaultIgnored("main.map")).toBe(true);
+
+      // Regular files are not ignored
+      expect(isDefaultIgnored("src/app.js")).toBe(false);
+      expect(isDefaultIgnored("src/theme.css")).toBe(false);
+    });
+
+    it("ignores build, vendor, node_modules, and test snapshot directories", () => {
+      expect(isDefaultIgnored("dist/bundle.js")).toBe(true);
+      expect(isDefaultIgnored("build/index.html")).toBe(true);
+      expect(isDefaultIgnored("vendor/oauth/client.go")).toBe(true);
+      expect(isDefaultIgnored("node_modules/lodash/index.js")).toBe(true);
+      expect(isDefaultIgnored("tests/__snapshots__/component.test.snap")).toBe(true);
+      expect(isDefaultIgnored("apps/web/__snapshots__/modal.test.snap")).toBe(true);
+    });
+
+    it("ignores generated protobuf files and directories", () => {
+      expect(isDefaultIgnored("api/user_pb2.py")).toBe(true);
+      expect(isDefaultIgnored("api/service_pb2_grpc.py")).toBe(true);
+      expect(isDefaultIgnored("gen/service.pb.go")).toBe(true);
+      expect(isDefaultIgnored("gen/service.pb.cc")).toBe(true);
+      expect(isDefaultIgnored("gen/service.pb.h")).toBe(true);
+      expect(isDefaultIgnored("gen/service_pb_test.go")).toBe(true);
+      expect(isDefaultIgnored("proto/gen/v1/auth.go")).toBe(true);
+      expect(isDefaultIgnored("google/protobuf/timestamp.proto")).toBe(true);
+    });
+
+    it("ignores OpenAPI client directories", () => {
+      expect(isDefaultIgnored("client/openapi/api.ts")).toBe(true);
+      expect(isDefaultIgnored("generated/openapi/index.ts")).toBe(true);
+      expect(isDefaultIgnored("openapi/generated/client.ts")).toBe(true);
+      expect(isDefaultIgnored("generated/client.ts")).toBe(true);
+      expect(isDefaultIgnored("apps/web/generated/api.ts")).toBe(true);
+    });
+
+    it("allows repositories to disable defaults with includeDefaults: false", () => {
+      const options = { includeDefaults: false };
+      expect(isSkippedByDefault("package-lock.json", [], options)).toBe(false);
+      expect(isSkippedByDefault("vendor/lib.js", [], options)).toBe(false);
+      expect(isSkippedByDefault("dist/bundle.js", [], options)).toBe(false);
+      expect(shouldIgnorePath("package-lock.json", [], options)).toBe(false);
+      expect(shouldIgnorePath("vendor/lib.js", [], options)).toBe(false);
+    });
+
+    it("allows repositories to override defaults with forceInclude", () => {
+      const options = { forceInclude: ["vendor/**", "*.min.js"] };
+      expect(isSkippedByDefault("vendor/lib.js", [], options)).toBe(false);
+      expect(isSkippedByDefault("bundle.min.js", [], options)).toBe(false);
+      expect(shouldIgnorePath("vendor/lib.js", [], options)).toBe(false);
+      expect(shouldIgnorePath("bundle.min.js", [], options)).toBe(false);
+
+      // Other defaults remain ignored
+      expect(isSkippedByDefault("package-lock.json", [], options)).toBe(true);
+      expect(shouldIgnorePath("package-lock.json", [], options)).toBe(true);
+    });
+
+    it("keeps .secureflowignore custom rules working as before", () => {
+      const custom = compileIgnorePatterns(["src/legacy/**"]);
+      expect(shouldIgnorePath("src/legacy/code.ts", custom)).toBe(true);
+      expect(ignoreReasonFor("src/legacy/code.ts", custom)).toBe("custom");
+      // Not counted as skipped by defaults
+      expect(isSkippedByDefault("src/legacy/code.ts", custom)).toBe(false);
+    });
+
+    describe("resolveDefaultSkippedFiles and the single changed file exception", () => {
+      it("counts skipped files when default patterns apply", () => {
+        const files = [
+          { filename: "package-lock.json", patch: "+ line" },
+          { filename: "vendor/foo.js", patch: "+ line" },
+          { filename: "src/index.ts", patch: "+ line" },
+        ];
+
+        const result = resolveDefaultSkippedFiles(files);
+        expect(result.skippedCount).toBe(2);
+        expect(result.skippedByDefault.has("package-lock.json")).toBe(true);
+        expect(result.skippedByDefault.has("vendor/foo.js")).toBe(true);
+        expect(result.skippedByDefault.has("src/index.ts")).toBe(false);
+      });
+
+      it("does not count files when includeDefaults is false", () => {
+        const files = [
+          { filename: "package-lock.json", patch: "+ line" },
+          { filename: "vendor/foo.js", patch: "+ line" },
+        ];
+
+        const result = resolveDefaultSkippedFiles(files, [], { includeDefaults: false });
+        expect(result.skippedCount).toBe(0);
+        expect(result.skippedByDefault.size).toBe(0);
+      });
+
+      it("respects forceInclude overrides", () => {
+        const files = [
+          { filename: "vendor/foo.js", patch: "+ line" },
+          { filename: "dist/bundle.js", patch: "+ line" },
+        ];
+
+        const result = resolveDefaultSkippedFiles(files, [], { forceInclude: ["vendor/**"] });
+        expect(result.skippedCount).toBe(1);
+        expect(result.skippedByDefault.has("vendor/foo.js")).toBe(false);
+        expect(result.skippedByDefault.has("dist/bundle.js")).toBe(true);
+      });
+
+      it("never skips files because of defaults if they are the only files changed and contain secret-like strings", () => {
+        const files = [{ filename: "package-lock.json", patch: "+ secret" }];
+        const result = resolveDefaultSkippedFiles(files, [], {
+          hasDeterministicSecrets: (f) => f.filename === "package-lock.json",
+        });
+
+        expect(result.skippedCount).toBe(0);
+        expect(result.skippedByDefault.has("package-lock.json")).toBe(false);
+      });
+
+      it("skips files by default if they are the only files changed but contain NO secrets", () => {
+        const files = [{ filename: "package-lock.json", patch: "+ normal" }];
+        const result = resolveDefaultSkippedFiles(files, [], {
+          hasDeterministicSecrets: () => false,
+        });
+
+        expect(result.skippedCount).toBe(1);
+        expect(result.skippedByDefault.has("package-lock.json")).toBe(true);
+      });
+
+      it("skips default file from LLM scanning when other files are changed, even if it has a secret", () => {
+        const files = [
+          { filename: "package-lock.json", patch: "+ secret" },
+          { filename: "src/app.ts", patch: "+ normal" },
+        ];
+        const result = resolveDefaultSkippedFiles(files, [], {
+          hasDeterministicSecrets: (f) => f.filename === "package-lock.json",
+        });
+
+        expect(result.skippedCount).toBe(1);
+        expect(result.skippedByDefault.has("package-lock.json")).toBe(true);
+      });
     });
   });
 });

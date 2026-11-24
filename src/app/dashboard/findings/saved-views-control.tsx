@@ -83,6 +83,9 @@ export default function SavedViewsControl({
     if (filters.sort && filters.sort !== "newest") {
       params.set("sort", filters.sort);
     }
+    if (filters.assignee) {
+      params.set("assignee", filters.assignee);
+    }
 
     setDropdownOpen(false);
     const query = params.toString();

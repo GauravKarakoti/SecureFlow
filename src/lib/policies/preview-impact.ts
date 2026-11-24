@@ -26,7 +26,7 @@ import {
   getCachedScan,
   setCachedScan,
 } from "@/lib/scanner/scan-cache";
-import { normalizeSeverity, type Severity } from "@/lib/severity";
+import { normalizeSeverity } from "@/lib/severity";
 
 export const DEFAULT_PREVIEW_MAX_SCANS = 20;
 export const DEFAULT_PREVIEW_MAX_TOKENS = 50_000;

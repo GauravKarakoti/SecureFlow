@@ -10,6 +10,8 @@ import {
   resolvePoolMax,
   type PgPoolConfig,
 } from "@/lib/db/pool-config";
+import { decryptFinding, decryptFindings, encryptFinding } from "@/lib/security/finding-encryption";
+import { env } from "./env";
 
 const log = createLogger({ context: { component: "prisma" } });
 
@@ -28,6 +30,7 @@ BigInt.prototype.toJSON = function (this: bigint): string {
 
 const mockTriageStore = new Map<string, any>();
 const mockFindingStore = new Map<string, any>();
+const mockNotificationStore = new Map<string, any>();
 
 function createMockPrismaClient() {
   const mockFn = async (model: string, method: string, args: any[]) => {
@@ -69,6 +72,69 @@ function createMockPrismaClient() {
           note: v.note || null,
           expiresAt: v.expiresAt || null,
         }));
+      }
+    }
+    if (model === "notification") {
+      if (method === "create") {
+        const data = args[0]?.data || {};
+        const id = data.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const record = { id, createdAt: new Date(), updatedAt: new Date(), readAt: null, ...data };
+        mockNotificationStore.set(id, record);
+        return record;
+      }
+      if (method === "findUnique" || method === "findFirst") {
+        const id = args[0]?.where?.id;
+        if (id && mockNotificationStore.has(id)) {
+          return mockNotificationStore.get(id);
+        }
+        return null;
+      }
+      if (method === "findMany") {
+        const userId = args[0]?.where?.userId;
+        const unreadOnly = args[0]?.where?.readAt === null;
+        let list = Array.from(mockNotificationStore.values());
+        if (userId) list = list.filter((n) => n.userId === userId);
+        if (unreadOnly) list = list.filter((n) => n.readAt === null);
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const skip = args[0]?.skip || 0;
+        const take = args[0]?.take || list.length;
+        return list.slice(skip, skip + take);
+      }
+      if (method === "count") {
+        const userId = args[0]?.where?.userId;
+        const unreadOnly = args[0]?.where?.readAt === null;
+        let list = Array.from(mockNotificationStore.values());
+        if (userId) list = list.filter((n) => n.userId === userId);
+        if (unreadOnly) list = list.filter((n) => n.readAt === null);
+        return list.length;
+      }
+      if (method === "update") {
+        const id = args[0]?.where?.id;
+        const data = args[0]?.data || {};
+        if (id && mockNotificationStore.has(id)) {
+          const current = mockNotificationStore.get(id);
+          const updated = { ...current, ...data, updatedAt: new Date() };
+          mockNotificationStore.set(id, updated);
+          return updated;
+        }
+        return null;
+      }
+      if (method === "updateMany") {
+        const userId = args[0]?.where?.userId;
+        const data = args[0]?.data || {};
+        let count = 0;
+        for (const [id, notif] of mockNotificationStore.entries()) {
+          if (!userId || notif.userId === userId) {
+            mockNotificationStore.set(id, { ...notif, ...data, updatedAt: new Date() });
+            count++;
+          }
+        }
+        return { count };
+      }
+      if (method === "delete") {
+        const id = args[0]?.where?.id;
+        if (id) mockNotificationStore.delete(id);
+        return { id };
       }
     }
     if (model === "user") {
@@ -536,16 +602,11 @@ export function getDatabaseConnectionString(): string | undefined {
   return resolveConnectionString() ?? undefined;
 }
 
-/**
- * PostgreSQL pool options for a serverless deployment.
- *
- * `DB_POOL_MAX` used to be read with a bare `parseInt`, so `DB_POOL_MAX=abc`
- * reached `new Pool({ max: NaN })` and `DB_POOL_MAX=0` disabled the pool
- * outright. It is clamped now, and an unusable value is reported rather than
- * propagated (#688).
- */
 export function getPgPoolConfig(overrideConnectionString?: string): PgPoolConfig {
-  const { config } = resolvePoolConfig();
+  const { config } = resolvePoolConfig({
+    ...env,
+    NODE_ENV: env.NODE_ENV as "development" | "production" | "test",
+  });
   const { warning } = resolvePoolMax();
 
   if (warning) log.warn(warning);
@@ -760,6 +821,82 @@ export function handlePrismaQueryEvent(
   }
 }
 
+/**
+ * Extends the Prisma Client to transparently encrypt sensitive finding fields
+ * on write and decrypt on read (#2016).
+ */
+export function withFindingEncryption(client: any): any {
+  if (!client || typeof client.$extends !== "function") {
+    return withFindingEncryption(client);
+  }
+
+  return client.$extends({
+    query: {
+      finding: {
+        async findUnique({ args, query }: any) {
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async findFirst({ args, query }: any) {
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async findMany({ args, query }: any) {
+          const res = await query(args);
+          return Array.isArray(res) ? decryptFindings(res) : res;
+        },
+        async create({ args, query }: any) {
+          if (args?.data) {
+            args.data = encryptFinding(args.data);
+          }
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async createMany({ args, query }: any) {
+          if (Array.isArray(args?.data)) {
+            args.data = args.data.map((d: any) => encryptFinding(d));
+          }
+          return query(args);
+        },
+        async update({ args, query }: any) {
+          if (args?.data) {
+            args.data = encryptFinding(args.data);
+          }
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+      },
+      scanResult: {
+        async findUnique({ args, query }: any) {
+          const res = await query(args);
+          if (res && Array.isArray(res.findings)) {
+            res.findings = decryptFindings(res.findings);
+          }
+          return res;
+        },
+        async findFirst({ args, query }: any) {
+          const res = await query(args);
+          if (res && Array.isArray(res.findings)) {
+            res.findings = decryptFindings(res.findings);
+          }
+          return res;
+        },
+        async findMany({ args, query }: any) {
+          const res = await query(args);
+          if (Array.isArray(res)) {
+            for (const item of res) {
+              if (item && Array.isArray(item.findings)) {
+                item.findings = decryptFindings(item.findings);
+              }
+            }
+          }
+          return res;
+        },
+      },
+    },
+  });
+}
+
 const prismaClientSingleton = () => {
   const mockDb = resolveMockDb();
 
@@ -773,7 +910,7 @@ const prismaClientSingleton = () => {
 
   if (mockDb.allowed) {
     log.warn("Using the in-memory mock database. Every response below is fabricated.");
-    return createMockPrismaClient() as any;
+    return withFindingEncryption(createMockPrismaClient()) as any;
   }
 
   // 1. Initialize a connection pool using the standard pg driver, with the
@@ -826,7 +963,7 @@ const prismaClientSingleton = () => {
     });
   }
 
-  return client;
+  return withFindingEncryption(client);
 };
 
 declare const globalThis: {

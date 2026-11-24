@@ -24,6 +24,11 @@ export interface ExpectedFinding {
    * Optional substring or keyword expected in the finding description or code snippet.
    */
   descriptionSnippet?: string;
+
+  /**
+   * Expected confidence score (#1924).
+   */
+  expectedConfidence?: "HIGH" | "MEDIUM" | "LOW";
 }
 
 export interface PromptRegressionSample {
@@ -47,6 +52,8 @@ export interface LlmFindingFixture {
   reasoning?: string;
   type: string;
   severity: string;
+  confidence?: "HIGH" | "MEDIUM" | "LOW" | string;
+  confidenceReason?: string;
   description: string;
   fileLocation: string;
   codeSnippet: string;

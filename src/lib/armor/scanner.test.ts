@@ -500,6 +500,102 @@ another_placeholder
     // AbortError handler was unreachable dead code.
     expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
   });
+
+  describe("default ignore patterns in scanPullRequest (#1983)", () => {
+    it("excludes default-ignored files from LLM scanning and counts them in lastDefaultSkippedCount", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        { filename: "package-lock.json", patch: '+ "version": "1.0.0"' },
+        { filename: "vendor/lib.js", patch: "+ const x = 1;" },
+        { filename: "src/index.ts", patch: "+ const y = 2;" },
+      ];
+
+      await scannerInstance.scanPullRequest(files, []);
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("src/index.ts");
+      expect(promptContent).not.toContain("package-lock.json");
+      expect(promptContent).not.toContain("vendor/lib.js");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(2);
+      expect(scannerInstance.lastDefaultSkippedFiles).toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedFiles).toContain("vendor/lib.js");
+    });
+
+    it("runs deterministic secret pre-scan on files skipped from LLM scanning", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        {
+          filename: "package-lock.json",
+          patch: '+ "token": "ghp_111111111111111111111111111111111111"',
+        },
+        { filename: "src/index.ts", patch: "+ const y = 2;" },
+      ];
+
+      const findings = await scannerInstance.scanPullRequest(files, []);
+
+      // package-lock.json was skipped from LLM prompt
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).not.toContain("package-lock.json");
+
+      // But deterministic pre-scan found the secret in package-lock.json!
+      const secretFinding = findings.find((f) => f.fileLocation === "package-lock.json");
+      expect(secretFinding).toBeDefined();
+      expect(secretFinding?.type).toBe("Secret");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(1);
+    });
+
+    it("never skips default-ignored files if they are the only files changed and contain secret-like strings", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      // Only one file changed in the PR: package-lock.json containing a real secret
+      const files = [
+        {
+          filename: "package-lock.json",
+          patch: '+ "apiKey": "AKIA99XM2PLKD93HTRWN"',
+        },
+      ];
+
+      const findings = await scannerInstance.scanPullRequest(files, []);
+
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(0);
+      expect(scannerInstance.lastAnalyzedFiles).toContain("package-lock.json");
+      expect(findings.length).toBeGreaterThan(0);
+      expect(findings[0].fileLocation).toBe("package-lock.json");
+    });
+
+    it("allows repositories to disable defaults with includeDefaults: false", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [{ filename: "package-lock.json", patch: '+ "test": true' }];
+
+      await scannerInstance.scanPullRequest(files, [], [], [], "test-repo", {
+        includeDefaults: false,
+      });
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(0);
+    });
+
+    it("allows repositories to force-include files with forceInclude", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      const files = [
+        { filename: "vendor/auth.js", patch: "+ const x = 1;" },
+        { filename: "package-lock.json", patch: '+ "test": true' },
+      ];
+
+      await scannerInstance.scanPullRequest(files, [], [], [], "test-repo", {
+        forceInclude: ["vendor/**"],
+      });
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(promptContent).toContain("vendor/auth.js");
+      expect(promptContent).not.toContain("package-lock.json");
+      expect(scannerInstance.lastDefaultSkippedCount).toBe(1);
+    });
+  });
 });
 
 // ─── Model selection ─────────────────────────────────────────────────────────
@@ -549,5 +645,224 @@ describe("scan model", () => {
     );
 
     expect(mockCreate.mock.calls[0][0].model).toBe("openai/gpt-oss-20b");
+  });
+
+  it("detects language and framework and passes them as scan context in prompt (#1925)", async () => {
+    const scannerInstance = new ArmorIQScanner();
+    const files = [
+      {
+        filename: "Dockerfile",
+        patch: "+FROM alpine:3.19\n+RUN apk add curl",
+      },
+      {
+        filename: "infra/main.tf",
+        patch: '+resource "aws_s3_bucket" "b" { bucket = "my-bucket" }',
+      },
+      {
+        filename: "src/server.ts",
+        patch: '+import express from "express";\n+const app = express();',
+      },
+      {
+        filename: "scripts/backup",
+        patch: "+#!/bin/bash\n+echo 'backup'",
+      },
+      {
+        filename: "data.unknownext",
+        patch: "+some unknown content",
+      },
+    ];
+
+    mockCreate.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              findings: [
+                {
+                  type: "Vulnerability",
+                  severity: "HIGH",
+                  description: "Issue in express server",
+                  fileLocation: "src/server.ts",
+                  codeSnippet: "express()",
+                },
+                {
+                  type: "Misconfig",
+                  severity: "LOW",
+                  description: "Unknown format issue",
+                  fileLocation: "data.unknownext",
+                  codeSnippet: "unknown content",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    const findings = await scannerInstance.scanPullRequest(files, []);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const promptContent = mockCreate.mock.calls[0][0].messages[1].content;
+
+    // Verify Dockerfile detected
+    expect(promptContent).toContain('<file name="Dockerfile" language="dockerfile"');
+    expect(promptContent).toContain("[File Context: Language=dockerfile]");
+
+    // Verify Terraform detected
+    expect(promptContent).toContain('<file name="infra/main.tf" language="terraform"');
+    expect(promptContent).toContain("[File Context: Language=terraform]");
+
+    // Verify TypeScript and Express framework detected
+    expect(promptContent).toContain(
+      '<file name="src/server.ts" language="typescript" framework="express"',
+    );
+    expect(promptContent).toContain("[File Context: Language=typescript, Framework=express]");
+
+    // Verify shebang script detected without extension
+    expect(promptContent).toContain('<file name="scripts/backup" language="shell"');
+    expect(promptContent).toContain("[File Context: Language=shell]");
+
+    // Verify unknown file does not break scan and passes language="unknown"
+    expect(promptContent).toContain('<file name="data.unknownext" language="unknown"');
+    expect(promptContent).toContain("[File Context: Language=unknown]");
+
+    // Verify returned findings have language assigned
+    expect(findings).toHaveLength(2);
+    expect(findings[0].fileLocation).toBe("src/server.ts");
+    expect(findings[0].language).toBe("typescript");
+    expect(findings[0].framework).toBe("express");
+
+    expect(findings[1].fileLocation).toBe("data.unknownext");
+    expect(findings[1].language).toBe("unknown");
+  });
+
+  describe("Scanner confidence scoring (#1924)", () => {
+    it("parses valid confidence values (HIGH, MEDIUM, LOW) and confidenceReason", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Secret",
+                    severity: "CRITICAL",
+                    confidence: "HIGH",
+                    confidenceReason: "Live AWS access key detected in config",
+                    description: "Active AWS key",
+                    fileLocation: "src/aws.ts",
+                    codeSnippet: "key = 'AKIA123'",
+                  },
+                  {
+                    type: "Vulnerability",
+                    severity: "MEDIUM",
+                    confidence: "LOW",
+                    confidenceReason: "Test fixture mock token",
+                    description: "Potential test token",
+                    fileLocation: "tests/mock.ts",
+                    codeSnippet: "token = 'test'",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/aws.ts", patch: "+key = 'AKIA123'" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(2);
+      expect(findings[0].confidence).toBe("HIGH");
+      expect(findings[0].confidenceReason).toBe("Live AWS access key detected in config");
+      expect(findings[1].confidence).toBe("LOW");
+      expect(findings[1].confidenceReason).toBe("Test fixture mock token");
+    });
+
+    it("defaults safely to MEDIUM when confidence is missing in LLM response", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Vulnerability",
+                    severity: "HIGH",
+                    description: "SQL injection without confidence field",
+                    fileLocation: "src/db.ts",
+                    codeSnippet: "query()",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/db.ts", patch: "+query()" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0].confidence).toBe("MEDIUM");
+    });
+
+    it("defaults safely to MEDIUM when confidence is invalid in LLM response", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    type: "Vulnerability",
+                    severity: "HIGH",
+                    confidence: "SUPER_HIGH_VERY_SURE",
+                    confidenceReason: "Hallucinated confidence level",
+                    description: "Issue with invalid confidence",
+                    fileLocation: "src/app.ts",
+                    codeSnippet: "doWork()",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+
+      const findings = await scannerInstance.scanPullRequest(
+        [{ filename: "src/app.ts", patch: "+doWork()" }],
+        [],
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0].confidence).toBe("MEDIUM");
+      expect(findings[0].confidenceReason).toBe("Hallucinated confidence level");
+    });
+
+    it("includes confidence schema and guidance in the prompt sent to LLM", async () => {
+      const scannerInstance = new ArmorIQScanner();
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify({ findings: [] }) } }],
+      });
+
+      await scannerInstance.scanPullRequest(
+        [{ filename: "src/index.ts", patch: "+const a = 1;" }],
+        [],
+      );
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const userPrompt = mockCreate.mock.calls[0][0].messages[1].content;
+      expect(userPrompt).toContain('"confidence": "HIGH | MEDIUM | LOW"');
+      expect(userPrompt).toContain('"confidenceReason":');
+      expect(userPrompt).toContain("For confidence: Assign");
+    });
   });
 });

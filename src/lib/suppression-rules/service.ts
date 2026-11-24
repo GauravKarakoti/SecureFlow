@@ -6,7 +6,7 @@
  */
 
 import prisma from "@/lib/prisma";
-import type { SuppressionRule } from "@prisma/client";
+import type { Prisma, SuppressionRule } from "@prisma/client";
 
 export interface SuppressionRuleWithStats extends SuppressionRule {
   thirtyDaySuppressionCount: number;
@@ -166,8 +166,9 @@ export async function updateSuppressionRule(
   id: string,
   input: UpdateSuppressionRuleInput,
   adminUserId: string,
-): Promise<SuppressionRule> {
-  const data: Record<string, any> = {};
+  previousExpiresAt?: Date | null,
+) {
+  const data: Prisma.SuppressionRuleUpdateManyMutationInput = {};
 
   if (input.name !== undefined) data.name = input.name.trim();
   if (input.description !== undefined) data.description = input.description?.trim() || null;
@@ -181,10 +182,34 @@ export async function updateSuppressionRule(
     data.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
   }
 
-  const updatedRule = await prisma.suppressionRule.update({
-    where: { id },
+  return saveSuppressionRule(
+    {
+      id,
+      expiresAt: previousExpiresAt,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
     data,
-  });
+    adminUserId,
+  );
+}
+
+export async function renewSuppressionRule(
+  id: string,
+  expiresAt: Date,
+  now: Date,
+  adminUserId: string,
+) {
+  return saveSuppressionRule({ id, expiresAt: { lte: now } }, { expiresAt }, adminUserId);
+}
+
+async function saveSuppressionRule(
+  where: Prisma.SuppressionRuleWhereInput,
+  data: Prisma.SuppressionRuleUpdateManyMutationInput,
+  adminUserId: string,
+) {
+  // Check the rule state in the same statement that writes it.
+  const [updatedRule] = await prisma.suppressionRule.updateManyAndReturn({ where, data });
+  if (!updatedRule) return null;
 
   try {
     await prisma.auditLog.create({

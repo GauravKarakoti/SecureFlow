@@ -172,10 +172,11 @@ const handler = withErrorHandler(async function POST(
     }
   }
 
+  const status = aiResult.verified ? "VERIFIED" : sanitizedPatchDiff ? "GENERATED" : "UNVERIFIED";
   const patch = await prisma.remediationPatch.upsert({
     where: { findingId: id },
-    update: { patchDiff: sanitizedPatchDiff, status: "GENERATED" },
-    create: { findingId: id, patchDiff: sanitizedPatchDiff, status: "GENERATED" },
+    update: { patchDiff: sanitizedPatchDiff, status },
+    create: { findingId: id, patchDiff: sanitizedPatchDiff, status },
   });
 
   // Log incident using optimized Prisma query keeping latency < 200ms (#1819)
@@ -185,10 +186,17 @@ const handler = withErrorHandler(async function POST(
     resource: finding.fileLocation || "src/unknown",
     decision: "ALLOW",
     severity: (finding.severity as any) || "HIGH",
-    metadata: { findingId: id, type: finding.type },
+    metadata: { findingId: id, type: finding.type, verified: Boolean(aiResult.verified) },
   });
 
-  return NextResponse.json({ success: true, patch, explanation: aiResult.explanation });
+  return NextResponse.json({
+    success: true,
+    patch,
+    explanation: aiResult.explanation,
+    ...(aiResult.verified !== undefined ? { verified: Boolean(aiResult.verified) } : {}),
+    ...(aiResult.readyFix !== undefined ? { readyFix: Boolean(aiResult.readyFix) } : {}),
+    ...(aiResult.note ? { note: aiResult.note } : {}),
+  });
 });
 
 export const POST = withRateLimit(

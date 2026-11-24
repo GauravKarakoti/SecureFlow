@@ -1,0 +1,9 @@
+{
+  "name": "sample-app",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "next build",
+    "test": "vitest run",
+    "lint": "eslint ."
+  }
+}

@@ -1,4 +1,6 @@
 import prisma from "@/lib/prisma";
+import { fairQueueScheduler } from "@/lib/queue/fair-scheduler";
+import { getGitHubThrottleMetrics } from "@/lib/github/throttling";
 
 export interface LandingStats {
   prsCount: number;
@@ -15,6 +17,9 @@ export interface DetailedLandingMetrics extends LandingStats {
   totalMisconfigs: number;
   blockedPRs: number;
   passedPRs: number;
+  queueDepthPerInstallation?: Record<string, number>;
+  gitHubThrottlePrimaryTotal?: number;
+  gitHubThrottleSecondaryTotal?: number;
 }
 
 export const BASELINE_FALLBACK_METRICS: LandingStats = {
@@ -163,6 +168,9 @@ export async function getDetailedLandingMetrics(): Promise<DetailedLandingMetric
       prisma.pullRequest.count({ where: { status: "PASS" } }).catch(() => 0),
     ]);
 
+    const queueDepthPerInstallation = fairQueueScheduler.getQueueDepthPerInstallation();
+    const throttleMetrics = getGitHubThrottleMetrics();
+
     return {
       ...baseStats,
       totalScans: counts.scans ?? 0,
@@ -170,6 +178,9 @@ export async function getDetailedLandingMetrics(): Promise<DetailedLandingMetric
       totalMisconfigs: misconfigCount,
       blockedPRs: blockedPrCount,
       passedPRs: passedPrCount,
+      queueDepthPerInstallation,
+      gitHubThrottlePrimaryTotal: throttleMetrics.primaryRateLimitsTotal,
+      gitHubThrottleSecondaryTotal: throttleMetrics.secondaryRateLimitsTotal,
     };
   } catch (error) {
     console.error("[LandingStats] Failed to retrieve detailed metrics:", error);
@@ -180,6 +191,7 @@ export async function getDetailedLandingMetrics(): Promise<DetailedLandingMetric
       totalMisconfigs: 0,
       blockedPRs: 0,
       passedPRs: 0,
+      queueDepthPerInstallation: {},
     };
   }
 }

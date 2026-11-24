@@ -162,6 +162,15 @@ export default function FindingsToolbar({
   const activeExpiring =
     rawExpiring === "14d" || rawExpiring === "14" || rawExpiring === "true" ? "14d" : ANY;
 
+  // Validate and restore assignee filter from URL (#1921)
+  const rawAssignee = searchParams.get("assignee")?.trim().toLowerCase();
+  const activeAssignee =
+    rawAssignee === "me" || rawAssignee === "assigned_to_me"
+      ? "me"
+      : rawAssignee === "unassigned"
+        ? "unassigned"
+        : ANY;
+
   // Validate and restore sort from URL, ignoring invalid values and falling back to default ("newest")
   const activeSort = parseSort(searchParams.get("sort"));
 
@@ -206,6 +215,7 @@ export default function FindingsToolbar({
     to: activeTo || undefined,
     sort: activeSort !== DEFAULT_SORT ? activeSort : undefined,
     expiring: activeExpiring !== ANY ? activeExpiring : undefined,
+    assignee: activeAssignee !== ANY ? activeAssignee : undefined,
   };
 
   const hasActiveSeverity = activeSeverity !== ANY;
@@ -216,6 +226,10 @@ export default function FindingsToolbar({
   const hasActiveFrom = Boolean(activeFrom);
   const hasActiveTo = Boolean(activeTo);
   const hasActiveExpiring = activeExpiring !== ANY;
+  const hasActiveAssignee = activeAssignee !== ANY;
+
+  const activePath = searchParams.get("path") || searchParams.get("pathPrefix");
+  const hasActivePath = Boolean(activePath);
 
   const activeCount = [
     hasActiveSeverity,
@@ -226,18 +240,30 @@ export default function FindingsToolbar({
     hasActiveFrom,
     hasActiveTo,
     hasActiveExpiring,
+    hasActiveAssignee,
+    hasActivePath,
   ].filter(Boolean).length;
 
   const hasFilterParams =
     activeCount > 0 ||
-    ["severity", "type", "status", "repo", "q", "from", "to", "expiring"].some((key) =>
-      searchParams.has(key),
-    );
+    [
+      "severity",
+      "type",
+      "status",
+      "repo",
+      "q",
+      "from",
+      "to",
+      "expiring",
+      "assignee",
+      "path",
+      "pathPrefix",
+    ].some((key) => searchParams.has(key));
 
   return (
     <div className="glass-card rounded-xl p-4" data-testid="findings-toolbar">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
+        <div className="relative min-w-0 w-full sm:min-w-[220px] sm:flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
@@ -247,12 +273,16 @@ export default function FindingsToolbar({
             onChange={(event) => setSearchDraft(event.target.value)}
             placeholder="Search type, file path, explanation or remediation"
             aria-label="Search findings"
-            className="pl-9"
+            className="pl-9 min-h-[44px]"
           />
         </div>
 
         <Select value={activeSeverity} onValueChange={(value) => setSingle("severity", value)}>
-          <SelectTrigger className="w-[150px]" aria-label="Filter by severity">
+          <SelectTrigger
+            className="w-full sm:w-[150px] min-h-[44px]"
+            aria-label="Filter by severity"
+            data-testid="severity-filter"
+          >
             <SelectValue placeholder="Severity" />
           </SelectTrigger>
           <SelectContent>
@@ -266,7 +296,7 @@ export default function FindingsToolbar({
         </Select>
 
         <Select value={activeType} onValueChange={(value) => setSingle("type", value)}>
-          <SelectTrigger className="w-[170px]" aria-label="Filter by type">
+          <SelectTrigger className="w-full sm:w-[170px] min-h-[44px]" aria-label="Filter by type">
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -280,7 +310,10 @@ export default function FindingsToolbar({
         </Select>
 
         <Select value={activeStatus} onValueChange={(value) => setSingle("status", value)}>
-          <SelectTrigger className="w-[160px]" aria-label="Filter by triage status">
+          <SelectTrigger
+            className="w-full sm:w-[160px] min-h-[44px]"
+            aria-label="Filter by triage status"
+          >
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -295,7 +328,7 @@ export default function FindingsToolbar({
 
         <Select value={activeExpiring} onValueChange={(value) => setSingle("expiring", value)}>
           <SelectTrigger
-            className="w-[180px]"
+            className="w-full sm:w-[180px] min-h-[44px]"
             aria-label="Filter by expiry"
             data-testid="filter-expiry-select"
           >
@@ -307,9 +340,27 @@ export default function FindingsToolbar({
           </SelectContent>
         </Select>
 
+        <Select value={activeAssignee} onValueChange={(value) => setSingle("assignee", value)}>
+          <SelectTrigger
+            className="w-full sm:w-[170px] min-h-[44px]"
+            aria-label="Filter by assignee"
+            data-testid="assignee-filter"
+          >
+            <SelectValue placeholder="Assignee" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>All assignees</SelectItem>
+            <SelectItem value="me">Assigned to me</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
+          </SelectContent>
+        </Select>
+
         {options.repositories.length > 1 && (
           <Select value={activeRepo} onValueChange={(value) => setSingle("repo", value)}>
-            <SelectTrigger className="w-[200px]" aria-label="Filter by repository">
+            <SelectTrigger
+              className="w-full sm:w-[200px] min-h-[44px]"
+              aria-label="Filter by repository"
+            >
               <SelectValue placeholder="Repository" />
             </SelectTrigger>
             <SelectContent>
@@ -324,7 +375,7 @@ export default function FindingsToolbar({
         )}
 
         <Select value={activeSort} onValueChange={(value) => setSingle("sort", value)}>
-          <SelectTrigger className="w-[180px]" aria-label="Sort findings">
+          <SelectTrigger className="w-full sm:w-[180px] min-h-[44px]" aria-label="Sort findings">
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
@@ -336,25 +387,25 @@ export default function FindingsToolbar({
           </SelectContent>
         </Select>
 
-        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1 focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
+        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-1.5 bg-white/5 border border-white/10 rounded-md px-3 py-1 min-h-[44px] focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
           <span className="text-[11px] font-mono text-muted-foreground uppercase">From:</span>
           <Input
             type="date"
             value={activeFrom}
             onChange={(e) => setSingle("from", e.target.value)}
             aria-label="Filter from date"
-            className="w-[125px] h-7 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
+            className="w-full sm:w-[125px] h-8 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
           />
         </div>
 
-        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-md px-2 py-1 focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
+        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-1.5 bg-white/5 border border-white/10 rounded-md px-3 py-1 min-h-[44px] focus-within:ring-2 focus-within:ring-ring focus-within:border-primary/50">
           <span className="text-[11px] font-mono text-muted-foreground uppercase">To:</span>
           <Input
             type="date"
             value={activeTo}
             onChange={(e) => setSingle("to", e.target.value)}
             aria-label="Filter to date"
-            className="w-[125px] h-7 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
+            className="w-full sm:w-[125px] h-8 text-xs font-mono p-1 border-0 bg-transparent focus-visible:ring-0"
           />
         </div>
 
@@ -366,7 +417,7 @@ export default function FindingsToolbar({
               variant={bulkMode ? "secondary" : "outline"}
               size="sm"
               onClick={onToggleBulkMode}
-              className="gap-2"
+              className="gap-2 min-h-[44px]"
             >
               <ListChecks className="h-4 w-4" aria-hidden="true" />
               {bulkMode ? "Cancel bulk select" : "Bulk select"}
@@ -375,7 +426,7 @@ export default function FindingsToolbar({
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
+                className="gap-2 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 min-h-[44px]"
               >
                 Rollback Patches
               </Button>
@@ -399,6 +450,28 @@ export default function FindingsToolbar({
           )}
         </div>
 
+        {activePath && (
+          <Badge
+            variant="secondary"
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary border border-primary/20"
+          >
+            <span>path: {activePath}</span>
+            <button
+              type="button"
+              onClick={() => {
+                apply((params) => {
+                  params.delete("path");
+                  params.delete("pathPrefix");
+                });
+              }}
+              className="rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+              aria-label="Remove path filter"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        )}
+
         {hasFilterParams && (
           <Button
             variant="ghost"
@@ -408,7 +481,19 @@ export default function FindingsToolbar({
             onClick={() => {
               setSearchDraft("");
               apply((params) => {
-                for (const key of ["severity", "type", "status", "repo", "q", "from", "to"]) {
+                for (const key of [
+                  "severity",
+                  "type",
+                  "status",
+                  "repo",
+                  "q",
+                  "from",
+                  "to",
+                  "expiring",
+                  "assignee",
+                  "path",
+                  "pathPrefix",
+                ]) {
                   params.delete(key);
                 }
               });

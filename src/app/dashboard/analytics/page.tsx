@@ -42,6 +42,7 @@ export default async function AnalyticsPage({
       topFindingTypes={payload.topFindingTypes}
       scanVelocity={payload.scanVelocity}
       summary={payload.summary}
+      hotspots={payload.hotspots}
     />
   );
 }
