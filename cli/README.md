@@ -426,3 +426,34 @@ secureflow --color | tee audit.log
 ## 📄 License
 
 This package is licensed under the [ISC License](https://github.com/GauravKarakoti/SecureFlow/blob/main/LICENSE). Built with ❤️ by the SecureFlow Team.
+
+### Threat-intelligence cache diagnostics and offline recovery
+
+Threat-feed entries use an in-memory/optional Redis cache with separate fresh
+and stale deadlines and a SHA-256 payload checksum. The generic cache defaults
+to one hour fresh and seven days stale; individual feeds set their own windows
+(the local CISA KEV catalog uses 24 hours fresh). Existing callers determine when
+to use cached or stale data. Expired data is rejected by a normal read; an
+outage caller may explicitly request an expired fallback if that entry is still
+retained. A prior normal read may already have evicted it.
+
+An absent cache/local CISA file is an ordinary cold miss and stays quiet.
+Malformed JSON, an invalid local catalog structure, and unexpected local file
+read errors now produce concise warnings on **stderr**. Cache contents, parser
+exception text and Redis connection URLs are not included in these diagnostics.
+Scanner JSON on stdout remains available for automation. Existing checksum
+warnings and scan/fallback exit-code behavior are unchanged.
+
+Malformed cached JSON is rejected even when expired fallback is requested, and
+the invalid in-memory copy is discarded. A malformed Redis value is not deleted
+by this diagnostic path: a successful feed refresh must replace it. The local
+CISA catalog is never deleted automatically. If a warning persists, check local
+file readability and run the repository's existing `npm run threat-feed:sync`
+workflow when online, or restore a known-good synchronized catalog and checksum
+through your normal offline feed-management process. Keep a backup; do not edit
+or bypass the checksum to make a corrupt payload load. No refresh or network
+request is triggered merely by printing a diagnostic.
+
+Regression checks cover cold misses, empty/malformed memory and Redis JSON,
+local deserialization/schema/read failures, recovery after replacement, exact
+fresh/stale/expired TTL boundaries, and existing checksum/outage fallback rules.
