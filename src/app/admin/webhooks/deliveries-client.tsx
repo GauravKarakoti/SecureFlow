@@ -13,7 +13,9 @@ import {
   ChevronRight,
   Check,
   Copy,
+  RotateCcw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +79,45 @@ export function DeliveriesClient({
 
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [redeliveringId, setRedeliveringId] = useState<string | null>(null);
+  const [redeliverSuccessId, setRedeliverSuccessId] = useState<string | null>(null);
+
+  const isEligibleForRedelivery = (delivery: DeliveryItem) => {
+    return (
+      delivery.outcome === "rejected" ||
+      delivery.reasonCode === "REPO_DISABLED" ||
+      delivery.reasonCode === "SCAN_FAILED" ||
+      delivery.reasonCode === "INTERNAL_ERROR" ||
+      delivery.reasonCode === "RATE_LIMITED"
+    );
+  };
+
+  const handleRedeliver = async (deliveryId: string) => {
+    setRedeliveringId(deliveryId);
+    try {
+      const res = await fetch(`/api/admin/webhooks/${encodeURIComponent(deliveryId)}/redeliver`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRedeliverSuccessId(deliveryId);
+        toast.success(
+          `Redelivery queued for ${deliveryId.slice(0, 8)}… Waiting for GitHub delivery.`,
+        );
+        // Refresh deliveries after a brief delay so the new event is reflected
+        setTimeout(() => {
+          fetchDeliveries(page);
+          setRedeliverSuccessId(null);
+        }, 1500);
+      } else {
+        toast.error(data.error || "Failed to trigger redelivery.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Network error while triggering redelivery.");
+    } finally {
+      setRedeliveringId(null);
+    }
+  };
 
   useEffect(() => {
     const syncClock = () => setNowMs(Date.now());
@@ -393,6 +434,7 @@ export function DeliveriesClient({
                     <th className="py-3 px-4">Reason Code</th>
                     <th className="py-3 px-4">Details</th>
                     <th className="py-3 px-4 text-right">Time</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -486,6 +528,35 @@ export function DeliveriesClient({
                           {formatTimeAgo(delivery.createdAt, nowMs)}
                         </time>
                       </td>
+
+                      {/* Actions / Redeliver */}
+                      <td className="py-3 px-4 text-right">
+                        {isEligibleForRedelivery(delivery) ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={redeliveringId === delivery.deliveryId}
+                            onClick={() => handleRedeliver(delivery.deliveryId)}
+                            className="h-7 px-2.5 font-mono text-[11px] border-white/10 hover:border-primary/40 hover:text-white transition-colors"
+                            data-testid={`redeliver-btn-${delivery.deliveryId}`}
+                            title="Request GitHub to redeliver this event"
+                          >
+                            <RotateCcw
+                              className={`w-3 h-3 mr-1 ${
+                                redeliveringId === delivery.deliveryId ? "animate-spin" : ""
+                              } ${redeliverSuccessId === delivery.deliveryId ? "text-emerald-400" : ""}`}
+                            />
+                            {redeliveringId === delivery.deliveryId
+                              ? "Redelivering…"
+                              : redeliverSuccessId === delivery.deliveryId
+                                ? "Queued"
+                                : "Redeliver"}
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground/30 font-mono text-[10px]">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -552,6 +623,31 @@ export function DeliveriesClient({
                   {delivery.error && (
                     <div className="text-xs text-red-300/90 bg-red-500/10 border border-red-500/20 p-2 rounded">
                       {delivery.error}
+                    </div>
+                  )}
+
+                  {isEligibleForRedelivery(delivery) && (
+                    <div className="pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={redeliveringId === delivery.deliveryId}
+                        onClick={() => handleRedeliver(delivery.deliveryId)}
+                        className="w-full h-8 font-mono text-xs border-white/10"
+                        data-testid={`redeliver-btn-mobile-${delivery.deliveryId}`}
+                      >
+                        <RotateCcw
+                          className={`w-3.5 h-3.5 mr-1.5 ${
+                            redeliveringId === delivery.deliveryId ? "animate-spin" : ""
+                          }`}
+                        />
+                        {redeliveringId === delivery.deliveryId
+                          ? "Redelivering…"
+                          : redeliverSuccessId === delivery.deliveryId
+                            ? "Redelivery Queued"
+                            : "Redeliver Event"}
+                      </Button>
                     </div>
                   )}
                 </div>
