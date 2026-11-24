@@ -7,9 +7,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,14 +16,23 @@ jobs:
   build-and-push:
     name: Build, Sign & Attest Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Lowercase owner
         id: owner
-        run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "value=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       # Install Cosign for keyless image signing and attestation (Sigstore Fulcio/Rekor via GitHub OIDC)
       - name: Install Cosign
@@ -78,9 +84,11 @@ jobs:
       - name: Sign container image with Cosign
         env:
           COSIGN_YES: "true"
+          IMAGE_OWNER: ${{ steps.owner.outputs.value }}
+          IMAGE_DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: |
           cosign sign --yes \
-            "ghcr.io/${{ steps.owner.outputs.value }}/secureflow@${{ steps.build-and-push.outputs.digest }}"
+            "ghcr.io/$IMAGE_OWNER/secureflow@$IMAGE_DIGEST"
 
       # Generate CycloneDX Software Bill of Materials (SBOM) for the built image
       - name: Generate CycloneDX SBOM
@@ -94,11 +102,13 @@ jobs:
       - name: Attach CycloneDX SBOM attestation with Cosign
         env:
           COSIGN_YES: "true"
+          IMAGE_OWNER: ${{ steps.owner.outputs.value }}
+          IMAGE_DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: |
           cosign attest --yes \
             --type cyclonedx \
             --predicate secureflow-sbom.cyclonedx.json \
-            "ghcr.io/${{ steps.owner.outputs.value }}/secureflow@${{ steps.build-and-push.outputs.digest }}"
+            "ghcr.io/$IMAGE_OWNER/secureflow@$IMAGE_DIGEST"
 
       # Generate and attach SLSA build provenance attestation to the exact image digest
       - name: Generate build provenance attestation
