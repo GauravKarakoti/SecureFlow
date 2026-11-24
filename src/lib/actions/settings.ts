@@ -17,6 +17,11 @@ import {
   type OutboundEventType,
 } from "@/lib/webhooks/outbound-dispatcher";
 import { can, assertCan } from "@/lib/auth/permissions";
+import {
+  resolveEffectiveSettings,
+  type EffectiveResolvedSettings,
+} from "@/lib/scanner/installation-settings";
+import { getInstallationSettings } from "@/lib/actions/installation-settings";
 
 export async function updateSlackWebhook(url: string | null) {
   const session = await auth();
@@ -182,6 +187,7 @@ export interface RepoBadgeSetting {
   codeScanningEnabled: boolean;
   codeScanningWarning?: string | null;
   latestStatus?: string | null;
+  effectiveSettings?: EffectiveResolvedSettings;
 }
 
 export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSetting[]> {
@@ -189,23 +195,33 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
   const userId = session?.user?.id;
   if (!userId) return [];
 
-  const repos = await prisma.repository.findMany({
-    where: { userId, isActive: true },
-    select: {
-      id: true,
-      fullName: true,
-      owner: true,
-      publicBadgeEnabled: true,
-      codeScanningEnabled: true,
-      codeScanningWarning: true,
-      pullRequests: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { status: true },
+  const [repos, installationSettings] = await Promise.all([
+    prisma.repository.findMany({
+      where: { userId, isActive: true },
+      select: {
+        id: true,
+        fullName: true,
+        owner: true,
+        publicBadgeEnabled: true,
+        codeScanningEnabled: true,
+        codeScanningWarning: true,
+        pullRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            status: true,
+            scanResults: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { gateConfig: true },
+            },
+          },
+        },
       },
-    },
-    orderBy: { fullName: "asc" },
-  });
+      orderBy: { fullName: "asc" },
+    }),
+    getInstallationSettings("default"),
+  ]);
 
   return (
     repos as Array<{
@@ -215,17 +231,26 @@ export async function getUserRepositoriesWithBadgeStatus(): Promise<RepoBadgeSet
       publicBadgeEnabled: boolean;
       codeScanningEnabled: boolean;
       codeScanningWarning?: string | null;
-      pullRequests: Array<{ status: string }>;
+      pullRequests: Array<{
+        status: string;
+        scanResults?: Array<{ gateConfig?: any }>;
+      }>;
     }>
-  ).map((repo) => ({
-    id: repo.id,
-    fullName: repo.fullName,
-    owner: repo.owner,
-    publicBadgeEnabled: repo.publicBadgeEnabled,
-    codeScanningEnabled: repo.codeScanningEnabled,
-    codeScanningWarning: repo.codeScanningWarning ?? null,
-    latestStatus: repo.pullRequests[0]?.status ?? null,
-  }));
+  ).map((repo) => {
+    const latestGateConfig = repo.pullRequests[0]?.scanResults?.[0]?.gateConfig ?? null;
+    const effectiveSettings = resolveEffectiveSettings(latestGateConfig, installationSettings);
+
+    return {
+      id: repo.id,
+      fullName: repo.fullName,
+      owner: repo.owner,
+      publicBadgeEnabled: repo.publicBadgeEnabled,
+      codeScanningEnabled: repo.codeScanningEnabled,
+      codeScanningWarning: repo.codeScanningWarning ?? null,
+      latestStatus: repo.pullRequests[0]?.status ?? null,
+      effectiveSettings,
+    };
+  });
 }
 
 export async function updateRepositoryPublicBadge(

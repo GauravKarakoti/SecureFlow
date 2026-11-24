@@ -30,6 +30,7 @@ import {
   isAuthorSkipped,
   type GateConfig,
 } from "@/lib/scanner/gate-config";
+import { buildEffectiveGateConfig } from "@/lib/scanner/installation-settings";
 import { autoResolveFixedFindings } from "@/lib/findings/auto-resolve";
 import { formatAppliedScopesSection } from "@/lib/scanner/policy-scopes";
 import type { IgnoreConfigClient } from "@/lib/scanner/ignore-config";
@@ -673,12 +674,42 @@ export async function runPullRequestScan({
     const octokit = await appClient.getInstallationOctokit(installation.id);
 
     // Load base-branch gate configuration early to check skipDrafts and skipAuthors (#1982)
-    const gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
+    let gateConfig = await loadTrustedGateConfig(octokit as unknown as IgnoreConfigClient, {
       owner: repository.owner.login,
       repo: repository.name,
       prNumber: pullRequest.number,
       baseRef: pullRequest.base?.ref,
     });
+
+    try {
+      const instId = String(installation?.id || "default");
+      const instRecord =
+        (await (prisma as any).installationSettings?.findUnique?.({
+          where: { installationId: instId },
+        })) ||
+        (instId !== "default"
+          ? await (prisma as any).installationSettings?.findUnique?.({
+              where: { installationId: "default" },
+            })
+          : null);
+
+      if (instRecord) {
+        gateConfig = buildEffectiveGateConfig(gateConfig, {
+          installationId: instRecord.installationId,
+          gateBlockOn: instRecord.gateBlockOn,
+          gateReviewOn: instRecord.gateReviewOn,
+          minCommentConfidence: instRecord.minCommentConfidence,
+          includeDefaults: instRecord.includeDefaults,
+          skipDrafts: instRecord.skipDrafts,
+          skipAuthors: instRecord.skipAuthors,
+          lockedSettings: instRecord.lockedSettings,
+        });
+      } else {
+        gateConfig = buildEffectiveGateConfig(gateConfig, null);
+      }
+    } catch {
+      // Safe fallback if installation settings cannot be loaded
+    }
 
     const isDraft = pullRequest?.draft === true;
     const authorLogin = pullRequest?.user?.login;
