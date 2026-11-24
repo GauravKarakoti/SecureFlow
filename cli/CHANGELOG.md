@@ -1,5 +1,68 @@
 # secureflow-cli
 
+## 3.14.0
+
+### Minor Changes
+
+- b404179: feat(cli): project-specific custom regex rules with ReDoS protection
+
+  - Added support for defining custom regex security rules in `.secureflow.json` (`rules` / `customRules`) with unique `id`, `pattern`, `globs`, `severity`, and `message`.
+  - Added startup AST validation of custom rules reporting schema and syntax errors with line and column numbers.
+  - Integrated ReDoS and catastrophic backtracking protection using sandboxed VM execution with configurable timeouts (`timeoutMs`, default 100ms) and string length bounds.
+  - Added custom rule labeling across all terminal, SARIF, Markdown, HTML, and CSV exporters (`[Custom Rule: <id>]`).
+  - Evaluated custom rule findings against configured `--fail-on` gating thresholds.
+  - Documented two comprehensive examples (internal token format and banned APIs) in `README.md` and `cli/README.md`.
+
+- 27cbf69: feat(security): encrypt stored code snippets and explanations at rest with an application key (#2016)
+
+  - Encrypted `codeSnippet` and `explanation` columns in Findings table with AES-256-GCM using `ENCRYPTION_KEY` / `ENCRYPTION_KEY_FILE`.
+  - Stored `encryptionKeyId` per row for unambiguous key mapping and seamless key rotation.
+  - Added transparent decryption on finding reads via Prisma query extension and API/actions endpoints.
+  - Maintained backward compatibility for existing unencrypted findings.
+  - Added CLI migration script (`scripts/migrate-encrypt-findings.ts`) to encrypt existing records in batches.
+  - Provided comprehensive documentation for zero-downtime key rotation (`docs/security/finding-encryption.md`).
+  - Added strict startup validation failing clearly if encryption is enabled without a valid encryption key.
+
+- 6601c63: feat(webhook): admin 'Redeliver' action for stored deliveries in the diagnostics page (#2013)
+
+  - Added `redeliverWebhookDelivery` service executing `POST /app/hook/deliveries/{delivery_id}/attempts` using GitHub App credentials and JWT.
+  - Added `/api/admin/webhooks/[id]/redeliver` API route protected by admin session authorization.
+  - Added rate limiting (10 attempts per minute per admin) and audit logging (`WEBHOOK_REDELIVER` action in `AuditLog`).
+  - Added responsive 'Redeliver' button to delivery diagnostics page for eligible rejected, failed, or repository-disabled events.
+  - Handled errors gracefully including missing permissions, expired 3-day retention windows, and network failures.
+
+- 861d82f: fix(github): handle primary and secondary GitHub API rate limits with throttling and retry-after (#2014)
+
+  - Integrated `@octokit/plugin-throttling` with handlers for GitHub primary and secondary API rate limits.
+  - Bounded retry-after delays with configurable maximums and automatic retries.
+  - Delayed and backed off queue jobs rather than moving them to DLQ on rate limits.
+  - Added GitHub API throttle metrics exposed in Prometheus (`secureflow_github_throttle_primary_total` and `secureflow_github_throttle_secondary_total`).
+  - Sanitized logged limit requests by redacting tokens, authorization headers, and excluding payloads.
+
+### Patch Changes
+
+- 21a4dd6: ci(security): harden SecureFlow's GitHub Actions workflows with SHA pinning, least privilege, actionlint, and zizmor (#2017)
+
+  - Pinned every third-party GitHub action to immutable 40-character commit SHAs with semantic version comments across all 13 workflows.
+  - Enforced top-level `permissions: contents: read` across all workflow files and restricted write permissions strictly to the jobs that require them.
+  - Added `actionlint` and `zizmor` lint jobs to the Core CI pipeline to enforce workflow correctness and security best practices on pull requests and pushes.
+  - Fixed CodeQL initialization inputs and sanitized script inputs to prevent template injection vulnerabilities.
+  - Added `persist-credentials: false` to checkouts to safeguard GitHub Actions tokens.
+
+- 61fcf12: docs: add architecture guide and component data flow (#2046)
+
+  - Comprehensive architectural specification explaining how the CLI, GitHub Action, Dashboard, and AI layer connect.
+  - End-to-end data flow Mermaid diagrams illustrating the full pipeline from code push to dashboard display.
+  - Failure handling topology, dead-letter queues (DLQ), and circuit breaker documentation.
+  - Contributor extension guide with step-by-step instructions for adding rules, AI providers, and dashboard pages.
+  - Updated README.md with cross-links to the Architecture & Contributor Guide.
+
+- c26b638: Report safe stderr diagnostics when threat-intelligence cache or local CISA
+  catalog deserialization fails, distinguish ordinary absence from unreadable or
+  invalid files, and document offline recovery without changing valid fallback
+  policies.
+- c838faf: chore(helm): [NSoC_2026] validate networkpolicy and egress templates against retention cronjob and worker pods (#1954)
+
 ## 3.13.0
 
 ### Minor Changes
