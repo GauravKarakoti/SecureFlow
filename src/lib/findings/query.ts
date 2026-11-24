@@ -99,6 +99,8 @@ export interface FindingsQuery {
   tab?: string | null;
   tag?: string | null;
   source?: string | null;
+  pathPrefix?: string | null;
+  path?: string | null;
 }
 
 export type AssigneeFilter = "me" | "unassigned" | null;
@@ -131,6 +133,7 @@ export interface NormalizedFindingsQuery {
   tab: string | null;
   tag: string | null;
   source: string | null;
+  pathPrefix: string | null;
 }
 
 /** Longest search string worth sending to Postgres as an ILIKE pattern. */
@@ -343,6 +346,12 @@ export function normalizeFindingsQuery(query: FindingsQuery = {}): NormalizedFin
       typeof query.source === "string" && query.source.trim()
         ? query.source.trim().toLowerCase()
         : null,
+    pathPrefix:
+      typeof query.pathPrefix === "string" && query.pathPrefix.trim()
+        ? query.pathPrefix.trim()
+        : typeof query.path === "string" && query.path.trim()
+          ? query.path.trim()
+          : null,
   };
 
   if (query.cursor !== undefined) {
@@ -639,6 +648,20 @@ export function buildFindingsWhere(
     });
   }
 
+  if (query.pathPrefix) {
+    const prefix = query.pathPrefix.trim();
+    if (prefix === "(root)" || prefix === "root" || prefix === "/") {
+      where.fileLocation = {
+        not: { contains: "/" },
+      };
+    } else {
+      const normalizedPrefix = prefix.endsWith("/") ? prefix : `${prefix}/`;
+      where.fileLocation = {
+        OR: [{ startsWith: normalizedPrefix }, { equals: prefix.replace(/\/+$/, "") }],
+      };
+    }
+  }
+
   if (query.expiring === "14d") {
     const targetFingerprints = context.expiringFingerprints ?? [];
     andClauses.push({ fingerprint: { in: [...new Set(targetFingerprints)] } });
@@ -690,7 +713,8 @@ export function hasActiveFilters(query: NormalizedFindingsQuery): boolean {
     query.expiring !== null ||
     query.tab !== null ||
     query.tag !== null ||
-    query.source !== null
+    query.source !== null ||
+    query.pathPrefix !== null
   );
 }
 
@@ -710,6 +734,7 @@ export function toSearchParams(query: NormalizedFindingsQuery): string {
   if (query.tab) params.set("tab", query.tab);
   if (query.tag) params.set("tag", query.tag);
   if (query.source) params.set("source", query.source);
+  if (query.pathPrefix) params.set("path", query.pathPrefix);
   for (const severity of query.severity) params.append("severity", severity);
   for (const type of query.type) params.append("type", type);
   for (const status of query.status) params.append("status", status);
@@ -746,6 +771,7 @@ export function fromSearchParams(
     tab: single(params.tab),
     tag: single(params.tag),
     source: single(params.source),
+    pathPrefix: single(params.path) ?? single(params.pathPrefix),
   });
 }
 
