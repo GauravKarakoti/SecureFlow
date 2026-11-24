@@ -30,6 +30,10 @@ import {
   type Severity,
 } from "./scanner.js";
 import {
+  loadCustomRulesFromConfig,
+  type CompiledCustomRule,
+} from "./custom-rules.js";
+import {
   NetworkUnavailableError,
   requestAiFileScan,
   submitSbomScan,
@@ -46,6 +50,7 @@ import {
   parseVerboseArg,
   type VerbosityLevel,
   parseIgnoreFilePath,
+  parseConfigFilePath,
   parseOutputFormat,
   parseOutputPath,
   parseVoiceArg,
@@ -197,6 +202,7 @@ Options:
   --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
   -o, --output <path>    Write output to specified file path
   --ignore-file <path>   Path to custom ignore configuration file
+  --config <path>, -c    Path to custom configuration file (.secureflow.json)
   --fail-on <level>      Fail scan threshold (critical, high, medium, low, none)
   --local                Run scan locally without uploading files externally
   --local-model <tag>    Specify local AI model tag (default: llama3)
@@ -275,9 +281,17 @@ function reportFileTiming(filePath: string, durationMs: number, cached = false):
 
 function reportViolations(result: FileScanResult): void {
   for (const violation of result.violations) {
-    console.error(`🚨 [SecureFlow] Secret logging detected in ${result.path}:${violation.line}`);
-    console.error(`  -> ${violation.text}`);
-    console.error(`  why: ${violation.reason} passed to a console call`);
+    if (violation.custom || (violation.ruleId && violation.ruleId !== "console-secret-logging")) {
+      console.error(
+        `🚨 [SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] Violation detected in ${result.path}:${violation.line}`,
+      );
+      console.error(`  -> ${violation.text}`);
+      console.error(`  why: ${violation.reason}`);
+    } else {
+      console.error(`🚨 [SecureFlow] Secret logging detected in ${result.path}:${violation.line}`);
+      console.error(`  -> ${violation.text}`);
+      console.error(`  why: ${violation.reason} passed to a console call`);
+    }
   }
 }
 
@@ -643,6 +657,7 @@ async function main(): Promise<number> {
   let format: OutputFormat;
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
+  let customConfigPath: string | undefined;
   let sinceRef: string | undefined;
   let noCache = false;
   let customCacheDir: string | undefined;
@@ -654,6 +669,7 @@ async function main(): Promise<number> {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
+    customConfigPath = parseConfigFilePath(process.argv);
     sinceRef = parseSinceArg(process.argv);
     noCache = parseNoCacheArg(process.argv);
     customCacheDir = parseCacheDirArg(process.argv);
@@ -678,6 +694,32 @@ async function main(): Promise<number> {
     ...DEFAULT_IGNORE_PATTERNS,
     ...(ignoreData ? ignoreData.config.ignoredPaths : []),
   ]);
+
+  // Load and validate custom rules at startup
+  const customRulesResult = loadCustomRulesFromConfig({
+    configPath: customConfigPath,
+    targetDir,
+    repoRoot,
+  });
+
+  if (customRulesResult.errors.length > 0) {
+    console.error(
+      `❌ [SecureFlow] Configuration Error: Invalid custom rule configuration${
+        customRulesResult.configPath ? ` in '${customRulesResult.configPath}'` : ""
+      }:`,
+    );
+    for (const err of customRulesResult.errors) {
+      console.error(`  -> ${err}`);
+    }
+    return 1;
+  }
+
+  const customRules = customRulesResult.rules;
+  if (VERBOSE && customRules.length > 0) {
+    console.log(
+      `ℹ️  [SecureFlow] Loaded ${customRules.length} custom security rule(s) from ${customRulesResult.configPath}`,
+    );
+  }
 
   let filesToScan: string[];
 
@@ -789,7 +831,10 @@ async function main(): Promise<number> {
         violationCount += result.violations.length;
       } else {
         analyzedCount++;
-        const result = scanFile(filePath, content, customIgnores);
+        const result =
+          customRules.length > 0
+            ? scanFile(filePath, content, customIgnores, customRules)
+            : scanFile(filePath, content, customIgnores);
         const elapsedMs = performance.now() - startFileTime;
         fileResults.push(result);
         if (result.skipped) {
@@ -919,13 +964,18 @@ ${textOutput}`);
   }
 
   const activeThreshold = failOnThreshold ?? parseFailOnArg();
+  const allLocalViolations = fileResults.flatMap((r) => r.violations);
   // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
   // filter, not a security gate bypass. --fail-on must see every finding.
-  const shouldFail = shouldFailScan(violationCount, allAiFindings, activeThreshold);
+  const shouldFail = allLocalViolations.some((v) => v.custom)
+    ? shouldFailScan(allLocalViolations, allAiFindings, activeThreshold)
+    : shouldFailScan(violationCount, allAiFindings, activeThreshold);
   const blockingAi = blockingAiFindings(allAiFindings, activeThreshold);
 
   if (format === "text") {
-    const counts = countFindingsBySeverity(violationCount, allAiFindings);
+    const counts = allLocalViolations.some((v) => v.custom)
+      ? countFindingsBySeverity(allLocalViolations, allAiFindings)
+      : countFindingsBySeverity(violationCount, allAiFindings);
     console.log(formatSeverityCounts(counts));
   }
 
@@ -940,8 +990,18 @@ ${textOutput}`);
   if (shouldFail) {
     if (format === "text") {
       const parts: string[] = [];
-      if (violationCount > 0) {
-        parts.push(`${violationCount} secret-logging violation${violationCount === 1 ? "" : "s"}`);
+      const secretViolations = allLocalViolations.filter((v) => !v.custom);
+      const customViolations = allLocalViolations.filter((v) => v.custom);
+
+      if (secretViolations.length > 0) {
+        parts.push(
+          `${secretViolations.length} secret-logging violation${secretViolations.length === 1 ? "" : "s"}`,
+        );
+      }
+      if (customViolations.length > 0) {
+        parts.push(
+          `${customViolations.length} custom-rule violation${customViolations.length === 1 ? "" : "s"}`,
+        );
       }
       if (blockingAi.length > 0) {
         parts.push(`${blockingAi.length} AI-detected finding${blockingAi.length === 1 ? "" : "s"}`);

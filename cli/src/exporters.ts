@@ -70,8 +70,9 @@ export class CsvExporter implements Exporter {
 
     for (const file of results) {
       for (const v of file.violations) {
+        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
         rows.push(
-          [escapeCsv(file.path), String(v.line), escapeCsv(v.text), escapeCsv(v.reason)].join(","),
+          [escapeCsv(file.path), String(v.line), escapeCsv(v.text), escapeCsv(reasonText)].join(","),
         );
       }
     }
@@ -85,7 +86,8 @@ export class MarkdownExporter implements Exporter {
 
     for (const file of results) {
       for (const v of file.violations) {
-        violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
+        violations.push({ path: file.path, line: v.line, text: v.text, reason: reasonText });
       }
     }
 
@@ -121,7 +123,8 @@ export class HtmlExporter implements Exporter {
 
     for (const file of results) {
       for (const v of file.violations) {
-        violations.push({ path: file.path, line: v.line, text: v.text, reason: v.reason });
+        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
+        violations.push({ path: file.path, line: v.line, text: v.text, reason: reasonText });
       }
     }
 

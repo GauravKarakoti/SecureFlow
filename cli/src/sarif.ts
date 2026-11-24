@@ -603,21 +603,46 @@ export function generateSarifReport(
     const normalizedPath = fileResult.path.replace(/\\/g, "/");
 
     for (const violation of fileResult.violations) {
-      const reasonKey = violation.reason || "generic-secret-logging";
+      const isCustom = Boolean(
+        violation.custom || (violation.ruleId && violation.ruleId !== "console-secret-logging"),
+      );
+      const reasonKey = isCustom
+        ? `custom-${violation.ruleId || violation.reason}`
+        : violation.reason || "generic-secret-logging";
       let ruleInfo = rulesMap.get(reasonKey);
 
       if (!ruleInfo) {
-        const descriptor = DEFAULT_RULE_DEFINITIONS[reasonKey] || {
-          id: `SECUREFLOW-${rulesMap.size + 100}`,
-          name: `ConsoleSecretLoggingCustomRule${rulesMap.size + 1}`,
-          shortDescription: {
-            text: `Console logging of ${violation.reason}`,
-          },
-          defaultConfiguration: {
-            level: severityToSarifLevel(violation.severity),
-          },
-          helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
-        };
+        const descriptor = isCustom
+          ? {
+              id: violation.ruleId
+                ? `CUSTOM-${violation.ruleId.toUpperCase().replace(/[^A-Z0-9_-]/g, "-")}`
+                : `CUSTOM-RULE-${rulesMap.size + 1}`,
+              name: violation.ruleId || `CustomRule${rulesMap.size + 1}`,
+              shortDescription: {
+                text: `[Custom Rule] ${violation.reason}`,
+              },
+              fullDescription: {
+                text: `Custom project-specific rule: ${violation.reason}`,
+              },
+              defaultConfiguration: {
+                level: severityToSarifLevel(violation.severity),
+              },
+              properties: {
+                custom: true,
+                ruleId: violation.ruleId,
+              },
+            }
+          : DEFAULT_RULE_DEFINITIONS[reasonKey] || {
+              id: `SECUREFLOW-${rulesMap.size + 100}`,
+              name: `ConsoleSecretLoggingCustomRule${rulesMap.size + 1}`,
+              shortDescription: {
+                text: `Console logging of ${violation.reason}`,
+              },
+              defaultConfiguration: {
+                level: severityToSarifLevel(violation.severity),
+              },
+              helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
+            };
 
         ruleInfo = { descriptor, index: rulesMap.size };
         rulesMap.set(reasonKey, ruleInfo);
@@ -628,6 +653,10 @@ export function generateSarifReport(
       const replacement = options?.remediations?.[fixKey] || options?.remediations?.[fingerprint];
       const fix = buildSarifFix(normalizedPath, violation.line, replacement);
 
+      const messageText = isCustom
+        ? `[SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] ${violation.reason}: "${violation.text}"`
+        : `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`;
+
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
@@ -635,7 +664,7 @@ export function generateSarifReport(
           ? severityToSarifLevel(violation.severity)
           : ruleInfo.descriptor.defaultConfiguration?.level || "error",
         message: {
-          text: `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`,
+          text: messageText,
         },
         locations: [
           {
@@ -660,6 +689,7 @@ export function generateSarifReport(
         properties: {
           reason: violation.reason,
           severity: violation.severity || "HIGH",
+          ...(isCustom ? { custom: true, ruleId: violation.ruleId } : {}),
         },
       });
     }

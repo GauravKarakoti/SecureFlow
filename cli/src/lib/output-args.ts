@@ -103,6 +103,14 @@ export function parseIgnoreFilePath(argv: readonly string[]): string | undefined
   return raw;
 }
 
+/** `--config <path>` (alias `-c`), or `undefined` for the default configuration file lookup. */
+export function parseConfigFilePath(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--config", "-c"]);
+  if (raw === undefined) return undefined;
+  if (raw === null) throw new CliUsageError("--config requires a file path");
+  return raw;
+}
+
 /** `-v` / `--voice` flag: play an audio summary debrief. */
 export function parseVoiceArg(argv: readonly string[]): boolean {
   for (const arg of argv) {
