@@ -6,9 +6,11 @@ import {
   getStagedFiles,
   readStagedContent,
   getChangedFilesSince,
+  getStagedDiffLineNumbers,
   getRepoRoot,
   isGitRepository,
 } from "./git.js";
+import { installHook, uninstallHook, printHookHelp } from "./hook.js";
 import {
   scanFile,
   formatScanResults,
@@ -29,10 +31,7 @@ import {
   type OutputFormat,
   type Severity,
 } from "./scanner.js";
-import {
-  loadCustomRulesFromConfig,
-  type CompiledCustomRule,
-} from "./custom-rules.js";
+import { loadCustomRulesFromConfig, type CompiledCustomRule } from "./custom-rules.js";
 import {
   NetworkUnavailableError,
   requestAiFileScan,
@@ -64,6 +63,7 @@ import {
   parseCacheDirArg,
   parseIgnoreSuppressionsArg,
   parseTargetDirectoryArg,
+  parseStagedArg,
 } from "./lib/output-args.js";
 import { discoverWorkspaceFiles } from "./workspace.js";
 import {
@@ -160,12 +160,18 @@ SecureFlow CLI - Security analysis tool for staged git files
 Usage:
   secureflow [path] [options]
   secureflow scan [path] [options]
+  secureflow scan --staged [options]
+  secureflow hook install [options]
+  secureflow hook uninstall [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  scan                   Scan workspace or staged files for security violations
+  hook install           Install Git pre-commit hook to block commits with staged secrets (#2020)
+  hook uninstall         Uninstall Git pre-commit hook and restore previous hook backup (#2020)
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
@@ -175,6 +181,7 @@ Commands:
   cache-stats            Display diagnostic storage statistics and telemetry for scan cache
 
 Options:
+  --staged               Scan only the staged diff (blocks commits on secrets at configured severity)
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
   --validate [file]      Validate configuration files against schema
   --force, -f            Overwrite existing configuration files without confirmation
@@ -274,6 +281,15 @@ function reportAiFinding(finding: AiFinding): void {
 }
 
 async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise<AiFinding[]> {
+  const isStagedMode = process.argv.includes("--staged");
+  if (isStagedMode) {
+    if (VERBOSE) {
+      console.log(
+        "ℹ️  [SecureFlow] Pre-commit staged mode: running deterministic local scan without network.",
+      );
+    }
+    return [];
+  }
   if (AI_SKIP_REASON === "local" && VERBOSE) {
     console.warn(
       "ℹ️  [SecureFlow] --local: hosted AI scan skipped, staged code stays on this machine.",
@@ -403,6 +419,44 @@ async function main(): Promise<number> {
     }
     console.log(`─────────────────────────────────────────────\n`);
     return 0;
+  }
+
+  if (process.argv[2] === "hook") {
+    const action = process.argv[3];
+    if (action === "install") {
+      const force =
+        process.argv.includes("--force") ||
+        process.argv.includes("-f") ||
+        process.argv.includes("-y") ||
+        process.argv.includes("--yes");
+      const dryRun = process.argv.includes("--dry-run");
+      const result = await installHook({ force, dryRun });
+      if (result.success) {
+        console.log(result.message);
+        return 0;
+      } else {
+        console.error(result.message);
+        return 1;
+      }
+    } else if (action === "uninstall") {
+      const dryRun = process.argv.includes("--dry-run");
+      const result = await uninstallHook({ dryRun });
+      if (result.success) {
+        console.log(result.message);
+        return 0;
+      } else {
+        console.error(result.message);
+        return 1;
+      }
+    } else if (action === "--help" || action === "-h" || !action) {
+      printHookHelp();
+      return 0;
+    } else {
+      console.error(
+        `❌ [SecureFlow] Unknown hook command "${action}". Supported commands: install, uninstall.`,
+      );
+      return 1;
+    }
   }
 
   const isValidateCommand =
@@ -650,7 +704,14 @@ async function main(): Promise<number> {
   const targetDir = parseTargetDirectoryArg(process.argv);
   const repoInGit = isGitRepository();
   const isSinceMode = sinceRef !== undefined;
-  const isDirMode = targetDir !== undefined || (!isSinceMode && !repoInGit);
+  const isStagedMode = parseStagedArg(process.argv);
+  const isDirMode = targetDir !== undefined || (!isSinceMode && !isStagedMode && !repoInGit);
+
+  if (isStagedMode && !repoInGit) {
+    console.error("❌ [SecureFlow] Not a git repository (or git is not on PATH).");
+    return hasFailOnFlag ? 2 : 1;
+  }
+
   const repoRoot = getRepoRoot();
   const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
   const customIgnores = compileIgnorePatterns([
@@ -683,7 +744,7 @@ async function main(): Promise<number> {
     );
   }
 
-  let filesToScan: string[];
+  let filesToScan: string[] = [];
 
   try {
     if (targetDir !== undefined) {
@@ -693,13 +754,13 @@ async function main(): Promise<number> {
       });
     } else if (sinceRef !== undefined) {
       filesToScan = getChangedFilesSince(sinceRef);
-    } else if (!repoInGit) {
+    } else if (isStagedMode || repoInGit) {
+      filesToScan = getStagedFiles();
+    } else {
       filesToScan = discoverWorkspaceFiles(".", {
         workspaceRoot: repoRoot,
         customIgnores,
       });
-    } else {
-      filesToScan = getStagedFiles();
     }
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
@@ -766,6 +827,12 @@ async function main(): Promise<number> {
           ...cached.result,
           path: filePath,
         };
+        if (isStagedMode) {
+          const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
+          if (diffLines && diffLines.size > 0) {
+            result.violations = result.violations.filter((v) => diffLines.has(v.line));
+          }
+        }
         fileResults.push(result);
         if (result.skipped) {
           skippedCount++;
@@ -796,6 +863,12 @@ async function main(): Promise<number> {
           ...(ignoreSuppressions ? { ignoreSuppressions } : {}),
           ...(customRules.length > 0 ? { customRules } : {}),
         });
+        if (isStagedMode) {
+          const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
+          if (diffLines && diffLines.size > 0) {
+            result.violations = result.violations.filter((v) => diffLines.has(v.line));
+          }
+        }
         const elapsedMs = performance.now() - startFileTime;
         fileResults.push(result);
         if (result.skipped) {
@@ -916,7 +989,31 @@ ${textOutput}`);
     );
   }
 
-  const activeThreshold = failOnThreshold ?? parseFailOnArg();
+  let configBlockOn: FailOnSeverity | null = null;
+  const configPath =
+    customConfigPath || (repoRoot ? path.join(repoRoot, ".secureflow.json") : ".secureflow.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const parsedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      const blockOn = parsedConfig?.gate?.blockOn;
+      if (typeof blockOn === "string") {
+        const upper = blockOn.toUpperCase();
+        if (
+          upper === "CRITICAL" ||
+          upper === "HIGH" ||
+          upper === "MEDIUM" ||
+          upper === "LOW" ||
+          upper === "NONE"
+        ) {
+          configBlockOn = upper as FailOnSeverity;
+        }
+      }
+    } catch {
+      // Ignored here
+    }
+  }
+
+  const activeThreshold = failOnThreshold ?? configBlockOn ?? parseFailOnArg();
   const allLocalViolations = fileResults.flatMap((r) => r.violations);
   const normalizedViolations = allLocalViolations.map((v) =>
     v.severity !== undefined ? { severity: v.severity } : {},
