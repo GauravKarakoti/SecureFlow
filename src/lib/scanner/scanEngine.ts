@@ -65,6 +65,7 @@ import {
   resolveScanTimeoutBudgetMs,
   resolveScanRequestTimeoutMs,
 } from "./gate-config";
+import { buildEffectiveGateConfig } from "./installation-settings";
 import { evaluateSuppressionRules } from "@/lib/suppression-rules/matcher";
 import {
   getActiveSuppressionRules,
@@ -220,6 +221,39 @@ export async function processScanJob(
       `[ScanEngine] Could not load ignore configuration for ${repositoryFullName}:`,
       err,
     );
+  }
+
+  // Hierarchical settings resolution: Built-in -> Installation -> Repository (.secureflow.json) (#2010)
+  try {
+    const instId = String(installationId || "default");
+    const instRecord =
+      (await (prisma as any).installationSettings?.findUnique?.({
+        where: { installationId: instId },
+      })) ||
+      (instId !== "default"
+        ? await (prisma as any).installationSettings?.findUnique?.({
+            where: { installationId: "default" },
+          })
+        : null);
+
+    if (instRecord) {
+      repositoryGateConfig = buildEffectiveGateConfig(repositoryGateConfig, {
+        installationId: instRecord.installationId,
+        gateBlockOn: instRecord.gateBlockOn,
+        gateReviewOn: instRecord.gateReviewOn,
+        minCommentConfidence: instRecord.minCommentConfidence,
+        includeDefaults: instRecord.includeDefaults,
+        skipDrafts: instRecord.skipDrafts,
+        skipAuthors: instRecord.skipAuthors,
+        lockedSettings: instRecord.lockedSettings,
+      });
+    } else {
+      repositoryGateConfig = buildEffectiveGateConfig(repositoryGateConfig, null);
+    }
+  } catch (err) {
+    log.warn(`[ScanEngine] Could not load installation settings for ${repositoryFullName}:`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   if (repositoryIgnoreConfig.warnings && repositoryIgnoreConfig.warnings.length > 0) {
