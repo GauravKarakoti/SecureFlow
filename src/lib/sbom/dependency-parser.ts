@@ -1,6 +1,12 @@
 import { Dependency } from "@/types/sbom";
 import { detectAndParseSbom } from "./sbom-format-detector";
-import { parsePackageLockJson, parsePnpmLockYaml } from "./lockfile-parser";
+import {
+  parsePackageLockJson,
+  parsePnpmLockYaml,
+  parseYarnLock,
+  parseCargoLock,
+  parseGoSum,
+} from "./lockfile-parser";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ context: { component: "dependency-parser" } });
@@ -10,6 +16,9 @@ export const SUPPORTED_MANIFESTS = [
   "package.json",
   "package-lock.json",
   "pnpm-lock.yaml",
+  "yarn.lock",
+  "Cargo.lock",
+  "go.sum",
   "requirements.txt",
   "bom.json",
   "sbom.json",
@@ -195,6 +204,15 @@ export function parseManifestFile(content: string, filePath: string): Dependency
   }
   if (filePath.endsWith("pnpm-lock.yaml")) {
     return parsePnpmLockYaml(content, filePath);
+  }
+  if (filePath.endsWith("yarn.lock")) {
+    return parseYarnLock(content, filePath);
+  }
+  if (filePath.endsWith("Cargo.lock")) {
+    return parseCargoLock(content, filePath);
+  }
+  if (filePath.endsWith("go.sum")) {
+    return parseGoSum(content, filePath);
   }
   if (filePath.endsWith("package.json")) {
     return parsePackageJson(content, filePath);
