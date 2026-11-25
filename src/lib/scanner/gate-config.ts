@@ -242,12 +242,14 @@ export interface GateConfig {
   suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
+  patternRulesEnabled?: boolean;
 }
 
 export interface RulesConfig {
   disabled?: string[];
   disabledRules?: string[];
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  patterns?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   [ruleName: string]: unknown;
 }
 
@@ -263,6 +265,7 @@ export interface SecureFlowConfig {
   rules?: RulesConfig;
   disabledRules?: string[];
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  patterns?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -384,6 +387,8 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     (typeof gate.suggestions === "object" && !gate.suggestions?.enabled);
   // #2004: IaC rules and disabledRules checks
   const sameIac = gate.iacRulesEnabled === undefined || gate.iacRulesEnabled === true;
+  // #2088: pattern rules checks
+  const samePatterns = gate.patternRulesEnabled === undefined || gate.patternRulesEnabled === true;
   const noDisabledRules = !gate.disabledRules || gate.disabledRules.length === 0;
 
   return (
@@ -405,6 +410,7 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameContextLines &&
     sameSuggestions &&
     sameIac &&
+    samePatterns &&
     noDisabledRules
   );
 }
@@ -870,6 +876,23 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2088: parse pattern rules configuration
+  let patternRulesEnabled: boolean | undefined = undefined;
+  const rawPatterns =
+    root.patterns ??
+    (root as Record<string, unknown>).patternRules ??
+    gateObj.patterns ??
+    (gateObj as Record<string, unknown>).patternRules ??
+    rawRulesObj?.patterns ??
+    (rawRulesObj as Record<string, unknown>)?.patternRules;
+  if (rawPatterns === false || gateObj.patternRulesEnabled === false) {
+    patternRulesEnabled = false;
+  } else if (typeof rawPatterns === "object" && rawPatterns !== null && !Array.isArray(rawPatterns)) {
+    if ((rawPatterns as Record<string, unknown>).enabled === false) {
+      patternRulesEnabled = false;
+    }
+  }
+
   const disabledRulesSet = new Set<string>();
   const collectRules = (arr: unknown) => {
     if (Array.isArray(arr)) {
@@ -891,9 +914,14 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     collectRules((rawIac as Record<string, unknown>).disabledRules);
   }
 
+  if (typeof rawPatterns === "object" && rawPatterns !== null && !Array.isArray(rawPatterns)) {
+    collectRules((rawPatterns as Record<string, unknown>).disabled);
+    collectRules((rawPatterns as Record<string, unknown>).disabledRules);
+  }
+
   if (rawRulesObj) {
     for (const [key, val] of Object.entries(rawRulesObj)) {
-      if (val === false && key !== "iac") {
+      if (val === false && key !== "iac" && key !== "patterns" && key !== "patternRules") {
         disabledRulesSet.add(key);
       }
     }
@@ -924,6 +952,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(contextLines !== undefined ? { contextLines } : {}),
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
+    ...(patternRulesEnabled !== undefined ? { patternRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
   };
 }
@@ -940,6 +969,22 @@ export function resolveIacRuleOptions(config?: GateConfig | null): {
   }
   return {
     enabled: config.iacRulesEnabled !== false,
+    disabledRules: config.disabledRules ?? [],
+  };
+}
+
+/**
+ * Resolves options for deterministic pattern security rules from gate config (#2088).
+ */
+export function resolvePatternRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [] };
+  }
+  return {
+    enabled: config.patternRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
   };
 }

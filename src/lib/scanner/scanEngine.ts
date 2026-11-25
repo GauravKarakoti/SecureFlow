@@ -36,7 +36,8 @@ import { runDeterministicPrecheck } from "@/lib/armor/precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
-import { resolveIacRuleOptions } from "./gate-config";
+import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
+import { resolveIacRuleOptions, resolvePatternRuleOptions } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -579,6 +580,34 @@ export async function processScanJob(
       }
     } else {
       allFindings.push(iac);
+    }
+  }
+
+  // Ensure deterministic dangerous pattern security rules are present (#2088)
+  const patternOptions = resolvePatternRuleOptions(repositoryGateConfig);
+  const patternRuleFindings = runPatternSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: patternOptions.enabled,
+    disabledRules: patternOptions.disabledRules,
+  });
+  for (const pat of patternRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === pat.fileLocation && f.lineStart === pat.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === pat.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === pat.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        pat.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = pat;
+      }
+    } else {
+      allFindings.push(pat);
     }
   }
 

@@ -21,6 +21,7 @@ import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./preche
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import {
@@ -37,7 +38,6 @@ export type ScanFinding = {
   description: string;
   fileLocation: string;
   codeSnippet: string;
-  remediation?: string;
   lineStart?: number;
   lineEnd?: number;
   dynamicFingerprint?: string;
@@ -49,6 +49,7 @@ export type ScanFinding = {
   confidence?: ConfidenceLevel;
   confidenceReason?: string;
   remediation?: string;
+  fingerprint?: string;
   cwe?: string;
   verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
   verificationReason?: string;
@@ -471,11 +472,14 @@ export class ArmorIQScanner {
     const workflowFindings = runWorkflowSecurityRules(files, { repositoryId });
     // Deterministic infrastructure-as-code rules for Dockerfile, Kubernetes, Terraform (#2004).
     const iacFindings = runIacSecurityRules(files, { repositoryId });
+    // Deterministic pattern security rules for dangerous APIs (#2088).
+    const patternFindings = runPatternSecurityRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
       ...workflowFindings,
       ...iacFindings,
+      ...patternFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -1001,4 +1005,11 @@ export {
   isWorkflowFile,
 } from "@/lib/rules/workflow-rules";
 export { runIacSecurityRules, scanIacFile, isIacFile, IAC_RULE_IDS } from "@/lib/rules/iac-rules";
+export {
+  runPatternSecurityRules,
+  scanFileWithPatternRules,
+  getLanguageFamily,
+  PATTERN_RULE_IDS,
+  PATTERN_RULES,
+} from "@/lib/rules/pattern-rules";
 export const scanner = new ArmorIQScanner();
