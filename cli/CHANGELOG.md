@@ -1,5 +1,24 @@
 # secureflow-cli
 
+## 3.18.0
+
+### Minor Changes
+
+- c20a9a1: feat(cli): atomic write-into-place, cooperative lockfile protocol, and SHA-256 payload checksums for multi-process scan cache (#2070)
+- 89413ed: Add JUnit XML (`--format junit`) and Markdown (`--format markdown`) report output formats with deterministic test reporting, secret masking, and CI/CD snippet documentation (#2021).
+- c559ecf: feat(policies): DAG cycle detection and topological dependency graph resolver integrated into policy import validation and compliance evaluation (#2071)
+- cf743e4: feat(rate-limit): O(1) space token bucket rate limiter with bounded LRU eviction integrated into Redis fallback (#2072)
+- f347cba: feat(webhooks): dead-letter queue (DLQ), durable replay, and circuit breaker for outbound webhook deliveries (#2061)
+
+  - Added `src/lib/webhooks/circuit-breaker.ts` implementing destination host circuit breakers with `CLOSED` -> `OPEN` -> `HALF_OPEN` state transitions, failure thresholds, and cooldown timers to prevent cascading socket exhaustion.
+  - Integrated circuit breaker pre-flight checks and full-jitter exponential backoff in `src/lib/webhooks/outbound-dispatcher.ts`.
+  - Added `src/lib/webhooks/dlq.ts` providing a durable dead-letter queue (DLQ) state machine, quarantine tracking, and single/batch replay capabilities.
+  - Added admin management API routes for DLQ inspection and replay at `GET/DELETE /api/webhooks/dlq`, `POST /api/webhooks/dlq/replay`, and `POST /api/webhooks/dlq/[id]/replay`.
+  - Documented all DLQ and admin webhook endpoints in `openapi.yaml`.
+  - Integrated full DLQ management UI directly into `src/components/settings/outbound-webhooks-card.tsx` with live quarantined entry inspection, circuit breaker state badges, single-delivery redelivery, batch replays, and entry purging.
+
+- 008a4c9: Harden streaming AI explanation and heist message flows against adversarial prompt-injection payloads across backoff and fallback paths, and add red-team regression coverage (#1949).
+
 ## 3.17.0
 
 ### Minor Changes
