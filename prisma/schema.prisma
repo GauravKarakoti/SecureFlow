@@ -32,6 +32,9 @@ enum DismissalReason {
   FALSE_POSITIVE
   ACCEPTED_RISK
   WONT_FIX
+  TEST_CODE
+  MITIGATED_ELSEWHERE
+  UNSPECIFIED
 }
 
 enum PolicyDecision {

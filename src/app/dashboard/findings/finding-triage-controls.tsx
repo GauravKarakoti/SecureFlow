@@ -49,6 +49,9 @@ const DISMISSAL_REASON_OPTIONS: { value: DismissalReason; label: string }[] = [
   { value: "FALSE_POSITIVE", label: "False positive" },
   { value: "ACCEPTED_RISK", label: "Accepted risk" },
   { value: "WONT_FIX", label: "Won't fix" },
+  { value: "TEST_CODE", label: "Test code" },
+  { value: "MITIGATED_ELSEWHERE", label: "Mitigated elsewhere" },
+  { value: "UNSPECIFIED", label: "Unspecified" },
 ];
 
 const STATUS_BADGE: Record<TriageStatus, string> = {
