@@ -320,6 +320,7 @@ const KNOWN_COMMANDS = new Set([
   "cache-prune",
   "cache-stats",
   "hook",
+  "doctor",
 ]);
 
 /**

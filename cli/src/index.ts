@@ -170,6 +170,7 @@ Usage:
   secureflow [path] [options]
   secureflow scan [path] [options]
   secureflow scan --staged [options]
+  secureflow doctor [options]
   secureflow hook install [options]
   secureflow hook uninstall [options]
   secureflow validate [file] [options]
@@ -179,6 +180,7 @@ Usage:
 
 Commands:
   scan                   Scan workspace or staged files for security violations
+  doctor                 Verify environment prerequisites, git setup, config, and AI reachability
   hook install           Install Git pre-commit hook to block commits with staged secrets (#2020)
   hook uninstall         Uninstall Git pre-commit hook and restore previous hook backup (#2020)
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
@@ -469,6 +471,11 @@ async function main(): Promise<number> {
       );
       return 1;
     }
+  }
+
+  if (process.argv[2] === "doctor" || process.argv.includes("--doctor")) {
+    const { runDoctor } = await import("./doctor.js");
+    return await runDoctor(process.argv);
   }
 
   const isValidateCommand =
