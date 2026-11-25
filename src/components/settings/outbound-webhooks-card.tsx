@@ -28,7 +28,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  ExternalLink,
+  RefreshCw,
+  Play,
 } from "lucide-react";
 
 const EVENT_DESCRIPTIONS: Record<OutboundEventType, string> = {
@@ -63,6 +64,14 @@ export default function OutboundWebhooksCard({
   const [viewingWebhookId, setViewingWebhookId] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<OutboundWebhookDeliveryView[]>([]);
   const [isLoadingDeliveries, setIsLoadingDeliveries] = useState(false);
+
+  // Dead-Letter Queue (DLQ) state
+  const [isViewingDlq, setIsViewingDlq] = useState(false);
+  const [dlqEntries, setDlqEntries] = useState<any[]>([]);
+  const [isLoadingDlq, setIsLoadingDlq] = useState(false);
+  const [dlqWebhookFilter, setDlqWebhookFilter] = useState<string | null>(null);
+  const [replayingIds, setReplayingIds] = useState<Set<string>>(new Set());
+  const [isBatchReplaying, setIsBatchReplaying] = useState(false);
 
   const toggleEventSelection = (event: OutboundEventType) => {
     setSelectedEvents((prev) =>
@@ -189,6 +198,114 @@ export default function OutboundWebhooksCard({
     setTimeout(() => setSecretCopied(false), 3000);
   };
 
+  const fetchDlqEntries = async (webhookId?: string | null) => {
+    setIsLoadingDlq(true);
+    try {
+      const url = webhookId
+        ? `/api/webhooks/dlq?webhookId=${encodeURIComponent(webhookId)}&limit=50`
+        : "/api/webhooks/dlq?limit=50";
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch DLQ entries (${res.status})`);
+      }
+      const data = await res.json();
+      setDlqEntries(data.entries || []);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to load dead-letter queue");
+    } finally {
+      setIsLoadingDlq(false);
+    }
+  };
+
+  const handleOpenDlq = (webhookId?: string) => {
+    setDlqWebhookFilter(webhookId || null);
+    setIsViewingDlq(true);
+    fetchDlqEntries(webhookId || null);
+  };
+
+  const handleReplayDlqEntry = async (id: string) => {
+    setReplayingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/webhooks/dlq/${id}/replay`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("Webhook delivery successfully replayed!");
+        await fetchDlqEntries(dlqWebhookFilter);
+      } else {
+        toast.error(data.error || "Replay failed");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error replaying DLQ entry");
+    } finally {
+      setReplayingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleBatchReplayDlq = async () => {
+    setIsBatchReplaying(true);
+    try {
+      const res = await fetch("/api/webhooks/dlq/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(
+          `Batch replay completed: ${data.succeeded} succeeded, ${data.failed} failed${
+            data.circuitBroken ? `, ${data.circuitBroken} skipped (circuit open)` : ""
+          }`,
+        );
+        await fetchDlqEntries(dlqWebhookFilter);
+      } else {
+        toast.error(data.error || "Batch replay failed");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error executing batch replay");
+    } finally {
+      setIsBatchReplaying(false);
+    }
+  };
+
+  const handlePurgeDlqEntry = async (id: string) => {
+    if (!window.confirm("Are you sure you want to purge this quarantined entry?")) return;
+    try {
+      const res = await fetch(`/api/webhooks/dlq?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("Entry purged from DLQ.");
+        await fetchDlqEntries(dlqWebhookFilter);
+      } else {
+        toast.error(data.error || "Failed to purge entry");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error purging DLQ entry");
+    }
+  };
+
+  const handlePurgeAllDlq = async () => {
+    if (!window.confirm("Are you sure you want to purge ALL entries from the dead-letter queue?"))
+      return;
+    try {
+      const res = await fetch("/api/webhooks/dlq", { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Purged ${data.purgedCount ?? "all"} entries from DLQ.`);
+        await fetchDlqEntries(dlqWebhookFilter);
+      } else {
+        toast.error(data.error || "Failed to purge DLQ");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error purging DLQ");
+    }
+  };
+
   return (
     <Card className="border border-border bg-card">
       <CardHeader className="flex flex-row items-center justify-between pb-4">
@@ -202,16 +319,34 @@ export default function OutboundWebhooksCard({
             HMAC-SHA256.
           </CardDescription>
         </div>
-        {!isCreating && (
+        <div className="flex items-center gap-2">
           <Button
             size="sm"
-            onClick={() => setIsCreating(true)}
+            variant="outline"
+            onClick={() => {
+              if (isViewingDlq) {
+                setIsViewingDlq(false);
+              } else {
+                handleOpenDlq();
+              }
+            }}
             className="flex items-center gap-1.5"
+            title="Dead-Letter Queue (DLQ)"
           >
-            <Plus className="h-4 w-4" />
-            Add Webhook
+            <RefreshCw className="h-4 w-4 text-amber-500" />
+            <span>Dead-Letter Queue (DLQ)</span>
           </Button>
-        )}
+          {!isCreating && (
+            <Button
+              size="sm"
+              onClick={() => setIsCreating(true)}
+              className="flex items-center gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              Add Webhook
+            </Button>
+          )}
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-6">
@@ -415,6 +550,16 @@ export default function OutboundWebhooksCard({
 
                   <Button
                     size="sm"
+                    variant="outline"
+                    onClick={() => handleOpenDlq(hook.id)}
+                    title="View Quarantined Deliveries (DLQ)"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1 text-amber-500" />
+                    DLQ
+                  </Button>
+
+                  <Button
+                    size="sm"
                     variant="ghost"
                     onClick={() => handleDelete(hook.id)}
                     disabled={isPending}
@@ -483,6 +628,155 @@ export default function OutboundWebhooksCard({
                           <span className="text-red-400 truncate max-w-xs">{d.error}</span>
                         </>
                       )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Dead-Letter Queue (DLQ) Drawer / Section */}
+        {isViewingDlq && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-amber-500" />
+                  <h4 className="text-sm font-semibold">
+                    Outbound Dead-Letter Queue (DLQ)
+                    {dlqWebhookFilter && (
+                      <span className="text-xs text-muted-foreground font-normal ml-2">
+                        (Filtered for endpoint: {dlqWebhookFilter})
+                      </span>
+                    )}
+                  </h4>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Quarantined failed deliveries after retries or circuit breaker trips. Replay
+                  manually or batch replay once endpoints recover.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fetchDlqEntries(dlqWebhookFilter)}
+                  disabled={isLoadingDlq}
+                  title="Refresh DLQ"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isLoadingDlq ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleBatchReplayDlq}
+                  disabled={isBatchReplaying || dlqEntries.length === 0}
+                  className="text-primary hover:text-primary"
+                  title="Replay all quarantined entries"
+                >
+                  <Play className="h-3.5 w-3.5 mr-1" />
+                  {isBatchReplaying ? "Replaying..." : "Batch Replay"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handlePurgeAllDlq}
+                  disabled={dlqEntries.length === 0}
+                  className="text-destructive hover:text-destructive"
+                  title="Purge all DLQ entries"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Purge All
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setIsViewingDlq(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+
+            {isLoadingDlq ? (
+              <div className="py-6 text-center text-xs text-muted-foreground">
+                Loading dead-letter queue entries...
+              </div>
+            ) : dlqEntries.length === 0 ? (
+              <div className="py-6 text-center text-xs text-muted-foreground border border-dashed rounded-md bg-background/50">
+                No deliveries quarantined in DLQ. All webhook deliveries are healthy or pending
+                normal retry cycles.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {dlqEntries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="p-3 rounded-lg border border-border/80 bg-background text-xs space-y-2"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-semibold text-foreground break-all">
+                          {entry.url}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] font-mono py-0 px-1.5">
+                          {entry.event}
+                        </Badge>
+                        {entry.circuitBroken && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] py-0 px-1.5 flex items-center gap-1"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Circuit Breaker OPEN
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleReplayDlqEntry(entry.id)}
+                          disabled={replayingIds.has(entry.id)}
+                          className="h-7 text-xs px-2"
+                          title="Replay this delivery"
+                        >
+                          <Play className="h-3 w-3 mr-1" />
+                          {replayingIds.has(entry.id) ? "Replaying..." : "Replay"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handlePurgeDlqEntry(entry.id)}
+                          className="h-7 text-xs px-2 text-destructive hover:text-destructive"
+                          title="Purge entry"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-[11px] pt-1 border-t border-border/40">
+                      <span>
+                        Status: <strong className="text-amber-500 font-mono">{entry.status}</strong>
+                      </span>
+                      <span>•</span>
+                      <span>Attempts: {entry.attempts}</span>
+                      <span>•</span>
+                      <span>Last Status: HTTP {entry.statusCode ?? "ERR"}</span>
+                      {entry.failureReason && (
+                        <>
+                          <span>•</span>
+                          <span
+                            className="text-red-400 font-mono truncate max-w-sm"
+                            title={entry.failureReason}
+                          >
+                            Reason: {entry.failureReason}
+                          </span>
+                        </>
+                      )}
+                      <span>•</span>
+                      <span>Quarantined: {new Date(entry.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
                 ))}
