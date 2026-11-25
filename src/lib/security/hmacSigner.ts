@@ -35,6 +35,7 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { logger } from "@/lib/logger";
+import { isGraceWindowActive, type RotatingSecretConfig } from "@/lib/webhooks/secret-rotation";
 
 /** Header name used for HMAC-SHA256 signatures. */
 export const SIGNATURE_HEADER = "X-SecureFlow-Signature";
@@ -410,4 +411,49 @@ export function admitWebhookRequest(
   }
 
   return { ok: true, scheme: parsed.scheme };
+}
+
+/**
+ * Dual-key rotation-aware wrapper around {@link admitWebhookRequest}.
+ * Verifies against `primarySecret` first, falling back to `previousSecret`
+ * only while the configured `rotationGraceUntil` window is active.
+ */
+export function admitWebhookRequestWithRotation(
+  payload: SignedPayload,
+  config: RotatingSecretConfig,
+  signatureHeader: string | null | undefined,
+  timestampHeader: string | null | undefined,
+  replayWindowSeconds: number = DEFAULT_REPLAY_WINDOW_SECONDS,
+  options: { allowUnboundLegacySignatures?: boolean; now?: number } = {},
+): ({ ok: true; scheme: "v1" | "legacy" } | { ok: false; status: number; message: string }) & {
+  matchedKey?: "primary" | "previous";
+} {
+  const primaryResult = admitWebhookRequest(
+    payload,
+    config.primarySecret,
+    signatureHeader,
+    timestampHeader,
+    replayWindowSeconds,
+    options,
+  );
+  if (primaryResult.ok) {
+    return { ...primaryResult, matchedKey: "primary" };
+  }
+
+  const now = options.now ?? Date.now();
+  if (config.previousSecret && isGraceWindowActive(config, now)) {
+    const previousResult = admitWebhookRequest(
+      payload,
+      config.previousSecret,
+      signatureHeader,
+      timestampHeader,
+      replayWindowSeconds,
+      options,
+    );
+    if (previousResult.ok) {
+      return { ...previousResult, matchedKey: "previous" };
+    }
+  }
+
+  return primaryResult;
 }

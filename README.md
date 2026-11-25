@@ -32,6 +32,7 @@ Featured in Nexus Spring of Code
 <summary><b>Click to expand</b></summary>
 
 - [🌟 The Crew's Abilities (Features)](#-the-crews-abilities-features)
+- [⚡ GitHub Action (CI/CD Integration)](#-github-action-cicd-integration)
 - [🧠 The Blueprint (How It Works)](#-the-blueprint-how-it-works)
 - [🛠️ Tech Stack](#️-tech-stack)
 - [📁 Project Structure](#-project-structure)
@@ -86,9 +87,9 @@ Posts detailed security reports directly on your PRs with collapsible remediatio
 
 Sets Pass/Review Required/Blocked status on PR commits for clear CI/CD integration.
 
-### 🎯 Custom Policies
+### 🎯 Custom Policies & Project Rules
 
-Create, toggle, and manage security policies per user or organization — write your own rules for the plan.
+Create, toggle, and manage security policies per user or organization through the dashboard. Teams can also configure project-specific regex rules in `.secureflow.json` (with ReDoS backtracking protection) to catch internal tokens and banned APIs.
 
 ### 🚫 Smart Exclusions
 
@@ -103,6 +104,87 @@ Maintainers can dismiss findings directly from the dashboard:
 - **Scan-time Suppression**: Dismissed findings are automatically suppressed during PR scans—they do not block pull requests or inflate open finding tallies, and are reported as previously dismissed in PR scan summaries.
 - **Audit Trail & Reversal**: Every dismissal and reopening action is logged in the Vault Audit Log with actor identity, timestamp, and notes. Reopening restores findings to `OPEN` status instantly.
 - **Current PR Verdict**: Triage refreshes the latest saved scan and its existing GitHub check when that scan matches the PR's current commit. Older scans without a recorded commit, or PRs with a newer unscanned commit, need a fresh scan before the verdict changes. The dashboard shows this pending state after saving.
+
+---
+
+## ⚡ GitHub Action (CI/CD Integration)
+
+Using SecureFlow in any repository requires just a few lines of workflow YAML—no custom scripts or dependencies needed.
+
+### Copy-Paste Minimal Workflow (<10 lines)
+
+Add this file as `.github/workflows/security.yml`:
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: GauravKarakoti/SecureFlow@main
+```
+
+### Advanced Workflow with Inputs & Outputs
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run SecureFlow Security Scan
+        id: secureflow
+        uses: GauravKarakoti/SecureFlow@main
+        with:
+          paths: '.'
+          severity: 'low'
+          fail-threshold: 'high'
+          comment-on-pr: 'true'
+          format: 'sarif'
+          output: 'results.sarif'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.secureflow.outputs.sarif-file }}
+
+      - name: Inspect Findings
+        run: |
+          echo "Total findings: ${{ steps.secureflow.outputs.total-findings }}"
+          echo "Highest severity: ${{ steps.secureflow.outputs.highest-severity }}"
+```
+
+### Action Inputs Reference
+
+| Input | Description | Required | Default |
+|---|---|---|---|
+| `paths` | Directory path or file pattern to scan | No | `.` |
+| `severity` | Minimum severity to report (`critical`, `high`, `medium`, `low`, `info`) | No | `low` |
+| `fail-threshold` | Quality gate threshold to fail the workflow (`critical`, `high`, `medium`, `low`, `none`) | No | `high` |
+| `comment-on-pr` | Post an automated summary comment with scan time & commit SHA on PRs | No | `true` |
+| `github-token` | GitHub token for posting comments and querying pull requests | No | `${{ github.token }}` |
+| `format` | Output report format (`sarif`, `text`, `json`, `markdown`, `html`) | No | `sarif` |
+| `output` | Destination output file path | No | `secureflow-results.sarif` |
+
+### Action Outputs Reference
+
+| Output | Description | Example |
+|---|---|---|
+| `total-findings` | Total number of security findings detected | `3` |
+| `highest-severity` | Highest severity level among all detected findings | `HIGH` |
+| `has-findings` | Boolean flag indicating whether any findings were detected | `true` |
+| `sarif-file` | File path to the generated SARIF report file | `secureflow-results.sarif` |
 
 ---
 
@@ -613,15 +695,18 @@ SecureFlow ships with pre-built policy templates that are seeded into the databa
 
 ## 📊 Architecture
 
-The architecture follows a modern Next.js full-stack approach with real-time GitHub integration:
+SecureFlow links local developer workflows, automated CI/CD pipelines, and pull request audits with a centralized Mission Control dashboard:
 
-- **Frontend**: Next.js App Router with Tailwind CSS for the Mission Control dashboard
-- **Backend**: API routes handle authentication, webhooks, and business logic
-- AI Layer: Groq SDK processes code diffs through GPT-OSS-20B model — The Professor's brain
-- **Database**: PostgreSQL with Prisma ORM for data persistence — the Vault Logs
-- **GitHub Integration**: Octokit manages webhooks, PR comments, and checks
+- **CLI (`cli/`)**: Standalone developer scanner and git pre-commit hook (`.husky/pre-commit`) providing local secret checking, scan caching, and `--fail-on` quality gates.
+- **GitHub Action (`.github/workflows/`)**: Automated CI security analysis via `npx secureflow-cli`, exporting SARIF code scanning reports to GitHub Security.
+- **Backend Ingestion & Workers**: Event-driven webhook handler (`/api/webhooks/github`), Redis delivery deduplication, BullMQ fair queue scheduling, and distributed workers.
+- **Scanning & Rules Engine**: High-speed deterministic rules for secrets, workflows (`.github/workflows/*.yml`), package dependencies, and IaC manifests.
+- **AI Inference Layer**: Groq, Ollama, vLLM, or OpenAI-compatible models producing contextual findings, explanations, and verified remediation diffs via Genkit.
+- **Policy Engine (`IQEngine`)**: Evaluates base-branch gate policies (`.secureflow.yml`) and suppresses dismissed triage findings.
+- **Mission Control Dashboard (`src/app/dashboard/`)**: Next.js App Router command center for repository monitoring, findings triage, policy management, and audit logs.
+- **Database**: PostgreSQL with Prisma ORM for persistent scan telemetry and cryptographic audit ledgers.
 
-> 📐 For the complete system architecture, interactive Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and data models, see **[Architecture & Pipeline Specification](./docs/architecture.md)**.
+> 📐 For the complete architecture, interactive Mermaid diagrams of data flow from scan to dashboard, and step-by-step contributor guides on adding rules, AI providers, and dashboard pages, see the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ---
 
@@ -629,7 +714,7 @@ The architecture follows a modern Next.js full-stack approach with real-time Git
 
 For more in-depth details about the architecture, developer API, and security practices of SecureFlow, check out:
 
-- **[Architecture & Pipeline Specification](./docs/architecture.md)**: Visual architecture overview featuring Mermaid sequence diagrams, component topologies, failure handling (DLQ, circuit breaker), and PostgreSQL data models.
+- **[Architecture & Contributor Guide](./docs/architecture.md)**: Comprehensive architectural blueprint explaining how the CLI, GitHub Action, Dashboard, and AI layer connect, complete Mermaid data flow diagrams from scan to dashboard, and contributor extension guides for adding rules, AI providers, and dashboard pages.
 - **[Safe Upgrade Guide](./docs/upgrade.md)**: Standardized step-by-step operator checklist for upgrading SecureFlow releases, applying Prisma migrations, verifying `/api/health` and `/api/version`, and executing zero-data-loss rollbacks.
 - **[Database Backup, Restore & Verification Guide](./docs/database-backup-restore.md)**: Procedures for compressed PostgreSQL dumps (`pg_dump`), safe restores with non-empty database safety guards, ephemeral database verification, Linux `cron`, and Kubernetes `CronJob` scheduling.
 - **[Local Development Setup](./docs/setup.md)**: Step-by-step guide to acquiring every credential (Prisma/PostgreSQL, Groq, GitHub App, GitHub OAuth/NextAuth, Redis) needed to run SecureFlow locally.
@@ -662,7 +747,7 @@ The badge reflects the latest scan: **passing** (green), **review required** (ye
 
 Every good heist needs a crew! Contributions are welcome from developers of all skill levels.
 
-For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+For a comprehensive, self-contained guide covering prerequisites, running the CLI and dashboard locally, running tests with zero cloud credentials, and our full PR checklist, please read **[CONTRIBUTING.md](./CONTRIBUTING.md)**. To understand how the CLI, GitHub Action, Dashboard, and AI layer connect, explore the **[Architecture & Contributor Guide](./docs/architecture.md)**.
 
 ### 🎯 Issue Difficulty Labels
 
@@ -709,7 +794,10 @@ git commit -m "docs: description of documentation change"
 SecureFlow uses AI to detect hardcoded secrets and sensitive data in your code. It's designed to catch API keys, passwords, tokens, and other credentials that might accidentally be committed to your repository.
 
 **Can I customize the scanning rules?**
-Yes! You can create, toggle, and manage custom policies through the dashboard. This allows you to enforce organization-specific security rules.
+Yes! You can create, toggle, and manage custom policies through the dashboard. You can also define custom regex rules directly in `.secureflow.json` (e.g. for internal token formats or banned APIs) with built-in ReDoS backtracking protection.
+
+**Can I define custom rules for internal tokens or banned APIs?**
+Yes! In `.secureflow.json`, define rules with an `id`, `pattern`, `globs`, `severity`, and `message`. Evaluations are sandboxed with timeouts to prevent regex backtracking hangs, and findings are labeled with `[Custom Rule: <id>]`.
 
 **Is my data sent to external services?**
 Your code diffs are sent to Groq's LLM service for analysis. We do not store your code or share it with third parties. The service is compliant with data protection standards.

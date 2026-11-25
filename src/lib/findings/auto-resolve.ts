@@ -17,11 +17,21 @@ import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { invalidateCachedUserFilters } from "@/lib/audit/user-filter-cache";
 import { SUPPRESSED_STATUSES } from "@/lib/triage/statuses";
+import { extractDiffFileMetadata, type FileRename } from "@/lib/armor/diff";
 
 export interface AutoResolveCandidate {
   fingerprint: string;
   fileLocation: string;
   createdAt: Date;
+  resolutionReason?: "fixed" | "file_deleted" | "renamed";
+  newLocation?: string;
+}
+
+export interface FileChangeItem {
+  filename: string;
+  status?: string;
+  previous_filename?: string;
+  patch?: string;
 }
 
 export interface AutoResolveOptions {
@@ -31,7 +41,11 @@ export interface AutoResolveOptions {
   /** Findings detected in the current scan */
   currentFindings: Array<{ fingerprint?: string; fileLocation?: string }>;
   /** Changed files in this PR/commit */
-  fileChanges?: Array<{ filename: string }>;
+  fileChanges?: Array<FileChangeItem | { filename: string }>;
+  /** Explicit list of renamed files */
+  renamedFiles?: FileRename[];
+  /** Explicit list of deleted files */
+  deletedFiles?: string[];
   /** Whether some files were skipped (e.g. payload too large, deadline exceeded) */
   isPartialScan?: boolean;
   /** Whether the scan failed */
@@ -49,6 +63,8 @@ export interface AutoResolveResult {
   resolvedFingerprints: string[];
   skippedDismissedCount: number;
   skippedStillPresentCount: number;
+  renamedResolvedCount?: number;
+  deletedResolvedCount?: number;
 }
 
 /**
@@ -154,8 +170,47 @@ export async function autoResolveFixedFindings(
     };
   }
 
+  // Populate renames and deletions (#2052)
+  const renameMap = new Map<string, string>(); // oldNormalizedPath -> newNormalizedPath
+  const deletedFilePaths = new Set<string>();
+
+  if (options.renamedFiles) {
+    for (const r of options.renamedFiles) {
+      renameMap.set(normalizeFilePath(r.from), normalizeFilePath(r.to));
+    }
+  }
+  if (options.deletedFiles) {
+    for (const d of options.deletedFiles) {
+      deletedFilePaths.add(normalizeFilePath(d));
+    }
+  }
+
+  for (const fc of fileChanges as FileChangeItem[]) {
+    if (fc.previous_filename) {
+      renameMap.set(normalizeFilePath(fc.previous_filename), normalizeFilePath(fc.filename));
+    }
+    if (fc.status === "removed" || fc.status === "deleted") {
+      deletedFilePaths.add(normalizeFilePath(fc.filename));
+    }
+    if (fc.patch) {
+      const meta = extractDiffFileMetadata(fc.patch);
+      for (const r of meta.renamedFiles) {
+        renameMap.set(normalizeFilePath(r.from), normalizeFilePath(r.to));
+      }
+      for (const d of meta.deletedFiles) {
+        deletedFilePaths.add(normalizeFilePath(d));
+      }
+    }
+  }
+
   // Changed files set for path relevance check
   const changedFilePaths = new Set(fileChanges.map((fc) => normalizeFilePath(fc.filename)));
+  for (const d of deletedFilePaths) {
+    changedFilePaths.add(d);
+  }
+  for (const from of renameMap.keys()) {
+    changedFilePaths.add(from);
+  }
 
   // Find findings that disappeared in this scan
   const disappearedCandidates: AutoResolveCandidate[] = [];
@@ -167,9 +222,31 @@ export async function autoResolveFixedFindings(
       continue;
     }
 
+    const normalizedLocation = normalizeFilePath(candidate.fileLocation);
+    const isDeleted = deletedFilePaths.has(normalizedLocation);
+    const renameTarget = renameMap.get(normalizedLocation);
+
+    if (isDeleted) {
+      // File was deleted in this commit/PR, so finding is resolved via deletion (#2052)
+      disappearedCandidates.push({
+        ...candidate,
+        resolutionReason: "file_deleted",
+      });
+      continue;
+    }
+
+    if (renameTarget) {
+      // File was renamed to renameTarget (#2052)
+      disappearedCandidates.push({
+        ...candidate,
+        resolutionReason: "renamed",
+        newLocation: renameTarget,
+      });
+      continue;
+    }
+
     // Verify file still exists or was changed in this PR diff
     if (changedFilePaths.size > 0) {
-      const normalizedLocation = normalizeFilePath(candidate.fileLocation);
       const isFileInDiff = changedFilePaths.has(normalizedLocation);
       if (!isFileInDiff) {
         // If the file was not part of the changed files in this scan, do not auto-resolve
@@ -177,7 +254,10 @@ export async function autoResolveFixedFindings(
       }
     }
 
-    disappearedCandidates.push(candidate);
+    disappearedCandidates.push({
+      ...candidate,
+      resolutionReason: "fixed",
+    });
   }
 
   if (disappearedCandidates.length === 0) {
@@ -210,6 +290,8 @@ export async function autoResolveFixedFindings(
 
   const resolvedFingerprints: string[] = [];
   let skippedDismissedCount = 0;
+  let renamedResolvedCount = 0;
+  let deletedResolvedCount = 0;
   const now = new Date();
   const shortSha = headSha.slice(0, 7);
 
@@ -227,6 +309,15 @@ export async function autoResolveFixedFindings(
       continue;
     }
 
+    let resolutionNote = `Resolved by commit ${shortSha}`;
+    if (candidate.resolutionReason === "file_deleted") {
+      resolutionNote = `Resolved: file deleted by commit ${shortSha}`;
+      deletedResolvedCount++;
+    } else if (candidate.resolutionReason === "renamed" && candidate.newLocation) {
+      resolutionNote = `Resolved: file renamed to ${candidate.newLocation} by commit ${shortSha}`;
+      renamedResolvedCount++;
+    }
+
     // Mark as RESOLVED with resolving commit SHA and timestamp
     await db.findingTriage.upsert({
       where: {
@@ -241,13 +332,13 @@ export async function autoResolveFixedFindings(
         status: "RESOLVED",
         resolvedAt: now,
         resolvedCommitSha: headSha,
-        note: `Resolved by commit ${shortSha}`,
+        note: resolutionNote,
       },
       update: {
         status: "RESOLVED",
         resolvedAt: now,
         resolvedCommitSha: headSha,
-        note: `Resolved by commit ${shortSha}`,
+        note: resolutionNote,
       },
     });
 
@@ -266,6 +357,8 @@ export async function autoResolveFixedFindings(
             fingerprint: candidate.fingerprint,
             pullRequestId,
             fileLocation: candidate.fileLocation,
+            ...(candidate.newLocation ? { renamedTo: candidate.newLocation } : {}),
+            resolutionReason: candidate.resolutionReason,
             resolvedCommitSha: headSha,
             resolvedAt: now.toISOString(),
             previousStatus: existingTriage?.status ?? "OPEN",
@@ -285,5 +378,7 @@ export async function autoResolveFixedFindings(
     resolvedFingerprints,
     skippedDismissedCount,
     skippedStillPresentCount,
+    renamedResolvedCount,
+    deletedResolvedCount,
   };
 }

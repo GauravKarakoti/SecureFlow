@@ -15,6 +15,8 @@ import {
   type OutboundEventEnvelope,
   type MinimalFindingSummary,
 } from "./outbound-types";
+import { getCircuitBreaker, type CircuitBreakerOptions } from "./circuit-breaker";
+import { enqueueToDlq } from "./dlq";
 
 export {
   type OutboundEventType,
@@ -162,6 +164,9 @@ export interface DeliveryOptions {
   fetchFn?: typeof fetch;
   dnsLookup?: (host: string) => Promise<string[]>;
   persistLog?: boolean;
+  skipDlq?: boolean;
+  disableJitter?: boolean;
+  circuitBreakerOptions?: CircuitBreakerOptions;
 }
 
 export interface DeliveryResult {
@@ -172,6 +177,7 @@ export interface DeliveryResult {
   statusCode?: number | null;
   error?: string | null;
   attempts: number;
+  circuitBroken?: boolean;
 }
 
 /**
@@ -225,6 +231,54 @@ export async function deliverOutboundWebhook(
     };
   }
 
+  // 1b. Circuit Breaker pre-flight health check (#2061)
+  const breaker = getCircuitBreaker(webhook.url, options.circuitBreakerOptions);
+  if (!breaker.isAllowed()) {
+    const errorMsg = `Delivery quenched: Circuit breaker is OPEN for ${breaker.host}`;
+    if (shouldPersist && prisma?.outboundWebhookDelivery?.create) {
+      try {
+        await prisma.outboundWebhookDelivery.create({
+          data: {
+            webhookId: webhook.id,
+            eventId: envelope.id,
+            event: envelope.event,
+            statusCode: null,
+            error: errorMsg,
+            attempts: 0,
+            deliveredAt: null,
+          },
+        });
+      } catch (dbErr) {
+        console.error("[OutboundWebhook] Failed to persist circuit breaker log:", dbErr);
+      }
+    }
+
+    if (!options.skipDlq) {
+      enqueueToDlq({
+        webhookId: webhook.id,
+        url: webhook.url,
+        secret: webhook.secret,
+        event: envelope.event,
+        envelope,
+        failureReason: errorMsg,
+        statusCode: null,
+        attempts: 0,
+        circuitBroken: true,
+      });
+    }
+
+    return {
+      success: false,
+      webhookId: webhook.id,
+      eventId: envelope.id,
+      event: envelope.event,
+      statusCode: null,
+      error: errorMsg,
+      attempts: 0,
+      circuitBroken: true,
+    };
+  }
+
   // 2. Prepare payload & cryptographic signature
   const body = JSON.stringify(envelope);
   const signature = computeOutboundWebhookSignature(body, webhook.secret);
@@ -262,20 +316,25 @@ export async function deliverOutboundWebhook(
       if (response.ok) {
         delivered = true;
         lastError = null;
+        breaker.recordSuccess();
         break;
       }
 
+      breaker.recordFailure();
       lastError = `Endpoint answered HTTP ${response.status} ${response.statusText || ""}`.trim();
     } catch (err: any) {
+      breaker.recordFailure();
       lastError =
         err?.name === "AbortError"
           ? `Request timed out after ${timeoutMs}ms`
           : err?.message || "Network error";
     }
 
-    // Wait with exponential backoff before retrying
+    // Wait with exponential backoff with jitter before retrying (#2061)
     if (attempts < maxAttempts && initialBackoffMs > 0) {
-      const delay = initialBackoffMs * Math.pow(2, attempts - 1);
+      const baseDelay = initialBackoffMs * Math.pow(2, attempts - 1);
+      const jitter = options.disableJitter ? 0 : Math.random() * (baseDelay * 0.5);
+      const delay = baseDelay + jitter;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -299,6 +358,21 @@ export async function deliverOutboundWebhook(
     }
   }
 
+  // 4. Dead-Letter Queue quarantine on exhausted retry attempts (#2061)
+  if (!delivered && !options.skipDlq) {
+    enqueueToDlq({
+      webhookId: webhook.id,
+      url: webhook.url,
+      secret: webhook.secret,
+      event: envelope.event,
+      envelope,
+      failureReason: lastError || "Exhausted retry attempts",
+      statusCode: lastStatusCode,
+      attempts,
+      circuitBroken: false,
+    });
+  }
+
   return {
     success: delivered,
     webhookId: webhook.id,
@@ -307,6 +381,7 @@ export async function deliverOutboundWebhook(
     statusCode: lastStatusCode,
     error: delivered ? null : lastError,
     attempts,
+    circuitBroken: false,
   };
 }
 

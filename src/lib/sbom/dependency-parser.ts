@@ -1,5 +1,12 @@
 import { Dependency } from "@/types/sbom";
 import { detectAndParseSbom } from "./sbom-format-detector";
+import {
+  parsePackageLockJson,
+  parsePnpmLockYaml,
+  parseYarnLock,
+  parseCargoLock,
+  parseGoSum,
+} from "./lockfile-parser";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ context: { component: "dependency-parser" } });
@@ -7,6 +14,11 @@ const log = createLogger({ context: { component: "dependency-parser" } });
 /** Manifest file names `parseManifestFile` can read. Any other file yields no dependencies. */
 export const SUPPORTED_MANIFESTS = [
   "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "Cargo.lock",
+  "go.sum",
   "requirements.txt",
   "bom.json",
   "sbom.json",
@@ -187,6 +199,21 @@ function parseRequirementsTxt(content: string, filePath: string): Dependency[] {
  * Main parser function that routes to the correct parser based on file extension.
  */
 export function parseManifestFile(content: string, filePath: string): Dependency[] {
+  if (filePath.endsWith("package-lock.json")) {
+    return parsePackageLockJson(content, filePath);
+  }
+  if (filePath.endsWith("pnpm-lock.yaml")) {
+    return parsePnpmLockYaml(content, filePath);
+  }
+  if (filePath.endsWith("yarn.lock")) {
+    return parseYarnLock(content, filePath);
+  }
+  if (filePath.endsWith("Cargo.lock")) {
+    return parseCargoLock(content, filePath);
+  }
+  if (filePath.endsWith("go.sum")) {
+    return parseGoSum(content, filePath);
+  }
   if (filePath.endsWith("package.json")) {
     return parsePackageJson(content, filePath);
   }

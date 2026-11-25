@@ -3,6 +3,7 @@
 import {
   __internal,
   evaluateForInjection,
+  inspectPromptSafety,
   isRateLimitError,
   isTimeoutError,
   withRetry,
@@ -98,7 +99,14 @@ export async function developerReceivesAISecurityExplanations(
     evaluateForInjection(validatedInput.codeSnippet),
     evaluateForInjection(validatedInput.description),
   ]);
-  const injectionPreFilterFlagged = snippetResult.flagged || descResult.flagged;
+  const extendedSafetyFlagged = [
+    validatedInput.codeSnippet,
+    validatedInput.description,
+    validatedInput.findingType,
+    validatedInput.fileLocation,
+  ].some((field) => !inspectPromptSafety(field).isSafe);
+  const injectionPreFilterFlagged =
+    snippetResult.flagged || descResult.flagged || extendedSafetyFlagged;
   const prompt = buildPrompt(validatedInput);
 
   const modelsToTry: unknown[] = getSecurityExplanationModelChain();

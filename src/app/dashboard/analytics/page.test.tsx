@@ -38,6 +38,7 @@ vi.mock("./analytics-client", () => ({
     topFindingTypes,
     scanVelocity,
     summary,
+    hotspots,
   }: {
     rangeDays: number;
     dailyMetrics: any[];
@@ -46,9 +47,11 @@ vi.mock("./analytics-client", () => ({
     topFindingTypes: any[];
     scanVelocity: any;
     summary: any;
+    hotspots?: any[];
   }) => (
     <div data-testid="analytics-client">
       <div data-testid="range-days">{rangeDays}</div>
+      <div data-testid="hotspots-count">{hotspots?.length ?? 0}</div>
       <div data-testid="total-scans">{summary.totalScans}</div>
       <div data-testid="avg-risk-score">{summary.avgRiskScore}</div>
       <div data-testid="critical-findings">{summary.criticalFindings}</div>

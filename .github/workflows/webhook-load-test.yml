@@ -27,20 +27,24 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Setup k6
-        uses: grafana/setup-k6-action@v1
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1.3.0
 
       - name: Start Docker Compose environment (if testing localhost)
         if: startsWith(inputs.target_url, 'http://localhost') || startsWith(inputs.target_url, 'http://127.0.0.1')
+        env:
+          WEBHOOK_SECRET: ${{ inputs.webhook_secret }}
         run: |
           cat <<EOF > .env
           DATABASE_URL=postgresql://secureflow:secureflow@db:5432/secureflow
           DATABASE_POOL_URL=postgresql://secureflow:secureflow@db:5432/secureflow
           GROQ_API_KEY=dummy-key-for-load-test
           GITHUB_APP_ID=1
-          GITHUB_WEBHOOK_SECRET=${{ inputs.webhook_secret }}
+          GITHUB_WEBHOOK_SECRET=$WEBHOOK_SECRET
           GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Y3y\n-----END RSA PRIVATE KEY-----"
           GITHUB_CLIENT_ID=dummy-client-id
           GITHUB_CLIENT_SECRET=dummy-client-secret
@@ -55,14 +59,18 @@ jobs:
           timeout 120s bash -c 'until docker compose ps app | grep -q "healthy"; do sleep 3; done' || (docker compose logs && exit 1)
 
       - name: Run k6 Load Test
+        env:
+          DURATION: ${{ inputs.duration }}
+          TARGET_URL: ${{ inputs.target_url }}
+          WEBHOOK_SECRET: ${{ inputs.webhook_secret }}
         run: |
           EXTRA_ARGS=()
-          if [ -n "${{ inputs.duration }}" ]; then
-            EXTRA_ARGS+=(--duration "${{ inputs.duration }}")
+          if [ -n "$DURATION" ]; then
+            EXTRA_ARGS+=(--duration "$DURATION")
           fi
           k6 run "${EXTRA_ARGS[@]}" \
-            -e TARGET_URL="${{ inputs.target_url }}" \
-            -e GITHUB_WEBHOOK_SECRET="${{ inputs.webhook_secret }}" \
+            -e TARGET_URL="$TARGET_URL" \
+            -e GITHUB_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
             load-tests/webhook.k6.js
 
       - name: Teardown Docker Compose

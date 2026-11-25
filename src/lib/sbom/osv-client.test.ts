@@ -18,12 +18,14 @@ describe("osv-client", () => {
       ["pypi", "PyPI"],
       ["maven", "Maven"],
       ["gem", "RubyGems"],
+      ["cargo", "crates.io"],
+      ["go", "Go"],
     ])("maps %s → %s", (input, expected) => {
       expect(mapEcosystem(input)).toBe(expected);
     });
 
     it("returns null for unknown ecosystems", () => {
-      expect(mapEcosystem("cargo")).toBeNull();
+      expect(mapEcosystem("unknown-eco")).toBeNull();
       expect(mapEcosystem("")).toBeNull();
     });
   });
@@ -402,10 +404,10 @@ describe("osv-client", () => {
 
     it("returns empty array for unsupported ecosystem", async () => {
       const dep = {
-        name: "serde",
+        name: "unknown-pkg",
         version: "1.0.0",
-        manifestFile: "Cargo.toml",
-        ecosystem: "cargo",
+        manifestFile: "unknown.lock",
+        ecosystem: "unknown-eco",
       } as unknown as Dependency;
 
       const result = await queryOsvForDependency(dep);

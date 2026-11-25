@@ -8,6 +8,10 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  updateChatWebhook,
+  getChatWebhookStatus,
+  testChatWebhook,
+  type ChatWebhookStatus,
   updateSlackWebhook,
   updateTeamsWebhook,
   updateVoiceAlerts,
@@ -84,6 +88,7 @@ function SettingSourceBadge({ source, isLocked }: { source: string; isLocked?: b
 }
 
 export default function SettingsClient({
+  initialChatWebhookStatus,
   initialWebhookUrl,
   initialTeamsWebhookUrl,
   initialVoiceAlertsEnabled,
@@ -97,6 +102,7 @@ export default function SettingsClient({
     notifyOnDismissalExpiry: true,
   },
 }: {
+  initialChatWebhookStatus?: ChatWebhookStatus;
   initialWebhookUrl: string | null;
   initialTeamsWebhookUrl?: string | null;
   initialVoiceAlertsEnabled: boolean;
@@ -130,7 +136,8 @@ export default function SettingsClient({
     });
   };
 
-  // --- Slack state ---
+  // --- Slack & Discord Chat Alerts state ---
+  const [isSaved, setIsSaved] = useState(Boolean(initialWebhookUrl));
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl || "");
   const [isPending, startTransition] = useTransition();
   const [isSlackTesting, startSlackTest] = useTransition();
@@ -157,6 +164,8 @@ export default function SettingsClient({
     startTransition(async () => {
       try {
         await updateSlackWebhook(webhookUrl);
+        setIsSaved(true);
+        setWebhookUrl("");
         toast.success("Settings saved successfully.");
       } catch (e: any) {
         toast.error(e.message || "Failed to save settings.");
@@ -165,7 +174,7 @@ export default function SettingsClient({
   };
 
   const handleTestSlack = () => {
-    if (!webhookUrl || !webhookUrl.trim()) {
+    if (!webhookUrl && !isSaved) {
       toast.error("Enter a Slack webhook URL first to test.");
       return;
     }
@@ -423,37 +432,56 @@ export default function SettingsClient({
       {/* ── Inbound VCS Webhook Configuration (GitLab & Bitbucket) ── */}
       <WebhookConfigCard />
 
-      {/* ── Slack Integration ── */}
+      {/* ── Chat Alerts Integration (Slack & Discord) ── */}
       <Card className="glass-card">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 rounded-lg">
-              <MessageSquare className="w-5 h-5 text-blue-400" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <MessageSquare className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <CardTitle>Chat Alerts (Slack & Discord)</CardTitle>
+                <CardDescription>
+                  Receive real-time alerts for newly introduced CRITICAL security findings in your Slack or Discord channels.
+                </CardDescription>
+              </div>
             </div>
-            <div>
-              <CardTitle>Slack Integration</CardTitle>
-              <CardDescription>
-                Receive real-time alerts for CRITICAL and HIGH severity findings or BLOCKED scans.
-              </CardDescription>
-            </div>
+            {isSaved && (
+              <Badge
+                variant="outline"
+                className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+              >
+                Webhook Configured
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-200">Incoming Webhook URL</label>
+            <label className="text-sm font-medium text-gray-200">
+              Incoming Webhook URL (Slack or Discord)
+            </label>
             <Input
-              type="url"
+              type="text"
               placeholder="https://hooks.slack.com/services/..."
               value={webhookUrl}
               onChange={(e) => setWebhookUrl(e.target.value)}
               className="font-mono text-sm"
+              autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              Leave this blank to disable Slack notifications.
+              {isSaved ? (
+                <span className="text-emerald-400/90 font-medium">
+                  ✓ Webhook URL is stored securely encrypted. Enter a new URL above to update.
+                </span>
+              ) : (
+                "Paste your Slack Incoming Webhook or Discord Webhook URL. Stored securely encrypted at rest."
+              )}
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Button onClick={handleSave} disabled={isPending} className="gap-2">
               <Save className="w-4 h-4" />
               {isPending ? "Saving..." : "Save Settings"}
@@ -461,11 +489,11 @@ export default function SettingsClient({
             <Button
               variant="outline"
               onClick={handleTestSlack}
-              disabled={isSlackTesting || !webhookUrl}
+              disabled={isSlackTesting}
               className="gap-2"
             >
               <Send className="w-4 h-4" />
-              {isSlackTesting ? "Testing..." : "Test Webhook"}
+              {isSlackTesting ? "Sending..." : "Send Test Message / Test Webhook"}
             </Button>
           </div>
         </CardContent>

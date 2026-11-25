@@ -2,6 +2,7 @@ import SettingsClient from "./settings-client";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import {
+  getChatWebhookStatus,
   getSlackWebhook,
   getTeamsWebhook,
   getVoiceAlerts,
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
   }
 
   const [
+    chatWebhookStatus,
     initialWebhookUrl,
     initialTeamsWebhookUrl,
     initialVoiceAlertsEnabled,
@@ -31,6 +33,7 @@ export default async function SettingsPage() {
     initialWeeklyDigestEnabled,
     initialNotificationPreferences,
   ] = await Promise.all([
+    getChatWebhookStatus(),
     getSlackWebhook(),
     getTeamsWebhook(),
     getVoiceAlerts(),
@@ -43,6 +46,7 @@ export default async function SettingsPage() {
 
   return (
     <SettingsClient
+      initialChatWebhookStatus={chatWebhookStatus}
       initialWebhookUrl={initialWebhookUrl}
       initialTeamsWebhookUrl={initialTeamsWebhookUrl}
       initialVoiceAlertsEnabled={initialVoiceAlertsEnabled}

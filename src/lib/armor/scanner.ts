@@ -22,6 +22,11 @@ import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runLicenseSecurityRules } from "@/lib/rules/license-rules";
+import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
+import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
+import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
+import { runOutboundSecurityRules } from "@/lib/rules/outbound-rules";
+import { runSensitiveFileRules } from "@/lib/rules/sensitive-file-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import {
@@ -38,7 +43,6 @@ export type ScanFinding = {
   description: string;
   fileLocation: string;
   codeSnippet: string;
-  remediation?: string;
   lineStart?: number;
   lineEnd?: number;
   dynamicFingerprint?: string;
@@ -50,6 +54,7 @@ export type ScanFinding = {
   confidence?: ConfidenceLevel;
   confidenceReason?: string;
   remediation?: string;
+  fingerprint?: string;
   cwe?: string;
   verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
   verificationReason?: string;
@@ -474,12 +479,27 @@ export class ArmorIQScanner {
     const iacFindings = runIacSecurityRules(files, { repositoryId });
     // Deterministic license compliance rules for dependencies (#2093).
     const licenseFindings = runLicenseSecurityRules(files, { repositoryId });
+    // Deterministic pattern security rules for dangerous APIs (#2088).
+    const patternFindings = runPatternSecurityRules(files, { repositoryId });
+    // Deterministic hidden Unicode / Trojan Source rules (#2089).
+    const unicodeFindings = runUnicodeSecurityRules(files, { repositoryId });
+    // Deterministic obfuscation detection rules (#2090).
+    const obfuscationFindings = runObfuscationSecurityRules(files, { repositoryId });
+    // Deterministic outbound-destination rules (#2091).
+    const outboundFindings = runOutboundSecurityRules(files, { repositoryId });
+    // Deterministic sensitive filename rules (#2092).
+    const sensitiveFileFindings = runSensitiveFileRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
       ...workflowFindings,
       ...iacFindings,
       ...licenseFindings,
+      ...patternFindings,
+      ...unicodeFindings,
+      ...obfuscationFindings,
+      ...outboundFindings,
+      ...sensitiveFileFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -1011,4 +1031,47 @@ export {
   LICENSE_RULE_IDS,
   type LicenseRuleOptions,
 } from "@/lib/rules/license-rules";
+export {
+  runPatternSecurityRules,
+  scanFileWithPatternRules,
+  getLanguageFamily,
+  PATTERN_RULE_IDS,
+  PATTERN_RULES,
+} from "@/lib/rules/pattern-rules";
+export {
+  runUnicodeSecurityRules,
+  scanFileWithUnicodeRules,
+  UNICODE_RULE_IDS,
+  BIDI_CODEPOINTS,
+  ZERO_WIDTH_CODEPOINTS,
+  HOMOGLYPH_MAP,
+  isLegitimatelyNonLatinFile,
+} from "@/lib/rules/unicode-rules";
+export {
+  runObfuscationSecurityRules,
+  scanFileWithObfuscationRules,
+  checkLineForObfuscation,
+  OBFUSCATION_RULE_IDS,
+  MIN_BLOB_LENGTH,
+  LOCKFILE_NAMES,
+  isLockfile,
+} from "@/lib/rules/obfuscation-rules";
+export {
+  runOutboundSecurityRules,
+  scanFileWithOutboundRules,
+  checkLineForOutboundDestinations,
+  OUTBOUND_RULE_IDS,
+  URL_SHORTENER_HOSTS,
+  PASTE_SITE_HOSTS,
+} from "@/lib/rules/outbound-rules";
+export {
+  runSensitiveFileRules,
+  checkFileForSensitiveName,
+  isSensitiveFilename,
+  isExampleFile,
+  SENSITIVE_FILE_RULE_IDS,
+  SENSITIVE_EXTENSIONS,
+  DATABASE_DUMP_EXTENSIONS,
+  SENSITIVE_EXACT_NAMES,
+} from "@/lib/rules/sensitive-file-rules";
 export const scanner = new ArmorIQScanner();
