@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import { CircuitBreaker } from "./utils/circuit-breaker";
+import { TokenBucketRateLimiter } from "./rate-limit/token-bucket";
 
 // Not the same key as the queue client in `src/lib/queue/redis.ts`, which is
 // configured for BullMQ (see the note there).
@@ -70,60 +71,19 @@ export interface RateLimitResult {
  */
 const MAX_MEMORY_STORE_ENTRIES = 10_000;
 
-/** How often a write may trigger a sweep of expired entries. */
-const MEMORY_STORE_SWEEP_INTERVAL_MS = 30_000;
-
-// Basic in-memory fallback for rate limiting if Redis isn't configured
-const memoryStore = new Map<string, { count: number; resetAt: number }>();
-
-let lastSweepAt = 0;
-
-/**
- * Drop every entry whose window has already closed.
- *
- * Called opportunistically from the write path rather than from a `setInterval`,
- * so the module never holds a timer that would keep a serverless function or a
- * test runner alive.
- */
-function sweepExpiredEntries(now: number): void {
-  for (const [key, record] of memoryStore) {
-    if (record.resetAt <= now) {
-      memoryStore.delete(key);
-    }
-  }
-  lastSweepAt = now;
-}
-
-/**
- * Make room for a new key once the cap is reached.
- *
- * A sweep usually frees space on its own. If every entry is still live — which
- * means the instance really is tracking more distinct clients than the cap — the
- * entries closest to expiry are evicted first, since they are the ones whose loss
- * costs the least enforcement accuracy.
- */
-function evictForCapacity(now: number): void {
-  if (memoryStore.size < MAX_MEMORY_STORE_ENTRIES) return;
-
-  sweepExpiredEntries(now);
-  if (memoryStore.size < MAX_MEMORY_STORE_ENTRIES) return;
-
-  const soonestFirst = [...memoryStore.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
-  const overflow = memoryStore.size - MAX_MEMORY_STORE_ENTRIES + 1;
-  for (let i = 0; i < overflow; i++) {
-    memoryStore.delete(soonestFirst[i][0]);
-  }
-}
+// Bounded O(1) Token Bucket fallback for rate limiting when Redis isn't configured or available
+const memoryTokenBucket = new TokenBucketRateLimiter({
+  maxKeys: MAX_MEMORY_STORE_ENTRIES,
+});
 
 /** Test seam: current number of tracked keys in the in-memory fallback. */
 export function getMemoryStoreSize(): number {
-  return memoryStore.size;
+  return memoryTokenBucket.size;
 }
 
 /** Test seam: drop all in-memory state. */
 export function resetMemoryStore(): void {
-  memoryStore.clear();
-  lastSweepAt = 0;
+  memoryTokenBucket.clear();
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -144,40 +104,21 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-/** Apply the counter to the in-memory map, sweeping and capping as a side effect. */
+/** Apply O(1) token bucket rate limiting in memory with bounded LRU eviction. */
 function checkMemoryRateLimit(
   key: string,
   limit: number,
   windowSeconds: number,
   now: number,
 ): RateLimitResult {
-  const record = memoryStore.get(key);
-
-  if (!record || record.resetAt <= now) {
-    // Amortised cleanup: expired entries are reclaimed on the write path so the
-    // map cannot grow monotonically the way it did before.
-    if (now - lastSweepAt >= MEMORY_STORE_SWEEP_INTERVAL_MS) {
-      sweepExpiredEntries(now);
-    }
-    evictForCapacity(now);
-
-    const resetAt = now + windowSeconds * 1000;
-    memoryStore.set(key, { count: 1, resetAt });
-    return { allowed: true, limit, remaining: Math.max(0, limit - 1), resetAt, degraded: false };
-  }
-
-  if (record.count < limit) {
-    record.count += 1;
-    return {
-      allowed: true,
-      limit,
-      remaining: Math.max(0, limit - record.count),
-      resetAt: record.resetAt,
-      degraded: false,
-    };
-  }
-
-  return { allowed: false, limit, remaining: 0, resetAt: record.resetAt, degraded: false };
+  const decision = memoryTokenBucket.consume(key, limit, windowSeconds, 1, now);
+  return {
+    allowed: decision.allowed,
+    limit: decision.limit,
+    remaining: decision.remaining,
+    resetAt: decision.resetAt,
+    degraded: decision.degraded,
+  };
 }
 
 /**
