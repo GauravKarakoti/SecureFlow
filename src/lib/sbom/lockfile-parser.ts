@@ -12,7 +12,13 @@ import type { Dependency } from "@/types/sbom";
  * Checks if a given file path is a supported lockfile.
  */
 export function isLockfileManifest(filePath: string): boolean {
-  return filePath.endsWith("package-lock.json") || filePath.endsWith("pnpm-lock.yaml");
+  return (
+    filePath.endsWith("package-lock.json") ||
+    filePath.endsWith("pnpm-lock.yaml") ||
+    filePath.endsWith("yarn.lock") ||
+    filePath.endsWith("Cargo.lock") ||
+    filePath.endsWith("go.sum")
+  );
 }
 
 /**
@@ -152,7 +158,6 @@ export function parsePnpmLockYaml(content: string, filePath: string): Dependency
   const directDepNames = new Set<string>();
   let inDirectDepsSection = false;
   let inPackagesSection = false;
-  let currentIndent = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -243,6 +248,208 @@ export function parsePnpmLockYaml(content: string, filePath: string): Dependency
           depsMap.get(key)!.isTransitive = false;
         }
       }
+    }
+  }
+
+  return Array.from(depsMap.values());
+}
+
+/**
+ * Extracts package name from a Yarn descriptor key such as:
+ * - `"@babel/core@^7.0.0"` -> `@babel/core`
+ * - `lodash@^4.17.21` -> `lodash`
+ * - `"lodash@npm:^4.17.21"` -> `lodash`
+ * - `"@babel/core@npm:^7.24.0"` -> `@babel/core`
+ */
+function extractYarnPackageName(rawHeader: string): string | null {
+  const firstDescriptor = rawHeader
+    .split(",")[0]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+  if (!firstDescriptor || firstDescriptor === "__metadata") return null;
+
+  const searchStart = firstDescriptor.startsWith("@") ? 1 : 0;
+  const atIdx = firstDescriptor.indexOf("@", searchStart);
+  if (atIdx <= 0) return null;
+
+  const pkgName = firstDescriptor.slice(0, atIdx).trim();
+  return pkgName || null;
+}
+
+/**
+ * Parses both Yarn Classic (v1) and Yarn Berry (v2+/v3/v4 YAML) `yarn.lock` files.
+ */
+export function parseYarnLock(content: string, filePath: string): Dependency[] {
+  if (!content || !content.trim()) return [];
+
+  const depsMap = new Map<string, Dependency>();
+  const lines = content.split(/\r?\n/);
+
+  let currentPkgName: string | null = null;
+  let currentVersion: string | null = null;
+  let isWorkspace = false;
+
+  const flushCurrent = () => {
+    if (currentPkgName && currentVersion && !isWorkspace) {
+      const key = `${currentPkgName}@${currentVersion}`;
+      if (!depsMap.has(key)) {
+        depsMap.set(key, {
+          name: currentPkgName,
+          version: currentVersion,
+          manifestFile: filePath,
+          ecosystem: "npm",
+          isTransitive: true,
+        });
+      }
+    }
+    currentPkgName = null;
+    currentVersion = null;
+    isWorkspace = false;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    // Top-level header line (no leading whitespace, ends with `:`)
+    if (!/^\s/.test(line) && trimmed.endsWith(":")) {
+      flushCurrent();
+      const headerBody = trimmed.slice(0, -1).trim();
+      if (headerBody.includes("@workspace:")) {
+        isWorkspace = true;
+      }
+      currentPkgName = extractYarnPackageName(headerBody);
+      continue;
+    }
+
+    if (!currentPkgName) continue;
+
+    // Yarn Classic (`version "1.2.3"`) or Yarn Berry (`version: 1.2.3` / `version: "1.2.3"`)
+    const verMatch = trimmed.match(/^version(?::\s*|\s+)["']?([^"'\s]+)["']?$/);
+    if (verMatch && verMatch[1]) {
+      currentVersion = verMatch[1].trim();
+      continue;
+    }
+
+    if (/^resolution:\s*["']?.*@workspace:/.test(trimmed)) {
+      isWorkspace = true;
+    }
+  }
+
+  flushCurrent();
+  return Array.from(depsMap.values());
+}
+
+/**
+ * Parses Rust `Cargo.lock` TOML `[[package]]` tables for `crates.io` dependencies.
+ */
+export function parseCargoLock(content: string, filePath: string): Dependency[] {
+  if (!content || !content.trim()) return [];
+
+  const depsMap = new Map<string, Dependency>();
+  const lines = content.split(/\r?\n/);
+
+  let inPackage = false;
+  let name: string | null = null;
+  let version: string | null = null;
+  let hasRegistrySource = false;
+
+  const flushPackage = () => {
+    if (inPackage && name && version) {
+      const key = `${name}@${version}`;
+      if (!depsMap.has(key)) {
+        depsMap.set(key, {
+          name,
+          version,
+          manifestFile: filePath,
+          ecosystem: "cargo",
+          isTransitive: hasRegistrySource,
+        });
+      }
+    }
+    name = null;
+    version = null;
+    hasRegistrySource = false;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    if (line === "[[package]]") {
+      flushPackage();
+      inPackage = true;
+      continue;
+    }
+
+    if (line.startsWith("[") && line !== "[[package]]") {
+      flushPackage();
+      inPackage = false;
+      continue;
+    }
+
+    if (!inPackage) continue;
+
+    const nameMatch = line.match(/^name\s*=\s*["']([^"']+)["']/);
+    if (nameMatch?.[1]) {
+      name = nameMatch[1].trim();
+      continue;
+    }
+
+    const versionMatch = line.match(/^version\s*=\s*["']([^"']+)["']/);
+    if (versionMatch?.[1]) {
+      version = versionMatch[1].trim();
+      continue;
+    }
+
+    if (/^source\s*=\s*["']/.test(line)) {
+      hasRegistrySource = true;
+    }
+  }
+
+  flushPackage();
+  return Array.from(depsMap.values());
+}
+
+/**
+ * Parses Go `go.sum` checksum records (`<module> <version>[/go.mod] <hash>`),
+ * deduplicating `/go.mod` lines and normalizing `+incompatible` / leading `v` tags.
+ */
+export function parseGoSum(content: string, filePath: string): Dependency[] {
+  if (!content || !content.trim()) return [];
+
+  const depsMap = new Map<string, Dependency>();
+  const lines = content.split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const parts = line.split(/\s+/);
+    if (parts.length < 3) continue;
+
+    const moduleName = parts[0]!.trim();
+    let rawVersion = parts[1]!.trim();
+    if (!moduleName || !rawVersion) continue;
+
+    if (rawVersion.endsWith("/go.mod")) {
+      rawVersion = rawVersion.slice(0, -"/go.mod".length);
+    }
+    if (rawVersion.endsWith("+incompatible")) {
+      rawVersion = rawVersion.slice(0, -"+incompatible".length);
+    }
+    const cleanVersion = rawVersion.replace(/^v(?=\d)/, "");
+    if (!cleanVersion) continue;
+
+    const key = `${moduleName}@${cleanVersion}`;
+    if (!depsMap.has(key)) {
+      depsMap.set(key, {
+        name: moduleName,
+        version: cleanVersion,
+        manifestFile: filePath,
+        ecosystem: "go",
+        isTransitive: true,
+      });
     }
   }
 

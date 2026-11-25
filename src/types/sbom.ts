@@ -8,7 +8,7 @@ export interface Dependency {
   name: string;
   version: string;
   manifestFile: string;
-  ecosystem: "npm" | "pypi" | "maven" | "gem";
+  ecosystem: "npm" | "pypi" | "maven" | "gem" | "cargo" | "go";
   isTransitive?: boolean;
   parentPackage?: string;
   license?: string;
