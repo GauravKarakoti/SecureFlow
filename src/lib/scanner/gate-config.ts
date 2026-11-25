@@ -242,6 +242,15 @@ export interface GateConfig {
   suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
+  licenses?: {
+    enabled?: boolean;
+    allow?: string[];
+    allowList?: string[];
+    deny?: string[];
+    denyList?: string[];
+    reportUnknown?: boolean;
+    packageOverrides?: Record<string, string>;
+  };
 }
 
 export interface RulesConfig {
@@ -263,6 +272,15 @@ export interface SecureFlowConfig {
   rules?: RulesConfig;
   disabledRules?: string[];
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  licenses?: {
+    enabled?: boolean;
+    allow?: string[];
+    allowList?: string[];
+    deny?: string[];
+    denyList?: string[];
+    reportUnknown?: boolean;
+    packageOverrides?: Record<string, string>;
+  };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -901,6 +919,33 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
 
   const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
 
+  // #2093: parse licenses configuration
+  const rawLicenses = root.licenses ?? gateObj.licenses ?? (rawRulesObj?.licenses as unknown);
+  let licenses: GateConfig["licenses"] = undefined;
+  if (rawLicenses && typeof rawLicenses === "object" && !Array.isArray(rawLicenses)) {
+    const licObj = rawLicenses as Record<string, unknown>;
+    const allowArr = Array.isArray(licObj.allow)
+      ? (licObj.allow as string[])
+      : Array.isArray(licObj.allowList)
+        ? (licObj.allowList as string[])
+        : undefined;
+    const denyArr = Array.isArray(licObj.deny)
+      ? (licObj.deny as string[])
+      : Array.isArray(licObj.denyList)
+        ? (licObj.denyList as string[])
+        : undefined;
+
+    licenses = {
+      ...(typeof licObj.enabled === "boolean" ? { enabled: licObj.enabled } : {}),
+      ...(allowArr ? { allowList: allowArr.map(String) } : {}),
+      ...(denyArr ? { denyList: denyArr.map(String) } : {}),
+      ...(typeof licObj.reportUnknown === "boolean" ? { reportUnknown: licObj.reportUnknown } : {}),
+      ...(licObj.packageOverrides && typeof licObj.packageOverrides === "object"
+        ? { packageOverrides: licObj.packageOverrides as Record<string, string> }
+        : {}),
+    };
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -925,6 +970,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
+    ...(licenses !== undefined ? { licenses } : {}),
   };
 }
 
@@ -941,6 +987,31 @@ export function resolveIacRuleOptions(config?: GateConfig | null): {
   return {
     enabled: config.iacRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
+  };
+}
+
+/**
+ * Resolves options for dependency license compliance rules from repository gate configuration (#2093).
+ */
+export function resolveLicenseRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+  allowList?: string[];
+  denyList?: string[];
+  reportUnknown?: boolean;
+  packageLicenseOverrides?: Record<string, string>;
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [] };
+  }
+  const lic = config.licenses;
+  return {
+    enabled: lic?.enabled !== false,
+    disabledRules: config.disabledRules ?? [],
+    allowList: lic?.allowList,
+    denyList: lic?.denyList,
+    reportUnknown: lic?.reportUnknown,
+    packageLicenseOverrides: lic?.packageOverrides,
   };
 }
 
