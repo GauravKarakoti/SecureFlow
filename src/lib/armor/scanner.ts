@@ -22,6 +22,7 @@ import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
+import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import {
@@ -474,12 +475,15 @@ export class ArmorIQScanner {
     const iacFindings = runIacSecurityRules(files, { repositoryId });
     // Deterministic pattern security rules for dangerous APIs (#2088).
     const patternFindings = runPatternSecurityRules(files, { repositoryId });
+    // Deterministic hidden Unicode / Trojan Source rules (#2089).
+    const unicodeFindings = runUnicodeSecurityRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
       ...workflowFindings,
       ...iacFindings,
       ...patternFindings,
+      ...unicodeFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -1012,4 +1016,13 @@ export {
   PATTERN_RULE_IDS,
   PATTERN_RULES,
 } from "@/lib/rules/pattern-rules";
+export {
+  runUnicodeSecurityRules,
+  scanFileWithUnicodeRules,
+  UNICODE_RULE_IDS,
+  BIDI_CODEPOINTS,
+  ZERO_WIDTH_CODEPOINTS,
+  HOMOGLYPH_MAP,
+  isLegitimatelyNonLatinFile,
+} from "@/lib/rules/unicode-rules";
 export const scanner = new ArmorIQScanner();
