@@ -1,3 +1,6 @@
+import type { Dependency } from "@/types/sbom";
+import { diffSbomSnapshots, type SbomDiffResult } from "@/lib/sbom/sbom-diff";
+
 /**
  * Scan Comparison Logic (#1923)
  *
@@ -37,6 +40,7 @@ export interface ComparableScanInput {
   totalFiles?: number;
   scannedFiles?: number;
   error?: string | null;
+  dependencies?: Dependency[];
 }
 
 export type FindingDiffStatus = "NEW" | "FIXED" | "UNCHANGED";
@@ -87,6 +91,7 @@ export interface ScanComparisonResult {
     fixed: DiffGroup;
     unchanged: DiffGroup;
   };
+  sbomDiff?: SbomDiffResult;
 }
 
 /**
@@ -289,6 +294,12 @@ export function compareScans(
   const fixedSeverityCounts = computeSeverityCounts(fixedFindings);
   const unchangedSeverityCounts = computeSeverityCounts(unchangedFindings);
 
+  const hasDependencies =
+    Array.isArray(baseScan.dependencies) || Array.isArray(targetScan.dependencies);
+  const sbomDiff = hasDependencies
+    ? diffSbomSnapshots(baseScan.dependencies ?? [], targetScan.dependencies ?? [])
+    : undefined;
+
   return {
     isComparable: true,
     baseScan: baseMeta,
@@ -321,5 +332,6 @@ export function compareScans(
         findings: unchangedFindings,
       },
     },
+    ...(sbomDiff ? { sbomDiff } : {}),
   };
 }
