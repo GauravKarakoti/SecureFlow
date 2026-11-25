@@ -32,6 +32,7 @@ Featured in Nexus Spring of Code
 <summary><b>Click to expand</b></summary>
 
 - [🌟 The Crew's Abilities (Features)](#-the-crews-abilities-features)
+- [⚡ GitHub Action (CI/CD Integration)](#-github-action-cicd-integration)
 - [🧠 The Blueprint (How It Works)](#-the-blueprint-how-it-works)
 - [🛠️ Tech Stack](#️-tech-stack)
 - [📁 Project Structure](#-project-structure)
@@ -103,6 +104,87 @@ Maintainers can dismiss findings directly from the dashboard:
 - **Scan-time Suppression**: Dismissed findings are automatically suppressed during PR scans—they do not block pull requests or inflate open finding tallies, and are reported as previously dismissed in PR scan summaries.
 - **Audit Trail & Reversal**: Every dismissal and reopening action is logged in the Vault Audit Log with actor identity, timestamp, and notes. Reopening restores findings to `OPEN` status instantly.
 - **Current PR Verdict**: Triage refreshes the latest saved scan and its existing GitHub check when that scan matches the PR's current commit. Older scans without a recorded commit, or PRs with a newer unscanned commit, need a fresh scan before the verdict changes. The dashboard shows this pending state after saving.
+
+---
+
+## ⚡ GitHub Action (CI/CD Integration)
+
+Using SecureFlow in any repository requires just a few lines of workflow YAML—no custom scripts or dependencies needed.
+
+### Copy-Paste Minimal Workflow (<10 lines)
+
+Add this file as `.github/workflows/security.yml`:
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: GauravKarakoti/SecureFlow@main
+```
+
+### Advanced Workflow with Inputs & Outputs
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run SecureFlow Security Scan
+        id: secureflow
+        uses: GauravKarakoti/SecureFlow@main
+        with:
+          paths: '.'
+          severity: 'low'
+          fail-threshold: 'high'
+          comment-on-pr: 'true'
+          format: 'sarif'
+          output: 'results.sarif'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.secureflow.outputs.sarif-file }}
+
+      - name: Inspect Findings
+        run: |
+          echo "Total findings: ${{ steps.secureflow.outputs.total-findings }}"
+          echo "Highest severity: ${{ steps.secureflow.outputs.highest-severity }}"
+```
+
+### Action Inputs Reference
+
+| Input | Description | Required | Default |
+|---|---|---|---|
+| `paths` | Directory path or file pattern to scan | No | `.` |
+| `severity` | Minimum severity to report (`critical`, `high`, `medium`, `low`, `info`) | No | `low` |
+| `fail-threshold` | Quality gate threshold to fail the workflow (`critical`, `high`, `medium`, `low`, `none`) | No | `high` |
+| `comment-on-pr` | Post an automated summary comment with scan time & commit SHA on PRs | No | `true` |
+| `github-token` | GitHub token for posting comments and querying pull requests | No | `${{ github.token }}` |
+| `format` | Output report format (`sarif`, `text`, `json`, `markdown`, `html`) | No | `sarif` |
+| `output` | Destination output file path | No | `secureflow-results.sarif` |
+
+### Action Outputs Reference
+
+| Output | Description | Example |
+|---|---|---|
+| `total-findings` | Total number of security findings detected | `3` |
+| `highest-severity` | Highest severity level among all detected findings | `HIGH` |
+| `has-findings` | Boolean flag indicating whether any findings were detected | `true` |
+| `sarif-file` | File path to the generated SARIF report file | `secureflow-results.sarif` |
 
 ---
 

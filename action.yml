@@ -1,0 +1,68 @@
+name: 'SecureFlow Security Scan'
+description: 'Automated AI and static security analysis for vulnerabilities and hardcoded secrets'
+author: 'Gaurav Karakoti'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  paths:
+    description: 'Path or directory to scan'
+    required: false
+    default: '.'
+  severity:
+    description: 'Minimum severity to report (low, medium, high, critical)'
+    required: false
+    default: 'low'
+  comment-on-pr:
+    description: 'Whether to post an automated review summary comment on pull requests (true/false)'
+    required: false
+    default: 'true'
+  fail-threshold:
+    description: 'Minimum severity to fail the workflow build (critical, high, medium, low, none)'
+    required: false
+    default: 'high'
+  github-token:
+    description: 'GitHub token for posting comments and querying pull requests (defaults to github.token)'
+    required: false
+    default: ${{ github.token }}
+  format:
+    description: 'Output format (sarif, text, json, markdown, html)'
+    required: false
+    default: 'sarif'
+  output:
+    description: 'Output file path (e.g. results.sarif)'
+    required: false
+    default: 'secureflow-results.sarif'
+
+outputs:
+  total-findings:
+    description: 'Total number of security findings detected'
+    value: ${{ steps.scan.outputs.total-findings }}
+  highest-severity:
+    description: 'Highest severity detected among findings (CRITICAL, HIGH, MEDIUM, LOW, or NONE)'
+    value: ${{ steps.scan.outputs.highest-severity }}
+  has-findings:
+    description: 'Whether any security findings were detected (true/false)'
+    value: ${{ steps.scan.outputs.has-findings }}
+  sarif-file:
+    description: 'Path to the generated SARIF report file (if format is sarif)'
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run SecureFlow Security Scan
+      id: scan
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/scripts/action-runner.js"
+      env:
+        INPUT_PATHS: ${{ inputs.paths }}
+        INPUT_SEVERITY: ${{ inputs.severity }}
+        INPUT_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
+        INPUT_FAIL_THRESHOLD: ${{ inputs.fail-threshold }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
