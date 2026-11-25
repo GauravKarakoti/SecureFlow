@@ -69,6 +69,8 @@ export interface UpsertSecureFlowCommentParams {
   issueNumber: number;
   body: string;
   commentId?: number | null;
+  commitSha?: string | null;
+  scanTime?: string | Date | null;
   /**
    * When true, deletes existing comment(s) first and creates a clean new comment,
    * avoiding comment bloat and edit history per project owner request (#2012).
@@ -105,17 +107,21 @@ export function isNotFoundError(error: unknown): boolean {
   return false;
 }
 
-/** Check whether a comment body contains the SecureFlow hidden marker. */
+/** Check whether a comment body contains the SecureFlow hidden marker or report header. */
 export function isSecureFlowComment(body: string | null | undefined): boolean {
   if (typeof body !== "string") {
     return false;
   }
-  return body.includes(SECUREFLOW_COMMENT_MARKER) || body.includes("<!-- secureflow");
+  return (
+    body.includes(SECUREFLOW_COMMENT_MARKER) ||
+    body.includes("<!-- secureflow") ||
+    body.includes("SecureFlow AI Security Report")
+  );
 }
 
 /** Ensure the comment body contains the hidden marker. */
 export function ensureSecureFlowMarker(body: string): string {
-  if (isSecureFlowComment(body)) {
+  if (body.includes(SECUREFLOW_COMMENT_MARKER)) {
     return body;
   }
   return `${SECUREFLOW_COMMENT_MARKER}\n\n${body}`;
@@ -274,7 +280,19 @@ export async function replaceSecureFlowComment(
   octokit: StickyCommentOctokit | any,
   params: UpsertSecureFlowCommentParams,
 ): Promise<UpsertSecureFlowCommentResult> {
-  const body = ensureSecureFlowMarker(params.body);
+  let rawBody = params.body;
+  if (
+    (params.commitSha || params.scanTime) &&
+    !rawBody.includes("Scanned commit:") &&
+    !rawBody.includes("Scan time:")
+  ) {
+    const meta = formatScanMetadata({
+      commitSha: params.commitSha,
+      scanTime: params.scanTime,
+    });
+    rawBody = meta + rawBody;
+  }
+  const body = ensureSecureFlowMarker(rawBody);
   const existingComments = await findAllSecureFlowComments(octokit, {
     owner: params.owner,
     repo: params.repo,
@@ -327,7 +345,19 @@ export async function upsertSecureFlowComment(
     return replaceSecureFlowComment(octokit, params);
   }
 
-  const body = ensureSecureFlowMarker(params.body);
+  let rawBody = params.body;
+  if (
+    (params.commitSha || params.scanTime) &&
+    !rawBody.includes("Scanned commit:") &&
+    !rawBody.includes("Scan time:")
+  ) {
+    const meta = formatScanMetadata({
+      commitSha: params.commitSha,
+      scanTime: params.scanTime,
+    });
+    rawBody = meta + rawBody;
+  }
+  const body = ensureSecureFlowMarker(rawBody);
   let targetCommentId = params.commentId;
 
   // When commentId is not provided, query comments to find target and minimize any extra stale comments
