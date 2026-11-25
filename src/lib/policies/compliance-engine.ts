@@ -18,6 +18,7 @@ import {
   type CompliancePackRuleConfig,
 } from "./compliance-packs";
 import type { CachedPolicy } from "./policy-cache";
+import { resolvePolicyDependencyGraph } from "./dependency-graph";
 
 export interface EvaluatedFinding {
   createdAt?: Date | string | null;
@@ -78,6 +79,15 @@ export function evaluateCompliancePolicies(
   findings: EvaluatedFinding[],
   activePacks: Array<ComplianceFrameworkPack | CachedPolicy> = DEFAULT_COMPLIANCE_PACKS,
 ): ComplianceEvaluationResult {
+  const orderedPacks = resolvePolicyDependencyGraph(
+    activePacks.map((pack) => ({
+      id: (pack as { id?: string }).id ?? pack.name,
+      dependsOn: (pack as { dependsOn?: string[] }).dependsOn,
+      pack,
+    })),
+    { throwOnCycle: true },
+  ).ordered.map((node) => node.pack);
+
   const enriched = enrichFindingsWithComplianceTags(findings);
   const frameworks: Record<ComplianceFramework, FrameworkComplianceStatus> = {
     OWASP: {
@@ -163,8 +173,8 @@ export function evaluateCompliancePolicies(
       }
     }
 
-    // Evaluate against each active pack
-    for (const pack of activePacks) {
+    // Evaluate against each active pack in topological dependency order
+    for (const pack of orderedPacks) {
       const rules: CompliancePackRuleConfig = (pack as any).rules || {};
       const packTags: string[] = (pack as any).complianceTags || [];
 
