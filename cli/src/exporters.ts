@@ -61,14 +61,16 @@ export function toMarkdownCodeSpan(value: string): string {
  * Escapes special characters for XML and removes control characters invalid in XML 1.0 (#2021).
  */
 export function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;")
-    // Remove XML 1.0 disallowed control characters (ASCII 0x00-0x1F except \t 0x09, \n 0x0A, \r 0x0D)
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+  return (
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;")
+      // Remove XML 1.0 disallowed control characters (ASCII 0x00-0x1F except \t 0x09, \n 0x0A, \r 0x0D)
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -92,9 +94,16 @@ export class CsvExporter implements Exporter {
 
     for (const file of results) {
       for (const v of file.violations) {
-        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
+        const reasonText = v.custom
+          ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}`
+          : v.reason;
         rows.push(
-          [escapeCsv(file.path), String(v.line), escapeCsv(maskSecrets(v.text)), escapeCsv(reasonText)].join(","),
+          [
+            escapeCsv(file.path),
+            String(v.line),
+            escapeCsv(maskSecrets(v.text)),
+            escapeCsv(reasonText),
+          ].join(","),
         );
       }
     }
@@ -106,7 +115,14 @@ export class MarkdownExporter implements Exporter {
   export(results: FileScanResult[]): string {
     // Collect all violations deterministically
     const sortedFiles = [...results].sort((a, b) => a.path.localeCompare(b.path));
-    const violations: { path: string; line: number; text: string; reason: string; severity: string; ruleId: string }[] = [];
+    const violations: {
+      path: string;
+      line: number;
+      text: string;
+      reason: string;
+      severity: string;
+      ruleId: string;
+    }[] = [];
 
     let countCritical = 0;
     let countHigh = 0;
@@ -122,7 +138,9 @@ export class MarkdownExporter implements Exporter {
         else if (sev === "MEDIUM") countMedium++;
         else countLow++;
 
-        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
+        const reasonText = v.custom
+          ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}`
+          : v.reason;
         violations.push({
           path: file.path,
           line: v.line,
@@ -179,8 +197,15 @@ export class HtmlExporter implements Exporter {
 
     for (const file of results) {
       for (const v of file.violations) {
-        const reasonText = v.custom ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}` : v.reason;
-        violations.push({ path: file.path, line: v.line, text: maskSecrets(v.text), reason: reasonText });
+        const reasonText = v.custom
+          ? `[Custom Rule: ${v.ruleId || "custom"}] ${v.reason}`
+          : v.reason;
+        violations.push({
+          path: file.path,
+          line: v.line,
+          text: maskSecrets(v.text),
+          reason: reasonText,
+        });
       }
     }
 
@@ -348,8 +373,8 @@ export class JunitExporter implements Exporter {
 
           suiteTestcases.push(
             `    <testcase name="${escapeXml(caseName)}" classname="${escapeXml(suiteName)}" time="0.000">\n` +
-            `      <failure message="${failureMessage}" type="${escapeXml(sev)}">${failureBody}</failure>\n` +
-            `    </testcase>`,
+              `      <failure message="${failureMessage}" type="${escapeXml(sev)}">${failureBody}</failure>\n` +
+              `    </testcase>`,
           );
         } else {
           // Advisory finding: testcase passes with system-out details
@@ -358,8 +383,8 @@ export class JunitExporter implements Exporter {
           );
           suiteTestcases.push(
             `    <testcase name="${escapeXml(caseName)}" classname="${escapeXml(suiteName)}" time="0.000">\n` +
-            `      <system-out>${infoBody}</system-out>\n` +
-            `    </testcase>`,
+              `      <system-out>${infoBody}</system-out>\n` +
+              `    </testcase>`,
           );
         }
       }
@@ -394,6 +419,37 @@ export class JunitExporter implements Exporter {
   }
 }
 
+export class JsonExporter implements Exporter {
+  export(results: FileScanResult[], options?: ExporterOptions): string {
+    const sanitizedFiles = results.map((file) => ({
+      path: file.path,
+      violations: file.violations.map((v) => ({
+        ...v,
+        text: maskSecrets(v.text),
+      })),
+    }));
+
+    const sanitizedAiFindings = options?.aiFindings
+      ? options.aiFindings.map((af: any) => ({
+          ...af,
+          description:
+            typeof af.description === "string" ? maskSecrets(af.description) : af.description,
+          codeSnippet:
+            typeof af.codeSnippet === "string" ? maskSecrets(af.codeSnippet) : af.codeSnippet,
+        }))
+      : undefined;
+
+    return JSON.stringify(
+      {
+        results: sanitizedFiles,
+        ...(sanitizedAiFindings ? { aiFindings: sanitizedAiFindings } : {}),
+      },
+      null,
+      2,
+    );
+  }
+}
+
 /**
  * Factory function to get the appropriate exporter instance (#1095, #2021).
  */
@@ -401,6 +457,8 @@ export function getExporter(format: string): Exporter {
   switch (format.toLowerCase()) {
     case "csv":
       return new CsvExporter();
+    case "json":
+      return new JsonExporter();
     case "markdown":
     case "md":
       return new MarkdownExporter();
