@@ -72,7 +72,9 @@ import {
   resolveContextLines,
   resolveSuggestionsConfig,
   resolveBreakglassConfig,
+  resolvePullRequestReviewConfig,
 } from "./gate-config";
+import { syncPullRequestReview } from "@/lib/github/pull-request-review";
 import {
   evaluateBreakglassOverride,
   recordOverrideAuditLog,
@@ -988,6 +990,22 @@ export async function processScanJob(
               comments: inlineComments,
             });
           }
+        }
+
+        // Pull Request Review Mode (#2095): Request changes when blocked, dismiss when passing
+        const prReviewConfig = resolvePullRequestReviewConfig(repositoryGateConfig);
+        if (prReviewConfig.enabled && octokit?.rest?.pulls?.createReview) {
+          const isBlockedState = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
+          await syncPullRequestReview({
+            client: octokit as any,
+            owner,
+            repo,
+            prNumber,
+            isBlocked: isBlockedState && !overrideResult.isOverridden,
+            findingsCount: enrichedFindings.length,
+            config: prReviewConfig,
+            headSha,
+          });
         }
       }
     } catch (err) {
