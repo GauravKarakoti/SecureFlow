@@ -251,6 +251,36 @@ export interface GateConfig {
     reportUnknown?: boolean;
     packageOverrides?: Record<string, string>;
   };
+  breakglass?: {
+    enabled?: boolean;
+    label?: string;
+    labels?: string[];
+    allowedRoles?: string[];
+    allowedUsers?: string[];
+    expiresInMinutes?: number;
+    revokeOnNewCommits?: boolean;
+    requireReason?: boolean;
+  };
+  override?: {
+    enabled?: boolean;
+    label?: string;
+    labels?: string[];
+    allowedRoles?: string[];
+    allowedUsers?: string[];
+    expiresInMinutes?: number;
+    revokeOnNewCommits?: boolean;
+    requireReason?: boolean;
+  };
+  breakglass?: {
+    enabled?: boolean;
+    label?: string;
+    labels?: string[];
+    allowedRoles?: string[];
+    allowedUsers?: string[];
+    expiresInMinutes?: number;
+    revokeOnNewCommits?: boolean;
+    requireReason?: boolean;
+  };
 }
 
 export interface RulesConfig {
@@ -280,6 +310,26 @@ export interface SecureFlowConfig {
     denyList?: string[];
     reportUnknown?: boolean;
     packageOverrides?: Record<string, string>;
+  };
+  breakglass?: {
+    enabled?: boolean;
+    label?: string;
+    labels?: string[];
+    allowedRoles?: string[];
+    allowedUsers?: string[];
+    expiresInMinutes?: number;
+    revokeOnNewCommits?: boolean;
+    requireReason?: boolean;
+  };
+  override?: {
+    enabled?: boolean;
+    label?: string;
+    labels?: string[];
+    allowedRoles?: string[];
+    allowedUsers?: string[];
+    expiresInMinutes?: number;
+    revokeOnNewCommits?: boolean;
+    requireReason?: boolean;
   };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
@@ -946,6 +996,23 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     };
   }
 
+  // #2094: parse breakglass override configuration
+  const rawBreakglass = root.breakglass ?? gateObj.breakglass ?? root.override ?? gateObj.override;
+  let breakglass: GateConfig["breakglass"] = undefined;
+  if (rawBreakglass && typeof rawBreakglass === "object" && !Array.isArray(rawBreakglass)) {
+    const bgObj = rawBreakglass as Record<string, unknown>;
+    breakglass = {
+      ...(typeof bgObj.enabled === "boolean" ? { enabled: bgObj.enabled } : {}),
+      ...(typeof bgObj.label === "string" ? { label: bgObj.label.trim() } : {}),
+      ...(Array.isArray(bgObj.labels) ? { labels: bgObj.labels.map(String) } : {}),
+      ...(Array.isArray(bgObj.allowedRoles) ? { allowedRoles: bgObj.allowedRoles.map(String) } : {}),
+      ...(Array.isArray(bgObj.allowedUsers) ? { allowedUsers: bgObj.allowedUsers.map(String) } : {}),
+      ...(typeof bgObj.expiresInMinutes === "number" ? { expiresInMinutes: bgObj.expiresInMinutes } : {}),
+      ...(typeof bgObj.revokeOnNewCommits === "boolean" ? { revokeOnNewCommits: bgObj.revokeOnNewCommits } : {}),
+      ...(typeof bgObj.requireReason === "boolean" ? { requireReason: bgObj.requireReason } : {}),
+    };
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -971,6 +1038,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
     ...(licenses !== undefined ? { licenses } : {}),
+    ...(breakglass !== undefined ? { breakglass } : {}),
   };
 }
 
@@ -1012,6 +1080,35 @@ export function resolveLicenseRuleOptions(config?: GateConfig | null): {
     denyList: lic?.denyList,
     reportUnknown: lic?.reportUnknown,
     packageLicenseOverrides: lic?.packageOverrides,
+  };
+}
+
+/**
+ * Resolves options for break-glass emergency override from repository gate configuration (#2094).
+ */
+export function resolveBreakglassConfig(config?: GateConfig | null): {
+  enabled: boolean;
+  label?: string;
+  labels?: string[];
+  allowedRoles?: string[];
+  allowedUsers?: string[];
+  expiresInMinutes?: number;
+  revokeOnNewCommits?: boolean;
+  requireReason?: boolean;
+} {
+  if (!config) {
+    return { enabled: true };
+  }
+  const bg = config.breakglass;
+  return {
+    enabled: bg?.enabled !== false,
+    label: bg?.label,
+    labels: bg?.labels,
+    allowedRoles: bg?.allowedRoles,
+    allowedUsers: bg?.allowedUsers,
+    expiresInMinutes: bg?.expiresInMinutes,
+    revokeOnNewCommits: bg?.revokeOnNewCommits,
+    requireReason: bg?.requireReason,
   };
 }
 
