@@ -1,11 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let mockChunks: string[] = [];
 let mockFinalText = "Local transmission.";
 let mockGenerateStreamThrows: Error | null = null;
 let mockPullErrors: Error[] = [];
 let mockGenerateStreamCalls = 0;
-let mockLocalMode = true;
 let mockLastCall: { instance: "cloud" | "local"; model: unknown } | null = null;
 
 vi.mock("@/ai/genkit", () => {
@@ -77,17 +76,22 @@ const OOM_ERROR = new Error(
   "CUDA error: out of memory. Tried to allocate 4.2 GiB (GPU 0; 8.0 GiB total capacity)",
 );
 
-describe("streamHeistMessage - Insufficient VRAM & Local Model Pressure (#1586)", () => {
+describe("streamHeistMessage - Insufficient VRAM & Local Model Pressure (#1586, #1950)", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     mockChunks = [];
     mockFinalText = "Local transmission.";
     mockGenerateStreamThrows = null;
     mockPullErrors = [];
     mockGenerateStreamCalls = 0;
-    mockLocalMode = true;
     mockLastCall = null;
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("yields local stream chunks when local inference memory is sufficient", async () => {
@@ -97,6 +101,7 @@ describe("streamHeistMessage - Insufficient VRAM & Local Model Pressure (#1586)"
     const events = await collectEvents(baseInput);
 
     expect(mockLastCall).toEqual({ instance: "local", model: "openai/llama3.1" });
+    expect(String(mockLastCall?.model)).toMatch(/^openai\//);
     const chunkEvents = events.filter((e) => e.type === "chunk");
     expect(chunkEvents).toHaveLength(2);
     const doneEvent = events.find((e) => e.type === "done");
@@ -106,23 +111,29 @@ describe("streamHeistMessage - Insufficient VRAM & Local Model Pressure (#1586)"
     }
   });
 
-  it("handles CUDA out-of-memory errors by yielding an error event gracefully", async () => {
+  it("handles CUDA out-of-memory errors once (no retry loop) and preserves safe fallback constant", async () => {
     mockGenerateStreamThrows = OOM_ERROR;
 
     const events = await collectEvents(baseInput);
 
+    expect(mockGenerateStreamCalls).toBe(1);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: "error",
       message: OOM_ERROR.message,
     });
+    if (events[0].type === "error") {
+      expect(events[0].message).not.toMatch(/\n\s+at /);
+    }
+    expect(FALLBACK_HEIST_MESSAGE.length).toBeGreaterThan(0);
   });
 
-  it("handles VRAM memory pressure during mid-stream chunk pulling", async () => {
+  it("handles VRAM memory pressure during mid-stream chunk pulling without retrying OOM", async () => {
     mockPullErrors.push(new Error("CUDA out of memory: tensor allocation failure"));
 
     const events = await collectEvents(baseInput);
 
+    expect(mockGenerateStreamCalls).toBe(1);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: "error",
