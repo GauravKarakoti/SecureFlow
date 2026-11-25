@@ -9,6 +9,9 @@ import {
   containsSecretValues,
   isAmbiguousFix,
   isMultiFileFix,
+  isDuplicateInlineComment,
+  SECUREFLOW_INLINE_COMMENT_MARKER,
+  getInlineFindingMarker,
 } from "./suggested-changes";
 import { parseSecureFlowConfig, resolveSuggestionsConfig } from "@/lib/scanner/gate-config";
 import type { ScanFinding } from "@/lib/armor/scanner";
@@ -301,16 +304,21 @@ describe("GitHub Suggested Changes (#2005)", () => {
 
   describe("Mocked GitHub Client Integration (postSuggestedChangesReview)", () => {
     let mockCreateReview: ReturnType<typeof vi.fn>;
+    let mockListReviewComments: ReturnType<typeof vi.fn>;
     let mockOctokit: any;
 
     beforeEach(() => {
       mockCreateReview = vi.fn().mockResolvedValue({
         data: { id: 12345, html_url: "https://github.com/org/repo/pull/1#pullrequestreview-12345" },
       });
+      mockListReviewComments = vi.fn().mockResolvedValue({
+        data: [],
+      });
       mockOctokit = {
         rest: {
           pulls: {
             createReview: mockCreateReview,
+            listReviewComments: mockListReviewComments,
           },
         },
       };
@@ -353,6 +361,77 @@ describe("GitHub Suggested Changes (#2005)", () => {
       });
     });
 
+    it("skips review creation when all comments are duplicates on workflow re-run", async () => {
+      const existing = [
+        {
+          id: 991,
+          path: "src/server.ts",
+          line: 42,
+          body: `**🔴 HIGH · SQL Injection**\n\n<!-- secureflow-inline-finding: fp-sql-1 -->\n<!-- secureflow-inline-comment -->`,
+        },
+      ];
+      mockListReviewComments.mockResolvedValue({ data: existing });
+
+      const comments = [
+        {
+          path: "src/server.ts",
+          line: 42,
+          body: `**🔴 HIGH · SQL Injection**\n\n<!-- secureflow-inline-comment -->\n<!-- secureflow-inline-finding: fp-sql-1 -->\n\n**Explanation:**\nBad query`,
+        },
+      ];
+
+      const res = await postSuggestedChangesReview(mockOctokit, {
+        owner: "acme",
+        repo: "api",
+        pullNumber: 7,
+        comments,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.postedCount).toBe(0);
+      expect(res.skippedDuplicates).toBe(1);
+      expect(mockCreateReview).not.toHaveBeenCalled();
+    });
+
+    it("posts only non-duplicate comments when re-running on mixed findings", async () => {
+      const existing = [
+        {
+          id: 991,
+          path: "src/server.ts",
+          line: 42,
+          body: `**🔴 HIGH · SQL Injection**\n\n<!-- secureflow-inline-finding: fp-sql-1 -->`,
+        },
+      ];
+      mockListReviewComments.mockResolvedValue({ data: existing });
+
+      const comments = [
+        {
+          path: "src/server.ts",
+          line: 42,
+          body: `<!-- secureflow-inline-finding: fp-sql-1 -->\nDuplicate finding`,
+        },
+        {
+          path: "src/auth.ts",
+          line: 15,
+          body: `<!-- secureflow-inline-finding: fp-auth-2 -->\nNew finding`,
+        },
+      ];
+
+      const res = await postSuggestedChangesReview(mockOctokit, {
+        owner: "acme",
+        repo: "api",
+        pullNumber: 7,
+        comments,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.postedCount).toBe(1);
+      expect(res.skippedDuplicates).toBe(1);
+      expect(mockCreateReview).toHaveBeenCalledTimes(1);
+      expect(mockCreateReview.mock.calls[0][0].comments).toHaveLength(1);
+      expect(mockCreateReview.mock.calls[0][0].comments[0].path).toBe("src/auth.ts");
+    });
+
     it("handles GitHub API rejection gracefully without throwing", async () => {
       mockCreateReview.mockRejectedValue(new Error("Validation failed: line is not part of diff"));
 
@@ -365,6 +444,167 @@ describe("GitHub Suggested Changes (#2005)", () => {
 
       expect(res.success).toBe(false);
       expect(res.error).toContain("Validation failed");
+    });
+  });
+
+  describe("PR Inline Review Comments - Acceptance Criteria", () => {
+    const commentableMap = new Map<string, Set<number>>([
+      ["src/app.ts", new Set([10, 20, 30, 40, 50, 60])],
+    ]);
+
+    it("posts review comments on the exact line for CRITICAL and HIGH findings inside the diff", () => {
+      const findings: EnrichedScanFinding[] = [
+        {
+          type: "Vulnerability",
+          severity: "CRITICAL",
+          description: "RCE vulnerability",
+          fileLocation: "src/app.ts",
+          lineStart: 10,
+          codeSnippet: "eval(input)",
+        },
+        {
+          type: "Vulnerability",
+          severity: "HIGH",
+          description: "SQL injection",
+          fileLocation: "src/app.ts",
+          lineStart: 20,
+          codeSnippet: "db.query()",
+        },
+        {
+          type: "CodeStyle",
+          severity: "MEDIUM",
+          description: "Medium issue",
+          fileLocation: "src/app.ts",
+          lineStart: 30,
+          codeSnippet: "unusedVar = 1",
+        },
+        {
+          type: "Info",
+          severity: "LOW",
+          description: "Low issue",
+          fileLocation: "src/app.ts",
+          lineStart: 40,
+          codeSnippet: "console.log()",
+        },
+      ];
+
+      const result = buildInlineReviewComments(findings, commentableMap);
+
+      // Only CRITICAL and HIGH produce inline comments
+      expect(result.inlineComments).toHaveLength(2);
+      expect(result.inlineComments[0].line).toBe(10);
+      expect(result.inlineComments[1].line).toBe(20);
+
+      // MEDIUM and LOW fall back to summary findings
+      expect(result.summaryFindings).toHaveLength(2);
+      expect(result.summaryFindings.map((f) => f.severity)).toEqual(["MEDIUM", "LOW"]);
+    });
+
+    it("includes title, a short explanation and the suggested fix in comment body", () => {
+      const finding: EnrichedScanFinding = {
+        type: "Vulnerability",
+        severity: "CRITICAL",
+        title: "Unvalidated Open Redirect",
+        description: "User input flows directly to res.redirect() without validation.",
+        explanation: "An attacker could supply an external malicious URL leading to phishing.",
+        remediation: "Validate destination against allowed domain whitelist.",
+        fileLocation: "src/app.ts",
+        lineStart: 10,
+        codeSnippet: "res.redirect(req.query.url)",
+      } as any;
+
+      const body = formatInlineCommentBody(finding, "res.redirect(safeUrl(req.query.url))");
+
+      // Title with badge
+      expect(body).toContain("**🔴 CRITICAL · Unvalidated Open Redirect**");
+
+      // Short explanation
+      expect(body).toContain("**Explanation:**");
+      expect(body).toContain(
+        "An attacker could supply an external malicious URL leading to phishing.",
+      );
+
+      // Suggested fix
+      expect(body).toContain("**Suggested Fix:**");
+      expect(body).toContain("```suggestion\nres.redirect(safeUrl(req.query.url))\n```");
+
+      // Hidden marker for duplicate detection
+      expect(body).toContain("<!-- secureflow-inline-finding:");
+      expect(body).toContain("<!-- secureflow-inline-comment -->");
+    });
+
+    it("caps the number of inline comments through a configurable limit and falls back to summary for the rest", () => {
+      const sixFindings: EnrichedScanFinding[] = [10, 20, 30, 40, 50, 60].map((line, idx) => ({
+        type: "Vulnerability",
+        severity: "HIGH",
+        description: `High finding ${idx + 1}`,
+        fileLocation: "src/app.ts",
+        lineStart: line,
+        codeSnippet: `danger${idx}()`,
+      }));
+
+      // Cap at 3 inline comments
+      const result = buildInlineReviewComments(sixFindings, commentableMap, {
+        maxInlineComments: 3,
+      });
+
+      expect(result.inlineComments).toHaveLength(3);
+      expect(result.summaryFindings).toHaveLength(3);
+      expect(result.inlineComments.map((c) => c.line)).toEqual([10, 20, 30]);
+      expect(result.summaryFindings.map((f) => f.lineStart)).toEqual([40, 50, 60]);
+    });
+
+    it("never produces inline comments for findings outside the diff", () => {
+      const outsideDiffFindings: EnrichedScanFinding[] = [
+        {
+          type: "Vulnerability",
+          severity: "CRITICAL",
+          description: "Critical bug outside diff",
+          fileLocation: "src/app.ts",
+          lineStart: 999, // outside diff
+          codeSnippet: "crash()",
+        },
+        {
+          type: "Vulnerability",
+          severity: "HIGH",
+          description: "High bug outside diff",
+          fileLocation: "src/other.ts", // not in commentableMap
+          lineStart: 10,
+          codeSnippet: "crash2()",
+        },
+      ];
+
+      const result = buildInlineReviewComments(outsideDiffFindings, commentableMap);
+
+      expect(result.inlineComments).toHaveLength(0);
+      expect(result.summaryFindings).toHaveLength(2);
+    });
+
+    it("avoids posting duplicates when re-running the workflow with existing comments", () => {
+      const finding: EnrichedScanFinding = {
+        type: "Vulnerability",
+        severity: "CRITICAL",
+        description: "Known issue",
+        fileLocation: "src/app.ts",
+        lineStart: 10,
+        codeSnippet: "danger()",
+        fingerprint: "known-fp-10",
+      } as any;
+
+      const existingComments = [
+        {
+          path: "src/app.ts",
+          line: 10,
+          body: `**🔴 CRITICAL · Known issue**\n\n<!-- secureflow-inline-comment -->\n<!-- secureflow-inline-finding: known-fp-10 -->`,
+        },
+      ];
+
+      const result = buildInlineReviewComments([finding], commentableMap, {
+        existingComments,
+      });
+
+      expect(result.inlineComments).toHaveLength(0);
+      expect(result.skippedDuplicatesCount).toBe(1);
     });
   });
 });

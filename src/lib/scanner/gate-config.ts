@@ -232,14 +232,14 @@ export interface GateConfig {
   timeoutBudgetSeconds?: number;
   requestTimeout?: number;
   requestTimeoutSeconds?: number;
-  skipDrafts?: boolean;
-  skipAuthors?: string[];
   verifyCritical?: boolean;
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
   contextLines?: number;
-  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
-  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+  inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
+  maxInlineComments?: number;
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
 }
@@ -254,9 +254,11 @@ export interface RulesConfig {
 export interface SuggestionsConfig {
   enabled: boolean;
   maxSuggestions: number;
+  maxInlineComments?: number;
 }
 
 export const DEFAULT_MAX_SUGGESTIONS = 5;
+export const DEFAULT_MAX_INLINE_COMMENTS = 5;
 
 export interface SecureFlowConfig {
   gate: GateConfig;
@@ -286,13 +288,13 @@ export interface SecureFlowConfig {
     maxVerificationCalls?: number;
     contextLines?: number;
   };
-  skipDrafts?: boolean;
-  skipAuthors?: string[];
   verifyCritical?: boolean;
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
-  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
-  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+  inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
+  maxInlineComments?: number;
   ignore?: {
     includeDefaults?: boolean;
     forceInclude?: string[];
@@ -829,13 +831,25 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2005: parse suggestions / suggestedChanges configuration (opt-in)
+  // #2005: parse suggestions / suggestedChanges / inlineComments configuration
   const rawSuggestions =
-    root.suggestions ?? root.suggestedChanges ?? gateObj.suggestions ?? gateObj.suggestedChanges;
+    root.suggestions ??
+    root.suggestedChanges ??
+    (root as any).inlineComments ??
+    gateObj.suggestions ??
+    gateObj.suggestedChanges ??
+    (gateObj as any).inlineComments;
 
   let suggestions:
-    boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number } | undefined =
-    undefined;
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
+      }
+    | undefined = undefined;
 
   if (rawSuggestions !== undefined) {
     if (typeof rawSuggestions === "boolean") {
@@ -849,6 +863,8 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
         enabled?: boolean;
         maxSuggestions?: number;
         limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
       };
     }
   }
@@ -901,6 +917,18 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
 
   const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
 
+  const rawMaxInline =
+    root.maxInlineComments ??
+    gateObj.maxInlineComments ??
+    (typeof rawSuggestions === "object" && rawSuggestions !== null
+      ? (rawSuggestions as any).maxInlineComments ?? (rawSuggestions as any).maxComments
+      : undefined);
+
+  let maxInlineComments: number | undefined = undefined;
+  if (typeof rawMaxInline === "number" && Number.isInteger(rawMaxInline) && rawMaxInline > 0) {
+    maxInlineComments = rawMaxInline;
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -923,6 +951,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(maxVerificationCalls !== undefined ? { maxVerificationCalls } : {}),
     ...(contextLines !== undefined ? { contextLines } : {}),
     ...(suggestions !== undefined ? { suggestions } : {}),
+    ...(maxInlineComments !== undefined ? { maxInlineComments } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
   };
@@ -955,34 +984,75 @@ export function resolveSuggestionsConfig(
         enabled?: boolean;
         maxSuggestions?: number;
         limit?: number;
-        suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
-        suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number };
+        maxInlineComments?: number;
+        maxComments?: number;
+        suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+        suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
+        inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
       }
     | null,
 ): SuggestionsConfig {
   if (config === true) {
-    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+    return {
+      enabled: true,
+      maxSuggestions: DEFAULT_MAX_SUGGESTIONS,
+      maxInlineComments: DEFAULT_MAX_INLINE_COMMENTS,
+    };
   }
   if (!config || typeof config !== "object") {
-    return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+    return {
+      enabled: false,
+      maxSuggestions: DEFAULT_MAX_SUGGESTIONS,
+      maxInlineComments: DEFAULT_MAX_INLINE_COMMENTS,
+    };
   }
 
-  const raw = config.suggestions ?? config.suggestedChanges ?? config;
+  const raw =
+    (config as any).inlineComments ??
+    config.suggestions ??
+    config.suggestedChanges ??
+    config;
+
+  const rawMaxInline =
+    (config as any).maxInlineComments ??
+    (typeof raw === "object" && raw !== null
+      ? (raw as any).maxInlineComments ?? (raw as any).maxComments ?? (raw as any).limit
+      : undefined);
+
+  const maxInlineComments =
+    typeof rawMaxInline === "number" && Number.isInteger(rawMaxInline) && rawMaxInline > 0
+      ? rawMaxInline
+      : DEFAULT_MAX_INLINE_COMMENTS;
+
   if (raw === true) {
-    return { enabled: true, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+    return {
+      enabled: true,
+      maxSuggestions: DEFAULT_MAX_SUGGESTIONS,
+      maxInlineComments,
+    };
   }
   if (typeof raw === "object" && raw !== null) {
-    const rawObj = raw as { enabled?: boolean; maxSuggestions?: number; limit?: number };
+    const rawObj = raw as {
+      enabled?: boolean;
+      maxSuggestions?: number;
+      limit?: number;
+      maxInlineComments?: number;
+      maxComments?: number;
+    };
     const enabled = rawObj.enabled === true;
     const rawMax = rawObj.maxSuggestions ?? rawObj.limit;
     const maxSuggestions =
       typeof rawMax === "number" && Number.isInteger(rawMax) && rawMax > 0
         ? rawMax
         : DEFAULT_MAX_SUGGESTIONS;
-    return { enabled, maxSuggestions };
+    return { enabled, maxSuggestions, maxInlineComments };
   }
 
-  return { enabled: false, maxSuggestions: DEFAULT_MAX_SUGGESTIONS };
+  return {
+    enabled: false,
+    maxSuggestions: DEFAULT_MAX_SUGGESTIONS,
+    maxInlineComments,
+  };
 }
 
 /**

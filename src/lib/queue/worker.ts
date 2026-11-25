@@ -49,6 +49,7 @@ import {
 import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
 import {
   buildInlineReviewComments,
+  postSuggestedChangesReview,
   resolveSuggestionsConfig,
 } from "@/lib/github/suggested-changes";
 import {
@@ -1294,16 +1295,15 @@ export async function runPullRequestScan({
       let inlinePosted = false;
       if (inlineComments.length > 0) {
         try {
-          await octokit.rest.pulls.createReview({
+          const reviewResult = await postSuggestedChangesReview(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
-            pull_number: pullRequest.number,
-            commit_id: pullRequest.head?.sha,
-            event: "COMMENT",
+            pullNumber: pullRequest.number,
+            commitId: pullRequest.head?.sha,
             body: renderScanReportSummary(summaryInput(summaryFindings)),
             comments: inlineComments,
           });
-          inlinePosted = true;
+          inlinePosted = reviewResult.success;
         } catch (err: any) {
           log.error(
             `[REVIEW] Failed to post inline review comments, falling back to summary comment: ${sanitize(err.message)}`,
