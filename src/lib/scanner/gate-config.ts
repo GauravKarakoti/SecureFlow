@@ -217,6 +217,16 @@ export interface ConfidenceConfig {
   filterBlocking?: boolean;
 }
 
+export interface LicenseComplianceConfig {
+  enabled?: boolean;
+  allow?: string[];
+  allowList?: string[];
+  deny?: string[];
+  denyList?: string[];
+  reportUnknown?: boolean;
+  packageOverrides?: Record<string, string>;
+}
+
 export interface GateConfig {
   blockOn: GateLevel;
   reviewOn: GateLevel;
@@ -236,15 +246,39 @@ export interface GateConfig {
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
   contextLines?: number;
-  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-  inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
+  suggestions?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
+      };
+  suggestedChanges?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
+      };
+  inlineComments?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxComments?: number;
+        limit?: number;
+        maxInlineComments?: number;
+      };
   maxInlineComments?: number;
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
   patternRulesEnabled?: boolean;
   unicodeRulesEnabled?: boolean;
   unicodeAllowPatterns?: string[];
+  licenses?: LicenseComplianceConfig;
 }
 
 export interface RulesConfig {
@@ -286,6 +320,7 @@ export interface SecureFlowConfig {
         disabledRules?: string[];
         allowPatterns?: string[];
       };
+  licenses?: LicenseComplianceConfig;
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -312,9 +347,32 @@ export interface SecureFlowConfig {
   verifyCritical?: boolean;
   verifyCriticalFindings?: boolean;
   maxVerificationCalls?: number;
-  suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-  suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-  inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
+  suggestions?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
+      };
+  suggestedChanges?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxSuggestions?: number;
+        limit?: number;
+        maxInlineComments?: number;
+        maxComments?: number;
+      };
+  inlineComments?:
+    | boolean
+    | {
+        enabled?: boolean;
+        maxComments?: number;
+        limit?: number;
+        maxInlineComments?: number;
+      };
   maxInlineComments?: number;
   ignore?: {
     includeDefaults?: boolean;
@@ -865,22 +923,12 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
   const rawSuggestions =
     root.suggestions ??
     root.suggestedChanges ??
-    (root as any).inlineComments ??
+    (root as Record<string, unknown>).inlineComments ??
     gateObj.suggestions ??
     gateObj.suggestedChanges ??
-    (gateObj as any).inlineComments;
+    (gateObj as Record<string, unknown>).inlineComments;
 
-  let suggestions:
-    | boolean
-    | {
-        enabled?: boolean;
-        maxSuggestions?: number;
-        limit?: number;
-        maxInlineComments?: number;
-        maxComments?: number;
-      }
-    | undefined = undefined;
-
+  let suggestions: GateConfig["suggestions"] = undefined;
   if (rawSuggestions !== undefined) {
     if (typeof rawSuggestions === "boolean") {
       suggestions = rawSuggestions;
@@ -1017,11 +1065,39 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
 
   const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
 
+  // #2093: parse licenses configuration
+  const rawLicenses = root.licenses ?? gateObj.licenses ?? rawRulesObj?.licenses;
+  let licenses: GateConfig["licenses"] = undefined;
+  if (rawLicenses && typeof rawLicenses === "object" && !Array.isArray(rawLicenses)) {
+    const licObj = rawLicenses as Record<string, unknown>;
+    const allowArr = Array.isArray(licObj.allow)
+      ? (licObj.allow as string[])
+      : Array.isArray(licObj.allowList)
+        ? (licObj.allowList as string[])
+        : undefined;
+    const denyArr = Array.isArray(licObj.deny)
+      ? (licObj.deny as string[])
+      : Array.isArray(licObj.denyList)
+        ? (licObj.denyList as string[])
+        : undefined;
+
+    licenses = {
+      ...(typeof licObj.enabled === "boolean" ? { enabled: licObj.enabled } : {}),
+      ...(allowArr ? { allowList: allowArr.map(String) } : {}),
+      ...(denyArr ? { denyList: denyArr.map(String) } : {}),
+      ...(typeof licObj.reportUnknown === "boolean" ? { reportUnknown: licObj.reportUnknown } : {}),
+      ...(licObj.packageOverrides && typeof licObj.packageOverrides === "object"
+        ? { packageOverrides: licObj.packageOverrides as Record<string, string> }
+        : {}),
+    };
+  }
+
   const rawMaxInline =
     root.maxInlineComments ??
     gateObj.maxInlineComments ??
     (typeof rawSuggestions === "object" && rawSuggestions !== null
-      ? (rawSuggestions as any).maxInlineComments ?? (rawSuggestions as any).maxComments
+      ? ((rawSuggestions as Record<string, unknown>).maxInlineComments ??
+        (rawSuggestions as Record<string, unknown>).maxComments)
       : undefined);
 
   let maxInlineComments: number | undefined = undefined;
@@ -1057,6 +1133,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(unicodeRulesEnabled !== undefined ? { unicodeRulesEnabled } : {}),
     ...(unicodeAllowPatterns && unicodeAllowPatterns.length > 0 ? { unicodeAllowPatterns } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
+    ...(licenses !== undefined ? { licenses } : {}),
   };
 }
 
@@ -1073,6 +1150,33 @@ export function resolveIacRuleOptions(config?: GateConfig | null): {
   return {
     enabled: config.iacRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
+  };
+}
+
+/**
+ * Resolves options for dependency license compliance rules from repository gate configuration (#2093).
+ */
+export function resolveLicenseRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+  allowList?: string[] | undefined;
+  denyList?: string[] | undefined;
+  reportUnknown?: boolean | undefined;
+  packageLicenseOverrides?: Record<string, string> | undefined;
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [] };
+  }
+  const lic = config.licenses;
+  return {
+    enabled: lic?.enabled !== false,
+    disabledRules: config.disabledRules ?? [],
+    ...(lic?.allowList !== undefined ? { allowList: lic.allowList } : {}),
+    ...(lic?.denyList !== undefined ? { denyList: lic.denyList } : {}),
+    ...(lic?.reportUnknown !== undefined ? { reportUnknown: lic.reportUnknown } : {}),
+    ...(lic?.packageOverrides !== undefined
+      ? { packageLicenseOverrides: lic.packageOverrides }
+      : {}),
   };
 }
 
@@ -1123,9 +1227,32 @@ export function resolveSuggestionsConfig(
         limit?: number;
         maxInlineComments?: number;
         maxComments?: number;
-        suggestions?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-        suggestedChanges?: boolean | { enabled?: boolean; maxSuggestions?: number; limit?: number; maxInlineComments?: number; maxComments?: number };
-        inlineComments?: boolean | { enabled?: boolean; maxComments?: number; limit?: number; maxInlineComments?: number };
+        suggestions?:
+          | boolean
+          | {
+              enabled?: boolean;
+              maxSuggestions?: number;
+              limit?: number;
+              maxInlineComments?: number;
+              maxComments?: number;
+            };
+        suggestedChanges?:
+          | boolean
+          | {
+              enabled?: boolean;
+              maxSuggestions?: number;
+              limit?: number;
+              maxInlineComments?: number;
+              maxComments?: number;
+            };
+        inlineComments?:
+          | boolean
+          | {
+              enabled?: boolean;
+              maxComments?: number;
+              limit?: number;
+              maxInlineComments?: number;
+            };
       }
     | null,
 ): SuggestionsConfig {
@@ -1145,15 +1272,18 @@ export function resolveSuggestionsConfig(
   }
 
   const raw =
-    (config as any).inlineComments ??
+    config.inlineComments ??
     config.suggestions ??
     config.suggestedChanges ??
     config;
 
   const rawMaxInline =
-    (config as any).maxInlineComments ??
+    config.maxInlineComments ??
     (typeof raw === "object" && raw !== null
-      ? (raw as any).maxInlineComments ?? (raw as any).maxComments ?? (raw as any).limit
+      ? ((raw as { maxInlineComments?: number; maxComments?: number; limit?: number })
+          .maxInlineComments ??
+        (raw as { maxInlineComments?: number; maxComments?: number; limit?: number }).maxComments ??
+        (raw as { maxInlineComments?: number; maxComments?: number; limit?: number }).limit)
       : undefined);
 
   const maxInlineComments =

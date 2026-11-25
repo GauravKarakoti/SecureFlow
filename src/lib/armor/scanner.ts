@@ -21,6 +21,7 @@ import { runDeterministicPrecheck, mergePrecheckWithLlmFindings } from "./preche
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { runLicenseSecurityRules } from "@/lib/rules/license-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
 import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
 import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
@@ -476,6 +477,8 @@ export class ArmorIQScanner {
     const workflowFindings = runWorkflowSecurityRules(files, { repositoryId });
     // Deterministic infrastructure-as-code rules for Dockerfile, Kubernetes, Terraform (#2004).
     const iacFindings = runIacSecurityRules(files, { repositoryId });
+    // Deterministic license compliance rules for dependencies (#2093).
+    const licenseFindings = runLicenseSecurityRules(files, { repositoryId });
     // Deterministic pattern security rules for dangerous APIs (#2088).
     const patternFindings = runPatternSecurityRules(files, { repositoryId });
     // Deterministic hidden Unicode / Trojan Source rules (#2089).
@@ -491,6 +494,7 @@ export class ArmorIQScanner {
       ...dependencyFindings,
       ...workflowFindings,
       ...iacFindings,
+      ...licenseFindings,
       ...patternFindings,
       ...unicodeFindings,
       ...obfuscationFindings,
@@ -1021,6 +1025,12 @@ export {
   isWorkflowFile,
 } from "@/lib/rules/workflow-rules";
 export { runIacSecurityRules, scanIacFile, isIacFile, IAC_RULE_IDS } from "@/lib/rules/iac-rules";
+export {
+  runLicenseSecurityRules,
+  scanFileWithLicenseRules,
+  LICENSE_RULE_IDS,
+  type LicenseRuleOptions,
+} from "@/lib/rules/license-rules";
 export {
   runPatternSecurityRules,
   scanFileWithPatternRules,

@@ -36,6 +36,7 @@ import { runDeterministicPrecheck } from "@/lib/armor/precheck";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
+import { runLicenseSecurityRules } from "@/lib/rules/license-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
 import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
 import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
@@ -45,6 +46,7 @@ import {
   resolveIacRuleOptions,
   resolvePatternRuleOptions,
   resolveUnicodeRuleOptions,
+  resolveLicenseRuleOptions
 } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
@@ -599,6 +601,37 @@ export async function processScanJob(
     }
   }
 
+  // Ensure deterministic License compliance rules are present (#2093)
+  const licenseOptions = resolveLicenseRuleOptions(repositoryGateConfig);
+  const licenseRuleFindings = runLicenseSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: licenseOptions.enabled,
+    disabledRules: licenseOptions.disabledRules,
+    allowList: licenseOptions.allowList,
+    denyList: licenseOptions.denyList,
+    reportUnknown: licenseOptions.reportUnknown,
+    packageLicenseOverrides: licenseOptions.packageLicenseOverrides,
+  });
+  for (const lic of licenseRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === lic.fileLocation && f.lineStart === lic.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === lic.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === lic.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        lic.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = lic;
+      }
+    } else {
+      allFindings.push(lic);
+    }
+  }
+  
   // Ensure deterministic dangerous pattern security rules are present (#2088)
   const patternOptions = resolvePatternRuleOptions(repositoryGateConfig);
   const patternRuleFindings = runPatternSecurityRules(fileChanges, {
