@@ -260,6 +260,8 @@ describe("parseTargetDirectoryArg (#1933)", () => {
     expect(parseTargetDirectoryArg(argv("."))).toBe(".");
     expect(parseTargetDirectoryArg(argv("packages/core"))).toBe("packages/core");
     expect(parseTargetDirectoryArg(argv("scan", "src"))).toBe("src");
+    expect(parseTargetDirectoryArg(argv("scan"))).toBe(".");
+    expect(parseTargetDirectoryArg(argv("scan", "--format", "sarif", "--output", "results.sarif"))).toBe(".");
   });
 
   it("returns undefined for known subcommands", () => {

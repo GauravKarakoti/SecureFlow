@@ -358,7 +358,7 @@ export function parseTargetDirectoryArg(argv: readonly string[]): string | undef
       if (next && !next.startsWith("-")) {
         return next;
       }
-      return undefined;
+      return ".";
     }
     return arg;
   }

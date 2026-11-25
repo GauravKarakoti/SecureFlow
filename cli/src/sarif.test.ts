@@ -800,4 +800,90 @@ describe("SARIF Export Functionality for SecureFlow CLI (#728)", () => {
       expect(validation.errors.some((e: string) => e.includes("description.text"))).toBe(true);
     });
   });
+
+  describe("CLI Scan --format sarif and --output options acceptance criteria", () => {
+    it("maps finding severities to SARIF levels (critical/high -> error, medium -> warning, low -> note)", () => {
+      expect(severityToSarifLevel("CRITICAL")).toBe("error");
+      expect(severityToSarifLevel("HIGH")).toBe("error");
+      expect(severityToSarifLevel("MEDIUM")).toBe("warning");
+      expect(severityToSarifLevel("LOW")).toBe("note");
+      expect(severityToSarifLevel("INFO")).toBe("note");
+      expect(severityToSarifLevel(undefined)).toBe("note");
+    });
+
+    it("maps each finding to a SARIF result with ruleId, level, message, file and line range", () => {
+      const findings: FileScanResult[] = [
+        {
+          path: "src/auth/jwt.ts",
+          violations: [
+            {
+              line: 42,
+              column: 5,
+              text: "console.log(jwt_secret)",
+              reason: "JWT secret token",
+              ruleId: "console-secret-logging",
+              ruleName: "ConsoleSecretLogging",
+              severity: "critical",
+              message: "Avoid logging secrets to the console",
+            },
+          ],
+        },
+      ];
+
+      const report = generateSarifReport(findings);
+      expect(report.version).toBe("2.1.0");
+      expect(report.$schema).toContain("sarif-2.1.0.json");
+
+      const run = report.runs[0];
+      expect(run.results).toHaveLength(1);
+
+      const result = run.results[0];
+      expect(result.ruleId).toBe("SECUREFLOW-100");
+      expect(result.level).toBe("error");
+      expect(result.message.text).toContain("JWT secret token");
+
+      const loc = result.locations?.[0]?.physicalLocation;
+      expect(loc?.artifactLocation.uri).toBe("src/auth/jwt.ts");
+      expect(loc?.region.startLine).toBe(42);
+
+      const validation = validateSarifDocument(report);
+      expect(validation.valid).toBe(true);
+    });
+
+    it("produces valid SARIF 2.1.0 output that can be written to file without affecting existing formats", () => {
+      const scanResults: FileScanResult[] = [
+        {
+          path: "config/api.ts",
+          violations: [
+            {
+              line: 10,
+              text: "const apiKey = 'sk_live_12345';",
+              reason: "API key credential",
+              ruleId: "api-key-leak",
+              severity: "high",
+            },
+          ],
+        },
+      ];
+
+      // Formats as valid SARIF JSON
+      const sarifOutput = formatScanResults(scanResults, "sarif");
+      const parsedSarif = JSON.parse(sarifOutput);
+      expect(parsedSarif.version).toBe("2.1.0");
+      expect(validateSarifDocument(parsedSarif).valid).toBe(true);
+
+      // Existing output formats remain unaffected
+      const textOutput = formatScanResults(scanResults, "text");
+      expect(textOutput).toContain("Violation detected in config/api.ts:10");
+
+      const jsonOutput = formatScanResults(scanResults, "json");
+      expect(Array.isArray(JSON.parse(jsonOutput))).toBe(true);
+
+      const csvOutput = formatScanResults(scanResults, "csv");
+      expect(csvOutput).toContain("File,Line,Violation,Reason");
+
+      const htmlOutput = formatScanResults(scanResults, "html");
+      expect(htmlOutput).toContain("<!DOCTYPE html>");
+    });
+  });
 });
