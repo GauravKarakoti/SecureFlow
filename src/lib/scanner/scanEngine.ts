@@ -38,6 +38,9 @@ import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
 import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
+import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
+import { runOutboundSecurityRules } from "@/lib/rules/outbound-rules";
+import { runSensitiveFileRules } from "@/lib/rules/sensitive-file-rules";
 import {
   resolveIacRuleOptions,
   resolvePatternRuleOptions,
@@ -650,6 +653,60 @@ export async function processScanJob(
       }
     } else {
       allFindings.push(uni);
+    }
+  }
+
+  // Ensure obfuscation detection rules are present (#2090)
+  const obfuscationFindings = runObfuscationSecurityRules(fileChanges, { repositoryId });
+  for (const obf of obfuscationFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === obf.fileLocation && f.lineStart === obf.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === obf.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === obf.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => obf.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = obf;
+    } else {
+      allFindings.push(obf);
+    }
+  }
+
+  // Ensure outbound-destination detection rules are present (#2091)
+  const outboundFindings = runOutboundSecurityRules(fileChanges, { repositoryId });
+  for (const out of outboundFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === out.fileLocation && f.lineStart === out.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === out.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === out.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => out.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = out;
+    } else {
+      allFindings.push(out);
+    }
+  }
+
+  // Ensure sensitive filename detection rules are present (#2092)
+  const sensitiveFileFindings = runSensitiveFileRules(fileChanges, { repositoryId });
+  for (const sf of sensitiveFileFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === sf.fileLocation && f.lineStart === sf.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === sf.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === sf.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => sf.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = sf;
+    } else {
+      allFindings.push(sf);
     }
   }
 

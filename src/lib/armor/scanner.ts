@@ -23,6 +23,9 @@ import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
 import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
+import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
+import { runOutboundSecurityRules } from "@/lib/rules/outbound-rules";
+import { runSensitiveFileRules } from "@/lib/rules/sensitive-file-rules";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import { type ConfidenceLevel, normalizeConfidence, DEFAULT_CONFIDENCE } from "@/lib/confidence";
 import {
@@ -477,6 +480,12 @@ export class ArmorIQScanner {
     const patternFindings = runPatternSecurityRules(files, { repositoryId });
     // Deterministic hidden Unicode / Trojan Source rules (#2089).
     const unicodeFindings = runUnicodeSecurityRules(files, { repositoryId });
+    // Deterministic obfuscation detection rules (#2090).
+    const obfuscationFindings = runObfuscationSecurityRules(files, { repositoryId });
+    // Deterministic outbound-destination rules (#2091).
+    const outboundFindings = runOutboundSecurityRules(files, { repositoryId });
+    // Deterministic sensitive filename rules (#2092).
+    const sensitiveFileFindings = runSensitiveFileRules(files, { repositoryId });
     const allDeterministicFindings = [
       ...deterministicFindings,
       ...dependencyFindings,
@@ -484,6 +493,9 @@ export class ArmorIQScanner {
       ...iacFindings,
       ...patternFindings,
       ...unicodeFindings,
+      ...obfuscationFindings,
+      ...outboundFindings,
+      ...sensitiveFileFindings,
     ];
 
     const deterministicFilesWithSecrets = new Set(deterministicFindings.map((f) => f.fileLocation));
@@ -1025,4 +1037,31 @@ export {
   HOMOGLYPH_MAP,
   isLegitimatelyNonLatinFile,
 } from "@/lib/rules/unicode-rules";
+export {
+  runObfuscationSecurityRules,
+  scanFileWithObfuscationRules,
+  checkLineForObfuscation,
+  OBFUSCATION_RULE_IDS,
+  MIN_BLOB_LENGTH,
+  LOCKFILE_NAMES,
+  isLockfile,
+} from "@/lib/rules/obfuscation-rules";
+export {
+  runOutboundSecurityRules,
+  scanFileWithOutboundRules,
+  checkLineForOutboundDestinations,
+  OUTBOUND_RULE_IDS,
+  URL_SHORTENER_HOSTS,
+  PASTE_SITE_HOSTS,
+} from "@/lib/rules/outbound-rules";
+export {
+  runSensitiveFileRules,
+  checkFileForSensitiveName,
+  isSensitiveFilename,
+  isExampleFile,
+  SENSITIVE_FILE_RULE_IDS,
+  SENSITIVE_EXTENSIONS,
+  DATABASE_DUMP_EXTENSIONS,
+  SENSITIVE_EXACT_NAMES,
+} from "@/lib/rules/sensitive-file-rules";
 export const scanner = new ArmorIQScanner();
