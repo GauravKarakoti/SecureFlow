@@ -73,12 +73,176 @@ export async function evaluateForInjection(
   return { flagged: true, confirmedByLLM };
 }
 
-function sanitizeForPrompt(input: string): string {
-  return input
+export const STRIPPED_CHARACTERS =
+  /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+/** Keeps tab/newline/CR for source code formatting while stripping stealth/control chars. */
+const STRIPPED_INVISIBLE_CONTROL_CHARS =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+export const DELIMITER_MARKERS: RegExp[] = [
+  /===\s*(begin|end)/i,
+  /---\s*(begin|end)/i,
+  /<\|.*?\|>/,
+  /\[(?:\/)?(?:inst|system|assistant|user)\]/i,
+  /<<\/?SYS>>/i,
+  /<\/?(?:system_prompt|security_override|system|instruction|prompt)>/i,
+  /```/,
+];
+
+export function deobfuscateSpacing(text: string): string {
+  return text.replace(/(?:[A-Za-z0-9][^A-Za-z0-9]){3,}[A-Za-z0-9]/g, (run) =>
+    run.replace(/[^A-Za-z0-9]/g, ""),
+  );
+}
+
+export function extractBase64Candidates(text: string): string[] {
+  const matches = text.match(/[A-Za-z0-9+/\-_](?:[A-Za-z0-9+/\-_\s]{30,})[A-Za-z0-9+/\-_]={0,2}/g);
+  if (!matches) return [];
+
+  const candidates = matches.map((m) => m.replace(/\s+/g, "")).filter((m) => m.length >= 24);
+
+  return [...new Set(candidates)].sort((a, b) => b.length - a.length);
+}
+
+export function decodeBase64Payload(candidate: string): string | null {
+  const normalized = candidate.replace(/-/g, "+").replace(/_/g, "/");
+  try {
+    const decoded = Buffer.from(normalized, "base64").toString("utf-8");
+    if (!decoded) return null;
+
+    const reencoded = Buffer.from(decoded, "utf-8").toString("base64").replace(/=+$/, "");
+    if (reencoded !== normalized.replace(/=+$/, "")) return null;
+
+    const printable = decoded.replace(/[^\x20-\x7E]/g, "");
+    if (printable.length < decoded.length * 0.8) return null;
+
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+export function looksLikeMultiTurnJailbreak(text: string): boolean {
+  const roleTurns = text.match(/(^|\n)\s*(system|assistant|user|human|ai)\s*[:>]/gi);
+  if (!roleTurns) return false;
+
+  const distinctRoles = new Set(roleTurns.map((t) => t.replace(/[^a-z]/gi, "").toLowerCase()));
+  return distinctRoles.size >= 2 || roleTurns.length >= 3;
+}
+
+const STRIPPED_INJECTION_PATTERNS: RegExp[] = [
+  /ignore(all)?(previous|prior|above)instructions/i,
+  /disregard(all)?(previous|prior|above)?instructions/i,
+  /forget(everything|all)/i,
+  /newinstructions?/i,
+  /youarenow/i,
+  /revealthe(system)?prompt/i,
+  /systemprompt/i,
+];
+
+export function looksLikeObfuscatedInjection(text: string): boolean {
+  const stripped = text.replace(/[^A-Za-z0-9]/g, "");
+  return STRIPPED_INJECTION_PATTERNS.some((pattern) => pattern.test(stripped));
+}
+
+const DECODED_BASE64_INJECTION_KEYWORDS =
+  /bypass|reveal|exfiltrat|vault|encryption key|private key|credential|system\s+(?:override|reset)|approve\s+(?:all|this|everything)|return\s+approved/i;
+
+export function sanitizeForPrompt(input: string): string {
+  if (typeof input !== "string") return "";
+
+  let sanitized = input.replace(STRIPPED_INVISIBLE_CONTROL_CHARS, "");
+
+  // Neutralize malicious base64/base64url blocks before truncation/formatting.
+  const maliciousCandidates = extractBase64Candidates(sanitized).filter((candidate) => {
+    const decoded = decodeBase64Payload(candidate);
+    if (!decoded) return false;
+    return (
+      detectPromptInjection(decoded) ||
+      detectPromptInjection(deobfuscateSpacing(decoded)) ||
+      DECODED_BASE64_INJECTION_KEYWORDS.test(decoded)
+    );
+  });
+
+  if (maliciousCandidates.length > 0) {
+    const maliciousSet = new Set(maliciousCandidates);
+    sanitized = sanitized.replace(
+      /[A-Za-z0-9+/\-_](?:[A-Za-z0-9+/\-_\s]{30,})[A-Za-z0-9+/\-_]={0,2}/g,
+      (match) => (maliciousSet.has(match.replace(/\s+/g, "")) ? "[REDACTED_ENCODED_PAYLOAD]" : match),
+    );
+  }
+
+  // Neutralize structural delimiter escapes and model control tokens.
+  sanitized = sanitized
     .replace(/```/g, "~~~")
-    .replace(/ignore previous/gi, "")
-    .replace(/disregard (all )?instructions/gi, "")
-    .slice(0, 2000);
+    .replace(/(?:={3,}|-{3,})\s*(?:begin|end)\b[^\n]*/gi, "[REDACTED_DELIMITER]")
+    .replace(/(?:={10,}|-{10,})/g, "[REDACTED_DELIMITER]")
+    .replace(/\bEND OF CONTEXT\b/gi, "[REDACTED_DELIMITER]")
+    .replace(/<\|.*?\|>/g, "[REDACTED_TOKEN]")
+    .replace(/\[(?:\/)?(?:inst|system|assistant|user)\]|<<\/?SYS>>/gi, "[REDACTED_TOKEN]")
+    .replace(/<\/?(?:system_prompt|security_override|system|instruction|prompt)>/gi, "[REDACTED_TOKEN]")
+    .replace(/\[(?:SYSTEM_UPDATE[^\]]*|CONTEXT_[^\]]*|NEW INSTRUCTION)\]/gi, "[REDACTED_MARKER]")
+    .replace(/###\s*(?:system|instruction|prompt)\b/gi, "[REDACTED_MARKER]");
+
+  // Neutralize spaced/obfuscated injection spans on individual lines.
+  sanitized = sanitized
+    .split("\n")
+    .map((line) => {
+      if (looksLikeObfuscatedInjection(line)) {
+        return "[REDACTED_DIRECTIVE]";
+      }
+      return line.replace(/(?:[A-Za-z0-9][^A-Za-z0-9\r\n]){3,}[A-Za-z0-9]/g, (run) => {
+        const welded = run.replace(/[^A-Za-z0-9]/g, "");
+        return STRIPPED_INJECTION_PATTERNS.some((p) => p.test(welded)) ||
+          detectPromptInjection(welded)
+          ? "[REDACTED_DIRECTIVE]"
+          : run;
+      });
+    })
+    .join("\n");
+
+  // Neutralize explicit directive override phrases (English + multilingual + role/cipher/exfiltration).
+  sanitized = sanitized
+    .replace(
+      /(?:ignore|disregard)\s+(?:all\s+)?(?:(?:previous|prior|above)\s+)?(?:instructions?|constraints?|warnings?|rules?|directives?|policies?)/gi,
+      "[REDACTED_DIRECTIVE]",
+    )
+    .replace(/forget\s+(?:everything|all(?:\s+instructions?)?)/gi, "[REDACTED_DIRECTIVE]")
+    .replace(/system prompt/gi, "[REDACTED_DIRECTIVE]")
+    .replace(
+      /(?:you are now\b[^\n.]{0,80}|act as (?:a|an)\b[^\n.]{0,80}|respond only with\b[^\n]*|do not (?:flag|report|warn about) this\b[^\n]*)/gi,
+      "[REDACTED_DIRECTIVE]",
+    )
+    .replace(
+      /(?:ignorez\s+(?:toutes\s+)?les\s+instructions(?:\s+précédentes)?|ignora\s+(?:todas\s+)?las\s+instrucciones(?:\s+anteriores)?|ignoriere\s+alle\s+(?:vorherigen\s+)?anweisungen|systemanweisung\s+ignorieren|忽略之前的所有指令|игнорируй\s+все\s+предыдущие\s+инструкции)/gi,
+      "[REDACTED_DIRECTIVE]",
+    )
+    .replace(
+      /\bi[^A-Za-z0-9]{0,4}g[^A-Za-z0-9]{0,4}n[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}e(?:[^A-Za-z0-9]{0,4}a[^A-Za-z0-9]{0,4}l[^A-Za-z0-9]{0,4}l)?(?:[^A-Za-z0-9]{0,4}(?:p[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}e[^A-Za-z0-9]{0,4}v[^A-Za-z0-9]{0,4}i[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}u[^A-Za-z0-9]{0,4}s|p[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}i[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}r|a[^A-Za-z0-9]{0,4}b[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}v[^A-Za-z0-9]{0,4}e))?[^A-Za-z0-9]{0,4}i[^A-Za-z0-9]{0,4}n[^A-Za-z0-9]{0,4}s[^A-Za-z0-9]{0,4}t[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}u[^A-Za-z0-9]{0,4}c[^A-Za-z0-9]{0,4}t[^A-Za-z0-9]{0,4}i[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}n(?:[^A-Za-z0-9]{0,4}s)?\b/gi,
+      "[REDACTED_DIRECTIVE]",
+    )
+    .replace(
+      /\bs[^A-Za-z0-9]{0,4}y[^A-Za-z0-9]{0,4}s[^A-Za-z0-9]{0,4}t[^A-Za-z0-9]{0,4}e[^A-Za-z0-9]{0,4}m[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}v[^A-Za-z0-9]{0,4}e[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}i[^A-Za-z0-9]{0,4}d[^A-Za-z0-9]{0,4}e[^A-Za-z0-9]{0,4}a[^A-Za-z0-9]{0,4}p[^A-Za-z0-9]{0,4}p[^A-Za-z0-9]{0,4}r[^A-Za-z0-9]{0,4}o[^A-Za-z0-9]{0,4}v[^A-Za-z0-9]{0,4}e\b/gi,
+      "[REDACTED_DIRECTIVE]",
+    );
+
+  // Neutralize leetspeak obfuscated directives (e.g. "1gn0r3 4ll pr3v10u5...").
+  sanitized = sanitized
+    .split("\n")
+    .map((line) => {
+      const leet = line.replace(
+        /[01345@$]/g,
+        (ch) => ({ "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "@": "a", $: "s" })[ch] ?? ch,
+      );
+      if (leet !== line && detectPromptInjection(leet)) {
+        return "[REDACTED_DIRECTIVE]";
+      }
+      return line;
+    })
+    .join("\n");
+
+  return sanitized.slice(0, 2000);
 }
 
 /**
@@ -146,7 +310,166 @@ const INJECTION_PATTERNS: RegExp[] = [
 
 export function detectPromptInjection(text: string): boolean {
   if (!text) return false;
-  return INJECTION_PATTERNS.some((pattern) => pattern.test(text));
+  const cleaned = text.replace(STRIPPED_INVISIBLE_CONTROL_CHARS, "");
+  return INJECTION_PATTERNS.some((pattern) => pattern.test(text) || pattern.test(cleaned));
+}
+
+export interface TextSafetyInspection {
+  isSafe: boolean;
+  flaggedReason: string | null;
+}
+
+/**
+ * Unified synchronous multi-layer adversarial prompt-injection detector.
+ * Evaluates raw text across obfuscation, context-switch, multi-turn, base64,
+ * role-reversal, token-padding, multilingual, cipher, exfiltration, social
+ * engineering, leetspeak, delimiter escape, and heuristic pattern layers.
+ */
+export function inspectPromptSafety(payload: string | null | undefined): TextSafetyInspection {
+  if (typeof payload !== "string" || !payload.trim()) {
+    return { isSafe: true, flaggedReason: null };
+  }
+
+  const invisibleStripped = payload.replace(STRIPPED_INVISIBLE_CONTROL_CHARS, "");
+  const collapsed = invisibleStripped.replace(/\s+/g, " ").trim();
+  if (!collapsed && !/\u0000{3,}/.test(payload)) {
+    return { isSafe: true, flaggedReason: null };
+  }
+
+  const deobfuscated = deobfuscateSpacing(invisibleStripped);
+  const deobfuscatedCollapsed = deobfuscateSpacing(collapsed);
+  const leetNormalized = invisibleStripped.replace(
+    /[01345@$]/g,
+    (character) =>
+      ({ "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "@": "a", $: "s" })[character] ??
+      character,
+  );
+  const compactPayload = invisibleStripped.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // 0. Separator-obfuscated injection keywords (`i g n o r e   a l l …`)
+  if (looksLikeObfuscatedInjection(invisibleStripped)) {
+    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
+  }
+
+  // 1. Multi-Stage Recursive / Context Switch Overrides
+  if (
+    /\[SYSTEM_UPDATE/i.test(invisibleStripped) ||
+    /\[CONTEXT_/i.test(invisibleStripped) ||
+    /elevated to Administrator/i.test(invisibleStripped) ||
+    /instructions are completely obsolete/i.test(invisibleStripped)
+  ) {
+    return { isSafe: false, flaggedReason: "context_switch_override" };
+  }
+
+  // 1b. Multi-turn / fake-transcript jailbreak
+  if (looksLikeMultiTurnJailbreak(invisibleStripped)) {
+    return { isSafe: false, flaggedReason: "multi_turn_jailbreak" };
+  }
+
+  // 2. Base64 / Base64url Obfuscation
+  for (const candidate of extractBase64Candidates(invisibleStripped)) {
+    const decoded = decodeBase64Payload(candidate);
+    if (!decoded) continue;
+    if (
+      detectPromptInjection(decoded) ||
+      detectPromptInjection(deobfuscateSpacing(decoded)) ||
+      DECODED_BASE64_INJECTION_KEYWORDS.test(decoded)
+    ) {
+      return { isSafe: false, flaggedReason: "obfuscation_high_entropy_injection" };
+    }
+  }
+
+  // 3. Hyperspace Role-Reversal Simulation
+  if (
+    /DebugKernel/i.test(invisibleStripped) ||
+    /penetration test/i.test(invisibleStripped) ||
+    /no longer an AI/i.test(invisibleStripped) ||
+    /safety subroutines are inactive/i.test(invisibleStripped) ||
+    /operating in safe mode/i.test(invisibleStripped) ||
+    /hypothetical scenario/i.test(invisibleStripped) ||
+    /without (?:ethics|safety guidelines|content policies|restrictions)/i.test(invisibleStripped) ||
+    /acting as ['"][^'"]+['"]/i.test(invisibleStripped)
+  ) {
+    return { isSafe: false, flaggedReason: "role_reversal_simulation_bypass" };
+  }
+
+  // 4. Separator Camouflage & Token Padding Attacks
+  if (
+    /={10,}/.test(invisibleStripped) ||
+    /-{10,}/.test(invisibleStripped) ||
+    /\u0000{3,}/.test(payload) ||
+    /\[NEW INSTRUCTION\]/i.test(invisibleStripped) ||
+    /END OF CONTEXT/i.test(invisibleStripped)
+  ) {
+    return { isSafe: false, flaggedReason: "structural_anomaly_token_padding" };
+  }
+
+  // 5. Multilingual Injection Overrides
+  if (
+    /(?:ignorez\s+(?:toutes\s+)?les\s+instructions|ignora\s+(?:todas\s+)?las\s+instrucciones|ignoriere\s+alle\s+(?:vorherigen\s+)?anweisungen|忽略之前的所有指令|игнорируй\s+все\s+предыдущие\s+инструкции)/i.test(
+      collapsed,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "multilingual_injection_override" };
+  }
+
+  // 6. Logic / Cipher Camouflage
+  if (
+    /(?:let\s+rule\s+[a-z]\s*=|substitution\s+cipher|execute\s+rule\s+[a-z]|let's\s+play\s+a\s+game\s+called\s+opposite\s+day)/i.test(
+      collapsed,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "logic_camouflage_jailbreak" };
+  }
+
+  // 7. System Prompt Exfiltration & Extraction Directives
+  if (
+    /(?:output\s+(?:the\s+)?markdown\s+code\s+block\s+containing\s+your\s+initial\s+system\s+prompt|print\s+everything\s+written\s+before|list\s+all\s+rules\s+you\s+were\s+initialized\s+with)/i.test(
+      collapsed,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "system_prompt_exfiltration" };
+  }
+
+  // 8. Social Engineering & Escalation Directives
+  if (
+    /(?:urgent\s+override\s+from|security\s+auditor\s+drill|skip\s+all\s+security\s+checks\s+for\s+emergency)/i.test(
+      collapsed,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "policy_bypass_social_engineering" };
+  }
+
+  // 9. Structural delimiter markers
+  if (
+    DELIMITER_MARKERS.some(
+      (pattern) => pattern.test(invisibleStripped) || pattern.test(collapsed),
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "contains prompt structure markers" };
+  }
+
+  // 10. Leetspeak obfuscation & system override sequence
+  if (
+    (leetNormalized !== invisibleStripped && detectPromptInjection(leetNormalized)) ||
+    /(?:system|critical)override.{0,40}(?:approve|returnapproved|ignore|bypass|disable)/.test(
+      compactPayload,
+    )
+  ) {
+    return { isSafe: false, flaggedReason: "obfuscated_injection_keyword" };
+  }
+
+  // 11. Heuristic pattern check across raw, collapsed, and de-obfuscated text
+  if (
+    detectPromptInjection(invisibleStripped) ||
+    detectPromptInjection(collapsed) ||
+    (deobfuscated !== invisibleStripped && detectPromptInjection(deobfuscated)) ||
+    (deobfuscatedCollapsed !== collapsed && detectPromptInjection(deobfuscatedCollapsed))
+  ) {
+    return { isSafe: false, flaggedReason: "matched a prompt-injection pattern" };
+  }
+
+  return { isSafe: true, flaggedReason: null };
 }
 
 /**
@@ -288,6 +611,8 @@ export async function withRetry<T>(
 // Exported for the test suite and for reuse by other flows that may want the same detectors.
 export const __internal = {
   detectPromptInjection,
+  inspectPromptSafety,
+  sanitizeForPrompt,
   contradictsSeverity,
   buildPrompt,
   isRateLimitError,
