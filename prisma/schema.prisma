@@ -81,6 +81,12 @@ model User {
   slackWebhookUrl String?
 
   /**
+   * Incoming Slack or Discord webhook URL for real-time critical findings alerts.
+   * Stored securely (encrypted at rest).
+   */
+  chatWebhookUrl String?
+
+  /**
    * Incoming Microsoft Teams webhook URL for real-time alerts on BLOCKED scans.
    * Optional — null disables Teams notifications for this user.
    */

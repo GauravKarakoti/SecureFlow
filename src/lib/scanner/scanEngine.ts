@@ -91,6 +91,7 @@ import {
 } from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
+import { dispatchCriticalChatAlert } from "@/lib/integrations/chat-webhook";
 import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
@@ -566,7 +567,7 @@ export async function processScanJob(
       (f) =>
         (f.fileLocation === iac.fileLocation && f.lineStart === iac.lineStart) ||
         (f.dynamicFingerprint && f.dynamicFingerprint === iac.dynamicFingerprint) ||
-        (f.fingerprint && f.fingerprint === iac.fingerprint),
+        ((f as any).fingerprint && (f as any).fingerprint === (iac as any).fingerprint),
     );
     if (existingIndex >= 0) {
       // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
@@ -858,7 +859,7 @@ export async function processScanJob(
         if (
           suggestionsConfig.enabled &&
           fileChanges.length > 0 &&
-          octokit?.rest?.pulls?.createReview
+          typeof octokit?.rest?.pulls?.createReview === "function"
         ) {
           const commentableLinesByFile = new Map<string, Set<number>>();
           for (const file of fileChanges) {
@@ -896,6 +897,8 @@ export async function processScanJob(
   }
 
   let persistenceError: string | null = null;
+  let dbPrRecord: any = null;
+  let createdScanResult: any = null;
 
   if (persist && repositoryId) {
     try {
@@ -906,6 +909,7 @@ export async function processScanJob(
         repositoryFullName,
         prNumber,
       });
+      dbPrRecord = dbPr;
 
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
@@ -926,7 +930,7 @@ export async function processScanJob(
           }
         : repositoryGateConfig;
 
-      await prisma.scanResult.create({
+      createdScanResult = await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
           headSha,
@@ -948,7 +952,7 @@ export async function processScanJob(
             sum +
             estimateDiffTokens(f.patch, {
               contextLines: effectiveContext,
-              fullContent: f.content,
+              fullContent: (f as any).content,
             }),
           0,
         );
@@ -1025,6 +1029,17 @@ export async function processScanJob(
         repositoryFullName,
         prNumber,
         findings: enrichedFindings,
+      });
+
+      // Dispatch Slack or Discord webhook alert for newly introduced critical findings
+      await dispatchCriticalChatAlert({
+        userId,
+        repositoryId,
+        repositoryFullName,
+        pullRequestId: dbPrRecord?.id,
+        prNumber,
+        findings: enrichedFindings,
+        currentScanResultId: createdScanResult?.id,
       });
     } catch (err) {
       log.error(`[ScanEngine] Slack notification step failed:`, {

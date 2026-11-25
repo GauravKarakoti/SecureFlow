@@ -79,6 +79,7 @@ import { logger, sanitizeLogValue } from "@/lib/logger";
 import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
+import { dispatchCriticalChatAlert } from "@/lib/integrations/chat-webhook";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
 import {
   dispatchOutboundWebhooksForUser,
@@ -856,7 +857,7 @@ export async function runPullRequestScan({
       const zeroReason = getZeroScanReason(pullRequestFilesResult.files);
       const combinedNotice = [coverageNotice].filter(Boolean).join("\n\n") || undefined;
 
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "check_run.update",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);
@@ -1481,7 +1482,7 @@ export async function runPullRequestScan({
       // counting toward the stored score (and the risk-trend average).
       const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "db.write",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);
@@ -1571,6 +1572,17 @@ export async function runPullRequestScan({
             repositoryFullName: repository.full_name,
             prNumber: pullRequest.number,
             findings: enrichedFindings,
+          });
+
+          // Real-time Slack or Discord alert for newly introduced CRITICAL findings
+          await dispatchCriticalChatAlert({
+            userId,
+            repositoryId: repository.id,
+            repositoryFullName: repository.full_name,
+            pullRequestId: pullRequest.id,
+            prNumber: pullRequest.number,
+            findings: enrichedFindings,
+            currentScanResultId: (persistedScanRecord as any)?.id,
           });
 
           if (decision === "BLOCKED") {
@@ -1699,7 +1711,7 @@ export const worker = new Worker<WebhookJobData>(
 
     // Record queue wait span if the job was queued
     if (job.timestamp) {
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "queue.wait",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);

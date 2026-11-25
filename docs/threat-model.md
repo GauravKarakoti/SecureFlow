@@ -314,6 +314,7 @@ SecureFlow implements strict outbound dispatch controls in [src/lib/queue/outbou
    - IPv6 equivalents (`::1`, `fc00::/7`, `fe80::/10`)
 3. **DNS Rebinding Protection via Pinned Transport**: Checking an IP and then letting `fetch()` connect to the hostname creates a time-of-check to time-of-use (TOCTOU) vulnerability where a zero-TTL DNS record switches to an internal IP between checks. SecureFlow's `pinnedTransport` bypasses secondary DNS resolution by binding the outgoing TCP socket directly to the pre-verified IP address while retaining TLS SNI and hostname certificate validation.
 4. **Resource Ceilings**: Outbound HTTP requests have strict deadlines (default 10s, hard ceiling 60s) and response body consumption caps (maximum 64 KB), preventing slowloris and resource exhaustion attacks.
+5. **Real-Time Chat Webhook Isolation (Slack & Discord)**: Handled via [src/lib/integrations/chat-webhook.ts](../src/lib/integrations/chat-webhook.ts). Enforces strict hostname pinning (`hooks.slack.com`, `discord.com`), path structural validation, rejects embedded credentials and custom ports, stores webhook URLs encrypted at rest with AES-256-GCM (`enc:v1:aes-256-gcm:`), masks tokens in UI and logging, strictly excludes code snippets and secrets from payload bodies, and executes non-throwing dispatches with backoff so webhook failures never crash scans.
 
 ---
 
