@@ -4,6 +4,10 @@ import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import {
+  globalAuditStreamManager,
+  type SinkHealthStatus,
+} from "@/lib/audit/audit-sink";
 import { createLogger } from "@/lib/logger";
 import {
   MAX_PAGE_SIZE,
@@ -499,6 +503,7 @@ export interface AuditLogMetrics {
   total: number;
   last24h: number;
   topActions: { action: string; count: number }[];
+  sinkHealth?: SinkHealthStatus;
 }
 
 export async function getAuditLogMetrics(): Promise<AuditLogMetrics> {
@@ -521,7 +526,16 @@ export async function getAuditLogMetrics(): Promise<AuditLogMetrics> {
     total,
     last24h,
     topActions: grouped.map((g: any) => ({ action: g.action, count: g._count })),
+    sinkHealth: globalAuditStreamManager.getHealth(),
   };
+}
+
+/**
+ * Returns sink health for admin dashboard diagnostics (#2097).
+ */
+export async function getAuditSinkHealth(): Promise<SinkHealthStatus> {
+  await requireAdmin();
+  return globalAuditStreamManager.getHealth();
 }
 
 /**
