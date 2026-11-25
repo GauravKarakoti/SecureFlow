@@ -985,6 +985,7 @@ export async function runPullRequestScan({
       userId,
       correlationId,
       deliveryId: deliveryId ?? null,
+      skippedFiles: pullRequestFilesResult.unscannedFiles,
     };
     // Scanning only. This function posts its own check run and pull request
     // comment below, writes its own AuditLog row and creates its own
@@ -1171,12 +1172,21 @@ export async function runPullRequestScan({
         ? getZeroScanReason(pullRequestFilesResult.files, scanJobData.customIgnores)
         : undefined);
 
-    const workerSkippedFiles = [
+    const seenSkipped = new Set<string>();
+    const workerSkippedFiles: Array<{ filename: string; reason: string }> = [];
+    for (const item of [
+      ...((pullRequestFilesResult.unscannedFiles as
+        Array<{ filename: string; reason: string }> | undefined) || []),
       ...((scanResult.skippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
         []),
       ...((scanner.lastSkippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
         []),
-    ];
+    ]) {
+      if (item && item.filename && !seenSkipped.has(item.filename)) {
+        seenSkipped.add(item.filename);
+        workerSkippedFiles.push(item);
+      }
+    }
     const isPartialScan =
       Boolean(coverageNotice) ||
       Boolean((scanResult as any).isPartial) ||
