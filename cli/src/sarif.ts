@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import type { Readable } from "node:stream";
 import type { FileScanResult, Violation } from "./scanner.js";
 import type { AiFinding } from "./lib/api-client.js";
+import { maskSecrets } from "./secret-masker.js";
 
 export interface SarifArtifactLocation {
   uri: string;
@@ -659,14 +660,16 @@ export function generateSarifReport(
         rulesMap.set(reasonKey, ruleInfo);
       }
 
+      // Compute deterministic fingerprint on raw snippet before redaction (#2080)
       const fingerprint = computeSnippetFingerprint(violation.text);
+      const redactedText = maskSecrets(violation.text);
       const fixKey = `${normalizedPath}:${violation.line}`;
       const replacement = options?.remediations?.[fixKey] || options?.remediations?.[fingerprint];
       const fix = buildSarifFix(normalizedPath, violation.line, replacement);
 
       const messageText = isCustom
-        ? `[SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] ${violation.reason}: "${violation.text}"`
-        : `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`;
+        ? `[SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] ${violation.reason}: "${redactedText}"`
+        : `[SecureFlow] ${violation.reason} passed to console call: "${redactedText}"`;
 
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
@@ -686,7 +689,7 @@ export function generateSarifReport(
               region: {
                 startLine: Math.max(1, violation.line),
                 snippet: {
-                  text: violation.text,
+                  text: redactedText,
                 },
               },
             },
@@ -723,15 +726,17 @@ export function generateSarifReport(
       const ruleKey = `AI-${aiFinding.type}`;
       let ruleInfo = rulesMap.get(ruleKey);
 
+      const redactedDescription = maskSecrets(aiFinding.description);
+
       if (!ruleInfo) {
         const descriptor: SarifReportingDescriptor = {
           id: `SECUREFLOW-AI-${rulesMap.size + 100}`,
           name: aiFinding.type.replace(/[^A-Za-z0-9]/g, ""),
           shortDescription: {
-            text: aiFinding.description,
+            text: redactedDescription,
           },
           fullDescription: {
-            text: `AI-detected vulnerability of type ${aiFinding.type}: ${aiFinding.description}`,
+            text: `AI-detected vulnerability of type ${aiFinding.type}: ${redactedDescription}`,
           },
           defaultConfiguration: {
             level: severityToSarifLevel(aiFinding.severity),
@@ -745,15 +750,16 @@ export function generateSarifReport(
 
       const normUri = aiFinding.fileLocation.replace(/\\/g, "/");
       const line = aiFinding.lineStart && aiFinding.lineStart > 0 ? aiFinding.lineStart : 1;
-      const snippet = aiFinding.codeSnippet || aiFinding.description;
-      const fingerprint = aiFinding.dynamicFingerprint || computeSnippetFingerprint(snippet);
+      const rawSnippet = aiFinding.codeSnippet || aiFinding.description;
+      const fingerprint = aiFinding.dynamicFingerprint || computeSnippetFingerprint(rawSnippet);
+      const redactedSnippet = maskSecrets(rawSnippet);
 
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
         level: severityToSarifLevel(aiFinding.severity),
         message: {
-          text: `[SecureFlow AI] ${aiFinding.description}`,
+          text: `[SecureFlow AI] ${redactedDescription}`,
         },
         locations: [
           {
@@ -767,7 +773,7 @@ export function generateSarifReport(
                   ? { endLine: aiFinding.lineEnd }
                   : {}),
                 snippet: {
-                  text: snippet,
+                  text: redactedSnippet,
                 },
               },
             },
