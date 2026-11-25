@@ -27,6 +27,10 @@ export const IAC_RULE_IDS = {
   TF_OPEN_INGRESS: "IAC_TF_OPEN_INGRESS",
   TF_PUBLIC_S3_ACL: "IAC_TF_PUBLIC_S3_ACL",
   TF_UNENCRYPTED_STORAGE: "IAC_TF_UNENCRYPTED_STORAGE",
+  DOCKER_SOCKET_MOUNT: "IAC_DOCKER_SOCKET_MOUNT",
+  CONTAINER_HOST_NAMESPACE: "IAC_CONTAINER_HOST_NAMESPACE",
+  K8S_PRIVILEGE_ESCALATION_OR_CAP: "IAC_K8S_PRIVILEGE_ESCALATION_OR_CAP",
+  TF_IAM_WILDCARD_POLICY: "IAC_TF_IAM_WILDCARD_POLICY",
 } as const;
 
 export type IacRuleId = (typeof IAC_RULE_IDS)[keyof typeof IAC_RULE_IDS];
@@ -109,6 +113,45 @@ export const IAC_RULES: Record<IacRuleId, IacRuleDefinition> = {
       "Storage resource explicitly disables server-side encryption at rest, exposing stored data to unauthorized disk extraction.",
     oneLineFix:
       "Set encrypted = true (or storage_encrypted = true) and configure a KMS encryption key.",
+  },
+  [IAC_RULE_IDS.DOCKER_SOCKET_MOUNT]: {
+    id: IAC_RULE_IDS.DOCKER_SOCKET_MOUNT,
+    name: "Docker socket mount exposure",
+    severity: "CRITICAL",
+    type: "Misconfig",
+    description:
+      "Mounting /var/run/docker.sock grants the container full control over the host Docker daemon, enabling trivial container escape and root host compromise.",
+    oneLineFix:
+      "Remove the /var/run/docker.sock mount or use a rootless/scoped Docker socket proxy.",
+  },
+  [IAC_RULE_IDS.CONTAINER_HOST_NAMESPACE]: {
+    id: IAC_RULE_IDS.CONTAINER_HOST_NAMESPACE,
+    name: "Container host namespace sharing",
+    severity: "HIGH",
+    type: "Misconfig",
+    description:
+      "Sharing host network, PID, or IPC namespaces weakens container isolation and exposes host processes and loopback services.",
+    oneLineFix:
+      "Disable hostNetwork, hostPID, hostIPC, and host network_mode/pid settings unless strictly required.",
+  },
+  [IAC_RULE_IDS.K8S_PRIVILEGE_ESCALATION_OR_CAP]: {
+    id: IAC_RULE_IDS.K8S_PRIVILEGE_ESCALATION_OR_CAP,
+    name: "Kubernetes privilege escalation or dangerous Linux capability",
+    severity: "HIGH",
+    type: "Misconfig",
+    description:
+      "Container enables allowPrivilegeEscalation or adds dangerous Linux capabilities (SYS_ADMIN, NET_ADMIN, ALL) that permit kernel/host escalation.",
+    oneLineFix: "Set allowPrivilegeEscalation: false and drop ALL capabilities (`drop: [ALL]`).",
+  },
+  [IAC_RULE_IDS.TF_IAM_WILDCARD_POLICY]: {
+    id: IAC_RULE_IDS.TF_IAM_WILDCARD_POLICY,
+    name: "Terraform IAM wildcard privilege",
+    severity: "HIGH",
+    type: "Misconfig",
+    description:
+      "IAM policy statement grants wildcard Action ('*') privileges, violating least-privilege access control.",
+    oneLineFix:
+      "Scope IAM actions to specific required service operations instead of wildcard '*'.",
   },
 };
 
@@ -205,11 +248,24 @@ export function isTerraformFile(filename: string): boolean {
 }
 
 /**
- * Checks if a file is an IaC target file (Dockerfile, Kubernetes manifest, or Terraform file).
+ * Checks if a filename represents a Docker Compose configuration file.
+ */
+export function isDockerComposeFile(filename: string): boolean {
+  if (!filename) return false;
+  const normalized = filename.replace(/\\/g, "/").toLowerCase();
+  const basename = normalized.split("/").pop() || "";
+  return /^(?:docker-)?compose(?:[.-][a-z0-9_-]+)?\.ya?ml$/.test(basename);
+}
+
+/**
+ * Checks if a file is an IaC target file (Dockerfile, Docker Compose, Kubernetes manifest, or Terraform file).
  */
 export function isIacFile(filename: string, content?: string): boolean {
   return (
-    isDockerfile(filename) || isKubernetesManifest(filename, content) || isTerraformFile(filename)
+    isDockerfile(filename) ||
+    isDockerComposeFile(filename) ||
+    isKubernetesManifest(filename, content) ||
+    isTerraformFile(filename)
   );
 }
 
@@ -607,6 +663,182 @@ export function checkTerraformUnencryptedStorage(
 }
 
 /**
+ * Rule 8: Detects /var/run/docker.sock mounts in Docker Compose and Kubernetes manifests.
+ */
+export function checkDockerSocketMount(lines: IacLine[], filename: string): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const rule = IAC_RULES[IAC_RULE_IDS.DOCKER_SOCKET_MOUNT];
+
+  for (const line of lines) {
+    const trimmed = line.content.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (/\/var\/run\/docker\.sock\b/i.test(trimmed)) {
+      findings.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        type: rule.type,
+        fileLocation: filename,
+        lineStart: line.number,
+        lineEnd: line.number,
+        codeSnippet: trimmed,
+        description: rule.description,
+        oneLineFix: rule.oneLineFix,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Rule 9: Detects host network, PID, or IPC namespace sharing in Compose and Kubernetes.
+ */
+export function checkContainerHostNamespace(lines: IacLine[], filename: string): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const rule = IAC_RULES[IAC_RULE_IDS.CONTAINER_HOST_NAMESPACE];
+
+  for (const line of lines) {
+    const trimmed = line.content.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (
+      /^(?:-\s+)?(?:network_mode|pid|ipc)\s*:\s*["']?host["']?\b/i.test(trimmed) ||
+      /^(?:-\s+)?(?:hostNetwork|hostPID|hostIPC)\s*:\s*true\b/i.test(trimmed)
+    ) {
+      findings.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        type: rule.type,
+        fileLocation: filename,
+        lineStart: line.number,
+        lineEnd: line.number,
+        codeSnippet: trimmed,
+        description: rule.description,
+        oneLineFix: rule.oneLineFix,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Rule 10: Detects allowPrivilegeEscalation: true and dangerous Linux capabilities in Kubernetes.
+ */
+export function checkK8sPrivilegeEscalationOrCapabilities(
+  lines: IacLine[],
+  filename: string,
+): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const rule = IAC_RULES[IAC_RULE_IDS.K8S_PRIVILEGE_ESCALATION_OR_CAP];
+  let inCapabilitiesAdd = false;
+
+  for (const line of lines) {
+    const trimmed = line.content.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (/^add\s*:/i.test(trimmed)) {
+      inCapabilitiesAdd = true;
+      if (/\[\s*[^\]]*\b(?:CAP_)?(?:SYS_ADMIN|NET_ADMIN|ALL)\b/i.test(trimmed)) {
+        findings.push({
+          ruleId: rule.id,
+          ruleName: rule.name,
+          severity: rule.severity,
+          type: rule.type,
+          fileLocation: filename,
+          lineStart: line.number,
+          lineEnd: line.number,
+          codeSnippet: trimmed,
+          description: rule.description,
+          oneLineFix: rule.oneLineFix,
+        });
+        inCapabilitiesAdd = false;
+      }
+      continue;
+    }
+
+    if (/^(?:-\s+)?allowPrivilegeEscalation\s*:\s*true\b/i.test(trimmed)) {
+      inCapabilitiesAdd = false;
+      findings.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        type: rule.type,
+        fileLocation: filename,
+        lineStart: line.number,
+        lineEnd: line.number,
+        codeSnippet: trimmed,
+        description: rule.description,
+        oneLineFix: rule.oneLineFix,
+      });
+      continue;
+    }
+
+    if (inCapabilitiesAdd) {
+      if (trimmed.startsWith("-")) {
+        if (/^-\s*["']?(?:CAP_)?(?:SYS_ADMIN|NET_ADMIN|ALL)["']?\b/i.test(trimmed)) {
+          findings.push({
+            ruleId: rule.id,
+            ruleName: rule.name,
+            severity: rule.severity,
+            type: rule.type,
+            fileLocation: filename,
+            lineStart: line.number,
+            lineEnd: line.number,
+            codeSnippet: trimmed,
+            description: rule.description,
+            oneLineFix: rule.oneLineFix,
+          });
+        }
+      } else {
+        inCapabilitiesAdd = false;
+      }
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Rule 11: Detects Terraform IAM policy statements with wildcard Action ("*").
+ */
+export function checkTerraformIamWildcardPolicy(
+  lines: IacLine[],
+  filename: string,
+): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const rule = IAC_RULES[IAC_RULE_IDS.TF_IAM_WILDCARD_POLICY];
+
+  for (const line of lines) {
+    const trimmed = line.content.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+
+    if (
+      /(?:^|\b)(?:Action|actions)\s*=\s*(?:"\*"|\[\s*"\*"\s*\])/i.test(trimmed) ||
+      /"Action"\s*:\s*(?:"\*"|\[\s*"\*"\s*\])/i.test(trimmed)
+    ) {
+      findings.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        type: rule.type,
+        fileLocation: filename,
+        lineStart: line.number,
+        lineEnd: line.number,
+        codeSnippet: trimmed,
+        description: rule.description,
+        oneLineFix: rule.oneLineFix,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
  * Scans a single IaC file and returns normalized ScanFinding items.
  */
 export function scanIacFile(
@@ -629,6 +861,7 @@ export function scanIacFile(
 
   const rawFindings: IacRuleFinding[] = [];
   const isDocker = isDockerfile(filename);
+  const isCompose = isDockerComposeFile(filename);
   const isK8s = isKubernetesManifest(filename, patchOrContent);
   const isTf = isTerraformFile(filename);
 
@@ -637,9 +870,19 @@ export function scanIacFile(
     rawFindings.push(...checkLatestImageTag(lines, filename, "docker"));
   }
 
+  if (isCompose) {
+    rawFindings.push(...checkK8sPrivilegedContainer(lines, filename));
+    rawFindings.push(...checkDockerSocketMount(lines, filename));
+    rawFindings.push(...checkContainerHostNamespace(lines, filename));
+    rawFindings.push(...checkLatestImageTag(lines, filename, "k8s"));
+  }
+
   if (isK8s) {
     rawFindings.push(...checkK8sPrivilegedContainer(lines, filename));
     rawFindings.push(...checkK8sHostPathVolume(lines, filename));
+    rawFindings.push(...checkDockerSocketMount(lines, filename));
+    rawFindings.push(...checkContainerHostNamespace(lines, filename));
+    rawFindings.push(...checkK8sPrivilegeEscalationOrCapabilities(lines, filename));
     rawFindings.push(...checkLatestImageTag(lines, filename, "k8s"));
   }
 
@@ -647,6 +890,7 @@ export function scanIacFile(
     rawFindings.push(...checkTerraformOpenIngress(lines, filename));
     rawFindings.push(...checkTerraformPublicS3Acl(lines, filename));
     rawFindings.push(...checkTerraformUnencryptedStorage(lines, filename));
+    rawFindings.push(...checkTerraformIamWildcardPolicy(lines, filename));
   }
 
   // Filter out disabled rules
