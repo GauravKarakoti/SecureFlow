@@ -243,6 +243,8 @@ export interface GateConfig {
   disabledRules?: string[];
   iacRulesEnabled?: boolean;
   patternRulesEnabled?: boolean;
+  unicodeRulesEnabled?: boolean;
+  unicodeAllowPatterns?: string[];
 }
 
 export interface RulesConfig {
@@ -250,6 +252,14 @@ export interface RulesConfig {
   disabledRules?: string[];
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   patterns?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  unicode?:
+    | boolean
+    | {
+        enabled?: boolean;
+        disabled?: string[];
+        disabledRules?: string[];
+        allowPatterns?: string[];
+      };
   [ruleName: string]: unknown;
 }
 
@@ -266,6 +276,14 @@ export interface SecureFlowConfig {
   disabledRules?: string[];
   iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   patterns?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  unicode?:
+    | boolean
+    | {
+        enabled?: boolean;
+        disabled?: string[];
+        disabledRules?: string[];
+        allowPatterns?: string[];
+      };
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -389,6 +407,10 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
   const sameIac = gate.iacRulesEnabled === undefined || gate.iacRulesEnabled === true;
   // #2088: pattern rules checks
   const samePatterns = gate.patternRulesEnabled === undefined || gate.patternRulesEnabled === true;
+  // #2089: unicode rules checks
+  const sameUnicode = gate.unicodeRulesEnabled === undefined || gate.unicodeRulesEnabled === true;
+  const noUnicodeAllowPatterns =
+    !gate.unicodeAllowPatterns || gate.unicodeAllowPatterns.length === 0;
   const noDisabledRules = !gate.disabledRules || gate.disabledRules.length === 0;
 
   return (
@@ -411,6 +433,8 @@ export function isDefaultGate(gate?: GateConfig | null): boolean {
     sameSuggestions &&
     sameIac &&
     samePatterns &&
+    sameUnicode &&
+    noUnicodeAllowPatterns &&
     noDisabledRules
   );
 }
@@ -893,6 +917,42 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
+  // #2089: parse unicode rules configuration
+  let unicodeRulesEnabled: boolean | undefined = undefined;
+  const rawUnicode =
+    root.unicode ??
+    (root as Record<string, unknown>).unicodeRules ??
+    gateObj.unicode ??
+    (gateObj as Record<string, unknown>).unicodeRules ??
+    rawRulesObj?.unicode ??
+    (rawRulesObj as Record<string, unknown>)?.unicodeRules;
+  if (rawUnicode === false || gateObj.unicodeRulesEnabled === false) {
+    unicodeRulesEnabled = false;
+  } else if (typeof rawUnicode === "object" && rawUnicode !== null && !Array.isArray(rawUnicode)) {
+    if ((rawUnicode as Record<string, unknown>).enabled === false) {
+      unicodeRulesEnabled = false;
+    }
+  }
+
+  const unicodeAllowPatternsSet = new Set<string>();
+  const collectAllowPatterns = (arr: unknown) => {
+    if (Array.isArray(arr)) {
+      for (const item of arr) {
+        if (typeof item === "string" && item.trim()) {
+          unicodeAllowPatternsSet.add(item.trim());
+        }
+      }
+    }
+  };
+  if (typeof rawUnicode === "object" && rawUnicode !== null && !Array.isArray(rawUnicode)) {
+    collectAllowPatterns((rawUnicode as Record<string, unknown>).allowPatterns);
+    collectAllowPatterns((rawUnicode as Record<string, unknown>).allow);
+  }
+  collectAllowPatterns((root as Record<string, unknown>).unicodeAllowPatterns);
+  collectAllowPatterns(gateObj.unicodeAllowPatterns);
+  const unicodeAllowPatterns =
+    unicodeAllowPatternsSet.size > 0 ? Array.from(unicodeAllowPatternsSet) : undefined;
+
   const disabledRulesSet = new Set<string>();
   const collectRules = (arr: unknown) => {
     if (Array.isArray(arr)) {
@@ -919,9 +979,21 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     collectRules((rawPatterns as Record<string, unknown>).disabledRules);
   }
 
+  if (typeof rawUnicode === "object" && rawUnicode !== null && !Array.isArray(rawUnicode)) {
+    collectRules((rawUnicode as Record<string, unknown>).disabled);
+    collectRules((rawUnicode as Record<string, unknown>).disabledRules);
+  }
+
   if (rawRulesObj) {
     for (const [key, val] of Object.entries(rawRulesObj)) {
-      if (val === false && key !== "iac" && key !== "patterns" && key !== "patternRules") {
+      if (
+        val === false &&
+        key !== "iac" &&
+        key !== "patterns" &&
+        key !== "patternRules" &&
+        key !== "unicode" &&
+        key !== "unicodeRules"
+      ) {
         disabledRulesSet.add(key);
       }
     }
@@ -953,6 +1025,8 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(iacRulesEnabled !== undefined ? { iacRulesEnabled } : {}),
     ...(patternRulesEnabled !== undefined ? { patternRulesEnabled } : {}),
+    ...(unicodeRulesEnabled !== undefined ? { unicodeRulesEnabled } : {}),
+    ...(unicodeAllowPatterns && unicodeAllowPatterns.length > 0 ? { unicodeAllowPatterns } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
   };
 }
@@ -986,6 +1060,24 @@ export function resolvePatternRuleOptions(config?: GateConfig | null): {
   return {
     enabled: config.patternRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
+  };
+}
+
+/**
+ * Resolves options for deterministic Unicode/Trojan Source security rules from gate config (#2089).
+ */
+export function resolveUnicodeRuleOptions(config?: GateConfig | null): {
+  enabled: boolean;
+  disabledRules: string[];
+  allowPatterns: string[];
+} {
+  if (!config) {
+    return { enabled: true, disabledRules: [], allowPatterns: [] };
+  }
+  return {
+    enabled: config.unicodeRulesEnabled !== false,
+    disabledRules: config.disabledRules ?? [],
+    allowPatterns: config.unicodeAllowPatterns ?? [],
   };
 }
 

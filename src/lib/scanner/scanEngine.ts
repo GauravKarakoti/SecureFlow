@@ -37,7 +37,12 @@ import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
-import { resolveIacRuleOptions, resolvePatternRuleOptions } from "./gate-config";
+import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
+import {
+  resolveIacRuleOptions,
+  resolvePatternRuleOptions,
+  resolveUnicodeRuleOptions,
+} from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -616,6 +621,35 @@ export async function processScanJob(
       }
     } else {
       allFindings.push(pat);
+    }
+  }
+
+  // Ensure deterministic hidden Unicode / Trojan Source rules are present (#2089)
+  const unicodeOptions = resolveUnicodeRuleOptions(repositoryGateConfig);
+  const unicodeRuleFindings = runUnicodeSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: unicodeOptions.enabled,
+    disabledRules: unicodeOptions.disabledRules,
+    allowPatterns: unicodeOptions.allowPatterns,
+  });
+  for (const uni of unicodeRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === uni.fileLocation && f.lineStart === uni.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === uni.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === uni.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        uni.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = uni;
+      }
+    } else {
+      allFindings.push(uni);
     }
   }
 
