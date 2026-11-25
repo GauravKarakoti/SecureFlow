@@ -11,6 +11,7 @@ export interface Dependency {
   ecosystem: "npm" | "pypi" | "maven" | "gem";
   isTransitive?: boolean;
   parentPackage?: string;
+  license?: string;
 }
 
 export interface VulnerabilityMatch {
