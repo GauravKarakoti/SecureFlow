@@ -471,7 +471,7 @@ export function scanFile(
   };
 }
 
-export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md";
+export type OutputFormat = "text" | "json" | "sarif" | "csv" | "html" | "markdown" | "md" | "junit";
 
 export function formatScanResults(
   results: FileScanResult[],
@@ -481,6 +481,7 @@ export function formatScanResults(
     repoUri?: string;
     remediations?: Record<string, string>;
     aiFindings?: any[];
+    failOnThreshold?: FailOnSeverity | null;
   },
 ): string {
   if (format === "json") {
@@ -511,7 +512,7 @@ export function formatScanResults(
 
   try {
     const exporter = getExporter(format);
-    return exporter.export(results);
+    return exporter.export(results, options);
   } catch {
     throw new Error(`Unsupported output format: ${format}`);
   }

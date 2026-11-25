@@ -210,7 +210,7 @@ Options:
   --cache-max-size <sz>  Maximum cache directory storage ceiling (e.g. 50MB, 100M)
   -q, --quiet            Print only the summary and errors
   --verbose              Enable verbose logging (per-file timing and skipped files)
-  --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
+  --format <format>      Output format: text, json, sarif, csv, html, markdown, junit (default: text)
   -o, --output <path>    Write output to specified file path
   --ignore-file <path>   Path to custom ignore configuration file
   --config <path>, -c    Path to custom configuration file (.secureflow.json)
@@ -1061,12 +1061,15 @@ Description:
     format === "json" ||
     format === "csv" ||
     format === "html" ||
-    format === "markdown"
+    format === "markdown" ||
+    format === "junit"
   ) {
     const outputString =
       format === "sarif"
         ? formatScanResults(filteredResults, "sarif", { aiFindings: filteredAiFindings })
-        : formatScanResults(filteredResults, format);
+        : format === "junit"
+          ? formatScanResults(filteredResults, "junit", { failOnThreshold, aiFindings: filteredAiFindings })
+          : formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:
