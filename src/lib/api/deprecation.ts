@@ -41,10 +41,7 @@ export function formatHttpDate(date: Date | string): string {
 /**
  * Appends standard RFC 8594 Deprecation and Sunset headers to an existing Response, Headers, or mock response object.
  */
-export function addDeprecationHeaders(
-  target: any,
-  options: DeprecationOptions = {}
-): void {
+export function addDeprecationHeaders(target: any, options: DeprecationOptions = {}): void {
   if (!target) return;
 
   const getHeader = (name: string): string | null => {
@@ -134,9 +131,10 @@ export function addDeprecationHeaders(
  * Higher-order function wrapping a Next.js App Router route handler to inject
  * Deprecation and Sunset headers into every outgoing response.
  */
-export function withDeprecation<
-  Handler extends (...args: any[]) => Promise<Response> | Response,
->(handler: Handler, options: DeprecationOptions = {}): Handler {
+export function withDeprecation<Handler extends (...args: any[]) => Promise<Response> | Response>(
+  handler: Handler,
+  options: DeprecationOptions = {},
+): Handler {
   const wrapped = async (...args: Parameters<Handler>): Promise<Response> => {
     const response = await handler(...args);
     addDeprecationHeaders(response, options);

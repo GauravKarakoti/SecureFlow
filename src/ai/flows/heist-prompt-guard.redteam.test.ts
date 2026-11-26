@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mockGenerateStream,
-  mockGetCached,
-  mockSetCached,
-  mockGetVulnerabilityMetadata,
-} = vi.hoisted(() => ({
-  mockGenerateStream: vi.fn(),
-  mockGetCached: vi.fn(),
-  mockSetCached: vi.fn(),
-  mockGetVulnerabilityMetadata: vi.fn(),
-}));
+const { mockGenerateStream, mockGetCached, mockSetCached, mockGetVulnerabilityMetadata } =
+  vi.hoisted(() => ({
+    mockGenerateStream: vi.fn(),
+    mockGetCached: vi.fn(),
+    mockSetCached: vi.fn(),
+    mockGetVulnerabilityMetadata: vi.fn(),
+  }));
 
 vi.mock("genkit", async () => {
   const { z } = await import("zod");
@@ -302,7 +298,9 @@ describe("Streaming Flows & Resilience Red-Team Regression Suite (#1949)", () =>
     }));
   }
 
-  function mockHeistStreamSuccess(text = "Tokyo, vault telemetry confirmed clean. Zero traces remain.") {
+  function mockHeistStreamSuccess(
+    text = "Tokyo, vault telemetry confirmed clean. Zero traces remain.",
+  ) {
     mockGenerateStream.mockImplementation(() => ({
       stream: {
         [Symbol.asyncIterator]: async function* () {

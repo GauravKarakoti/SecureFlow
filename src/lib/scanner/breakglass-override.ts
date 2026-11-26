@@ -62,7 +62,13 @@ export interface OverrideEvaluationContext {
 
 export interface OverrideEvaluationResult {
   isOverridden: boolean;
-  status: "ACTIVE" | "EXPIRED" | "REVOKED_NEW_COMMITS" | "UNAUTHORIZED" | "MISSING_REASON" | "NO_OVERRIDE";
+  status:
+    | "ACTIVE"
+    | "EXPIRED"
+    | "REVOKED_NEW_COMMITS"
+    | "UNAUTHORIZED"
+    | "MISSING_REASON"
+    | "NO_OVERRIDE";
   reason?: string;
   actor?: string;
   appliedAt?: Date;
@@ -103,16 +109,29 @@ export function isActorAuthorized(
   }
 
   // 2. Role / association check
-  const allowedRoles = (config.allowedRoles && config.allowedRoles.length > 0)
-    ? config.allowedRoles.map((r) => r.toLowerCase().trim())
-    : ["admin", "maintainer", "owner"]; // Safe default allowed roles
+  const allowedRoles =
+    config.allowedRoles && config.allowedRoles.length > 0
+      ? config.allowedRoles.map((r) => r.toLowerCase().trim())
+      : ["admin", "maintainer", "owner"]; // Safe default allowed roles
 
   const roleToCheck = (actorRole || authorAssociation || "").toLowerCase().trim();
 
   for (const role of allowedRoles) {
     if (role === "admin" && (roleToCheck === "admin" || roleToCheck === "owner")) return true;
-    if (role === "maintainer" && (roleToCheck === "maintainer" || roleToCheck === "admin" || roleToCheck === "owner")) return true;
-    if (role === "write" && (roleToCheck === "write" || roleToCheck === "collaborator" || roleToCheck === "member" || roleToCheck === "admin" || roleToCheck === "owner")) return true;
+    if (
+      role === "maintainer" &&
+      (roleToCheck === "maintainer" || roleToCheck === "admin" || roleToCheck === "owner")
+    )
+      return true;
+    if (
+      role === "write" &&
+      (roleToCheck === "write" ||
+        roleToCheck === "collaborator" ||
+        roleToCheck === "member" ||
+        roleToCheck === "admin" ||
+        roleToCheck === "owner")
+    )
+      return true;
     if (roleToCheck === role) return true;
   }
 
@@ -182,7 +201,8 @@ export function evaluateBreakglassOverride(
     effectiveActor,
     actorRole,
     config,
-    context.comments?.find((c) => c.author.toLowerCase() === effectiveActor.toLowerCase())?.authorAssociation,
+    context.comments?.find((c) => c.author.toLowerCase() === effectiveActor.toLowerCase())
+      ?.authorAssociation,
   );
 
   if (!isAuthorized) {
@@ -201,7 +221,8 @@ export function evaluateBreakglassOverride(
       isOverridden: false,
       status: "MISSING_REASON",
       actor: effectiveActor,
-      notice: "Break-glass override label is present, but no override reason comment was provided. Please post a comment explaining the reason for the override.",
+      notice:
+        "Break-glass override label is present, but no override reason comment was provided. Please post a comment explaining the reason for the override.",
     };
   }
 

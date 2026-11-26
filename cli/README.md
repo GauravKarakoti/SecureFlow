@@ -289,6 +289,7 @@ secureflow doctor
 ```
 
 ### Diagnostics Checked:
+
 - **Node.js Runtime**: Ensures Node.js >= 20.0.0.
 - **Git Availability**: Checks git CLI presence and whether the current directory is inside a valid git repository.
 - **Configuration**: Verifies that `.secureflow.json` exists and validates its schema syntax.
@@ -307,6 +308,7 @@ secureflow -w
 ```
 
 ### Key Features:
+
 - **Instant Incremental Rescan**: When a file is edited and saved, only that file is rescanned.
 - **Smart Debouncing**: Rapid editor autosaves and flushes within 200ms are coalesced into a single rescan.
 - **Live Finding Resolution**: As soon as a vulnerability or secret logging call is fixed or removed, SecureFlow reports it as resolved:
@@ -451,18 +453,19 @@ Teams can define project-specific security rules in `.secureflow.json` to detect
 
 ### Rule Properties
 
-| Property    | Type       | Required | Description                                                         |
-| :---------- | :--------- | :------- | :------------------------------------------------------------------ |
-| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores) |
-| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                            |
-| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)       |
-| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`    |
-| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                     |
-| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms)|
+| Property    | Type       | Required | Description                                                           |
+| :---------- | :--------- | :------- | :-------------------------------------------------------------------- |
+| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores)  |
+| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                              |
+| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)         |
+| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`      |
+| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                       |
+| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms) |
 
 ### ReDoS & Catastrophic Backtracking Protection
 
 To safeguard scans against catastrophic regex backtracking (Regular Expression Denial of Service - ReDoS):
+
 - **Sandboxed Execution**: Custom regex evaluations run in a dedicated, timeout-enforced Node.js VM context (`timeoutMs`, default 100ms per file).
 - **Graceful Abortion**: If a regex evaluation exceeds the timeout limit, the pattern is aborted with a clean warning rather than hanging the scan.
 - **Input Bounds**: Lines longer than 20,000 characters and files exceeding 512 KB are safely bounded to prevent excessive memory overhead.
@@ -470,6 +473,7 @@ To safeguard scans against catastrophic regex backtracking (Regular Expression D
 ### Labeled Findings & Quality Gates
 
 Findings generated from custom rules are clearly labeled across all exporters:
+
 - **Terminal Output**: Prefix labeled as `🚨 [SecureFlow] [Custom Rule: <id>] <message>`
 - **SARIF**: Exported with rule identifier `CUSTOM-<id>`, level mapped according to severity, and custom metadata tags
 - **Markdown / HTML / CSV**: Labeled with `[Custom Rule: <id>]`
@@ -559,24 +563,24 @@ trigger:
   - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: "ubuntu-latest"
 
 steps:
   - task: NodeTool@0
     inputs:
-      versionSpec: '20.x'
-    displayName: 'Install Node.js'
+      versionSpec: "20.x"
+    displayName: "Install Node.js"
 
   - script: |
       npx secureflow-cli --format junit -o $(Build.SourcesDirectory)/test-results.xml --fail-on high
-    displayName: 'Run SecureFlow Security Scan'
+    displayName: "Run SecureFlow Security Scan"
 
   - task: PublishTestResults@2
     condition: always()
     inputs:
-      testResultsFormat: 'JUnit'
-      testResultsFiles: '**/test-results.xml'
-      testRunTitle: 'SecureFlow Security Scan'
+      testResultsFormat: "JUnit"
+      testResultsFiles: "**/test-results.xml"
+      testRunTitle: "SecureFlow Security Scan"
       failTaskOnFailedTests: true
 ```
 

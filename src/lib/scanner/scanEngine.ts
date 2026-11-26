@@ -47,7 +47,7 @@ import {
   resolveIacRuleOptions,
   resolvePatternRuleOptions,
   resolveUnicodeRuleOptions,
-  resolveLicenseRuleOptions
+  resolveLicenseRuleOptions,
 } from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
@@ -641,7 +641,7 @@ export async function processScanJob(
       allFindings.push(lic);
     }
   }
-  
+
   // Ensure deterministic dangerous pattern security rules are present (#2088)
   const patternOptions = resolvePatternRuleOptions(repositoryGateConfig);
   const patternRuleFindings = runPatternSecurityRules(fileChanges, {
@@ -710,7 +710,9 @@ export async function processScanJob(
     );
     if (existingIndex >= 0) {
       const existing = allFindings[existingIndex];
-      const isDeterministic = existing.matchedSignatures?.some((s) => obf.matchedSignatures?.includes(s));
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        obf.matchedSignatures?.includes(s),
+      );
       if (!isDeterministic) allFindings[existingIndex] = obf;
     } else {
       allFindings.push(obf);
@@ -728,7 +730,9 @@ export async function processScanJob(
     );
     if (existingIndex >= 0) {
       const existing = allFindings[existingIndex];
-      const isDeterministic = existing.matchedSignatures?.some((s) => out.matchedSignatures?.includes(s));
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        out.matchedSignatures?.includes(s),
+      );
       if (!isDeterministic) allFindings[existingIndex] = out;
     } else {
       allFindings.push(out);
@@ -746,7 +750,9 @@ export async function processScanJob(
     );
     if (existingIndex >= 0) {
       const existing = allFindings[existingIndex];
-      const isDeterministic = existing.matchedSignatures?.some((s) => sf.matchedSignatures?.includes(s));
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        sf.matchedSignatures?.includes(s),
+      );
       if (!isDeterministic) allFindings[existingIndex] = sf;
     } else {
       allFindings.push(sf);
@@ -888,17 +894,29 @@ export async function processScanJob(
     try {
       // Fetch labels and comments for PR from GitHub API if available
       let prLabels: string[] = [];
-      let prComments: Array<{ author: string; body: string; createdAt: string | Date; authorAssociation?: string }> = [];
+      let prComments: Array<{
+        author: string;
+        body: string;
+        createdAt: string | Date;
+        authorAssociation?: string;
+      }> = [];
 
       if (octokit?.rest?.issues?.get) {
         const issueRes = await octokit.rest.issues.get({ owner, repo, issue_number: prNumber });
         if (issueRes?.data?.labels) {
-          prLabels = issueRes.data.labels.map((l: any) => (typeof l === "string" ? l : l.name || ""));
+          prLabels = issueRes.data.labels.map((l: any) =>
+            typeof l === "string" ? l : l.name || "",
+          );
         }
       }
 
       if (octokit?.rest?.issues?.listComments) {
-        const commentsRes = await octokit.rest.issues.listComments({ owner, repo, issue_number: prNumber, per_page: 50 });
+        const commentsRes = await octokit.rest.issues.listComments({
+          owner,
+          repo,
+          issue_number: prNumber,
+          per_page: 50,
+        });
         if (Array.isArray(commentsRes?.data)) {
           prComments = commentsRes.data.map((c: any) => ({
             author: c.user?.login || "",
@@ -1131,7 +1149,8 @@ export async function processScanJob(
         // Pull Request Review Mode (#2095): Request changes when blocked, dismiss when passing
         const prReviewConfig = resolvePullRequestReviewConfig(repositoryGateConfig);
         if (prReviewConfig.enabled && octokit?.rest?.pulls?.createReview) {
-          const isBlockedState = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
+          const isBlockedState =
+            decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
           await syncPullRequestReview({
             client: octokit as any,
             owner,

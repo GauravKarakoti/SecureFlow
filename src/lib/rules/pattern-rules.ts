@@ -97,7 +97,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Insecure Deserialization",
     description:
       "pickle.loads() and pickle.load() construct arbitrary objects via __reduce__, enabling remote code execution on untrusted input.",
-    oneLineFix: "Replace pickle with a safe serialization format like JSON, Protocol Buffers, or HMAC-signed payloads.",
+    oneLineFix:
+      "Replace pickle with a safe serialization format like JSON, Protocol Buffers, or HMAC-signed payloads.",
     languages: ["python"],
     match: (line: string) => {
       return (
@@ -127,7 +128,9 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
         lowerFile.includes("app") ||
         lowerFile.endsWith(".py");
       if (!isSettingsLike) return false;
-      return /^\s*DEBUG\s*=\s*True\b/.test(line) || /\bapp\.run\(.*debug\s*=\s*True.*\)/i.test(line);
+      return (
+        /^\s*DEBUG\s*=\s*True\b/.test(line) || /\bapp\.run\(.*debug\s*=\s*True.*\)/i.test(line)
+      );
     },
   },
 
@@ -138,7 +141,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Insecure Transport",
     description:
       "Setting rejectUnauthorized: false disables TLS certificate verification, allowing eavesdropping and MITM attacks.",
-    oneLineFix: "Set rejectUnauthorized: true and supply trusted root certificates via the 'ca' option.",
+    oneLineFix:
+      "Set rejectUnauthorized: true and supply trusted root certificates via the 'ca' option.",
     languages: ["javascript", "typescript"],
     match: (line: string) => {
       return (
@@ -155,7 +159,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Code Injection",
     description:
       "eval() executes strings as code in the current scope, opening severe code injection and XSS vectors.",
-    oneLineFix: "Replace eval() with structured JSON.parse(), a lookup table, or dedicated math parsers.",
+    oneLineFix:
+      "Replace eval() with structured JSON.parse(), a lookup table, or dedicated math parsers.",
     languages: ["javascript", "typescript"],
     match: (line: string) => {
       // Match eval(...) or window.eval(...) or global.eval(...)
@@ -171,7 +176,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Cross-Site Scripting",
     description:
       "Assigning to innerHTML or using dangerouslySetInnerHTML can inject unescaped HTML/scripts leading to Cross-Site Scripting (XSS).",
-    oneLineFix: "Use textContent, createElement, or sanitize untrusted HTML with DOMPurify before injection.",
+    oneLineFix:
+      "Use textContent, createElement, or sanitize untrusted HTML with DOMPurify before injection.",
     languages: ["javascript", "typescript"],
     match: (line: string) => {
       return (
@@ -189,7 +195,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Misconfig",
     description:
       "chmod 777 grants universal read, write, and execute permissions to all users, enabling privilege escalation and file tampering.",
-    oneLineFix: "Grant minimal required permissions (e.g. chmod 755 for scripts or chmod 644 / 600 for files).",
+    oneLineFix:
+      "Grant minimal required permissions (e.g. chmod 755 for scripts or chmod 644 / 600 for files).",
     languages: ["shell", "generic"],
     match: (line: string) => {
       return /\bchmod\s+(?:-[a-zA-Z0-9]+\s+)*777\b/.test(line);
@@ -203,7 +210,8 @@ export const PATTERN_RULES: Record<PatternRuleId, PatternRuleDefinition> = {
     type: "Remote Code Execution",
     description:
       "Piping remote downloads directly into a shell (curl | sh, wget | bash) executes untrusted remote code without integrity checks.",
-    oneLineFix: "Download the script, inspect it or verify its cryptographic SHA-256 hash before execution.",
+    oneLineFix:
+      "Download the script, inspect it or verify its cryptographic SHA-256 hash before execution.",
     languages: ["shell", "generic"],
     match: (line: string) => {
       return /\b(?:curl|wget)\b[^|;\n]+\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash)\b/i.test(line);
@@ -220,15 +228,27 @@ export interface PatternRuleOptions {
 /**
  * Determines file language family for pattern matching.
  */
-export function getLanguageFamily(filename: string): "python" | "javascript" | "typescript" | "shell" | "generic" {
+export function getLanguageFamily(
+  filename: string,
+): "python" | "javascript" | "typescript" | "shell" | "generic" {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".py") || lower.endsWith(".pyw")) {
     return "python";
   }
-  if (lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".mts") || lower.endsWith(".cts")) {
+  if (
+    lower.endsWith(".ts") ||
+    lower.endsWith(".tsx") ||
+    lower.endsWith(".mts") ||
+    lower.endsWith(".cts")
+  ) {
     return "typescript";
   }
-  if (lower.endsWith(".js") || lower.endsWith(".jsx") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+  if (
+    lower.endsWith(".js") ||
+    lower.endsWith(".jsx") ||
+    lower.endsWith(".mjs") ||
+    lower.endsWith(".cjs")
+  ) {
     return "javascript";
   }
   if (
@@ -260,7 +280,12 @@ export function extractAddedLines(patch: string): Array<{ number: number; conten
   let lineNum = 1;
 
   for (const line of lines) {
-    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) {
+    if (
+      line.startsWith("+++") ||
+      line.startsWith("---") ||
+      line.startsWith("diff ") ||
+      line.startsWith("index ")
+    ) {
       continue;
     }
     if (line.startsWith("+")) {
@@ -308,7 +333,12 @@ export function scanFileWithPatternRules(
 
   for (const item of added) {
     const rawContent = item.content.trim();
-    if (!rawContent || rawContent.startsWith("//") || rawContent.startsWith("#") || rawContent.startsWith("/*")) {
+    if (
+      !rawContent ||
+      rawContent.startsWith("//") ||
+      rawContent.startsWith("#") ||
+      rawContent.startsWith("/*")
+    ) {
       // Skip commented out single lines
       continue;
     }
@@ -317,7 +347,12 @@ export function scanFileWithPatternRules(
       if (rule.match(item.content, file.filename)) {
         const lineSnippet = item.content.trim();
         const baseHash = computeFingerprint(repositoryId, file.filename, rule.type, lineSnippet);
-        const dynFp = computeDynamicFingerprint(repositoryId, file.filename, rule.type, lineSnippet);
+        const dynFp = computeDynamicFingerprint(
+          repositoryId,
+          file.filename,
+          rule.type,
+          lineSnippet,
+        );
 
         findings.push({
           type: rule.type,

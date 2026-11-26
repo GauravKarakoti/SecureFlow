@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  shouldRunAstAnalysis,
-  scanFileWithAst,
-} from "./ast-analyzer.js";
+import { shouldRunAstAnalysis, scanFileWithAst } from "./ast-analyzer.js";
 import { scanFile } from "./scanner.js";
 
 describe("AST Semantic Taint Analysis Engine (#2062)", () => {

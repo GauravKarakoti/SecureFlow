@@ -8,7 +8,11 @@
 
 import crypto from "node:crypto";
 import type { OutboundEventEnvelope, OutboundEventType } from "./outbound-types";
-import { deliverOutboundWebhook, type DeliveryOptions, type DeliveryResult } from "./outbound-dispatcher";
+import {
+  deliverOutboundWebhook,
+  type DeliveryOptions,
+  type DeliveryResult,
+} from "./outbound-dispatcher";
 
 export type DlqStatus = "quarantined" | "replaying" | "replayed" | "purged";
 
@@ -135,9 +139,7 @@ export function listDlqEntries(filter: DlqFilterOptions = {}): DeadLetterEntry[]
   }
 
   // Sort newest first
-  entries.sort(
-    (a, b) => new Date(b.lastAttemptAt).getTime() - new Date(a.lastAttemptAt).getTime(),
-  );
+  entries.sort((a, b) => new Date(b.lastAttemptAt).getTime() - new Date(a.lastAttemptAt).getTime());
 
   const offset = filter.offset ?? 0;
   const limit = filter.limit ?? entries.length;
@@ -213,9 +215,8 @@ export async function batchReplayDlq(
   ids?: string[],
   options: DeliveryOptions = {},
 ): Promise<BatchReplayResult> {
-  const targetIds = ids && ids.length > 0
-    ? ids
-    : listDlqEntries({ status: "quarantined" }).map((e) => e.id);
+  const targetIds =
+    ids && ids.length > 0 ? ids : listDlqEntries({ status: "quarantined" }).map((e) => e.id);
 
   const results: ReplayResult[] = [];
   let succeeded = 0;

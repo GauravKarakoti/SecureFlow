@@ -19,8 +19,8 @@ import type { FileChange, ScanFinding } from "@/lib/armor/scanner";
 
 export const OBFUSCATION_RULE_IDS = {
   DECODE_AND_EXECUTE: "SEC_OBFUSC_DECODE_EXECUTE",
-  LONG_BASE64_BLOB:   "SEC_OBFUSC_LONG_BASE64_BLOB",
-  LONG_HEX_BLOB:      "SEC_OBFUSC_LONG_HEX_BLOB",
+  LONG_BASE64_BLOB: "SEC_OBFUSC_LONG_BASE64_BLOB",
+  LONG_HEX_BLOB: "SEC_OBFUSC_LONG_HEX_BLOB",
 } as const;
 
 export type ObfuscationRuleId = (typeof OBFUSCATION_RULE_IDS)[keyof typeof OBFUSCATION_RULE_IDS];
@@ -131,7 +131,8 @@ export function checkLineForObfuscation(
           severity: "HIGH",
           type: "Obfuscation / Decode-and-Execute",
           description: `Decode-and-execute pattern detected: code decodes a base64 or hex string at runtime and immediately executes it. Matched: '${match?.[0]?.slice(0, 80)}'.`,
-          oneLineFix: "Remove decode-and-execute pattern; store code as plain source or use a safe build step.",
+          oneLineFix:
+            "Remove decode-and-execute pattern; store code as plain source or use a safe build step.",
           lineNumber,
           lineSnippet: line,
         });
@@ -154,7 +155,8 @@ export function checkLineForObfuscation(
         severity: "MEDIUM",
         type: "Obfuscation / Long Base64 Blob",
         description: `Very long base64-encoded blob detected (${longestB64} chars). Encoded payloads in source code may conceal malicious logic and are hard to review.`,
-        oneLineFix: "Move the encoded payload to a build artifact, configuration file, or comment it clearly. Never execute decoded content without review.",
+        oneLineFix:
+          "Move the encoded payload to a build artifact, configuration file, or comment it clearly. Never execute decoded content without review.",
         lineNumber,
         lineSnippet: line.slice(0, 300),
       });
@@ -172,7 +174,8 @@ export function checkLineForObfuscation(
         severity: "MEDIUM",
         type: "Obfuscation / Long Hex Blob",
         description: `Very long hex-encoded blob detected (${longestHex} chars). Hex payloads in source code may conceal shellcode or configuration overrides.`,
-        oneLineFix: "Move the hex payload to a binary artifact or explain its purpose with a trusted link. Never decode-and-execute without review.",
+        oneLineFix:
+          "Move the hex payload to a binary artifact or explain its purpose with a trusted link. Never decode-and-execute without review.",
         lineNumber,
         lineSnippet: line.slice(0, 300),
       });
@@ -240,9 +243,19 @@ export function scanFileWithObfuscationRules(
     const lines = file.patch.split(/\r?\n/);
     let lineNum = 1;
     for (const l of lines) {
-      if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff ") || l.startsWith("index ")) continue;
-      if (l.startsWith("+")) { added.push({ number: lineNum, content: l.slice(1) }); lineNum++; }
-      else if (!l.startsWith("-")) { lineNum++; }
+      if (
+        l.startsWith("+++") ||
+        l.startsWith("---") ||
+        l.startsWith("diff ") ||
+        l.startsWith("index ")
+      )
+        continue;
+      if (l.startsWith("+")) {
+        added.push({ number: lineNum, content: l.slice(1) });
+        lineNum++;
+      } else if (!l.startsWith("-")) {
+        lineNum++;
+      }
     }
   }
 

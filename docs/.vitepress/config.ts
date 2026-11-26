@@ -7,12 +7,7 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   // Ignore links to source files outside the docs folder and local dev ports
-  ignoreDeadLinks: [
-    /^https?:\/\/localhost/,
-    /^(\.\/)?\.\.\//,
-    /^file:\/\//,
-    /^mailto:/,
-  ],
+  ignoreDeadLinks: [/^https?:\/\/localhost/, /^(\.\/)?\.\.\//, /^file:\/\//, /^mailto:/],
   themeConfig: {
     siteTitle: "SecureFlow",
     logo: "/logo.png",
@@ -107,14 +102,10 @@ export default defineConfig({
       {
         text: "API Reference",
         collapsed: false,
-        items: [
-          { text: "REST API Overview", link: "/api" },
-        ],
+        items: [{ text: "REST API Overview", link: "/api" }],
       },
     ],
-    socialLinks: [
-      { icon: "github", link: "https://github.com/GauravKarakoti/SecureFlow" },
-    ],
+    socialLinks: [{ icon: "github", link: "https://github.com/GauravKarakoti/SecureFlow" }],
     footer: {
       message: "Released under the MIT License.",
       copyright: "Copyright © 2026 SecureFlow Team",

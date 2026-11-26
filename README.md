@@ -145,12 +145,12 @@ jobs:
         id: secureflow
         uses: GauravKarakoti/SecureFlow@main
         with:
-          paths: '.'
-          severity: 'low'
-          fail-threshold: 'high'
-          comment-on-pr: 'true'
-          format: 'sarif'
-          output: 'results.sarif'
+          paths: "."
+          severity: "low"
+          fail-threshold: "high"
+          comment-on-pr: "true"
+          format: "sarif"
+          output: "results.sarif"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload SARIF to GitHub Code Scanning
@@ -167,24 +167,24 @@ jobs:
 
 ### Action Inputs Reference
 
-| Input | Description | Required | Default |
-|---|---|---|---|
-| `paths` | Directory path or file pattern to scan | No | `.` |
-| `severity` | Minimum severity to report (`critical`, `high`, `medium`, `low`, `info`) | No | `low` |
-| `fail-threshold` | Quality gate threshold to fail the workflow (`critical`, `high`, `medium`, `low`, `none`) | No | `high` |
-| `comment-on-pr` | Post an automated summary comment with scan time & commit SHA on PRs | No | `true` |
-| `github-token` | GitHub token for posting comments and querying pull requests | No | `${{ github.token }}` |
-| `format` | Output report format (`sarif`, `text`, `json`, `markdown`, `html`) | No | `sarif` |
-| `output` | Destination output file path | No | `secureflow-results.sarif` |
+| Input            | Description                                                                               | Required | Default                    |
+| ---------------- | ----------------------------------------------------------------------------------------- | -------- | -------------------------- |
+| `paths`          | Directory path or file pattern to scan                                                    | No       | `.`                        |
+| `severity`       | Minimum severity to report (`critical`, `high`, `medium`, `low`, `info`)                  | No       | `low`                      |
+| `fail-threshold` | Quality gate threshold to fail the workflow (`critical`, `high`, `medium`, `low`, `none`) | No       | `high`                     |
+| `comment-on-pr`  | Post an automated summary comment with scan time & commit SHA on PRs                      | No       | `true`                     |
+| `github-token`   | GitHub token for posting comments and querying pull requests                              | No       | `${{ github.token }}`      |
+| `format`         | Output report format (`sarif`, `text`, `json`, `markdown`, `html`)                        | No       | `sarif`                    |
+| `output`         | Destination output file path                                                              | No       | `secureflow-results.sarif` |
 
 ### Action Outputs Reference
 
-| Output | Description | Example |
-|---|---|---|
-| `total-findings` | Total number of security findings detected | `3` |
-| `highest-severity` | Highest severity level among all detected findings | `HIGH` |
-| `has-findings` | Boolean flag indicating whether any findings were detected | `true` |
-| `sarif-file` | File path to the generated SARIF report file | `secureflow-results.sarif` |
+| Output             | Description                                                | Example                    |
+| ------------------ | ---------------------------------------------------------- | -------------------------- |
+| `total-findings`   | Total number of security findings detected                 | `3`                        |
+| `highest-severity` | Highest severity level among all detected findings         | `HIGH`                     |
+| `has-findings`     | Boolean flag indicating whether any findings were detected | `true`                     |
+| `sarif-file`       | File path to the generated SARIF report file               | `secureflow-results.sarif` |
 
 ---
 

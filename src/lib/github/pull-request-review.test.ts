@@ -190,7 +190,9 @@ describe("Pull Request Review Mode (#2095)", () => {
   describe("Error and Missing Permissions Handling", () => {
     it("handles missing review permissions gracefully with warning without throwing", async () => {
       createReviewMock.mockRejectedValueOnce(
-        new Error("Resource not accessible by integration: pull_requests write permission required"),
+        new Error(
+          "Resource not accessible by integration: pull_requests write permission required",
+        ),
       );
 
       const result = await syncPullRequestReview({

@@ -43,7 +43,7 @@ export const POST = withDeprecation(
     deprecatedAt: new Date("2026-11-01T00:00:00Z"),
     sunsetAt: new Date("2027-05-01T00:00:00Z"),
     successorUrl: "/api/webhooks/generic",
-  }
+  },
 );
 
 export const dynamic = "force-dynamic";

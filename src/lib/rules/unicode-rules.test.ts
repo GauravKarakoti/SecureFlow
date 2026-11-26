@@ -17,7 +17,7 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
       const patch = [
         "@@ -1,3 +1,4 @@",
         " function checkAccess(user) {",
-        '+  /* \u202E } \u2066if (user.isAdmin) \u2069 \u2066 */ return true;',
+        "+  /* \u202E } \u2066if (user.isAdmin) \u2069 \u2066 */ return true;",
         "   return false;",
         " }",
       ].join("\n");
@@ -42,7 +42,7 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
     it("does not flag bidi characters in removed or unchanged lines", () => {
       const patch = [
         "@@ -1,4 +1,3 @@",
-        '-  /* \u202E } if (user.isAdmin) */ return true;',
+        "-  /* \u202E } if (user.isAdmin) */ return true;",
         "   /* unchanged context line \u202E */",
         "+  return false;",
       ].join("\n");
@@ -96,7 +96,7 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
       const patch = [
         "@@ -1,2 +1,3 @@",
         " const config = {};",
-        '+ const \u0430dmin = true;',
+        "+ const \u0430dmin = true;",
         " if (admin) { access(); }",
       ].join("\n");
 
@@ -113,10 +113,7 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
 
     it("flags Greek homoglyph in Latin identifier", () => {
       // Greek small letter alpha \u03B1 in 'auth' -> '\u03B1uth'
-      const patch = [
-        "@@ -1,1 +1,2 @@",
-        '+ const \u03B1uth = "spoofed";',
-      ].join("\n");
+      const patch = ["@@ -1,1 +1,2 @@", '+ const \u03B1uth = "spoofed";'].join("\n");
 
       const findings = scanFileWithUnicodeRules("src/index.ts", patch);
       const homoglyphFinding = findings.find(
@@ -141,8 +138,8 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
     it("does not flag non-Latin text / homoglyphs in allowed documentation files", () => {
       const patch = [
         "@@ -1,1 +1,3 @@",
-        '+ # Documentation en français et russe',
-        '+ Ceci est une explication pour \u0430dmin et utilisateurs.',
+        "+ # Documentation en français et russe",
+        "+ Ceci est une explication pour \u0430dmin et utilisateurs.",
       ].join("\n");
 
       const findings = scanFileWithUnicodeRules("docs/overview.md", patch);
@@ -150,22 +147,16 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
     });
 
     it("does not flag non-Latin strings in localization files", () => {
-      const patch = [
-        "@@ -1,1 +1,4 @@",
-        '+ {',
-        '+   "greeting": "Привет мир \u03B1",',
-        '+ }',
-      ].join("\n");
+      const patch = ["@@ -1,1 +1,4 @@", "+ {", '+   "greeting": "Привет мир \u03B1",', "+ }"].join(
+        "\n",
+      );
 
       const findings = scanFileWithUnicodeRules("locales/ru/strings.json", patch);
       expect(findings.length).toBe(0);
     });
 
     it("supports custom allow patterns passed in options", () => {
-      const patch = [
-        "@@ -1,1 +1,2 @@",
-        '+ const \u0430dmin = "custom";',
-      ].join("\n");
+      const patch = ["@@ -1,1 +1,2 @@", '+ const \u0430dmin = "custom";'].join("\n");
 
       // Without custom pattern: flagged
       const findingsNormal = scanFileWithUnicodeRules("src/custom/test.js", patch);
@@ -181,7 +172,7 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
     it("still flags bidi controls even in documentation files because bidi override is malicious anywhere", () => {
       const patch = [
         "@@ -1,1 +1,2 @@",
-        '+ # Document with hidden override \u202E Trojan text \u206C',
+        "+ # Document with hidden override \u202E Trojan text \u206C",
       ].join("\n");
 
       const findings = scanFileWithUnicodeRules("docs/readme.md", patch);
@@ -210,32 +201,20 @@ describe("Unicode Trojan Source and Homoglyph Security Rules (#2089)", () => {
     });
 
     it("respects disabledRules when running rules", () => {
-      const patch = [
-        "@@ -1,1 +1,2 @@",
-        '+ const \u0430dmin = true;',
-      ].join("\n");
+      const patch = ["@@ -1,1 +1,2 @@", "+ const \u0430dmin = true;"].join("\n");
 
-      const findings = runUnicodeSecurityRules(
-        [{ filename: "src/admin.ts", patch }],
-        {
-          disabledRules: ["SEC_UNICODE_HOMOGLYPH_IDENTIFIER"],
-        },
-      );
+      const findings = runUnicodeSecurityRules([{ filename: "src/admin.ts", patch }], {
+        disabledRules: ["SEC_UNICODE_HOMOGLYPH_IDENTIFIER"],
+      });
       expect(findings.length).toBe(0);
     });
 
     it("can disable all unicode rules via enabled: false", () => {
-      const patch = [
-        "@@ -1,1 +1,2 @@",
-        '+ const x = \u202E 1;',
-      ].join("\n");
+      const patch = ["@@ -1,1 +1,2 @@", "+ const x = \u202E 1;"].join("\n");
 
-      const findings = runUnicodeSecurityRules(
-        [{ filename: "src/main.ts", patch }],
-        {
-          enabled: false,
-        },
-      );
+      const findings = runUnicodeSecurityRules([{ filename: "src/main.ts", patch }], {
+        enabled: false,
+      });
       expect(findings.length).toBe(0);
     });
   });

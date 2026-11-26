@@ -214,9 +214,7 @@ export function PolicyEditModal({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-zinc-300">
-              Short Guidance Text
-            </label>
+            <label className="text-xs font-semibold text-zinc-300">Short Guidance Text</label>
             <input
               type="text"
               value={guidance}

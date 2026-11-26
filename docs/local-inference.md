@@ -61,16 +61,16 @@ Configure local model inference across the web app, background workers, and CLI 
 
 ### Generic Local AI Variables
 
-| Variable                         | Description                                                                                                                   | Example / Default                |
-| :------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- | :------------------------------- |
-| `LOCAL_AI_URL`                   | Base URL of the OpenAI-compatible inference server. Auto-detects provider (`:11434` -> `ollama`, `:8000` -> `vllm`).          | `http://localhost:11434/v1`      |
-| `LOCAL_AI_MODEL`                 | Model tag or identifier to load for analysis.                                                                                 | `llama3`, `codellama`, `mistral` |
-| `LOCAL_AI_PROVIDER`              | Explicit provider designation (`ollama`, `vllm`, or `custom`).                                                                | `ollama`                         |
-| `LOCAL_AI_API_KEY`               | Optional bearer token for authenticated on-prem cluster endpoints.                                                            | Defaults to `"local"`            |
-| `LOCAL_AI_FALLBACK_MODELS`       | Comma-separated list of smaller fallback model tags to try in order when GPU memory is exhausted.                             | `llama3.2:3b,llama3.2:1b`        |
-| `VRAM_CONCURRENCY_THRESHOLD`     | Max concurrent local inference generations permitted per worker via `Semaphore` (`DEFAULT_LOCAL_VRAM_CONCURRENCY`).           | `1`                              |
-| `LOCAL_AI_MAX_CONCURRENCY`       | High-priority concurrency alias (`LOCAL_AI_CONCURRENCY_LIMIT` also accepted before `VRAM_CONCURRENCY_THRESHOLD`).             | `1`                              |
-| `LOCAL_AI_MAX_QUEUE_WAIT_MS`     | Max semaphore queue wait duration in ms before failing over or throwing `VRAMConcurrencyError` (`DEFAULT_LOCAL_QUEUE_WAIT_MS`). | `30000`                          |
+| Variable                     | Description                                                                                                                     | Example / Default                |
+| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :------------------------------- |
+| `LOCAL_AI_URL`               | Base URL of the OpenAI-compatible inference server. Auto-detects provider (`:11434` -> `ollama`, `:8000` -> `vllm`).            | `http://localhost:11434/v1`      |
+| `LOCAL_AI_MODEL`             | Model tag or identifier to load for analysis.                                                                                   | `llama3`, `codellama`, `mistral` |
+| `LOCAL_AI_PROVIDER`          | Explicit provider designation (`ollama`, `vllm`, or `custom`).                                                                  | `ollama`                         |
+| `LOCAL_AI_API_KEY`           | Optional bearer token for authenticated on-prem cluster endpoints.                                                              | Defaults to `"local"`            |
+| `LOCAL_AI_FALLBACK_MODELS`   | Comma-separated list of smaller fallback model tags to try in order when GPU memory is exhausted.                               | `llama3.2:3b,llama3.2:1b`        |
+| `VRAM_CONCURRENCY_THRESHOLD` | Max concurrent local inference generations permitted per worker via `Semaphore` (`DEFAULT_LOCAL_VRAM_CONCURRENCY`).             | `1`                              |
+| `LOCAL_AI_MAX_CONCURRENCY`   | High-priority concurrency alias (`LOCAL_AI_CONCURRENCY_LIMIT` also accepted before `VRAM_CONCURRENCY_THRESHOLD`).               | `1`                              |
+| `LOCAL_AI_MAX_QUEUE_WAIT_MS` | Max semaphore queue wait duration in ms before failing over or throwing `VRAMConcurrencyError` (`DEFAULT_LOCAL_QUEUE_WAIT_MS`). | `30000`                          |
 
 ### Dedicated Ollama Variables
 

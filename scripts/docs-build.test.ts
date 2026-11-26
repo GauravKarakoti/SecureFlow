@@ -11,7 +11,7 @@ describe("Documentation Site & Netlify Deployment (#2107)", () => {
     expect(config.title).toBe("SecureFlow Docs");
     expect(config.themeConfig?.search?.provider).toBe("local");
     expect(config.themeConfig?.editLink?.pattern).toContain(
-      "https://github.com/GauravKarakoti/SecureFlow/edit/main/docs/:path"
+      "https://github.com/GauravKarakoti/SecureFlow/edit/main/docs/:path",
     );
   });
 
@@ -37,7 +37,7 @@ describe("Documentation Site & Netlify Deployment (#2107)", () => {
 
         expect(
           exists,
-          `Sidebar link "${item.link}" should point to an existing markdown file (${mdPath})`
+          `Sidebar link "${item.link}" should point to an existing markdown file (${mdPath})`,
         ).toBe(true);
       }
     }

@@ -628,7 +628,8 @@ function FindingsClientInner({
                           >
                             {/* On mobile: flex header row. On desktop: contents unwraps children into the row */}
                             <div className="flex items-start justify-between md:contents gap-2">
-                              {(preferences.visibleColumns.type || preferences.visibleColumns.file) && (
+                              {(preferences.visibleColumns.type ||
+                                preferences.visibleColumns.file) && (
                                 <div className="flex-1 min-w-0" data-testid="finding-file">
                                   {preferences.visibleColumns.type && (
                                     <div className="font-bold text-sm mb-0.5 truncate">
@@ -693,25 +694,30 @@ function FindingsClientInner({
                                   ⚠️ Verify manually
                                 </Badge>
                               )}
-                              {preferences.visibleColumns.status && finding.triageStatus && finding.triageStatus !== "OPEN" && (
-                                <Badge
-                                  variant="outline"
-                                  className={
-                                    finding.triageStatus === "RESOLVED"
-                                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px] shrink-0"
-                                      : "border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0"
-                                  }
-                                  title={
-                                    finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
-                                      ? `Resolved by commit ${finding.resolvedCommitSha}`
-                                      : "Triage status"
-                                  }
-                                >
-                                  {finding.triageStatus === "RESOLVED" && finding.resolvedCommitSha
-                                    ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
-                                    : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
-                                </Badge>
-                              )}
+                              {preferences.visibleColumns.status &&
+                                finding.triageStatus &&
+                                finding.triageStatus !== "OPEN" && (
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      finding.triageStatus === "RESOLVED"
+                                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[10px] shrink-0"
+                                        : "border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0"
+                                    }
+                                    title={
+                                      finding.triageStatus === "RESOLVED" &&
+                                      finding.resolvedCommitSha
+                                        ? `Resolved by commit ${finding.resolvedCommitSha}`
+                                        : "Triage status"
+                                    }
+                                  >
+                                    {finding.triageStatus === "RESOLVED" &&
+                                    finding.resolvedCommitSha
+                                      ? `resolved by commit ${finding.resolvedCommitSha.slice(0, 7)}`
+                                      : (TRIAGE_LABELS[finding.triageStatus] ??
+                                        finding.triageStatus)}
+                                  </Badge>
+                                )}
                               {expiryDate && (
                                 <Badge
                                   variant="outline"
@@ -747,17 +753,18 @@ function FindingsClientInner({
                                 </Badge>
                               )}
                               {/* Reviewer discussion note count badge (#1920) */}
-                              {preferences.visibleColumns.notes && Boolean(finding.noteCount && finding.noteCount > 0) && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-blue-500/30 bg-blue-500/10 text-blue-400 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
-                                  title={`${finding.noteCount} ${finding.noteCount === 1 ? "reviewer note" : "reviewer notes"}`}
-                                  data-testid="finding-note-count"
-                                >
-                                  <MessageSquare className="w-3 h-3" />
-                                  <span>{finding.noteCount}</span>
-                                </Badge>
-                              )}
+                              {preferences.visibleColumns.notes &&
+                                Boolean(finding.noteCount && finding.noteCount > 0) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
+                                    title={`${finding.noteCount} ${finding.noteCount === 1 ? "reviewer note" : "reviewer notes"}`}
+                                    data-testid="finding-note-count"
+                                  >
+                                    <MessageSquare className="w-3 h-3" />
+                                    <span>{finding.noteCount}</span>
+                                  </Badge>
+                                )}
                               {preferences.visibleColumns.issue && finding.issueUrl && (
                                 <Badge
                                   variant="outline"

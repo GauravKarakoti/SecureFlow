@@ -6,7 +6,7 @@
 
 export interface paths {
   "/api/sbom/scan": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -43,7 +43,7 @@ export interface paths {
     };
   };
   "/api/findings/{id}": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
@@ -81,7 +81,7 @@ export interface paths {
         };
       };
     };
-    "patch": {
+    patch: {
       requestBody?: {
         content: {
           "application/json": {
@@ -119,10 +119,9 @@ export interface paths {
         };
       };
     };
-    "delete": {
+    delete: {
       responses: {
-        "204": {
-        };
+        "204": {};
         "401": {
           content: {
             "application/json": components["schemas"]["Error"];
@@ -142,10 +141,10 @@ export interface paths {
     };
   };
   "/api/findings/{id}/remediate": {
-    "post": {
+    post: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
       };
       responses: {
@@ -177,10 +176,10 @@ export interface paths {
     };
   };
   "/api/findings/{id}/issue": {
-    "get": {
+    get: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
       };
       responses: {
@@ -220,10 +219,10 @@ export interface paths {
         };
       };
     };
-    "post": {
+    post: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
       };
       responses: {
@@ -254,7 +253,7 @@ export interface paths {
     };
   };
   "/api/findings/bulk-remediate": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -318,10 +317,10 @@ export interface paths {
     };
   };
   "/api/findings/bulk-remediate/progress": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "total"?: number;
+          total?: number;
         };
       };
       responses: {
@@ -344,14 +343,14 @@ export interface paths {
     };
   };
   "/api/findings": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "limit"?: number;
-          "cursor"?: string;
-          "severity"?: string;
-          "type"?: string;
-          "repositoryId"?: string;
+          limit?: number;
+          cursor?: string;
+          severity?: string;
+          type?: string;
+          repositoryId?: string;
         };
       };
       responses: {
@@ -371,7 +370,7 @@ export interface paths {
         };
       };
     };
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": components["schemas"]["ScanJobRequest"];
@@ -413,13 +412,13 @@ export interface paths {
     };
   };
   "/api/findings/{id}/explain-stream": {
-    "get": {
+    get: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
         header?: {
-          "Accept"?: string;
+          Accept?: string;
         };
       };
       responses: {
@@ -442,7 +441,7 @@ export interface paths {
     };
   };
   "/api/repositories/sync": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -497,13 +496,13 @@ export interface paths {
     };
   };
   "/api/leaderboard": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "stream"?: boolean;
+          stream?: boolean;
         };
         header?: {
-          "Accept"?: "text/event-stream" | "application/json";
+          Accept?: "text/event-stream" | "application/json";
         };
       };
       responses: {
@@ -525,7 +524,7 @@ export interface paths {
     };
   };
   "/api/admin/export": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
@@ -562,11 +561,11 @@ export interface paths {
     };
   };
   "/api/admin/webhooks": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
-            "text": string;
+            text: string;
           };
         };
         "401": {
@@ -599,10 +598,10 @@ export interface paths {
     };
   };
   "/api/admin/webhooks/{id}/redeliver": {
-    "post": {
+    post: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
       };
       responses: {
@@ -616,17 +615,14 @@ export interface paths {
             };
           };
         };
-        "400": {
-        };
-        "403": {
-        };
-        "500": {
-        };
+        "400": {};
+        "403": {};
+        "500": {};
       };
     };
   };
   "/api/webhooks/gitlab": {
-    "post": {
+    post: {
       parameters: {
         header?: {
           "X-Gitlab-Token": string;
@@ -657,15 +653,13 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        "413": {
-        };
-        "500": {
-        };
+        "413": {};
+        "500": {};
       };
     };
   };
   "/api/webhooks/bitbucket": {
-    "post": {
+    post: {
       parameters: {
         header?: {
           "X-Hub-Signature": string;
@@ -697,15 +691,13 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        "413": {
-        };
-        "500": {
-        };
+        "413": {};
+        "500": {};
       };
     };
   };
   "/api/webhooks/github": {
-    "post": {
+    post: {
       parameters: {
         header?: {
           "X-GitHub-Event": "pull_request" | "installation" | "installation_repositories";
@@ -763,26 +755,21 @@ export interface paths {
     };
   };
   "/api/findings/{id}/audio-debrief": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "audio/mpeg": string;
           };
         };
-        "401": {
-        };
-        "404": {
-        };
-        "429": {
-        };
-        "502": {
-        };
-        "503": {
-        };
+        "401": {};
+        "404": {};
+        "429": {};
+        "502": {};
+        "503": {};
       };
     };
-    "post": {
+    post: {
       responses: {
         "200": {
           content: {
@@ -793,7 +780,7 @@ export interface paths {
     };
   };
   "/api/findings/{id}/remediate/apply": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -802,106 +789,85 @@ export interface paths {
         };
       };
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "401": {
-        };
-        "403": {
-        };
-        "404": {
-        };
-        "409": {
-        };
-        "502": {
-        };
-        "503": {
-        };
+        "200": {};
+        "400": {};
+        "401": {};
+        "403": {};
+        "404": {};
+        "409": {};
+        "502": {};
+        "503": {};
       };
     };
   };
   "/api/findings/export": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "text/csv": string;
           };
         };
-        "401": {
-        };
+        "401": {};
       };
     };
   };
   "/api/findings/status/{jobId}": {
-    "get": {
+    get: {
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "404": {
-        };
+        "200": {};
+        "401": {};
+        "404": {};
       };
     };
   };
   "/api/sbom/scan/status/{jobId}": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "page"?: number;
-          "pageSize"?: number;
+          page?: number;
+          pageSize?: number;
         };
       };
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "404": {
-        };
+        "200": {};
+        "401": {};
+        "404": {};
       };
     };
   };
   "/api/scans/compare": {
-    "get": {
+    get: {
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "404": {
-        };
+        "200": {};
+        "401": {};
+        "404": {};
       };
     };
   };
   "/api/cli/scan": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": Record<string, unknown>;
         };
       };
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "429": {
-        };
+        "200": {};
+        "400": {};
+        "429": {};
       };
     };
   };
   "/api/audit": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "limit"?: number;
-          "cursor"?: string;
-          "action"?: string;
-          "decision"?: string;
-          "search"?: string;
+          limit?: number;
+          cursor?: string;
+          action?: string;
+          decision?: string;
+          search?: string;
         };
       };
       responses: {
@@ -923,28 +889,24 @@ export interface paths {
     };
   };
   "/api/audit/armoriq": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "cursor"?: string;
-          "scanJobId"?: string;
-          "findingId"?: string;
-          "decision"?: string;
-          "framework"?: string;
-          "format"?: string;
-          "limit"?: number;
-          "offset"?: number;
+          cursor?: string;
+          scanJobId?: string;
+          findingId?: string;
+          decision?: string;
+          framework?: string;
+          format?: string;
+          limit?: number;
+          offset?: number;
         };
       };
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "401": {
-        };
-        "403": {
-        };
+        "200": {};
+        "400": {};
+        "401": {};
+        "403": {};
         "500": {
           content: {
             "application/json": components["schemas"]["Error"];
@@ -952,49 +914,41 @@ export interface paths {
         };
       };
     };
-    "post": {
+    post: {
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "403": {
-        };
-        "404": {
-        };
-        "502": {
-        };
-        "503": {
-        };
+        "200": {};
+        "401": {};
+        "403": {};
+        "404": {};
+        "502": {};
+        "503": {};
       };
     };
   };
   "/api/compliance/export": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "format"?: string;
-          "framework"?: string;
-          "repositoryId"?: string;
-          "from"?: string;
-          "to"?: string;
-          "limit"?: number;
+          format?: string;
+          framework?: string;
+          repositoryId?: string;
+          from?: string;
+          to?: string;
+          limit?: number;
         };
       };
       responses: {
-        "200": {
-        };
-        "401": {
-        };
+        "200": {};
+        "401": {};
       };
     };
   };
   "/api/admin/audit/verify": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "cursor"?: string;
-          "limit"?: number;
+          cursor?: string;
+          limit?: number;
         };
       };
       responses: {
@@ -1009,8 +963,7 @@ export interface paths {
             };
           };
         };
-        "401": {
-        };
+        "401": {};
         "409": {
           content: {
             "application/json": {
@@ -1029,38 +982,31 @@ export interface paths {
     };
   };
   "/api/admin/ai-health": {
-    "get": {
+    get: {
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "403": {
-        };
+        "200": {};
+        "401": {};
+        "403": {};
       };
     };
-    "post": {
+    post: {
       responses: {
-        "200": {
-        };
-        "403": {
-        };
+        "200": {};
+        "403": {};
       };
     };
-    "patch": {
+    patch: {
       responses: {
-        "200": {
-        };
-        "403": {
-        };
+        "200": {};
+        "403": {};
       };
     };
   };
   "/api/health": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "stream"?: boolean;
+          stream?: boolean;
         };
       };
       responses: {
@@ -1070,13 +1016,12 @@ export interface paths {
             "text/event-stream": string;
           };
         };
-        "503": {
-        };
+        "503": {};
       };
     };
   };
   "/api/version": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
@@ -1091,30 +1036,27 @@ export interface paths {
     };
   };
   "/api/openapi": {
-    "get": {
+    get: {
       responses: {
-        "200": {
-        };
-        "500": {
-        };
+        "200": {};
+        "500": {};
       };
     };
   };
   "/api/metrics/landing": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "application/json": Record<string, unknown>;
           };
         };
-        "500": {
-        };
+        "500": {};
       };
     };
   };
   "/api/emergency-intake": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": unknown;
@@ -1126,7 +1068,15 @@ export interface paths {
             "application/json": {
               success: boolean;
               action: {
-                action: "LOCKDOWN" | "EVACUATE" | "ISOLATE" | "CREDENTIAL_REVOCATION" | "NETWORK_ISOLATION" | "POLICY_ENFORCEMENT" | "MONITOR" | "ALERT";
+                action:
+                  | "LOCKDOWN"
+                  | "EVACUATE"
+                  | "ISOLATE"
+                  | "CREDENTIAL_REVOCATION"
+                  | "NETWORK_ISOLATION"
+                  | "POLICY_ENFORCEMENT"
+                  | "MONITOR"
+                  | "ALERT";
                 target: string;
                 confidence: number;
                 rationale?: string;
@@ -1136,29 +1086,23 @@ export interface paths {
             };
           };
         };
-        "400": {
-        };
-        "401": {
-        };
-        "413": {
-        };
-        "415": {
-        };
-        "429": {
-        };
-        "502": {
-        };
+        "400": {};
+        "401": {};
+        "413": {};
+        "415": {};
+        "429": {};
+        "502": {};
       };
     };
   };
   "/api/heist-transmission": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "project"?: string;
-          "rank"?: number;
-          "score"?: number;
-          "findingsCount"?: number;
+          project?: string;
+          rank?: number;
+          score?: number;
+          findingsCount?: number;
         };
       };
       responses: {
@@ -1167,31 +1111,29 @@ export interface paths {
             "text/event-stream": string;
           };
         };
-        "400": {
-        };
+        "400": {};
       };
     };
   };
   "/api/og/heist": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "image/png": string;
           };
         };
-        "500": {
-        };
+        "500": {};
       };
     };
   };
   "/api/voice-alerts/audio": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "repo": string;
-          "decision": string;
-          "severity": string;
+          repo: string;
+          decision: string;
+          severity: string;
         };
       };
       responses: {
@@ -1200,71 +1142,61 @@ export interface paths {
             "audio/mpeg": string;
           };
         };
-        "400": {
-        };
-        "401": {
-        };
+        "400": {};
+        "401": {};
       };
     };
   };
   "/api/voice-alerts/stream": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "text/event-stream": string;
           };
         };
-        "401": {
-        };
-        "429": {
-        };
+        "401": {};
+        "429": {};
       };
     };
   };
   "/api/webhooks": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": Record<string, unknown>;
         };
       };
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "429": {
-        };
+        "200": {};
+        "401": {};
+        "429": {};
       };
     };
   };
   "/api/webhooks/generic": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": Record<string, unknown>;
         };
       };
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "429": {
-        };
+        "200": {};
+        "401": {};
+        "429": {};
       };
     };
   };
   "/api/webhooks/dlq": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "webhookId"?: string;
-          "status"?: "quarantined" | "replaying" | "replayed" | "purged";
-          "circuitBroken"?: boolean;
-          "limit"?: number;
-          "offset"?: number;
+          webhookId?: string;
+          status?: "quarantined" | "replaying" | "replayed" | "purged";
+          circuitBroken?: boolean;
+          limit?: number;
+          offset?: number;
         };
       };
       responses: {
@@ -1276,14 +1208,13 @@ export interface paths {
             };
           };
         };
-        "403": {
-        };
+        "403": {};
       };
     };
-    "delete": {
+    delete: {
       parameters: {
         query?: {
-          "id"?: string;
+          id?: string;
         };
       };
       responses: {
@@ -1292,15 +1223,13 @@ export interface paths {
             "application/json": Record<string, unknown>;
           };
         };
-        "403": {
-        };
-        "404": {
-        };
+        "403": {};
+        "404": {};
       };
     };
   };
   "/api/webhooks/dlq/replay": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -1320,16 +1249,15 @@ export interface paths {
             };
           };
         };
-        "403": {
-        };
+        "403": {};
       };
     };
   };
   "/api/webhooks/dlq/{id}/replay": {
-    "post": {
+    post: {
       parameters: {
         path: {
-          "id": string;
+          id: string;
         };
       };
       responses: {
@@ -1338,77 +1266,61 @@ export interface paths {
             "application/json": Record<string, unknown>;
           };
         };
-        "400": {
-        };
-        "403": {
-        };
-        "404": {
-        };
-        "502": {
-        };
+        "400": {};
+        "403": {};
+        "404": {};
+        "502": {};
       };
     };
   };
   "/api/policies/export": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "application/json": Record<string, unknown>;
           };
         };
-        "401": {
-        };
+        "401": {};
       };
     };
   };
   "/api/policies/import/preview": {
-    "post": {
+    post: {
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "401": {
-        };
-        "413": {
-        };
+        "200": {};
+        "400": {};
+        "401": {};
+        "413": {};
       };
     };
   };
   "/api/policies/import": {
-    "post": {
+    post: {
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "401": {
-        };
-        "413": {
-        };
+        "200": {};
+        "400": {};
+        "401": {};
+        "413": {};
       };
     };
   };
   "/api/policies/test": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": Record<string, unknown>;
         };
       };
       responses: {
-        "200": {
-        };
-        "401": {
-        };
-        "429": {
-        };
+        "200": {};
+        "401": {};
+        "429": {};
       };
     };
   };
   "/api/policies/preview-impact": {
-    "post": {
+    post: {
       requestBody?: {
         content: {
           "application/json": {
@@ -1421,22 +1333,18 @@ export interface paths {
         };
       };
       responses: {
-        "200": {
-        };
-        "400": {
-        };
-        "401": {
-        };
-        "429": {
-        };
+        "200": {};
+        "400": {};
+        "401": {};
+        "429": {};
       };
     };
   };
   "/api/policies/effectiveness": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "days"?: number;
+          days?: number;
         };
       };
       responses: {
@@ -1445,16 +1353,15 @@ export interface paths {
             "application/json": Record<string, unknown>;
           };
         };
-        "401": {
-        };
+        "401": {};
       };
     };
   };
   "/api/policies/effectiveness/export": {
-    "get": {
+    get: {
       parameters: {
         query?: {
-          "days"?: number;
+          days?: number;
         };
       };
       responses: {
@@ -1463,21 +1370,19 @@ export interface paths {
             "text/csv": string;
           };
         };
-        "401": {
-        };
+        "401": {};
       };
     };
   };
   "/api/badge/{owner}/{repo}": {
-    "get": {
+    get: {
       responses: {
         "200": {
           content: {
             "image/svg+xml": string;
           };
         };
-        "429": {
-        };
+        "429": {};
       };
     };
   };
@@ -1485,39 +1390,48 @@ export interface paths {
 
 export interface components {
   schemas: {
-    "Error": {
-      error: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "UNPROCESSABLE_ENTITY" | "TOO_MANY_REQUESTS" | "INTERNAL_SERVER_ERROR" | "DATABASE_ERROR";
+    Error: {
+      error:
+        | "BAD_REQUEST"
+        | "UNAUTHORIZED"
+        | "FORBIDDEN"
+        | "NOT_FOUND"
+        | "CONFLICT"
+        | "UNPROCESSABLE_ENTITY"
+        | "TOO_MANY_REQUESTS"
+        | "INTERNAL_SERVER_ERROR"
+        | "DATABASE_ERROR";
       message?: string;
       success?: false;
     };
-    "SbomDependency": {
+    SbomDependency: {
       name: string;
       version: string;
       manifestFile: string;
       ecosystem: "npm" | "pypi" | "maven" | "gem";
     };
-    "VulnerabilityMatch": {
+    VulnerabilityMatch: {
       dependency: components["schemas"]["SbomDependency"];
       cveId: string;
       severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
       description: string;
       patchedVersion?: string;
     };
-    "SbomScanResult": {
+    SbomScanResult: {
       scanId: string;
       timestamp: string;
       totalDependencies: number;
       vulnerabilities: Array<components["schemas"]["VulnerabilityMatch"]>;
       status: "CLEAN" | "WARNING" | "VULNERABLE" | "ERROR";
     };
-    "RemediationPatch": {
+    RemediationPatch: {
       id?: string;
       findingId: string;
       patchDiff: string;
       status: "GENERATED" | "APPLIED" | "REJECTED";
       createdAt?: string;
     };
-    "Finding": {
+    Finding: {
       id?: string;
       scanResultId?: string;
       type?: "Secret" | "Vulnerability" | "Misconfig" | "CodeQuality" | "Security";
@@ -1531,11 +1445,11 @@ export interface components {
       promptInjectionSuspected?: boolean;
       createdAt?: string;
     };
-    "ScanJobRequest": {
+    ScanJobRequest: {
       repositoryId: string;
       prNumber?: number;
     };
-    "LeaderboardContributor": {
+    LeaderboardContributor: {
       id?: string;
       codename?: string;
       totalPRs?: number;
@@ -1543,7 +1457,7 @@ export interface components {
       rank?: number;
       tier?: "S" | "A" | "B" | "C" | "D";
     };
-    "Repository": {
+    Repository: {
       id?: string;
       githubId?: string;
       fullName?: string;
@@ -1556,63 +1470,63 @@ export interface components {
 }
 
 export interface operations {
-  "scanSbom": paths["/api/sbom/scan"]["post"];
-  "getFinding": paths["/api/findings/{id}"]["get"];
-  "patchFinding": paths["/api/findings/{id}"]["patch"];
-  "deleteFinding": paths["/api/findings/{id}"]["delete"];
-  "remediateFinding": paths["/api/findings/{id}/remediate"]["post"];
-  "getFindingIssue": paths["/api/findings/{id}/issue"]["get"];
-  "createIssueForFinding": paths["/api/findings/{id}/issue"]["post"];
-  "bulkRemediateFindings": paths["/api/findings/bulk-remediate"]["post"];
-  "streamBulkRemediationProgress": paths["/api/findings/bulk-remediate/progress"]["get"];
-  "listFindings": paths["/api/findings"]["get"];
-  "enqueueScan": paths["/api/findings"]["post"];
-  "explainFindingStream": paths["/api/findings/{id}/explain-stream"]["get"];
-  "syncRepositories": paths["/api/repositories/sync"]["post"];
-  "getLeaderboard": paths["/api/leaderboard"]["get"];
-  "exportAuditLogs": paths["/api/admin/export"]["get"];
-  "getWebhookDelivery": paths["/api/admin/webhooks"]["get"];
-  "redeliverWebhookDelivery": paths["/api/admin/webhooks/{id}/redeliver"]["post"];
-  "ingestGitLabWebhook": paths["/api/webhooks/gitlab"]["post"];
-  "ingestBitbucketWebhook": paths["/api/webhooks/bitbucket"]["post"];
-  "handleGitHubWebhook": paths["/api/webhooks/github"]["post"];
-  "getFindingAudioDebrief": paths["/api/findings/{id}/audio-debrief"]["get"];
-  "postFindingAudioDebrief": paths["/api/findings/{id}/audio-debrief"]["post"];
-  "applyFindingRemediation": paths["/api/findings/{id}/remediate/apply"]["post"];
-  "exportFindingsCsv": paths["/api/findings/export"]["get"];
-  "getScanJobStatus": paths["/api/findings/status/{jobId}"]["get"];
-  "getSbomScanStatus": paths["/api/sbom/scan/status/{jobId}"]["get"];
-  "compareScans": paths["/api/scans/compare"]["get"];
-  "cliScan": paths["/api/cli/scan"]["post"];
-  "listAuditLogs": paths["/api/audit"]["get"];
-  "getArmorIqAudit": paths["/api/audit/armoriq"]["get"];
-  "postArmorIqAudit": paths["/api/audit/armoriq"]["post"];
-  "exportCompliance": paths["/api/compliance/export"]["get"];
-  "verifyAuditChain": paths["/api/admin/audit/verify"]["get"];
-  "getAiHealth": paths["/api/admin/ai-health"]["get"];
-  "postAiHealth": paths["/api/admin/ai-health"]["post"];
-  "patchAiHealth": paths["/api/admin/ai-health"]["patch"];
-  "getHealth": paths["/api/health"]["get"];
-  "getVersion": paths["/api/version"]["get"];
-  "getOpenApiSpec": paths["/api/openapi"]["get"];
-  "getLandingMetrics": paths["/api/metrics/landing"]["get"];
-  "postEmergencyIntake": paths["/api/emergency-intake"]["post"];
-  "streamHeistTransmission": paths["/api/heist-transmission"]["get"];
-  "getHeistOgImage": paths["/api/og/heist"]["get"];
-  "getVoiceAlertAudio": paths["/api/voice-alerts/audio"]["get"];
-  "streamVoiceAlerts": paths["/api/voice-alerts/stream"]["get"];
-  "receiveGenericWebhook": paths["/api/webhooks"]["post"];
-  "receiveGenericWebhookAlt": paths["/api/webhooks/generic"]["post"];
-  "listWebhookDlqEntries": paths["/api/webhooks/dlq"]["get"];
-  "purgeWebhookDlqEntries": paths["/api/webhooks/dlq"]["delete"];
-  "batchReplayWebhookDlq": paths["/api/webhooks/dlq/replay"]["post"];
-  "replayWebhookDlqEntry": paths["/api/webhooks/dlq/{id}/replay"]["post"];
-  "exportPolicies": paths["/api/policies/export"]["get"];
-  "previewPolicyImport": paths["/api/policies/import/preview"]["post"];
-  "importPolicies": paths["/api/policies/import"]["post"];
-  "testPolicy": paths["/api/policies/test"]["post"];
-  "previewPolicyImpact": paths["/api/policies/preview-impact"]["post"];
-  "getPolicyEffectiveness": paths["/api/policies/effectiveness"]["get"];
-  "exportPolicyEffectivenessCSV": paths["/api/policies/effectiveness/export"]["get"];
-  "getStatusBadge": paths["/api/badge/{owner}/{repo}"]["get"];
+  scanSbom: paths["/api/sbom/scan"]["post"];
+  getFinding: paths["/api/findings/{id}"]["get"];
+  patchFinding: paths["/api/findings/{id}"]["patch"];
+  deleteFinding: paths["/api/findings/{id}"]["delete"];
+  remediateFinding: paths["/api/findings/{id}/remediate"]["post"];
+  getFindingIssue: paths["/api/findings/{id}/issue"]["get"];
+  createIssueForFinding: paths["/api/findings/{id}/issue"]["post"];
+  bulkRemediateFindings: paths["/api/findings/bulk-remediate"]["post"];
+  streamBulkRemediationProgress: paths["/api/findings/bulk-remediate/progress"]["get"];
+  listFindings: paths["/api/findings"]["get"];
+  enqueueScan: paths["/api/findings"]["post"];
+  explainFindingStream: paths["/api/findings/{id}/explain-stream"]["get"];
+  syncRepositories: paths["/api/repositories/sync"]["post"];
+  getLeaderboard: paths["/api/leaderboard"]["get"];
+  exportAuditLogs: paths["/api/admin/export"]["get"];
+  getWebhookDelivery: paths["/api/admin/webhooks"]["get"];
+  redeliverWebhookDelivery: paths["/api/admin/webhooks/{id}/redeliver"]["post"];
+  ingestGitLabWebhook: paths["/api/webhooks/gitlab"]["post"];
+  ingestBitbucketWebhook: paths["/api/webhooks/bitbucket"]["post"];
+  handleGitHubWebhook: paths["/api/webhooks/github"]["post"];
+  getFindingAudioDebrief: paths["/api/findings/{id}/audio-debrief"]["get"];
+  postFindingAudioDebrief: paths["/api/findings/{id}/audio-debrief"]["post"];
+  applyFindingRemediation: paths["/api/findings/{id}/remediate/apply"]["post"];
+  exportFindingsCsv: paths["/api/findings/export"]["get"];
+  getScanJobStatus: paths["/api/findings/status/{jobId}"]["get"];
+  getSbomScanStatus: paths["/api/sbom/scan/status/{jobId}"]["get"];
+  compareScans: paths["/api/scans/compare"]["get"];
+  cliScan: paths["/api/cli/scan"]["post"];
+  listAuditLogs: paths["/api/audit"]["get"];
+  getArmorIqAudit: paths["/api/audit/armoriq"]["get"];
+  postArmorIqAudit: paths["/api/audit/armoriq"]["post"];
+  exportCompliance: paths["/api/compliance/export"]["get"];
+  verifyAuditChain: paths["/api/admin/audit/verify"]["get"];
+  getAiHealth: paths["/api/admin/ai-health"]["get"];
+  postAiHealth: paths["/api/admin/ai-health"]["post"];
+  patchAiHealth: paths["/api/admin/ai-health"]["patch"];
+  getHealth: paths["/api/health"]["get"];
+  getVersion: paths["/api/version"]["get"];
+  getOpenApiSpec: paths["/api/openapi"]["get"];
+  getLandingMetrics: paths["/api/metrics/landing"]["get"];
+  postEmergencyIntake: paths["/api/emergency-intake"]["post"];
+  streamHeistTransmission: paths["/api/heist-transmission"]["get"];
+  getHeistOgImage: paths["/api/og/heist"]["get"];
+  getVoiceAlertAudio: paths["/api/voice-alerts/audio"]["get"];
+  streamVoiceAlerts: paths["/api/voice-alerts/stream"]["get"];
+  receiveGenericWebhook: paths["/api/webhooks"]["post"];
+  receiveGenericWebhookAlt: paths["/api/webhooks/generic"]["post"];
+  listWebhookDlqEntries: paths["/api/webhooks/dlq"]["get"];
+  purgeWebhookDlqEntries: paths["/api/webhooks/dlq"]["delete"];
+  batchReplayWebhookDlq: paths["/api/webhooks/dlq/replay"]["post"];
+  replayWebhookDlqEntry: paths["/api/webhooks/dlq/{id}/replay"]["post"];
+  exportPolicies: paths["/api/policies/export"]["get"];
+  previewPolicyImport: paths["/api/policies/import/preview"]["post"];
+  importPolicies: paths["/api/policies/import"]["post"];
+  testPolicy: paths["/api/policies/test"]["post"];
+  previewPolicyImpact: paths["/api/policies/preview-impact"]["post"];
+  getPolicyEffectiveness: paths["/api/policies/effectiveness"]["get"];
+  exportPolicyEffectivenessCSV: paths["/api/policies/effectiveness/export"]["get"];
+  getStatusBadge: paths["/api/badge/{owner}/{repo}"]["get"];
 }

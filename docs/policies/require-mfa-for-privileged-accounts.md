@@ -1,9 +1,11 @@
 # Require MFA for Privileged Accounts
 
 ## Problem
+
 Allowing administrator or elevated operator accounts to authenticate using single-factor passwords alone leaves systems highly vulnerable to credential stuffing, password reuse, and phishing compromises.
 
 ## Example
+
 ```javascript
 // Vulnerable: admin privilege granted with single-factor password
 if (user.role === "ADMIN" && passwordMatches) {
@@ -12,6 +14,7 @@ if (user.role === "ADMIN" && passwordMatches) {
 ```
 
 ## Fix
+
 Enforce mandatory multi-factor authentication (TOTP or FIDO2/WebAuthn) for administrative and privileged users before granting access.
 
 ```javascript

@@ -773,9 +773,15 @@ describe("--severity and --fail-on combined", () => {
       const xml = exporter.export(emptyResults);
 
       expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-      expect(xml).toContain('<testsuites name="SecureFlow Security Scan" tests="1" failures="0" errors="0" time="0.000">');
-      expect(xml).toContain('<testsuite name="src/safe.ts" tests="1" failures="0" errors="0" time="0.000">');
-      expect(xml).toContain('<testcase name="Security scan: no violations" classname="src/safe.ts" time="0.000" />');
+      expect(xml).toContain(
+        '<testsuites name="SecureFlow Security Scan" tests="1" failures="0" errors="0" time="0.000">',
+      );
+      expect(xml).toContain(
+        '<testsuite name="src/safe.ts" tests="1" failures="0" errors="0" time="0.000">',
+      );
+      expect(xml).toContain(
+        '<testcase name="Security scan: no violations" classname="src/safe.ts" time="0.000" />',
+      );
       expect(xml).toContain("</testsuite>");
       expect(xml).toContain("</testsuites>");
     });
@@ -784,12 +790,22 @@ describe("--severity and --fail-on combined", () => {
       const exporter = new JunitExporter();
       const xml = exporter.export(sampleResults);
 
-      expect(xml).toContain('<testsuites name="SecureFlow Security Scan" tests="4" failures="3" errors="0" time="0.000">');
-      expect(xml).toContain('<testsuite name="src/config/db.ts" tests="2" failures="2" errors="0" time="0.000">');
-      expect(xml).toContain('<testsuite name="src/utils/logger.ts" tests="1" failures="1" errors="0" time="0.000">');
-      expect(xml).toContain('<testsuite name="src/components/clean.ts" tests="1" failures="0" errors="0" time="0.000">');
+      expect(xml).toContain(
+        '<testsuites name="SecureFlow Security Scan" tests="4" failures="3" errors="0" time="0.000">',
+      );
+      expect(xml).toContain(
+        '<testsuite name="src/config/db.ts" tests="2" failures="2" errors="0" time="0.000">',
+      );
+      expect(xml).toContain(
+        '<testsuite name="src/utils/logger.ts" tests="1" failures="1" errors="0" time="0.000">',
+      );
+      expect(xml).toContain(
+        '<testsuite name="src/components/clean.ts" tests="1" failures="0" errors="0" time="0.000">',
+      );
 
-      expect(xml).toContain('<failure message="environment variable (severity: HIGH)" type="HIGH">');
+      expect(xml).toContain(
+        '<failure message="environment variable (severity: HIGH)" type="HIGH">',
+      );
       expect(xml).toContain("File: src/config/db.ts:15");
     });
 
@@ -858,7 +874,9 @@ describe("--severity and --fail-on combined", () => {
 
   describe("Secret Masking in Exporters (#2021)", () => {
     const fakeStripe = ["sk", "live", "999999999999999999999999"].join("_");
-    const fakeSlack = ["https:", "", "hooks.slack.com", "services", "T000", "B000", "XXXXX"].join("/");
+    const fakeSlack = ["https:", "", "hooks.slack.com", "services", "T000", "B000", "XXXXX"].join(
+      "/",
+    );
     const rawSecretResults: FileScanResult[] = [
       {
         path: "src/keys.ts",

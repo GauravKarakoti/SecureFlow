@@ -18,43 +18,25 @@ import {
 } from "./findings-columns-menu";
 
 function TestConsumer() {
-  const { preferences, toggleColumn, setDensity, resetPreferences } =
-    useFindingsTablePreferences();
+  const { preferences, toggleColumn, setDensity, resetPreferences } = useFindingsTablePreferences();
 
   return (
     <div>
       <div data-testid="current-density">{preferences.density}</div>
-      <div data-testid="visible-columns-json">
-        {JSON.stringify(preferences.visibleColumns)}
-      </div>
-      <button
-        data-testid="btn-toggle-type"
-        onClick={() => toggleColumn("type")}
-      >
+      <div data-testid="visible-columns-json">{JSON.stringify(preferences.visibleColumns)}</div>
+      <button data-testid="btn-toggle-type" onClick={() => toggleColumn("type")}>
         Toggle Type
       </button>
-      <button
-        data-testid="btn-toggle-severity"
-        onClick={() => toggleColumn("severity")}
-      >
+      <button data-testid="btn-toggle-severity" onClick={() => toggleColumn("severity")}>
         Toggle Severity
       </button>
-      <button
-        data-testid="btn-toggle-status"
-        onClick={() => toggleColumn("status")}
-      >
+      <button data-testid="btn-toggle-status" onClick={() => toggleColumn("status")}>
         Toggle Status
       </button>
-      <button
-        data-testid="btn-density-compact"
-        onClick={() => setDensity("compact")}
-      >
+      <button data-testid="btn-density-compact" onClick={() => setDensity("compact")}>
         Set Compact
       </button>
-      <button
-        data-testid="btn-density-comfortable"
-        onClick={() => setDensity("comfortable")}
-      >
+      <button data-testid="btn-density-comfortable" onClick={() => setDensity("comfortable")}>
         Set Comfortable
       </button>
       <button data-testid="btn-reset" onClick={resetPreferences}>
@@ -79,13 +61,11 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-123">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     expect(screen.getByTestId("current-density")).toHaveTextContent("comfortable");
-    const visible = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    const visible = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visible.severity).toBe(true);
     expect(visible.status).toBe(true);
     expect(visible.type).toBe(true);
@@ -102,15 +82,13 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-123">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     // Toggle 'type' column
     fireEvent.click(screen.getByTestId("btn-toggle-type"));
 
-    const visibleAfter = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    const visibleAfter = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visibleAfter.type).toBe(false);
 
     // Verify localStorage has persisted this
@@ -124,21 +102,17 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-123">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     // Attempt to toggle severity
     fireEvent.click(screen.getByTestId("btn-toggle-severity"));
-    let visible = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    let visible = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visible.severity).toBe(true);
 
     // Attempt to toggle status
     fireEvent.click(screen.getByTestId("btn-toggle-status"));
-    visible = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    visible = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visible.status).toBe(true);
   });
 
@@ -149,7 +123,7 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
       JSON.stringify({
         visibleColumns: { severity: false, status: false, type: false },
         density: "compact",
-      })
+      }),
     );
 
     const loaded = loadStoredPreferences("user-tampered");
@@ -163,7 +137,7 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-456">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     expect(screen.getByTestId("current-density")).toHaveTextContent("comfortable");
@@ -183,7 +157,7 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-reset">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     // Modify state
@@ -191,18 +165,14 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     fireEvent.click(screen.getByTestId("btn-density-compact"));
 
     expect(screen.getByTestId("current-density")).toHaveTextContent("compact");
-    let visible = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    let visible = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visible.type).toBe(false);
 
     // Click Reset
     fireEvent.click(screen.getByTestId("btn-reset"));
 
     expect(screen.getByTestId("current-density")).toHaveTextContent("comfortable");
-    visible = JSON.parse(
-      screen.getByTestId("visible-columns-json").textContent || "{}"
-    );
+    visible = JSON.parse(screen.getByTestId("visible-columns-json").textContent || "{}");
     expect(visible.type).toBe(true);
     expect(visible.severity).toBe(true);
     expect(visible.status).toBe(true);
@@ -213,7 +183,7 @@ describe("Findings Table Columns & Density Preferences (#2099)", () => {
     render(
       <FindingsTablePreferencesProvider userId="user-menu">
         <TestConsumer />
-      </FindingsTablePreferencesProvider>
+      </FindingsTablePreferencesProvider>,
     );
 
     const trigger = screen.getByTestId("findings-columns-menu-trigger");

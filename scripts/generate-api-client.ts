@@ -87,9 +87,7 @@ export function generateTypeScriptFromOpenApi(yamlContent: string): string {
     lines.push(`  "${pathStr}": {`);
     for (const [method, op] of Object.entries(pathItem)) {
       if (
-        !["get", "post", "put", "patch", "delete", "options", "head"].includes(
-          method.toLowerCase()
-        )
+        !["get", "post", "put", "patch", "delete", "options", "head"].includes(method.toLowerCase())
       ) {
         continue;
       }
@@ -131,14 +129,11 @@ export function generateTypeScriptFromOpenApi(yamlContent: string): string {
       }
       if (op.requestBody) {
         const content = op.requestBody.content || {};
-        const jsonSchema =
-          content["application/json"]?.schema || content["*/*"]?.schema;
+        const jsonSchema = content["application/json"]?.schema || content["*/*"]?.schema;
         lines.push("      requestBody?: {");
         lines.push("        content: {");
         if (jsonSchema) {
-          lines.push(
-            `          "application/json": ${schemaToTsType(jsonSchema, 5)};`
-          );
+          lines.push(`          "application/json": ${schemaToTsType(jsonSchema, 5)};`);
         } else {
           lines.push('          "application/json": unknown;');
         }
@@ -151,14 +146,9 @@ export function generateTypeScriptFromOpenApi(yamlContent: string): string {
         lines.push(`        "${code}": {`);
         if (resp.content) {
           lines.push("          content: {");
-          for (const [mediaType, mediaObj] of Object.entries(resp.content) as [
-            string,
-            any,
-          ][]) {
+          for (const [mediaType, mediaObj] of Object.entries(resp.content) as [string, any][]) {
             const respSchema = mediaObj.schema;
-            lines.push(
-              `            "${mediaType}": ${schemaToTsType(respSchema, 6)};`
-            );
+            lines.push(`            "${mediaType}": ${schemaToTsType(respSchema, 6)};`);
           }
           lines.push("          };");
         }
@@ -188,13 +178,11 @@ export function generateTypeScriptFromOpenApi(yamlContent: string): string {
     for (const [method, op] of Object.entries(pathItem)) {
       if (
         ["get", "post", "put", "patch", "delete", "options", "head"].includes(
-          method.toLowerCase()
+          method.toLowerCase(),
         ) &&
         op.operationId
       ) {
-        lines.push(
-          `  "${op.operationId}": paths["${pathStr}"]["${method.toLowerCase()}"];`
-        );
+        lines.push(`  "${op.operationId}": paths["${pathStr}"]["${method.toLowerCase()}"];`);
       }
     }
   }
@@ -204,19 +192,20 @@ export function generateTypeScriptFromOpenApi(yamlContent: string): string {
   return lines.join("\n");
 }
 
-export function generateApiClient(options: {
-  specPath?: string;
-  outputPath?: string;
-  checkOnly?: boolean;
-} = {}): {
+export function generateApiClient(
+  options: {
+    specPath?: string;
+    outputPath?: string;
+    checkOnly?: boolean;
+  } = {},
+): {
   code: string;
   isUpToDate: boolean;
   outputPath: string;
 } {
   const specPath = options.specPath || path.resolve(process.cwd(), "openapi.yaml");
   const outputPath =
-    options.outputPath ||
-    path.resolve(process.cwd(), "packages/api-client/src/schema.ts");
+    options.outputPath || path.resolve(process.cwd(), "packages/api-client/src/schema.ts");
 
   if (!fs.existsSync(specPath)) {
     throw new Error(`OpenAPI specification not found at ${specPath}`);
@@ -246,9 +235,7 @@ export function generateApiClient(options: {
   };
 }
 
-const isMain =
-  process.argv[1] &&
-  /generate-api-client(\.ts|\.js|\.mjs)?$/.test(process.argv[1]);
+const isMain = process.argv[1] && /generate-api-client(\.ts|\.js|\.mjs)?$/.test(process.argv[1]);
 
 if (isMain) {
   const checkOnly = process.argv.includes("--check");
@@ -260,12 +247,14 @@ if (isMain) {
         process.exit(0);
       } else {
         console.error(
-          "❌ [api-client] Out of date! Generated API client differs from openapi.yaml.\nRun `npm run client:generate` and commit the updated client."
+          "❌ [api-client] Out of date! Generated API client differs from openapi.yaml.\nRun `npm run client:generate` and commit the updated client.",
         );
         process.exit(1);
       }
     } else {
-      console.log(`✅ [api-client] Successfully generated TypeScript types at ${result.outputPath}`);
+      console.log(
+        `✅ [api-client] Successfully generated TypeScript types at ${result.outputPath}`,
+      );
     }
   } catch (err: any) {
     console.error(`❌ [api-client] Error: ${err.message}`);

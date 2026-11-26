@@ -18,8 +18,8 @@ describe("@secureflow/api-client (#2105)", () => {
         {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }
-      )
+        },
+      ),
     );
 
     const client = createSecureFlowClient({
@@ -40,7 +40,7 @@ describe("@secureflow/api-client (#2105)", () => {
     expect(requestUrl).toBe("https://api.secureflow.dev/api/findings?severity=CRITICAL&limit=10");
     expect(requestInit.method).toBe("GET");
     expect((requestInit.headers as Record<string, string>)["Authorization"]).toBe(
-      "Bearer sft_abcdef0123456789"
+      "Bearer sft_abcdef0123456789",
     );
     expect((requestInit.headers as Record<string, string>)["Accept"]).toBe("application/json");
 
@@ -59,8 +59,8 @@ describe("@secureflow/api-client (#2105)", () => {
         {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }
-      )
+        },
+      ),
     );
 
     const client = createSecureFlowClient({
@@ -79,7 +79,7 @@ describe("@secureflow/api-client (#2105)", () => {
       "http://localhost:9002/api/findings/finding-xyz-123",
       expect.objectContaining({
         method: "GET",
-      })
+      }),
     );
     expect((result.data as any).id).toBe("finding-xyz-123");
   });
@@ -94,8 +94,8 @@ describe("@secureflow/api-client (#2105)", () => {
         {
           status: 202,
           headers: { "Content-Type": "application/json" },
-        }
-      )
+        },
+      ),
     );
 
     const client = createSecureFlowClient({
@@ -112,10 +112,10 @@ describe("@secureflow/api-client (#2105)", () => {
     const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(requestInit.method).toBe("POST");
     expect((requestInit.headers as Record<string, string>)["Content-Type"]).toBe(
-      "application/json"
+      "application/json",
     );
     expect(requestInit.body).toBe(
-      JSON.stringify({ repositoryId: "repo-1", commitSha: "a1b2c3d4" })
+      JSON.stringify({ repositoryId: "repo-1", commitSha: "a1b2c3d4" }),
     );
     expect((result.data as any).jobId).toBe("job-999");
   });
@@ -131,8 +131,8 @@ describe("@secureflow/api-client (#2105)", () => {
           status: 401,
           statusText: "Unauthorized",
           headers: { "Content-Type": "application/json" },
-        }
-      )
+        },
+      ),
     );
 
     const client = createSecureFlowClient({
@@ -151,8 +151,8 @@ describe("@secureflow/api-client (#2105)", () => {
           status: 403,
           statusText: "Forbidden",
           headers: { "Content-Type": "application/json" },
-        }
-      )
+        },
+      ),
     );
 
     try {

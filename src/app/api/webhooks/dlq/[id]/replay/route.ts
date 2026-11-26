@@ -4,10 +4,7 @@ import { replayDlqEntry } from "@/lib/webhooks/dlq";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user || !session.user.roles?.includes("ADMIN")) {
     return NextResponse.json({ error: "Unauthorized: Admin access required" }, { status: 403 });

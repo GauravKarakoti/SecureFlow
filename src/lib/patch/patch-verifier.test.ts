@@ -76,7 +76,8 @@ describe("PatchVerifier", () => {
     });
 
     it("validates correct TypeScript/JavaScript syntax", () => {
-      const validCode = "import fs from 'fs';\nexport const x: number = 42;\nfunction run() { return x; }";
+      const validCode =
+        "import fs from 'fs';\nexport const x: number = 42;\nfunction run() { return x; }";
       const res = parseSyntax("src/service.ts", validCode);
       expect(res.valid).toBe(true);
       expect(res.language).toBe("typescript");
@@ -103,7 +104,8 @@ describe("PatchVerifier", () => {
     });
 
     it("validates correct Python syntax", () => {
-      const validPy = "def calculate_tax(amount):\n    if amount > 100:\n        return amount * 0.2\n    return 0\n";
+      const validPy =
+        "def calculate_tax(amount):\n    if amount > 100:\n        return amount * 0.2\n    return 0\n";
       const res = parseSyntax("calc.py", validPy);
       expect(res.valid).toBe(true);
       expect(res.language).toBe("python");
@@ -127,7 +129,8 @@ describe("PatchVerifier", () => {
   describe("verifyPatchInTempCopy (Workspace Safety & Patch Validation)", () => {
     it("verifies a valid patch and keeps real files unchanged", async () => {
       const realFilePath = path.join(workspaceDir, "service.ts");
-      const originalCode = "export function logToken(token: string) {\n  console.log('Token:', token);\n}\n";
+      const originalCode =
+        "export function logToken(token: string) {\n  console.log('Token:', token);\n}\n";
       fs.writeFileSync(realFilePath, originalCode, "utf8");
 
       const beforeStat = fs.statSync(realFilePath);

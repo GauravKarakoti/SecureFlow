@@ -10,9 +10,7 @@ import {
   shouldScanFile,
   type FailOnSeverity,
 } from "./scanner.js";
-import {
-  discoverWorkspaceFiles,
-} from "./workspace.js";
+import { discoverWorkspaceFiles } from "./workspace.js";
 import { shouldIgnorePath } from "./ignore.js";
 import type { CompiledCustomRule } from "./custom-rules.js";
 import { colors } from "./lib/tui.js";
@@ -144,10 +142,7 @@ export function diffFindings(
 /**
  * Checks whether a given relative path belongs to an ignored directory, build output, or ignore rule.
  */
-export function isIgnoredWatchPath(
-  relPath: string,
-  customIgnores: RegExp[] = [],
-): boolean {
+export function isIgnoredWatchPath(relPath: string, customIgnores: RegExp[] = []): boolean {
   const normalized = relPath.replace(/\\/g, "/").replace(/^\.\//, "");
   if (!normalized || normalized === ".") return false;
 
@@ -183,10 +178,7 @@ export interface FileWatcher {
   close(): void | Promise<void>;
 }
 
-export type WatcherCallback = (
-  eventType: "change" | "rename",
-  filename: string,
-) => void;
+export type WatcherCallback = (eventType: "change" | "rename", filename: string) => void;
 
 export type WatcherFactory = (
   dir: string,
@@ -202,15 +194,11 @@ export const defaultWatcherFactory: WatcherFactory = (
   options: { recursive?: boolean },
   callback: WatcherCallback,
 ): FileWatcher => {
-  const watcher = fs.watch(
-    dir,
-    { recursive: options.recursive ?? true },
-    (eventType, filename) => {
-      if (filename) {
-        callback(eventType as any, filename.toString());
-      }
-    },
-  );
+  const watcher = fs.watch(dir, { recursive: options.recursive ?? true }, (eventType, filename) => {
+    if (filename) {
+      callback(eventType as any, filename.toString());
+    }
+  });
 
   return {
     close: () => {
@@ -283,12 +271,8 @@ export interface WatchSession {
 /**
  * Initializes and starts real-time workspace watch mode.
  */
-export async function startWatchMode(
-  options: WatchModeOptions = {},
-): Promise<WatchSession> {
-  const workspaceRoot = options.workspaceRoot
-    ? path.resolve(options.workspaceRoot)
-    : process.cwd();
+export async function startWatchMode(options: WatchModeOptions = {}): Promise<WatchSession> {
+  const workspaceRoot = options.workspaceRoot ? path.resolve(options.workspaceRoot) : process.cwd();
   const targetDir = options.targetDir
     ? path.resolve(workspaceRoot, options.targetDir)
     : workspaceRoot;
@@ -305,10 +289,7 @@ export async function startWatchMode(
   let activeWatcher: FileWatcher | null = null;
 
   // Converts a Violation to a TrackedFinding
-  const toTrackedFinding = (
-    relPath: string,
-    v: Violation,
-  ): TrackedFinding => {
+  const toTrackedFinding = (relPath: string, v: Violation): TrackedFinding => {
     const snippet = (v as any).snippet || v.text || "";
     const rule = (v as any).rule || v.ruleId || "secret-logging";
     const severity = v.severity || "HIGH";
@@ -331,9 +312,7 @@ export async function startWatchMode(
   /**
    * Rescans a single target file, computes differences vs prior scan, and logs results.
    */
-  const rescanFile = async (
-    rawRelPath: string,
-  ): Promise<FindingDiff | null> => {
+  const rescanFile = async (rawRelPath: string): Promise<FindingDiff | null> => {
     if (!isRunning) return null;
 
     const relPath = rawRelPath.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -391,26 +370,17 @@ export async function startWatchMode(
     }
 
     // 4. Scan file
-    const scanResult: FileScanResult = scanFile(
-      relPath,
-      content,
-      customIgnores,
-      {
-        ...(options.ignoreSuppressions ? { ignoreSuppressions: options.ignoreSuppressions } : {}),
-        ...(customRules.length > 0 ? { customRules } : {}),
-      },
-    );
+    const scanResult: FileScanResult = scanFile(relPath, content, customIgnores, {
+      ...(options.ignoreSuppressions ? { ignoreSuppressions: options.ignoreSuppressions } : {}),
+      ...(customRules.length > 0 ? { customRules } : {}),
+    });
 
     let violations = scanResult.violations;
     if (options.severityFilter) {
-      violations = violations.filter((v) =>
-        options.severityFilter!.has(v.severity ?? "HIGH"),
-      );
+      violations = violations.filter((v) => options.severityFilter!.has(v.severity ?? "HIGH"));
     }
 
-    const currentFindings = violations.map((v) =>
-      toTrackedFinding(relPath, v),
-    );
+    const currentFindings = violations.map((v) => toTrackedFinding(relPath, v));
     const prevFindings = findingsStore.get(relPath) || [];
     const diff = diffFindings(relPath, prevFindings, currentFindings);
 
@@ -439,9 +409,7 @@ export async function startWatchMode(
 
     // 8. Summary status
     if (diff.resolved.length > 0 && currentFindings.length === 0) {
-      logger.log(
-        `${colors.green("✅ All findings resolved in")} ${colors.bold(relPath)}!`,
-      );
+      logger.log(`${colors.green("✅ All findings resolved in")} ${colors.bold(relPath)}!`);
     } else if (
       diff.resolved.length === 0 &&
       diff.newFindings.length === 0 &&
@@ -473,10 +441,7 @@ export async function startWatchMode(
     if (path.isAbsolute(relPath)) {
       relPath = path.relative(workspaceRoot, relPath).replace(/\\/g, "/");
     } else if (targetDir !== workspaceRoot) {
-      const relFromTarget = path.relative(
-        workspaceRoot,
-        path.join(targetDir, relPath),
-      );
+      const relFromTarget = path.relative(workspaceRoot, path.join(targetDir, relPath));
       relPath = relFromTarget.replace(/\\/g, "/");
     }
 
@@ -520,7 +485,9 @@ export async function startWatchMode(
         try {
           const content = fs.readFileSync(fullPath, "utf-8");
           const res = scanFile(relPath, content, customIgnores, {
-            ...(options.ignoreSuppressions ? { ignoreSuppressions: options.ignoreSuppressions } : {}),
+            ...(options.ignoreSuppressions
+              ? { ignoreSuppressions: options.ignoreSuppressions }
+              : {}),
             ...(customRules.length > 0 ? { customRules } : {}),
           });
 
@@ -560,15 +527,11 @@ export async function startWatchMode(
     `${colors.cyan("👀 [SecureFlow]")} Watching for file changes in ${colors.bold(watchPathDisplay)}... (Press Ctrl+C to exit)`,
   );
 
-  activeWatcher = watcherFactory(
-    targetDir,
-    { recursive: true },
-    (_eventType, filename) => {
-      if (filename) {
-        scheduleRescan(filename);
-      }
-    },
-  );
+  activeWatcher = watcherFactory(targetDir, { recursive: true }, (_eventType, filename) => {
+    if (filename) {
+      scheduleRescan(filename);
+    }
+  });
 
   // 3. Graceful termination and signal handling
   const cleanStop = async (): Promise<void> => {
@@ -653,9 +616,7 @@ export async function startWatchMode(
 /**
  * Runs the watch mode CLI workflow until interrupted by SIGINT / SIGTERM.
  */
-export async function runWatchMode(
-  options: WatchModeOptions = {},
-): Promise<number> {
+export async function runWatchMode(options: WatchModeOptions = {}): Promise<number> {
   return new Promise((resolve) => {
     let resolved = false;
 

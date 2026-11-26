@@ -113,11 +113,7 @@ export function screenProjectName(raw: string | null | undefined): ProjectNameSc
   // payloads are consistently caught and replaced with the default label.
   const cleanedFull =
     typeof raw === "string"
-      ? raw
-          .replace(/\s+/g, " ")
-          .replace(STRIPPED_CHARACTERS, "")
-          .replace(/\s+/g, " ")
-          .trim()
+      ? raw.replace(/\s+/g, " ").replace(STRIPPED_CHARACTERS, "").replace(/\s+/g, " ").trim()
       : "";
 
   const candidates = [raw, cleanedFull, normalized].filter(

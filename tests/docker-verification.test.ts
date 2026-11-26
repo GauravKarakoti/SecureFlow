@@ -56,11 +56,21 @@ describe("Dockerfile & Container Infrastructure Verification (#1794)", () => {
     expect(content).toMatch(/ENV\s+NEXT_TELEMETRY_DISABLED=1/);
 
     // Runner stage must copy standalone bundle, static assets, public directory, and Prisma artifacts
-    expect(content).toMatch(/COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/\.next\/standalone\s+\.\//);
-    expect(content).toMatch(/COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/\.next\/static\s+\.\/\.next\/static/);
-    expect(content).toMatch(/COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/public\s+\.\/public/);
-    expect(content).toMatch(/COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/node_modules\/\.prisma\s+\.\/node_modules\/\.prisma/);
-    expect(content).toMatch(/COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/node_modules\/@prisma\/client\s+\.\/node_modules\/@prisma\/client/);
+    expect(content).toMatch(
+      /COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/\.next\/standalone\s+\.\//,
+    );
+    expect(content).toMatch(
+      /COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/\.next\/static\s+\.\/\.next\/static/,
+    );
+    expect(content).toMatch(
+      /COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/public\s+\.\/public/,
+    );
+    expect(content).toMatch(
+      /COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/node_modules\/\.prisma\s+\.\/node_modules\/\.prisma/,
+    );
+    expect(content).toMatch(
+      /COPY\s+--from=builder\s+--chown=nextjs:nodejs\s+\/app\/node_modules\/@prisma\/client\s+\.\/node_modules\/@prisma\/client/,
+    );
   });
 
   it("strips source maps in runner to prevent source leakage and reduce image footprint", () => {
@@ -70,8 +80,12 @@ describe("Dockerfile & Container Infrastructure Verification (#1794)", () => {
 
   it("configures container healthcheck probe pointing to /api/health", () => {
     const content = fs.readFileSync(dockerfilePath, "utf-8");
-    expect(content).toMatch(/HEALTHCHECK\s+--interval=30s\s+--timeout=5s\s+--start-period=15s\s+--retries=3/);
-    expect(content).toMatch(/CMD\s+wget\s+-q\s+--spider\s+http:\/\/127\.0\.0\.1:9002\/api\/health\s+\|\|\s+exit\s+1/);
+    expect(content).toMatch(
+      /HEALTHCHECK\s+--interval=30s\s+--timeout=5s\s+--start-period=15s\s+--retries=3/,
+    );
+    expect(content).toMatch(
+      /CMD\s+wget\s+-q\s+--spider\s+http:\/\/127\.0\.0\.1:9002\/api\/health\s+\|\|\s+exit\s+1/,
+    );
   });
 
   it("configures build-time metadata injection arguments and environment variables", () => {

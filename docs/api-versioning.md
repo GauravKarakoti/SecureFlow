@@ -34,6 +34,7 @@ The following changes are classified as **breaking**:
 ### 🟢 Non-Breaking Changes (Backwards-Compatible)
 
 The following changes are considered **non-breaking** and may be introduced in minor/patch releases:
+
 - Adding new endpoints.
 - Adding optional query parameters or optional request body properties.
 - Adding new properties to response JSON objects (integrator clients should ignore unknown fields).
@@ -83,11 +84,11 @@ Before any endpoint, parameter, or behavior is sunset, it moves through a struct
 
 To give automated tooling, CLI clients, and integrators advance warning in logs and observability platforms, all deprecated endpoints emit:
 
-| Header | Format | Example | Description |
-| :--- | :--- | :--- | :--- |
-| **`Deprecation`** | Date (IMF-fixdate or boolean `@1`) | `Sun, 01 Nov 2026 00:00:00 GMT` | Indicates the endpoint is deprecated and when deprecation began. |
-| **`Sunset`** | Date (IMF-fixdate, RFC 7231 / RFC 8594) | `Fri, 30 Apr 2027 00:00:00 GMT` | The date on which the endpoint is scheduled to become completely unavailable. |
-| **`Link`** | `rel="sunset"` and/or `rel="successor-version"` | `<https://.../api/webhooks/generic>; rel="successor-version"` | Hyperlink to replacement documentation or successor endpoint. |
+| Header            | Format                                          | Example                                                       | Description                                                                   |
+| :---------------- | :---------------------------------------------- | :------------------------------------------------------------ | :---------------------------------------------------------------------------- |
+| **`Deprecation`** | Date (IMF-fixdate or boolean `@1`)              | `Sun, 01 Nov 2026 00:00:00 GMT`                               | Indicates the endpoint is deprecated and when deprecation began.              |
+| **`Sunset`**      | Date (IMF-fixdate, RFC 7231 / RFC 8594)         | `Fri, 30 Apr 2027 00:00:00 GMT`                               | The date on which the endpoint is scheduled to become completely unavailable. |
+| **`Link`**        | `rel="sunset"` and/or `rel="successor-version"` | `<https://.../api/webhooks/generic>; rel="successor-version"` | Hyperlink to replacement documentation or successor endpoint.                 |
 
 ### Example Response
 

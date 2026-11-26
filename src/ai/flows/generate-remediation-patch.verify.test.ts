@@ -67,7 +67,8 @@ describe("generateRemediationPatch with Automated Patch Verification (#1977)", (
 
   it("handles a failing patch: retries once with feedback, and if it still fails shows finding without patch and short note", async () => {
     const realFilePath = path.join(workspaceDir, "auth.ts");
-    const originalContent = "function authenticateUser(token: string) {\n  return token === 'secret';\n}\n";
+    const originalContent =
+      "function authenticateUser(token: string) {\n  return token === 'secret';\n}\n";
     fs.writeFileSync(realFilePath, originalContent, "utf8");
     const beforeStat = fs.statSync(realFilePath);
 
@@ -103,7 +104,9 @@ describe("generateRemediationPatch with Automated Patch Verification (#1977)", (
     // Verification retried once with feedback
     expect(mockGenerate).toHaveBeenCalledTimes(2);
     const retryCallArgs = mockGenerate.mock.calls[1][0];
-    expect(retryCallArgs.prompt).toContain("IMPORTANT: The previous patch failed automated verification");
+    expect(retryCallArgs.prompt).toContain(
+      "IMPORTANT: The previous patch failed automated verification",
+    );
     expect(retryCallArgs.prompt).toContain("Patch context mismatch");
 
     // ACCEPTANCE CRITERIA:
@@ -157,7 +160,9 @@ describe("generateRemediationPatch with Automated Patch Verification (#1977)", (
     // Retried once with syntax error feedback
     expect(mockGenerate).toHaveBeenCalledTimes(2);
     const retryCallArgs = mockGenerate.mock.calls[1][0];
-    expect(retryCallArgs.prompt).toContain("IMPORTANT: The previous patch failed automated verification");
+    expect(retryCallArgs.prompt).toContain(
+      "IMPORTANT: The previous patch failed automated verification",
+    );
     expect(retryCallArgs.prompt).toContain("Syntax error in typescript");
 
     // Finding shown without patch and with note

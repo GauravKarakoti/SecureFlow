@@ -141,7 +141,10 @@ function isConfiguredValue(val: string | undefined): boolean {
   const trimmed = val.trim();
   if (!trimmed) return false;
   if (PLACEHOLDER_VALUES.has(trimmed.toLowerCase())) return false;
-  if (trimmed.includes("<Password>") || trimmed.includes("-----BEGIN RSA PRIVATE KEY-----\n...\n")) {
+  if (
+    trimmed.includes("<Password>") ||
+    trimmed.includes("-----BEGIN RSA PRIVATE KEY-----\n...\n")
+  ) {
     return false;
   }
   return true;

@@ -45,7 +45,7 @@ describe("Built-in Policies & Help Guidance (#2098)", () => {
       const docPath = path.join(docsDir, policy.slug);
       expect(
         fs.existsSync(docPath),
-        `Guidance document missing for policy '${policy.name}': expected at ${docPath}`
+        `Guidance document missing for policy '${policy.name}': expected at ${docPath}`,
       ).toBe(true);
 
       const content = fs.readFileSync(docPath, "utf-8");

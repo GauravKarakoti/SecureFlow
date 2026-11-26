@@ -130,9 +130,10 @@ export function loadBaseline(
   baselinePath: string = DEFAULT_BASELINE_FILENAME,
   repoRoot?: string,
 ): BaselineFile | null {
-  const targetPath = repoRoot && !path.isAbsolute(baselinePath)
-    ? path.resolve(repoRoot, baselinePath)
-    : path.resolve(baselinePath);
+  const targetPath =
+    repoRoot && !path.isAbsolute(baselinePath)
+      ? path.resolve(repoRoot, baselinePath)
+      : path.resolve(baselinePath);
 
   if (!fs.existsSync(targetPath)) {
     return null;
@@ -165,9 +166,10 @@ export function saveBaseline(
   baselinePath: string = DEFAULT_BASELINE_FILENAME,
   repoRoot?: string,
 ): string {
-  const targetPath = repoRoot && !path.isAbsolute(baselinePath)
-    ? path.resolve(repoRoot, baselinePath)
-    : path.resolve(baselinePath);
+  const targetPath =
+    repoRoot && !path.isAbsolute(baselinePath)
+      ? path.resolve(repoRoot, baselinePath)
+      : path.resolve(baselinePath);
 
   const dir = path.dirname(targetPath);
   if (!fs.existsSync(dir)) {
@@ -189,7 +191,12 @@ export function matchViolationAgainstBaseline(
   const normPath = normalizeScanPath(filePath);
   const snippet = violation.text.trim();
   const snippetHash = computeSnippetHash(snippet);
-  const fingerprint = computeBaselineFingerprint(normPath, violation.reason, snippet, violation.ruleId);
+  const fingerprint = computeBaselineFingerprint(
+    normPath,
+    violation.reason,
+    snippet,
+    violation.ruleId,
+  );
 
   // Strategy 1: Exact deterministic fingerprint match
   for (const b of baselineViolations) {

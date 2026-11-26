@@ -20,7 +20,9 @@ function readFixture(name: string): string {
 
 function makePatchFromContent(content: string): string {
   const lines = content.split(/\r?\n/);
-  return `--- a/file\n+++ b/file\n@@ -0,0 +1,${lines.length} @@\n` + lines.map((l) => `+${l}`).join("\n");
+  return (
+    `--- a/file\n+++ b/file\n@@ -0,0 +1,${lines.length} @@\n` + lines.map((l) => `+${l}`).join("\n")
+  );
 }
 
 describe("Deterministic Pattern Security Rules (#2088)", () => {
@@ -103,7 +105,9 @@ describe("Deterministic Pattern Security Rules (#2088)", () => {
       });
 
       expect(vulnFindings.length).toBeGreaterThanOrEqual(1);
-      expect(vulnFindings[0].matchedSignatures).toContain(PATTERN_RULE_IDS.PYTHON_TLS_VERIFY_DISABLED);
+      expect(vulnFindings[0].matchedSignatures).toContain(
+        PATTERN_RULE_IDS.PYTHON_TLS_VERIFY_DISABLED,
+      );
       expect(vulnFindings[0].severity).toBe("CRITICAL");
       expect(vulnFindings[0].remediation).toContain("verify");
       expect(safeFindings).toHaveLength(0);
@@ -181,7 +185,9 @@ describe("Deterministic Pattern Security Rules (#2088)", () => {
       });
 
       expect(vulnFindings.length).toBeGreaterThanOrEqual(1);
-      expect(vulnFindings[0].matchedSignatures).toContain(PATTERN_RULE_IDS.JS_TLS_REJECT_UNAUTHORIZED);
+      expect(vulnFindings[0].matchedSignatures).toContain(
+        PATTERN_RULE_IDS.JS_TLS_REJECT_UNAUTHORIZED,
+      );
       expect(vulnFindings[0].severity).toBe("CRITICAL");
       expect(safeFindings).toHaveLength(0);
     });

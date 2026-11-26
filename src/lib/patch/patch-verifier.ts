@@ -59,7 +59,11 @@ export function applyPatchToContent(
   if (oldHeaders.length > 0 && newHeaders.length > 0 && expectedFilePath) {
     const normExpected = expectedFilePath.replace(/\\/g, "/").replace(/^\.\//, "");
     const extractPath = (hdr: string): string => {
-      const raw = hdr.slice(4).trim().split("\t", 1)[0].replace(/^a\/|^b\//, "");
+      const raw = hdr
+        .slice(4)
+        .trim()
+        .split("\t", 1)[0]
+        .replace(/^a\/|^b\//, "");
       return raw.replace(/\\/g, "/").replace(/^\.\//, "");
     };
     const oldPath = extractPath(oldHeaders[0]);
@@ -234,7 +238,9 @@ function parsePythonSyntax(content: string): { valid: boolean; error?: string } 
       }
 
       // Check missing colons on compound statements
-      const compoundMatch = line.match(/^(?:if|elif|else|for|while|def|class|try|except|finally)\b(.*)$/);
+      const compoundMatch = line.match(
+        /^(?:if|elif|else|for|while|def|class|try|except|finally)\b(.*)$/,
+      );
       if (compoundMatch) {
         const rest = compoundMatch[1].trim();
         // Disregard if comment follows
@@ -385,7 +391,8 @@ export function parseSyntax(filePath: string, content: string): SyntaxParseResul
       const diagnostics = (sourceFile as any).parseDiagnostics || [];
       if (diagnostics.length > 0) {
         const errorMessages = diagnostics.map((d: any) => {
-          const message = typeof d.messageText === "string" ? d.messageText : d.messageText?.messageText;
+          const message =
+            typeof d.messageText === "string" ? d.messageText : d.messageText?.messageText;
           return message || "Syntax parsing error";
         });
         return {

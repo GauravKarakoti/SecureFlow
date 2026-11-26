@@ -975,7 +975,11 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     (rawRulesObj as Record<string, unknown>)?.patternRules;
   if (rawPatterns === false || gateObj.patternRulesEnabled === false) {
     patternRulesEnabled = false;
-  } else if (typeof rawPatterns === "object" && rawPatterns !== null && !Array.isArray(rawPatterns)) {
+  } else if (
+    typeof rawPatterns === "object" &&
+    rawPatterns !== null &&
+    !Array.isArray(rawPatterns)
+  ) {
     if ((rawPatterns as Record<string, unknown>).enabled === false) {
       patternRulesEnabled = false;
     }
@@ -1140,8 +1144,12 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
         ? { blockedEvent: rObj.blockedEvent }
         : {}),
       ...(typeof rObj.dismissOnPass === "boolean" ? { dismissOnPass: rObj.dismissOnPass } : {}),
-      ...(typeof rObj.blockedMessage === "string" ? { blockedMessage: rObj.blockedMessage.trim() } : {}),
-      ...(typeof rObj.passedMessage === "string" ? { passedMessage: rObj.passedMessage.trim() } : {}),
+      ...(typeof rObj.blockedMessage === "string"
+        ? { blockedMessage: rObj.blockedMessage.trim() }
+        : {}),
+      ...(typeof rObj.passedMessage === "string"
+        ? { passedMessage: rObj.passedMessage.trim() }
+        : {}),
     };
   }
 
@@ -1274,9 +1282,7 @@ export function resolveBreakglassConfig(config?: GateConfig | null): BreakglassO
     ...(bg?.allowedRoles !== undefined ? { allowedRoles: bg.allowedRoles } : {}),
     ...(bg?.allowedUsers !== undefined ? { allowedUsers: bg.allowedUsers } : {}),
     ...(bg?.expiresInMinutes !== undefined ? { expiresInMinutes: bg.expiresInMinutes } : {}),
-    ...(bg?.revokeOnNewCommits !== undefined
-      ? { revokeOnNewCommits: bg.revokeOnNewCommits }
-      : {}),
+    ...(bg?.revokeOnNewCommits !== undefined ? { revokeOnNewCommits: bg.revokeOnNewCommits } : {}),
     ...(bg?.requireReason !== undefined ? { requireReason: bg.requireReason } : {}),
   };
 }
@@ -1361,11 +1367,7 @@ export function resolveSuggestionsConfig(
     };
   }
 
-  const raw =
-    config.inlineComments ??
-    config.suggestions ??
-    config.suggestedChanges ??
-    config;
+  const raw = config.inlineComments ?? config.suggestions ?? config.suggestedChanges ?? config;
 
   const rawMaxInline =
     config.maxInlineComments ??
