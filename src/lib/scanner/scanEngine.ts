@@ -18,6 +18,7 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import {
   upsertSecureFlowComment,
   SECUREFLOW_COMMENT_MARKER,
@@ -990,6 +991,12 @@ export async function processScanJob(
           const findingId = (f as any).id;
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
+          const policyInfo = resolvePolicyGuidance(f);
+          const helpUrl = (f as any).helpUrl || policyInfo.helpUrl;
+          const guidance = (f as any).guidance || policyInfo.guidance;
+          if (helpUrl) {
+            body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
           }
           if (f.verificationStatus === "UNVERIFIED") {
             body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;

@@ -1,4 +1,5 @@
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import {
   loadBaseCodeOwners,
   ownersForPath,
@@ -35,6 +36,9 @@ export interface ScanReportFinding {
   verifiedPatch?: boolean;
   readyFix?: boolean;
   patchNote?: string;
+  policyName?: string | null;
+  helpUrl?: string | null;
+  guidance?: string | null;
 }
 
 export interface SuppressedFindingReport {
@@ -236,6 +240,12 @@ export function renderScanReportSummary({
     if (ownership) body += `**Owners:** ${formatOwners(ownership.byPath.get(f.fileLocation))}\n\n`;
     if (f.id) {
       body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${f.id})\n\n`;
+    }
+    const policyInfo = resolvePolicyGuidance(f);
+    const helpUrl = f.helpUrl || policyInfo.helpUrl;
+    const guidance = f.guidance || policyInfo.guidance;
+    if (helpUrl) {
+      body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
     }
     if (f.promptInjectionSuspected) {
       body += INJECTION_WARNING(f.severity);

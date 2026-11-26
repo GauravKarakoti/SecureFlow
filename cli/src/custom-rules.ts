@@ -28,6 +28,8 @@ export interface CustomRuleConfig {
   message: string;
   flags?: string | undefined;
   timeoutMs?: number | undefined;
+  helpUrl?: string | undefined;
+  guidance?: string | undefined;
 }
 
 export interface CompiledCustomRule {
@@ -39,6 +41,8 @@ export interface CompiledCustomRule {
   severity: Severity;
   message: string;
   timeoutMs: number;
+  helpUrl?: string | undefined;
+  guidance?: string | undefined;
 }
 
 export interface CustomRuleMatch {
@@ -181,6 +185,44 @@ export function validateCustomRule(
       ? r.timeoutMs
       : DEFAULT_REGEX_TIMEOUT_MS;
 
+  // Validate helpUrl
+  const rawHelpUrl = r.helpUrl ?? r.help_url ?? r.url;
+  let helpUrl: string | undefined;
+  if (rawHelpUrl !== undefined && rawHelpUrl !== null) {
+    if (typeof rawHelpUrl !== "string") {
+      errors.push(`Rule '${id}' has invalid 'helpUrl' (must be a string)`);
+    } else {
+      const trimmedUrl = rawHelpUrl.trim();
+      if (trimmedUrl.length > 0) {
+        if (!trimmedUrl.startsWith("https://")) {
+          errors.push(`Rule '${id}' helpUrl must use https:// protocol (got '${trimmedUrl}')`);
+        } else {
+          try {
+            const parsed = new URL(trimmedUrl);
+            if (parsed.protocol !== "https:") {
+              errors.push(`Rule '${id}' helpUrl must use https:// protocol (got '${trimmedUrl}')`);
+            } else {
+              helpUrl = trimmedUrl;
+            }
+          } catch {
+            errors.push(`Rule '${id}' has malformed helpUrl '${trimmedUrl}'`);
+          }
+        }
+      }
+    }
+  }
+
+  // Validate guidance
+  const rawGuidance = r.guidance;
+  let guidance: string | undefined;
+  if (rawGuidance !== undefined && rawGuidance !== null) {
+    if (typeof rawGuidance !== "string") {
+      errors.push(`Rule '${id}' has invalid 'guidance' (must be a string)`);
+    } else {
+      guidance = rawGuidance.trim();
+    }
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -193,6 +235,8 @@ export function validateCustomRule(
     message,
     timeoutMs,
     ...(globs && globs.length > 0 ? { globs, compiledGlobs } : {}),
+    ...(helpUrl ? { helpUrl } : {}),
+    ...(guidance ? { guidance } : {}),
   };
 
   return { valid: true, errors: [], rule: compiledRule };
@@ -326,6 +370,8 @@ export function scanContentWithCustomRule(
         severity: rule.severity,
         ruleId: rule.id,
         custom: true,
+        ...(rule.helpUrl ? { helpUrl: rule.helpUrl } : {}),
+        ...(rule.guidance ? { guidance: rule.guidance } : {}),
       });
     }
 
