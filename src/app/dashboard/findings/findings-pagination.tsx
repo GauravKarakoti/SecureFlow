@@ -130,7 +130,10 @@ export default function FindingsPagination({
         </p>
 
         <div className="flex items-center gap-2" data-testid="page-size-selector-container">
-          <label htmlFor="page-size-select" className="text-xs text-muted-foreground whitespace-nowrap">
+          <label
+            htmlFor="page-size-select"
+            className="text-xs text-muted-foreground whitespace-nowrap"
+          >
             Rows per page:
           </label>
           <select

@@ -26,11 +26,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
-import {
-  updateChatWebhook,
-  getChatWebhookStatus,
-  testChatWebhook,
-} from "./settings";
+import { updateChatWebhook, getChatWebhookStatus, testChatWebhook } from "./settings";
 import * as chatIntegration from "@/lib/integrations/chat-webhook";
 
 const SLACK_URL = "https://hooks.slack.com/services/T000/B000/XXXX";

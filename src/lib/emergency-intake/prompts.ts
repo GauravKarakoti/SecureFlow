@@ -54,7 +54,7 @@ RULES:
 - Never emit keys outside the schema. Never emit extra text.
 
 If the inputs are too garbled to determine an action, return action "MONITOR"
-with a low confidence and a rationale explaining the ambiguity.`; 
+with a low confidence and a rationale explaining the ambiguity.`;
 }
 
 /**
@@ -95,9 +95,7 @@ export function buildEmergencyIntakeUserPrompt(
   }
 
   lines.push("\n=== END INPUTS ===");
-  lines.push(
-    "\nReturn ONLY the LifeSavingAction JSON object described by the system prompt.",
-  );
+  lines.push("\nReturn ONLY the LifeSavingAction JSON object described by the system prompt.");
 
   return lines.join("\n");
 }

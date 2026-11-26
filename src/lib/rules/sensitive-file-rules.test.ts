@@ -91,7 +91,9 @@ describe("Sensitive Filename Detection Rules (#2092)", () => {
     });
 
     it("flags id_rsa private key", () => {
-      const findings = checkFileForSensitiveName(makeAddedFile("id_rsa", "-----BEGIN RSA PRIVATE KEY-----"));
+      const findings = checkFileForSensitiveName(
+        makeAddedFile("id_rsa", "-----BEGIN RSA PRIVATE KEY-----"),
+      );
       expect(findings).toHaveLength(1);
       expect(findings[0].description).toContain("id_rsa");
     });
@@ -112,23 +114,23 @@ describe("Sensitive Filename Detection Rules (#2092)", () => {
     });
 
     it("does NOT flag normal source files", () => {
-      const findings = checkFileForSensitiveName(makeAddedFile("src/main.ts", "console.log('hello')"));
+      const findings = checkFileForSensitiveName(
+        makeAddedFile("src/main.ts", "console.log('hello')"),
+      );
       expect(findings).toHaveLength(0);
     });
 
     it("respects allowedFilenames option", () => {
-      const findings = checkFileForSensitiveName(
-        makeAddedFile(".env", "DB=test"),
-        { allowedFilenames: [".env"] },
-      );
+      const findings = checkFileForSensitiveName(makeAddedFile(".env", "DB=test"), {
+        allowedFilenames: [".env"],
+      });
       expect(findings).toHaveLength(0);
     });
 
     it("respects allowedPatterns option with glob prefix", () => {
-      const findings = checkFileForSensitiveName(
-        makeAddedFile("test/fixtures/.env", "TEST=1"),
-        { allowedPatterns: ["test/fixtures/**"] },
-      );
+      const findings = checkFileForSensitiveName(makeAddedFile("test/fixtures/.env", "TEST=1"), {
+        allowedPatterns: ["test/fixtures/**"],
+      });
       expect(findings).toHaveLength(0);
     });
 
@@ -138,10 +140,9 @@ describe("Sensitive Filename Detection Rules (#2092)", () => {
     });
 
     it("respects disabledRules: suppresses the rule", () => {
-      const findings = checkFileForSensitiveName(
-        makeAddedFile("id_rsa"),
-        { disabledRules: ["SEC_SENSITIVE_FILE_NAME"] },
-      );
+      const findings = checkFileForSensitiveName(makeAddedFile("id_rsa"), {
+        disabledRules: ["SEC_SENSITIVE_FILE_NAME"],
+      });
       expect(findings).toHaveLength(0);
     });
   });
@@ -159,10 +160,7 @@ describe("Sensitive Filename Detection Rules (#2092)", () => {
     });
 
     it("respects enabled: false to suppress all findings", () => {
-      const files = [
-        makeAddedFile(".env", "SECRET=abc"),
-        makeAddedFile("id_rsa"),
-      ];
+      const files = [makeAddedFile(".env", "SECRET=abc"), makeAddedFile("id_rsa")];
       const findings = runSensitiveFileRules(files, { enabled: false });
       expect(findings).toHaveLength(0);
     });
@@ -186,7 +184,9 @@ describe("Sensitive Filename Detection Rules (#2092)", () => {
     for (const { name, file, expectedSensitive } of cases) {
       it(`${name}: sensitive=${expectedSensitive}`, () => {
         const result = isSensitiveFilename(file);
-        expect(result.sensitive, `expected ${file} sensitive=${expectedSensitive}`).toBe(expectedSensitive);
+        expect(result.sensitive, `expected ${file} sensitive=${expectedSensitive}`).toBe(
+          expectedSensitive,
+        );
       });
     }
   });

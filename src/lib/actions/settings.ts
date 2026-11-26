@@ -223,7 +223,9 @@ export async function getTeamsWebhook() {
   return user?.teamsWebhookUrl || null;
 }
 
-export async function testSlackWebhook(url?: string): Promise<{ success: boolean; error?: string }> {
+export async function testSlackWebhook(
+  url?: string,
+): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
@@ -264,7 +266,10 @@ export async function testSlackWebhook(url?: string): Promise<{ success: boolean
         prNumber: 1,
       });
       if (!res.success) {
-        return { success: false, error: res.error || "Chat webhook endpoint rejected the test payload." };
+        return {
+          success: false,
+          error: res.error || "Chat webhook endpoint rejected the test payload.",
+        };
       }
       return { success: true };
     }

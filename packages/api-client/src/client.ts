@@ -75,7 +75,7 @@ export function createSecureFlowClient(options: ClientOptions = {}) {
   async function request<T = unknown>(
     method: HttpMethod,
     pathPattern: string,
-    opts: RequestOptions = {}
+    opts: RequestOptions = {},
   ): Promise<ApiResponse<T>> {
     let resolvedPath = pathPattern;
 
@@ -113,7 +113,11 @@ export function createSecureFlowClient(options: ClientOptions = {}) {
 
     let bodyData: BodyInit | undefined = undefined;
     if (opts.body !== undefined) {
-      if (typeof opts.body === "string" || opts.body instanceof Blob || opts.body instanceof FormData) {
+      if (
+        typeof opts.body === "string" ||
+        opts.body instanceof Blob ||
+        opts.body instanceof FormData
+      ) {
         bodyData = opts.body;
       } else {
         bodyData = JSON.stringify(opts.body);

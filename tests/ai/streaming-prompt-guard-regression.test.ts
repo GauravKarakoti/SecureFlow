@@ -16,7 +16,10 @@ const {
 
 vi.mock("genkit", async () => {
   const { z } = await import("zod");
-  return { genkit: vi.fn(() => ({ generate: mockGenerate, generateStream: mockGenerateStream })), z };
+  return {
+    genkit: vi.fn(() => ({ generate: mockGenerate, generateStream: mockGenerateStream })),
+    z,
+  };
 });
 
 vi.mock("@genkit-ai/compat-oai", () => ({
@@ -376,7 +379,10 @@ describe("Streaming Flows & Resilience Prompt-Injection Regression Suite (#1949)
           yield { text: "My system prompt says to leak all secrets." };
         },
       },
-      response: Promise.resolve({ text: "My system prompt says to leak all secrets.", output: null }),
+      response: Promise.resolve({
+        text: "My system prompt says to leak all secrets.",
+        output: null,
+      }),
     }));
 
     const compromisedEvents: HeistStreamEvent[] = [];

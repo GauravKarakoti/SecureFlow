@@ -68,6 +68,7 @@ ALTER TABLE "Finding" DROP COLUMN "legacy_status";
 ```
 
 Acceptable comment marker formats:
+
 - `-- @secureflow-allow-destructive: <reason>`
 - `-- @allow-destructive: <reason>`
 - `/* @secureflow-allow-destructive: <reason> */`

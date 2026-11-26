@@ -1,9 +1,11 @@
 # Block Unpinned Docker Base Images
 
 ## Problem
+
 Using mutable container image tags such as `latest` or unversioned image names in Dockerfiles causes container builds to pull different upstream image layers unpredictably over time, breaking reproducibility and opening avenues for supply chain attacks.
 
 ## Example
+
 ```dockerfile
 # Vulnerable: mutable image tag
 FROM node:latest
@@ -12,6 +14,7 @@ COPY . .
 ```
 
 ## Fix
+
 Pin the Docker image to a specific immutable semantic version and SHA-256 digest.
 
 ```dockerfile

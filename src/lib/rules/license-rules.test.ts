@@ -92,10 +92,18 @@ describe("License Compliance Rules (#2093)", () => {
     });
 
     it("resolves popular npm and python packages offline from built-in dictionary", () => {
-      expect(resolveDependencyLicense({ name: "react", lineNumber: 1, lineSnippet: "" })).toBe("MIT");
-      expect(resolveDependencyLicense({ name: "express", lineNumber: 1, lineSnippet: "" })).toBe("MIT");
-      expect(resolveDependencyLicense({ name: "requests", lineNumber: 1, lineSnippet: "" })).toBe("Apache-2.0");
-      expect(resolveDependencyLicense({ name: "django", lineNumber: 1, lineSnippet: "" })).toBe("BSD-3-Clause");
+      expect(resolveDependencyLicense({ name: "react", lineNumber: 1, lineSnippet: "" })).toBe(
+        "MIT",
+      );
+      expect(resolveDependencyLicense({ name: "express", lineNumber: 1, lineSnippet: "" })).toBe(
+        "MIT",
+      );
+      expect(resolveDependencyLicense({ name: "requests", lineNumber: 1, lineSnippet: "" })).toBe(
+        "Apache-2.0",
+      );
+      expect(resolveDependencyLicense({ name: "django", lineNumber: 1, lineSnippet: "" })).toBe(
+        "BSD-3-Clause",
+      );
     });
 
     it("supports packageLicenseOverrides", () => {

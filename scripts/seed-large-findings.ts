@@ -140,7 +140,9 @@ export async function seedLargeFindings(totalCount = 5000) {
   }
 
   const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
-  console.log(`✨ Successfully generated ${totalCount.toLocaleString()} findings in ${durationSec}s.`);
+  console.log(
+    `✨ Successfully generated ${totalCount.toLocaleString()} findings in ${durationSec}s.`,
+  );
 }
 
 // Allow CLI invocation: npx tsx scripts/seed-large-findings.ts

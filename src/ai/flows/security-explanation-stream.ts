@@ -1,11 +1,6 @@
 import "dotenv/config";
 import { getVulnerabilityMetadata } from "../../database/vulnerabilityDb";
-import {
-  __internal,
-  inspectPromptSafety,
-  sanitizeForPrompt,
-  withRetry,
-} from "./security-helpers";
+import { __internal, inspectPromptSafety, sanitizeForPrompt, withRetry } from "./security-helpers";
 import { getAiInstance, getDefaultModelRef, getSecurityExplanationModelChain } from "@/ai/genkit";
 
 import {

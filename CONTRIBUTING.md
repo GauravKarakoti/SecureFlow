@@ -772,6 +772,7 @@ ALTER TABLE "User" DROP COLUMN "legacy_token";
 ```
 
 Acceptable comment marker formats:
+
 - `-- @secureflow-allow-destructive: <Reason>`
 - `-- @allow-destructive: <Reason>`
 - `/* @secureflow-allow-destructive: <Reason> */`

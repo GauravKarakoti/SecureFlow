@@ -885,7 +885,9 @@ describe("upsertSecureFlowComment", () => {
 
     it("matches legacy comments containing 'SecureFlow AI Security Report' even without the hidden marker", async () => {
       const listComments = vi.fn().mockResolvedValue({
-        data: [{ id: 88, body: "### 🛡️ SecureFlow AI Security Report\n\nInitial scan findings..." }],
+        data: [
+          { id: 88, body: "### 🛡️ SecureFlow AI Security Report\n\nInitial scan findings..." },
+        ],
       });
       const updateComment = vi.fn().mockResolvedValue({
         data: { id: 88, body: "updated" },

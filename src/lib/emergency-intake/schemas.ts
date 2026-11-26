@@ -34,8 +34,7 @@ export const LifeSavingActionSchema = z
       .min(1, "Target is required")
       .max(200, "Target exceeds 200 characters")
       .refine(isSafeTargetResource, {
-        message:
-          "Target contains illegal path traversal, root paths, or sensitive file references",
+        message: "Target contains illegal path traversal, root paths, or sensitive file references",
       }),
     confidence: z
       .number()

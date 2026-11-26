@@ -74,7 +74,11 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
     it("extracts override reason from directive comments", () => {
       const comments = [
         { author: "dev", body: "looks good", createdAt: new Date() },
-        { author: "lead", body: "/override urgent hotfix for prod incident #123", createdAt: new Date() },
+        {
+          author: "lead",
+          body: "/override urgent hotfix for prod incident #123",
+          createdAt: new Date(),
+        },
       ];
       const extracted = extractOverrideReason(comments, "lead");
       expect(extracted).not.toBeNull();
@@ -92,7 +96,11 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
 
     it("extracts plain comment from authorized actor", () => {
       const comments = [
-        { author: "lead", body: "Approved emergency bypass due to customer blocking issue", createdAt: new Date() },
+        {
+          author: "lead",
+          body: "Approved emergency bypass due to customer blocking issue",
+          createdAt: new Date(),
+        },
       ];
       const extracted = extractOverrideReason(comments, "lead");
       expect(extracted?.reason).toContain("Approved emergency bypass");
@@ -109,7 +117,11 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
         {
           labels: ["secureflow:override"],
           comments: [
-            { author: "alice", body: "/override false alarm verified with sec team", createdAt: new Date() },
+            {
+              author: "alice",
+              body: "/override false alarm verified with sec team",
+              createdAt: new Date(),
+            },
           ],
           sender: { login: "alice", role: "admin" },
           currentHeadSha: "commit-1",
@@ -130,7 +142,11 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
         {
           labels: ["secureflow:override"],
           comments: [
-            { author: "unauthorized_user", body: "/override need release now", createdAt: new Date() },
+            {
+              author: "unauthorized_user",
+              body: "/override need release now",
+              createdAt: new Date(),
+            },
           ],
           sender: { login: "unauthorized_user", role: "contributor" },
           currentHeadSha: "commit-1",
@@ -163,9 +179,7 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
       const result = evaluateBreakglassOverride(
         {
           labels: ["secureflow:override"],
-          comments: [
-            { author: "alice", body: "/override emergency fix", createdAt: new Date() },
-          ],
+          comments: [{ author: "alice", body: "/override emergency fix", createdAt: new Date() }],
           sender: { login: "alice", role: "admin" },
           currentHeadSha: "commit-2",
           overrideHeadSha: "commit-1",
@@ -183,9 +197,7 @@ describe("Break-Glass Override Label & Policy (#2094)", () => {
       const result = evaluateBreakglassOverride(
         {
           labels: ["secureflow:override"],
-          comments: [
-            { author: "alice", body: "/override quick fix", createdAt: pastTime },
-          ],
+          comments: [{ author: "alice", body: "/override quick fix", createdAt: pastTime }],
           sender: { login: "alice", role: "admin" },
           currentHeadSha: "commit-1",
           overrideHeadSha: "commit-1",

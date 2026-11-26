@@ -443,7 +443,8 @@ export default function SettingsClient({
               <div>
                 <CardTitle>Chat Alerts (Slack & Discord)</CardTitle>
                 <CardDescription>
-                  Receive real-time alerts for newly introduced CRITICAL security findings in your Slack or Discord channels.
+                  Receive real-time alerts for newly introduced CRITICAL security findings in your
+                  Slack or Discord channels.
                 </CardDescription>
               </div>
             </div>
@@ -900,7 +901,7 @@ export default function SettingsClient({
                       </div>
                     )}
                   </div>
-        
+
                   {/* Effective Security & Governance Baseline Settings (#2010) */}
                   {repo.effectiveSettings && (
                     <div className="border-t border-border/40 pt-3 space-y-3">

@@ -66,7 +66,13 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "HIGH",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["network/request/internal_ip", "network/request/metadata_service", "network/ssrf"] },
+    rules: {
+      conditions: [
+        "network/request/internal_ip",
+        "network/request/metadata_service",
+        "network/ssrf",
+      ],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/block-internal-network-requests-ssrf.md`,
     guidance:
       "Validate user-supplied URLs against an allowlist and block private IP ranges (RFC 1918) and cloud metadata addresses (169.254.169.254).",
@@ -80,7 +86,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "MEDIUM",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["config/cors/wildcard_origin", "config/cors/allow_all", "cors/wildcard"] },
+    rules: {
+      conditions: ["config/cors/wildcard_origin", "config/cors/allow_all", "cors/wildcard"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/enforce-strict-cors-policies.md`,
     guidance:
       "Explicitly specify trusted origin domain names instead of wildcard '*' origins, especially on authenticated endpoints.",
@@ -117,7 +125,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "HIGH",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["crypto/hash/md5", "crypto/hash/sha1", "crypto/cipher/des", "crypto/weak_hash"] },
+    rules: {
+      conditions: ["crypto/hash/md5", "crypto/hash/sha1", "crypto/cipher/des", "crypto/weak_hash"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/deprecate-weak-hashing-algorithms.md`,
     guidance:
       "Migrate from MD5 and SHA-1 to SHA-256/SHA-512 for integrity checksums, and use Argon2id or bcrypt for password hashing.",
@@ -133,7 +143,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "CRITICAL",
     action: "DENY",
     isDefault: false,
-    rules: { conditions: ["iac/aws/s3/public_read", "iac/gcp/storage/allUsers", "iac/storage/public"] },
+    rules: {
+      conditions: ["iac/aws/s3/public_read", "iac/gcp/storage/allUsers", "iac/storage/public"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/deny-public-cloud-storage.md`,
     guidance:
       "Enable public access blocks (e.g., aws_s3_bucket_public_access_block) and set bucket ACLs to private.",
@@ -147,7 +159,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "MEDIUM",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["docker/user/root", "k8s/security_context/run_as_root", "container/root_user"] },
+    rules: {
+      conditions: ["docker/user/root", "k8s/security_context/run_as_root", "container/root_user"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/prevent-root-execution-in-containers.md`,
     guidance:
       "Define a non-root USER directive in Dockerfile and enforce runAsNonRoot: true in Kubernetes security contexts.",
@@ -312,7 +326,13 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "CRITICAL",
     action: "DENY",
     isDefault: false,
-    rules: { conditions: ["api/route/admin_no_authz", "api/route/missing_role_check", "authz/missing_check"] },
+    rules: {
+      conditions: [
+        "api/route/admin_no_authz",
+        "api/route/missing_role_check",
+        "authz/missing_check",
+      ],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/flag-missing-authorization-checks-on-admin-routes.md`,
     guidance:
       "Perform permission checks (e.g., can(session.user, null, 'admin')) before invoking privileged handlers or mutating database records.",
@@ -326,7 +346,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "HIGH",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["iac/aws/iam/wildcard_action", "iac/aws/iam/wildcard_resource", "iam/wildcard"] },
+    rules: {
+      conditions: ["iac/aws/iam/wildcard_action", "iac/aws/iam/wildcard_resource", "iam/wildcard"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/enforce-least-privilege-iam-policies.md`,
     guidance:
       "Replace wildcard '*' actions and resources with explicit IAM permissions and specific resource ARNs.",
@@ -342,7 +364,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "HIGH",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["deps/vulnerability/known_cve", "deps/audit/high_severity", "deps/vulnerable"] },
+    rules: {
+      conditions: ["deps/vulnerability/known_cve", "deps/audit/high_severity", "deps/vulnerable"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/flag-known-vulnerable-dependencies.md`,
     guidance:
       "Upgrade vulnerable dependencies to a patched release version with no known CVE advisories.",
@@ -356,7 +380,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "MEDIUM",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["docker/image/tag_latest", "docker/image/unpinned_digest", "docker/unpinned"] },
+    rules: {
+      conditions: ["docker/image/tag_latest", "docker/image/unpinned_digest", "docker/unpinned"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/block-unpinned-docker-base-images.md`,
     guidance:
       "Pin Docker base images to explicit version tags and sha256 digests (e.g. node:20.12.0-alpine@sha256:...) to ensure reproducible builds.",
@@ -393,7 +419,9 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "MEDIUM",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["http/headers/missing_csp", "http/headers/csp_unsafe_inline", "csp/missing"] },
+    rules: {
+      conditions: ["http/headers/missing_csp", "http/headers/csp_unsafe_inline", "csp/missing"],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/enforce-content-security-policy-headers.md`,
     guidance:
       "Set a strict Content-Security-Policy header without 'unsafe-inline' or 'unsafe-eval', using cryptographically secure nonces for inline scripts.",
@@ -409,7 +437,13 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "HIGH",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["network/protocol/http_no_tls", "config/endpoint/insecure_scheme", "http/no_tls"] },
+    rules: {
+      conditions: [
+        "network/protocol/http_no_tls",
+        "config/endpoint/insecure_scheme",
+        "http/no_tls",
+      ],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/block-plaintext-http-endpoints.md`,
     guidance:
       "Use encrypted https:// protocols and TLS 1.3 for all outbound API communication, webhooks, and service endpoints.",
@@ -425,7 +459,13 @@ export const BUILT_IN_POLICIES: readonly BuiltInPolicyDefinition[] = [
     severity: "MEDIUM",
     action: "REVIEW REQUIRED",
     isDefault: false,
-    rules: { conditions: ["audit/log/missing_privileged_action", "audit/log/no_actor_trace", "audit/missing"] },
+    rules: {
+      conditions: [
+        "audit/log/missing_privileged_action",
+        "audit/log/no_actor_trace",
+        "audit/missing",
+      ],
+    },
     helpUrl: `${GITHUB_DOCS_BASE_URL}/require-audit-logging-for-privileged-actions.md`,
     guidance:
       "Emit an immutable audit log record containing acting user ID, timestamp, target resource, and mutated state for administrative actions.",
@@ -538,30 +578,47 @@ export function resolvePolicyGuidance(findingOrPolicy: {
     const normalized = candidate.toLowerCase();
     for (const policy of BUILT_IN_POLICIES) {
       if (
-        normalized.includes("sql") && policy.id === "enforce-parameterized-queries" ||
-        normalized.includes("pii") && policy.id === "prevent-pii-logging" ||
-        normalized.includes("ssrf") && policy.id === "block-internal-network-requests-ssrf" ||
-        normalized.includes("cors") && policy.id === "enforce-strict-cors-policies" ||
-        normalized.includes("deserializ") && policy.id === "prevent-unsafe-deserialization" ||
-        (normalized.includes("md5") || normalized.includes("sha1") || normalized.includes("hash")) && policy.id === "deprecate-weak-hashing-algorithms" ||
-        (normalized.includes("s3") || normalized.includes("storage")) && policy.id === "deny-public-cloud-storage" ||
-        (normalized.includes("root") || normalized.includes("docker")) && policy.id === "prevent-root-execution-in-containers" ||
-        normalized.includes("reentrancy") && policy.id === "enforce-smart-contract-reentrancy-guards" ||
-        normalized.includes("tx.origin") && policy.id === "block-tx-origin-authentication-in-solidity" ||
-        normalized.includes("arithmetic") && policy.id === "flag-unchecked-arithmetic-in-smart-contracts" ||
-        (normalized.includes("solana") || normalized.includes("cpi")) && policy.id === "enforce-soroban-solana-cpi-signer-verification" ||
-        normalized.includes("underconstrained") && policy.id === "flag-under-constrained-zk-circuit-signals" ||
-        normalized.includes("range_check") && policy.id === "require-range-checks-on-zk-circuit-field-elements" ||
-        normalized.includes("token") && policy.id === "flag-long-lived-or-non-expiring-access-tokens" ||
-        normalized.includes("mfa") && policy.id === "require-mfa-for-privileged-accounts" ||
-        (normalized.includes("admin") || normalized.includes("authz")) && policy.id === "flag-missing-authorization-checks-on-admin-routes" ||
-        normalized.includes("iam") && policy.id === "enforce-least-privilege-iam-policies" ||
-        normalized.includes("cve") && policy.id === "flag-known-vulnerable-dependencies" ||
-        (normalized.includes("docker") || normalized.includes("image")) && policy.id === "block-unpinned-docker-base-images" ||
-        (normalized.includes("xss") || normalized.includes("dangerouslysetinnerhtml")) && policy.id === "prevent-unsafe-dom-injection-xss" ||
-        normalized.includes("csp") && policy.id === "enforce-content-security-policy-headers" ||
-        (normalized.includes("http_") || normalized.includes("tls")) && policy.id === "block-plaintext-http-endpoints" ||
-        normalized.includes("audit") && policy.id === "require-audit-logging-for-privileged-actions"
+        (normalized.includes("sql") && policy.id === "enforce-parameterized-queries") ||
+        (normalized.includes("pii") && policy.id === "prevent-pii-logging") ||
+        (normalized.includes("ssrf") && policy.id === "block-internal-network-requests-ssrf") ||
+        (normalized.includes("cors") && policy.id === "enforce-strict-cors-policies") ||
+        (normalized.includes("deserializ") && policy.id === "prevent-unsafe-deserialization") ||
+        ((normalized.includes("md5") ||
+          normalized.includes("sha1") ||
+          normalized.includes("hash")) &&
+          policy.id === "deprecate-weak-hashing-algorithms") ||
+        ((normalized.includes("s3") || normalized.includes("storage")) &&
+          policy.id === "deny-public-cloud-storage") ||
+        ((normalized.includes("root") || normalized.includes("docker")) &&
+          policy.id === "prevent-root-execution-in-containers") ||
+        (normalized.includes("reentrancy") &&
+          policy.id === "enforce-smart-contract-reentrancy-guards") ||
+        (normalized.includes("tx.origin") &&
+          policy.id === "block-tx-origin-authentication-in-solidity") ||
+        (normalized.includes("arithmetic") &&
+          policy.id === "flag-unchecked-arithmetic-in-smart-contracts") ||
+        ((normalized.includes("solana") || normalized.includes("cpi")) &&
+          policy.id === "enforce-soroban-solana-cpi-signer-verification") ||
+        (normalized.includes("underconstrained") &&
+          policy.id === "flag-under-constrained-zk-circuit-signals") ||
+        (normalized.includes("range_check") &&
+          policy.id === "require-range-checks-on-zk-circuit-field-elements") ||
+        (normalized.includes("token") &&
+          policy.id === "flag-long-lived-or-non-expiring-access-tokens") ||
+        (normalized.includes("mfa") && policy.id === "require-mfa-for-privileged-accounts") ||
+        ((normalized.includes("admin") || normalized.includes("authz")) &&
+          policy.id === "flag-missing-authorization-checks-on-admin-routes") ||
+        (normalized.includes("iam") && policy.id === "enforce-least-privilege-iam-policies") ||
+        (normalized.includes("cve") && policy.id === "flag-known-vulnerable-dependencies") ||
+        ((normalized.includes("docker") || normalized.includes("image")) &&
+          policy.id === "block-unpinned-docker-base-images") ||
+        ((normalized.includes("xss") || normalized.includes("dangerouslysetinnerhtml")) &&
+          policy.id === "prevent-unsafe-dom-injection-xss") ||
+        (normalized.includes("csp") && policy.id === "enforce-content-security-policy-headers") ||
+        ((normalized.includes("http_") || normalized.includes("tls")) &&
+          policy.id === "block-plaintext-http-endpoints") ||
+        (normalized.includes("audit") &&
+          policy.id === "require-audit-logging-for-privileged-actions")
       ) {
         return {
           helpUrl: policy.helpUrl,

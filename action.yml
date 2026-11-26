@@ -1,56 +1,56 @@
-name: 'SecureFlow Security Scan'
-description: 'Automated AI and static security analysis for vulnerabilities and hardcoded secrets'
-author: 'Gaurav Karakoti'
+name: "SecureFlow Security Scan"
+description: "Automated AI and static security analysis for vulnerabilities and hardcoded secrets"
+author: "Gaurav Karakoti"
 branding:
-  icon: 'shield'
-  color: 'blue'
+  icon: "shield"
+  color: "blue"
 
 inputs:
   paths:
-    description: 'Path or directory to scan'
+    description: "Path or directory to scan"
     required: false
-    default: '.'
+    default: "."
   severity:
-    description: 'Minimum severity to report (low, medium, high, critical)'
+    description: "Minimum severity to report (low, medium, high, critical)"
     required: false
-    default: 'low'
+    default: "low"
   comment-on-pr:
-    description: 'Whether to post an automated review summary comment on pull requests (true/false)'
+    description: "Whether to post an automated review summary comment on pull requests (true/false)"
     required: false
-    default: 'true'
+    default: "true"
   fail-threshold:
-    description: 'Minimum severity to fail the workflow build (critical, high, medium, low, none)'
+    description: "Minimum severity to fail the workflow build (critical, high, medium, low, none)"
     required: false
-    default: 'high'
+    default: "high"
   github-token:
-    description: 'GitHub token for posting comments and querying pull requests (defaults to github.token)'
+    description: "GitHub token for posting comments and querying pull requests (defaults to github.token)"
     required: false
     default: ${{ github.token }}
   format:
-    description: 'Output format (sarif, text, json, markdown, html)'
+    description: "Output format (sarif, text, json, markdown, html)"
     required: false
-    default: 'sarif'
+    default: "sarif"
   output:
-    description: 'Output file path (e.g. results.sarif)'
+    description: "Output file path (e.g. results.sarif)"
     required: false
-    default: 'secureflow-results.sarif'
+    default: "secureflow-results.sarif"
 
 outputs:
   total-findings:
-    description: 'Total number of security findings detected'
+    description: "Total number of security findings detected"
     value: ${{ steps.scan.outputs.total-findings }}
   highest-severity:
-    description: 'Highest severity detected among findings (CRITICAL, HIGH, MEDIUM, LOW, or NONE)'
+    description: "Highest severity detected among findings (CRITICAL, HIGH, MEDIUM, LOW, or NONE)"
     value: ${{ steps.scan.outputs.highest-severity }}
   has-findings:
-    description: 'Whether any security findings were detected (true/false)'
+    description: "Whether any security findings were detected (true/false)"
     value: ${{ steps.scan.outputs.has-findings }}
   sarif-file:
-    description: 'Path to the generated SARIF report file (if format is sarif)'
+    description: "Path to the generated SARIF report file (if format is sarif)"
     value: ${{ steps.scan.outputs.sarif-file }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Run SecureFlow Security Scan
       id: scan

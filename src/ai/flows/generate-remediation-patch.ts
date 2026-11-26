@@ -18,10 +18,7 @@ import {
 } from "@/ai/local-model";
 import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
 import { detectPromptInjection } from "./security-helpers";
-import {
-  verifyPatchInTempCopy,
-  type PatchVerificationResult,
-} from "@/lib/patch/patch-verifier";
+import { verifyPatchInTempCopy, type PatchVerificationResult } from "@/lib/patch/patch-verifier";
 
 const PatchInputSchema = z.object({
   vulnerableCode: z.string(),

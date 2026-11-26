@@ -384,9 +384,7 @@ describe("secureflow doctor (#2100)", () => {
       ...createPassingDeps(),
       env,
       checkDatabase: vi.fn(async () => {
-        throw new Error(
-          `Connection refused for ${env.DATABASE_URL} with key ${env.GROQ_API_KEY}`,
-        );
+        throw new Error(`Connection refused for ${env.DATABASE_URL} with key ${env.GROQ_API_KEY}`);
       }),
       checkRedis: vi.fn(async () => {
         throw new Error(`ECONNREFUSED ${env.REDIS_URL}`);

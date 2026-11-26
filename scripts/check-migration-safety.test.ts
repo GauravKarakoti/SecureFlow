@@ -140,7 +140,10 @@ describe("Migration Safety Scanner (#2104)", () => {
     it("reports violations, link to safe migration docs, and offending statements for unmarked destructive migrations", () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-migration-test-"));
       const migFile = path.join(tempDir, "migration.sql");
-      fs.writeFileSync(migFile, 'ALTER TABLE "User" DROP COLUMN "password";\nDROP TABLE "OldTable";');
+      fs.writeFileSync(
+        migFile,
+        'ALTER TABLE "User" DROP COLUMN "password";\nDROP TABLE "OldTable";',
+      );
 
       const outcome = runMigrationSafetyCheck({ files: [migFile] });
       expect(outcome.hasViolations).toBe(true);

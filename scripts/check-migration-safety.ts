@@ -119,9 +119,7 @@ export function scanSqlForDestructiveOperations(sql: string): DestructiveStateme
     // 3. ALTER COLUMN ... TYPE / ALTER TABLE ... ALTER COLUMN ... TYPE
     if (
       /\bALTER\s+COLUMN\b[\s\S]*?\b(?:SET\s+DATA\s+)?TYPE\b/i.test(trimmed) ||
-      /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+COLUMN\b[\s\S]*?\b(?:SET\s+DATA\s+)?TYPE\b/i.test(
-        trimmed,
-      )
+      /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+COLUMN\b[\s\S]*?\b(?:SET\s+DATA\s+)?TYPE\b/i.test(trimmed)
     ) {
       destructiveStatements.push({
         type: "ALTER COLUMN TYPE",
@@ -152,10 +150,7 @@ export function scanSqlForDestructiveOperations(sql: string): DestructiveStateme
 /**
  * Evaluates a single migration file or SQL content.
  */
-export function checkMigrationSql(
-  filePath: string,
-  sql: string,
-): MigrationScanResult {
+export function checkMigrationSql(filePath: string, sql: string): MigrationScanResult {
   const destructiveStatements = scanSqlForDestructiveOperations(sql);
   const isDestructive = destructiveStatements.length > 0;
   const approvalReason = extractApprovalReason(sql);
@@ -179,10 +174,7 @@ export function findMigrationFiles(
 ): string[] {
   if (targetFiles && targetFiles.length > 0) {
     return targetFiles.filter(
-      (f) =>
-        f.endsWith("migration.sql") &&
-        fs.existsSync(f) &&
-        fs.statSync(f).isFile(),
+      (f) => f.endsWith("migration.sql") && fs.existsSync(f) && fs.statSync(f).isFile(),
     );
   }
 
@@ -229,12 +221,14 @@ export function getChangedMigrationFiles(
   }
 }
 
-export function runMigrationSafetyCheck(options: {
-  files?: string[];
-  baseBranch?: string;
-  checkAll?: boolean;
-  cwd?: string;
-} = {}): {
+export function runMigrationSafetyCheck(
+  options: {
+    files?: string[];
+    baseBranch?: string;
+    checkAll?: boolean;
+    cwd?: string;
+  } = {},
+): {
   results: MigrationScanResult[];
   hasViolations: boolean;
   formattedOutput: string;
@@ -266,7 +260,9 @@ export function runMigrationSafetyCheck(options: {
     };
   }
 
-  outputLines.push(`🔍 Scanning ${filesToCheck.length} Prisma migration(s) for destructive changes...\n`);
+  outputLines.push(
+    `🔍 Scanning ${filesToCheck.length} Prisma migration(s) for destructive changes...\n`,
+  );
 
   for (const file of filesToCheck) {
     const fullPath = path.isAbsolute(file) ? file : path.join(cwd, file);
@@ -287,7 +283,9 @@ export function runMigrationSafetyCheck(options: {
       } else {
         hasViolations = true;
         outputLines.push(`❌ [UNAPPROVED DESTRUCTIVE] ${file}`);
-        outputLines.push(`   Error: Destructive statement(s) detected without an approved reason marker.`);
+        outputLines.push(
+          `   Error: Destructive statement(s) detected without an approved reason marker.`,
+        );
         for (const st of scan.destructiveStatements) {
           outputLines.push(`   - Line ${st.lineNumber}: [${st.type}] ${st.statement}`);
         }
@@ -301,13 +299,17 @@ export function runMigrationSafetyCheck(options: {
   if (hasViolations) {
     outputLines.push("──────────────────────────────────────────────────────────");
     outputLines.push("🚨 Migration safety check FAILED!");
-    outputLines.push("Destructive schema operations (DROP TABLE, DROP COLUMN, ALTER COLUMN TYPE, RENAME)");
+    outputLines.push(
+      "Destructive schema operations (DROP TABLE, DROP COLUMN, ALTER COLUMN TYPE, RENAME)",
+    );
     outputLines.push("can destroy production data or cause downtime during rolling deployments.");
     outputLines.push("");
     outputLines.push("If this destructive migration is intentional and safe:");
     outputLines.push("1. Follow the expand-and-contract pattern described in CONTRIBUTING.md.");
     outputLines.push("2. Add an approved marker comment to the migration SQL:");
-    outputLines.push('   -- @secureflow-allow-destructive: <Reason why this destructive change is safe>');
+    outputLines.push(
+      "   -- @secureflow-allow-destructive: <Reason why this destructive change is safe>",
+    );
     outputLines.push("");
     outputLines.push(`📖 Safe migration guidance: ${SAFE_MIGRATION_DOCS_URL}`);
     outputLines.push("──────────────────────────────────────────────────────────");

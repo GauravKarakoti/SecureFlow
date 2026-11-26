@@ -1,9 +1,11 @@
 # Enforce Smart Contract Reentrancy Guards
 
 ## Problem
+
 In Solidity smart contracts, invoking an external contract call transfers control execution to the recipient before contract state variables are updated. A malicious contract can re-enter the calling function recursively during the transfer to drain tokens or ether (SWC-107).
 
 ## Example
+
 ```solidity
 // Vulnerable: state update occurs after external call
 function withdraw() public {
@@ -15,6 +17,7 @@ function withdraw() public {
 ```
 
 ## Fix
+
 Apply the Checks-Effects-Interactions pattern (update state before external calls) and use OpenZeppelin's `nonReentrant` modifier.
 
 ```solidity

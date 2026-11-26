@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  generateTypeScriptFromOpenApi,
-  generateApiClient,
-} from "./generate-api-client";
+import { generateTypeScriptFromOpenApi, generateApiClient } from "./generate-api-client";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -76,7 +73,7 @@ components:
     expect(code).toContain('"getHealth": paths["/api/health"]["get"];');
     expect(code).toContain('"User": {');
     expect(code).toContain('"admin" | "user"');
-    expect(code).toContain('email: string;');
+    expect(code).toContain("email: string;");
   });
 
   it("detects when generated file matches spec and when it drifts", () => {

@@ -16,9 +16,9 @@ import type { Severity } from "@/lib/severity";
 import type { FileChange, ScanFinding } from "@/lib/armor/scanner";
 
 export const OUTBOUND_RULE_IDS = {
-  RAW_IP_ADDRESS:    "SEC_OUTBOUND_RAW_IP",
-  URL_SHORTENER:     "SEC_OUTBOUND_URL_SHORTENER",
-  PASTE_SITE:        "SEC_OUTBOUND_PASTE_SITE",
+  RAW_IP_ADDRESS: "SEC_OUTBOUND_RAW_IP",
+  URL_SHORTENER: "SEC_OUTBOUND_URL_SHORTENER",
+  PASTE_SITE: "SEC_OUTBOUND_PASTE_SITE",
 } as const;
 
 export type OutboundRuleId = (typeof OUTBOUND_RULE_IDS)[keyof typeof OUTBOUND_RULE_IDS];
@@ -27,7 +27,8 @@ export type OutboundRuleId = (typeof OUTBOUND_RULE_IDS)[keyof typeof OUTBOUND_RU
 
 /** Well-known URL shortening services. Maintainers can extend this list. */
 export const URL_SHORTENER_HOSTS: ReadonlySet<string> = new Set([
-  "bit.ly", "bitly.com",
+  "bit.ly",
+  "bitly.com",
   "t.co",
   "tinyurl.com",
   "goo.gl",
@@ -70,7 +71,8 @@ export const PASTE_SITE_HOSTS: ReadonlySet<string> = new Set([
 /**
  * Matches IPv4 addresses. Used as a starting point; RFC-1918/loopback filtered below.
  */
-const IPV4_REGEX = /\b((?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d))(?::\d{1,5})?\b/g;
+const IPV4_REGEX =
+  /\b((?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d))(?::\d{1,5})?\b/g;
 
 /** Matches a URL with an explicit host to extract. */
 const URL_HOST_REGEX = /https?:\/\/(?:[^@/\s]+@)?([a-z0-9.-]+(?::\d+)?)/gi;
@@ -81,13 +83,13 @@ function isPrivateIp(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some(isNaN)) return false;
   const [a, b] = parts;
-  if (a === 10) return true;                             // 10.0.0.0/8
-  if (a === 172 && b >= 16 && b <= 31) return true;     // 172.16.0.0/12
-  if (a === 192 && b === 168) return true;               // 192.168.0.0/16
-  if (a === 127) return true;                            // loopback 127.0.0.0/8
-  if (a === 169 && b === 254) return true;               // link-local 169.254.0.0/16
-  if (a === 0) return true;                              // 0.0.0.0/8
-  if (a === 100 && b >= 64 && b <= 127) return true;    // shared-address space
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 127) return true; // loopback 127.0.0.0/8
+  if (a === 169 && b === 254) return true; // link-local 169.254.0.0/16
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true; // shared-address space
   return false;
 }
 
@@ -252,9 +254,19 @@ export function scanFileWithOutboundRules(
     const lines = file.patch.split(/\r?\n/);
     let lineNum = 1;
     for (const l of lines) {
-      if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff ") || l.startsWith("index ")) continue;
-      if (l.startsWith("+")) { added.push({ number: lineNum, content: l.slice(1) }); lineNum++; }
-      else if (!l.startsWith("-")) { lineNum++; }
+      if (
+        l.startsWith("+++") ||
+        l.startsWith("---") ||
+        l.startsWith("diff ") ||
+        l.startsWith("index ")
+      )
+        continue;
+      if (l.startsWith("+")) {
+        added.push({ number: lineNum, content: l.slice(1) });
+        lineNum++;
+      } else if (!l.startsWith("-")) {
+        lineNum++;
+      }
     }
   }
 

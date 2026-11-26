@@ -207,7 +207,10 @@ export function buildChatAlertPayload(
   provider: ChatProvider,
   { repositoryFullName, count, prNumber, dashboardUrl }: BuildChatAlertParams,
 ): Record<string, unknown> {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.secureflow.dev").replace(/\/+$/, "");
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.secureflow.dev").replace(
+    /\/+$/,
+    "",
+  );
   const targetDashboardUrl = dashboardUrl || `${appUrl}/dashboard`;
   const prLabel = prNumber ? ` #${prNumber}` : "";
   const noun = count === 1 ? "finding" : "findings";
@@ -372,7 +375,9 @@ export async function sendChatAlert(
   }
 
   // Safe log without exposing the webhook token
-  console.warn(`[ChatAlert] Webhook delivery failed after ${attempts} attempts to ${url.hostname}: ${lastError}`);
+  console.warn(
+    `[ChatAlert] Webhook delivery failed after ${attempts} attempts to ${url.hostname}: ${lastError}`,
+  );
   return { success: false, attempts, error: lastError };
 }
 
@@ -440,8 +445,15 @@ export async function dispatchCriticalChatAlert(
   params: DispatchCriticalChatAlertParams,
 ): Promise<{ alerted: boolean; count: number; error?: string }> {
   try {
-    const { userId, repositoryId, repositoryFullName, pullRequestId, prNumber, findings, currentScanResultId } =
-      params;
+    const {
+      userId,
+      repositoryId,
+      repositoryFullName,
+      pullRequestId,
+      prNumber,
+      findings,
+      currentScanResultId,
+    } = params;
 
     if (!userId) {
       return { alerted: false, count: 0 };
@@ -449,7 +461,10 @@ export async function dispatchCriticalChatAlert(
 
     // 1. Filter findings to CRITICAL severity with valid fingerprints
     const criticalCandidates = findings.filter(
-      (f) => String(f.severity).toUpperCase() === "CRITICAL" && f.fingerprint && f.fingerprint.trim().length > 0,
+      (f) =>
+        String(f.severity).toUpperCase() === "CRITICAL" &&
+        f.fingerprint &&
+        f.fingerprint.trim().length > 0,
     );
 
     if (criticalCandidates.length === 0) {
@@ -476,7 +491,9 @@ export async function dispatchCriticalChatAlert(
     }
 
     // 3. Query existing findings in prior scans to exclude already reported findings
-    const candidateFingerprints = Array.from(new Set(criticalCandidates.map((f) => f.fingerprint!)));
+    const candidateFingerprints = Array.from(
+      new Set(criticalCandidates.map((f) => f.fingerprint!)),
+    );
 
     const whereClause: any = {
       scanResult: {

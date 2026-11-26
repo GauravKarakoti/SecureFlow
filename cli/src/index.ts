@@ -1103,7 +1103,10 @@ Description:
       format === "sarif"
         ? formatScanResults(filteredResults, "sarif", { aiFindings: filteredAiFindings })
         : format === "junit"
-          ? formatScanResults(filteredResults, "junit", { failOnThreshold, aiFindings: filteredAiFindings })
+          ? formatScanResults(filteredResults, "junit", {
+              failOnThreshold,
+              aiFindings: filteredAiFindings,
+            })
           : formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {

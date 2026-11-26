@@ -7,7 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Lock, AlertCircle, ShieldCheck, FileKey2, ScanLine, History, Edit3, ExternalLink } from "lucide-react";
+import {
+  Lock,
+  AlertCircle,
+  ShieldCheck,
+  FileKey2,
+  ScanLine,
+  History,
+  Edit3,
+  ExternalLink,
+} from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { resolvePolicyGuidance } from "@/lib/policies/built-in";

@@ -433,4 +433,3 @@ export function parseWatchArg(argv: readonly string[]): boolean {
     argv[2] === "watch"
   );
 }
-

@@ -162,10 +162,9 @@ describe("FindingsPagination", () => {
 
       expect(onLoadingChange).toHaveBeenCalledWith(true);
       expect(onPageSizeChange).toHaveBeenCalledWith(50);
-      expect(replace).toHaveBeenCalledWith(
-        "/dashboard/findings?severity=HIGH&pageSize=50",
-        { scroll: false },
-      );
+      expect(replace).toHaveBeenCalledWith("/dashboard/findings?severity=HIGH&pageSize=50", {
+        scroll: false,
+      });
     });
 
     it("drops pageSize from URL when resetting to default 20", () => {

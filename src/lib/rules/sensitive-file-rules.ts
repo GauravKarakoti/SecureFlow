@@ -37,12 +37,12 @@ export const SENSITIVE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".der",
   ".crt",
   ".cer",
-  ".jks",   // Java KeyStore
+  ".jks", // Java KeyStore
   ".keystore",
-  ".bks",   // Bouncy Castle KeyStore
-  ".pub",   // might be a public key — still worth flagging if placed in repo root
-  ".ovpn",  // OpenVPN config with embedded key
-  ".asc",   // ASCII-armored GPG key
+  ".bks", // Bouncy Castle KeyStore
+  ".pub", // might be a public key — still worth flagging if placed in repo root
+  ".ovpn", // OpenVPN config with embedded key
+  ".asc", // ASCII-armored GPG key
 ]);
 
 /** Extensions that indicate database dumps or large data files. */
@@ -55,7 +55,7 @@ export const DATABASE_DUMP_EXTENSIONS: ReadonlySet<string> = new Set([
   ".mdf",
   ".ldf",
   ".bak",
-  ".rdb",   // Redis RDB dump
+  ".rdb", // Redis RDB dump
 ]);
 
 /** Exact filenames and basename prefixes known to be sensitive. */
@@ -76,9 +76,9 @@ export const SENSITIVE_EXACT_NAMES: ReadonlySet<string> = new Set([
   "id_rsa_pub",
   ".htpasswd",
   ".netrc",
-  ".npmrc",         // may contain auth tokens
-  ".pypirc",        // PyPI credentials
-  "credentials",    // AWS credentials file
+  ".npmrc", // may contain auth tokens
+  ".pypirc", // PyPI credentials
+  "credentials", // AWS credentials file
   ".aws/credentials",
   ".ssh/config",
   ".ssh/known_hosts",
@@ -94,7 +94,7 @@ export const SENSITIVE_EXACT_NAMES: ReadonlySet<string> = new Set([
 
 /** Partial name patterns (basename contains this substring, case-insensitive). */
 export const SENSITIVE_NAME_PATTERNS: readonly RegExp[] = [
-  /^\.env(\.|$)/,              // .env, .env.local, etc.
+  /^\.env(\.|$)/, // .env, .env.local, etc.
   /\bpassword[s]?\b/i,
   /\bsecret[s]?\b/i,
   /\bcredential[s]?\b/i,
@@ -159,12 +159,14 @@ export function isSensitiveFilename(
   if (allowedFilenames?.some((f) => base === f.toLowerCase())) {
     return { sensitive: false, reason: "allow-listed" };
   }
-  if (allowedPatterns?.some((p) => {
-    const pat = p.replace(/\\/g, "/").toLowerCase();
-    if (pat.endsWith("/**")) return normalized.startsWith(pat.slice(0, -3));
-    if (pat.startsWith("*.")) return base.endsWith(pat.slice(1));
-    return normalized.includes(pat);
-  })) {
+  if (
+    allowedPatterns?.some((p) => {
+      const pat = p.replace(/\\/g, "/").toLowerCase();
+      if (pat.endsWith("/**")) return normalized.startsWith(pat.slice(0, -3));
+      if (pat.startsWith("*.")) return base.endsWith(pat.slice(1));
+      return normalized.includes(pat);
+    })
+  ) {
     return { sensitive: false, reason: "allow-listed" };
   }
 
@@ -218,12 +220,17 @@ export function checkFileForSensitiveName(
 
   // Only inspect if the file appears to be newly added (patch starts with "new file mode" or all additions)
   const patch = file.patch ?? "";
-  const isNewFile = patch.startsWith("new file mode") || (patch.includes("@@") && !patch.includes("\n-"));
+  const isNewFile =
+    patch.startsWith("new file mode") || (patch.includes("@@") && !patch.includes("\n-"));
 
   // Even for changed files, the name alone is a risk signal — flag regardless
   if (isExampleFile(file.filename)) return [];
 
-  const result = isSensitiveFilename(file.filename, options.allowedFilenames, options.allowedPatterns);
+  const result = isSensitiveFilename(
+    file.filename,
+    options.allowedFilenames,
+    options.allowedPatterns,
+  );
   if (!result.sensitive) return [];
 
   const repositoryId = options.repositoryId ?? "default-repo";
@@ -241,21 +248,23 @@ export function checkFileForSensitiveName(
   const fp = computeFingerprint(repositoryId, file.filename, "Sensitive File Name", base);
   const dynFp = computeDynamicFingerprint(repositoryId, file.filename, "Sensitive File Name", base);
 
-  return [{
-    type: "Sensitive File Name",
-    severity: "HIGH",
-    description: `[${SENSITIVE_FILE_RULE_IDS.SENSITIVE_FILE_NAME}] ${description}`,
-    fileLocation: file.filename,
-    lineStart: 1,
-    lineEnd: 1,
-    codeSnippet: file.filename,
-    remediation: oneLineFix,
-    fingerprint: fp,
-    dynamicFingerprint: dynFp.fingerprint,
-    matchedSignatures: [SENSITIVE_FILE_RULE_IDS.SENSITIVE_FILE_NAME],
-    confidence: "HIGH",
-    confidenceReason: `Sensitive filename: ${result.reason}`,
-  }];
+  return [
+    {
+      type: "Sensitive File Name",
+      severity: "HIGH",
+      description: `[${SENSITIVE_FILE_RULE_IDS.SENSITIVE_FILE_NAME}] ${description}`,
+      fileLocation: file.filename,
+      lineStart: 1,
+      lineEnd: 1,
+      codeSnippet: file.filename,
+      remediation: oneLineFix,
+      fingerprint: fp,
+      dynamicFingerprint: dynFp.fingerprint,
+      matchedSignatures: [SENSITIVE_FILE_RULE_IDS.SENSITIVE_FILE_NAME],
+      confidence: "HIGH",
+      confidenceReason: `Sensitive filename: ${result.reason}`,
+    },
+  ];
 }
 
 /**

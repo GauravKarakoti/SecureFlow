@@ -1,9 +1,11 @@
 # Flag Known-Vulnerable Dependencies
 
 ## Problem
+
 Including open-source dependencies or libraries with published High or Critical Common Vulnerabilities and Exposures (CVEs) enables attackers to exploit well-documented remote code execution, prototype pollution, or denial of service attack vectors.
 
 ## Example
+
 ```json
 // Vulnerable: package version with known remote code execution CVE
 "dependencies": {
@@ -12,6 +14,7 @@ Including open-source dependencies or libraries with published High or Critical 
 ```
 
 ## Fix
+
 Upgrade the vulnerable package to a patched release or apply a vendor security patch.
 
 ```json

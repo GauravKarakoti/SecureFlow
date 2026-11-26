@@ -46,7 +46,10 @@ export default function RemediationPage() {
 
       const data = await res.json();
       if (!data.patch?.patchDiff || data.verified === false) {
-        const errorMsg = data.note || data.error || "AI patch failed verification and was not saved as a ready fix.";
+        const errorMsg =
+          data.note ||
+          data.error ||
+          "AI patch failed verification and was not saved as a ready fix.";
         setGenerationError(errorMsg);
         toast.error(errorMsg);
         return;

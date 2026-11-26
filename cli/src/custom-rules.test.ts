@@ -12,12 +12,7 @@ import {
   sanitizeContentForRegex,
   type CompiledCustomRule,
 } from "./custom-rules.js";
-import {
-  scanFile,
-  shouldFailScan,
-  countFindingsBySeverity,
-  formatScanResults,
-} from "./scanner.js";
+import { scanFile, shouldFailScan, countFindingsBySeverity, formatScanResults } from "./scanner.js";
 import { formatSarifJson } from "./sarif.js";
 import { CsvExporter, MarkdownExporter, HtmlExporter } from "./exporters.js";
 
@@ -232,18 +227,10 @@ console.log("ready");
     expect(matchesRuleGlobs("src/file.ts", ruleWithGlobs)).toBe(true);
     expect(matchesRuleGlobs("src/file.py", ruleWithGlobs)).toBe(false);
 
-    const tsRes = scanContentWithCustomRule(
-      "src/file.ts",
-      "const x = FORBIDDEN;",
-      ruleWithGlobs,
-    );
+    const tsRes = scanContentWithCustomRule("src/file.ts", "const x = FORBIDDEN;", ruleWithGlobs);
     expect(tsRes.violations).toHaveLength(1);
 
-    const pyRes = scanContentWithCustomRule(
-      "src/file.py",
-      "x = FORBIDDEN",
-      ruleWithGlobs,
-    );
+    const pyRes = scanContentWithCustomRule("src/file.py", "x = FORBIDDEN", ruleWithGlobs);
     expect(pyRes.violations).toHaveLength(0);
   });
 

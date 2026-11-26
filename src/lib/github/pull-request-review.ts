@@ -81,7 +81,13 @@ export interface SyncPullRequestReviewParams {
 }
 
 export interface SyncPullRequestReviewResult {
-  action: "REQUESTED_CHANGES" | "DISMISSED_REVIEW" | "COMMENTED_PASS" | "SKIPPED_NOT_CONFIGURED" | "SKIPPED_ALREADY_REQUESTED" | "FAILED_GRACEFULLY";
+  action:
+    | "REQUESTED_CHANGES"
+    | "DISMISSED_REVIEW"
+    | "COMMENTED_PASS"
+    | "SKIPPED_NOT_CONFIGURED"
+    | "SKIPPED_ALREADY_REQUESTED"
+    | "FAILED_GRACEFULLY";
   reviewId?: number;
   dismissedReviewIds?: number[];
   warning?: string;
@@ -146,7 +152,7 @@ export async function syncPullRequestReview(
         `${SECUREFLOW_REVIEW_MARKER}\n### 🛑 SecureFlow Security Gate: Changes Requested\n\n` +
         (config.blockedMessage ||
           `This pull request is blocked because SecureFlow detected **${findingsCount}** blocking security issue(s) matching your repository code policies.\n\n` +
-          `Please address the findings reported in the scan check-run or secureflow report before merging.`);
+            `Please address the findings reported in the scan check-run or secureflow report before merging.`);
 
       const reviewRes = await client.rest.pulls.createReview({
         owner,
@@ -156,7 +162,8 @@ export async function syncPullRequestReview(
         body,
       });
 
-      const reviewId = (reviewRes as { data?: { id?: number }; id?: number })?.data?.id ??
+      const reviewId =
+        (reviewRes as { data?: { id?: number }; id?: number })?.data?.id ??
         (reviewRes as { id?: number })?.id;
 
       return {

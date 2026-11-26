@@ -59,27 +59,25 @@ describe("validateLifeSavingAction", () => {
   });
 
   it("rejects confidence outside [0, 1]", () => {
-    expect(() =>
-      validateLifeSavingAction({ ...VALID_ACTION, confidence: 1.5 }),
-    ).toThrow(LifeSavingActionValidationError);
+    expect(() => validateLifeSavingAction({ ...VALID_ACTION, confidence: 1.5 })).toThrow(
+      LifeSavingActionValidationError,
+    );
   });
 
   it("rejects unsafe target paths", () => {
-    expect(() =>
-      validateLifeSavingAction({ ...VALID_ACTION, target: "../../etc/passwd" }),
-    ).toThrow(LifeSavingActionValidationError);
+    expect(() => validateLifeSavingAction({ ...VALID_ACTION, target: "../../etc/passwd" })).toThrow(
+      LifeSavingActionValidationError,
+    );
   });
 
   it("rejects unknown extra fields (strict mode)", () => {
-    expect(() =>
-      validateLifeSavingAction({ ...VALID_ACTION, injected: "nope" }),
-    ).toThrow(LifeSavingActionValidationError);
+    expect(() => validateLifeSavingAction({ ...VALID_ACTION, injected: "nope" })).toThrow(
+      LifeSavingActionValidationError,
+    );
   });
 
   it("rejects invalid JSON string", () => {
-    expect(() => validateLifeSavingAction("not json {{{")).toThrow(
-      LifeSavingActionValidationError,
-    );
+    expect(() => validateLifeSavingAction("not json {{{")).toThrow(LifeSavingActionValidationError);
   });
 });
 

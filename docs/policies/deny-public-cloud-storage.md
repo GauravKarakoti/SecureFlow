@@ -1,9 +1,11 @@
 # Deny Public Cloud Storage
 
 ## Problem
+
 Provisioning Infrastructure as Code (Terraform, CloudFormation, Pulumi) that marks cloud storage buckets (AWS S3, GCP Cloud Storage) as publicly readable or writable exposes private data, database dumps, and application assets to unauthorized public internet scans.
 
 ## Example
+
 ```hcl
 # Vulnerable: S3 bucket declared with public-read ACL
 resource "aws_s3_bucket" "artifacts" {
@@ -13,6 +15,7 @@ resource "aws_s3_bucket" "artifacts" {
 ```
 
 ## Fix
+
 Enforce S3 Public Access Blocks and configure bucket access policies with least-privilege IAM roles.
 
 ```hcl

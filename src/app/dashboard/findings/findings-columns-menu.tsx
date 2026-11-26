@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useTransition, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { SlidersHorizontal, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,14 +26,7 @@ import {
 export type DensityLevel = "comfortable" | "compact";
 
 export type OptionalColumnKey =
-  | "type"
-  | "file"
-  | "cwe"
-  | "language"
-  | "age"
-  | "assignee"
-  | "issue"
-  | "notes";
+  "type" | "file" | "cwe" | "language" | "age" | "assignee" | "issue" | "notes";
 
 export type RequiredColumnKey = "severity" | "status";
 
@@ -107,10 +107,7 @@ export function loadStoredPreferences(userId?: string | null): TablePreferences 
   }
 }
 
-export function saveStoredPreferences(
-  preferences: TablePreferences,
-  userId?: string | null
-): void {
+export function saveStoredPreferences(preferences: TablePreferences, userId?: string | null): void {
   if (typeof window === "undefined" || !window.localStorage) {
     return;
   }
@@ -124,10 +121,7 @@ export function saveStoredPreferences(
       },
       density: preferences.density,
     };
-    window.localStorage.setItem(
-      getPreferencesStorageKey(userId),
-      JSON.stringify(sanitized)
-    );
+    window.localStorage.setItem(getPreferencesStorageKey(userId), JSON.stringify(sanitized));
   } catch {
     // Ignore storage quota or disabled storage errors
   }
@@ -140,14 +134,15 @@ export interface FindingsTablePreferencesContextType {
   resetPreferences: () => void;
 }
 
-const FindingsTablePreferencesContext =
-  createContext<FindingsTablePreferencesContextType | null>(null);
+const FindingsTablePreferencesContext = createContext<FindingsTablePreferencesContextType | null>(
+  null,
+);
 
 export function useFindingsTablePreferences(): FindingsTablePreferencesContextType {
   const context = useContext(FindingsTablePreferencesContext);
   if (!context) {
     throw new Error(
-      "useFindingsTablePreferences must be used within a FindingsTablePreferencesProvider"
+      "useFindingsTablePreferences must be used within a FindingsTablePreferencesProvider",
     );
   }
   return context;
@@ -251,8 +246,7 @@ export function FindingsColumnsMenu({
   triggerVariant = "outline",
   triggerSize = "sm",
 }: FindingsColumnsMenuProps) {
-  const { preferences, toggleColumn, setDensity, resetPreferences } =
-    useFindingsTablePreferences();
+  const { preferences, toggleColumn, setDensity, resetPreferences } = useFindingsTablePreferences();
 
   return (
     <DropdownMenu>

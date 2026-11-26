@@ -203,9 +203,7 @@ describe("RemediationPage client component (#1372)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Generate Remediation Patch/ }));
 
     await screen.findByRole("alert");
-    expect(
-      screen.getByText("AI patch failed verification and was discarded."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("AI patch failed verification and was discarded.")).toBeInTheDocument();
     expect(screen.queryByTestId("patch-diff-viewer")).not.toBeInTheDocument();
     expect(screen.queryByText("✅ Verified Ready Fix")).not.toBeInTheDocument();
     expect(
