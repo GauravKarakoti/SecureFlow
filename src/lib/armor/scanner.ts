@@ -59,6 +59,9 @@ export type ScanFinding = {
   verificationStatus?: "CONFIRMED" | "REJECTED" | "UNVERIFIED";
   verificationReason?: string;
   verificationRawResponse?: string;
+  policyName?: string;
+  helpUrl?: string;
+  guidance?: string;
 };
 
 export interface FileChange {

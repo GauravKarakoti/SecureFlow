@@ -127,6 +127,8 @@ describe("getUserFindings", () => {
       isOverdue: true,
       noteCount: 0,
       issueUrl: null,
+      tag: null,
+      isBaseline: false,
       cwe: null,
     });
     expect(result.findings[1]).toMatchObject({

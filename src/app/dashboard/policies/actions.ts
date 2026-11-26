@@ -140,7 +140,7 @@ export async function editPolicy(input: unknown): Promise<EditPolicyResult> {
     return { ok: false, error: parsed.error.issues[0]?.message || "Invalid policy edit data." };
   }
 
-  const { templateId, description, severity, action } = parsed.data;
+  const { templateId, description, severity, action, helpUrl, guidance } = parsed.data;
 
   try {
     const versionNumber = await prisma.$transaction(async (tx: any) => {
@@ -168,6 +168,8 @@ export async function editPolicy(input: unknown): Promise<EditPolicyResult> {
           description,
           severity: severity as any,
           ...(action ? { action } : {}),
+          ...(helpUrl !== undefined ? { helpUrl } : {}),
+          ...(guidance !== undefined ? { guidance } : {}),
         },
       });
 
@@ -182,6 +184,8 @@ export async function editPolicy(input: unknown): Promise<EditPolicyResult> {
           severity: severity as any,
           action: action || template.action,
           rules: template.rules,
+          helpUrl: helpUrl !== undefined ? helpUrl : template.helpUrl,
+          guidance: guidance !== undefined ? guidance : template.guidance,
         },
       });
 
@@ -303,6 +307,8 @@ export async function rollbackPolicy(input: unknown): Promise<RollbackPolicyResu
           severity: targetVersion.severity,
           action: targetVersion.action,
           rules: targetVersion.rules,
+          helpUrl: targetVersion.helpUrl,
+          guidance: targetVersion.guidance,
         },
       });
 
@@ -317,6 +323,8 @@ export async function rollbackPolicy(input: unknown): Promise<RollbackPolicyResu
           severity: targetVersion.severity,
           action: targetVersion.action,
           rules: targetVersion.rules,
+          helpUrl: targetVersion.helpUrl,
+          guidance: targetVersion.guidance,
         },
       });
 

@@ -117,6 +117,7 @@ Now, every `git commit` automatically triggers a security check on staged files.
 Usage:
   secureflow [options]
   secureflow doctor [options]
+  secureflow watch [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
@@ -124,6 +125,7 @@ Usage:
 
 Commands:
   doctor                 Run pre-scan diagnostics on Node version, git, config, and AI endpoint reachability
+  watch [path]           Watch workspace for file changes and rescan continuously in real time
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
@@ -135,6 +137,7 @@ Commands:
 | Flag                   | Shorthand | Default             | Description                                                                                                                 |
 | :--------------------- | :-------- | :------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
 | `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)                                   |
+| `--watch`              | `-w`      | `false`             | Watch workspace for file changes and rescan modified files in real time                                                     |
 | `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors                        |
 | `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt                                   |
 | `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)                                |
@@ -292,6 +295,33 @@ secureflow doctor
 - **AI Endpoint Reachability & VRAM**: Pings the configured AI provider endpoint (or local Ollama/vLLM server), reporting available VRAM/system memory for local inference.
 - **Credential Safety**: All API keys, tokens, and secrets are strictly redacted (`[REDACTED]`) from diagnostic messages and logs.
 - **CI / Non-Zero Exit**: Every check executes and reports independently. Returns exit code `0` when all checks pass or warn, and `1` if any check fails.
+
+## 👀 Real-Time Watch Mode (`--watch`)
+
+Developers fixing security findings no longer need to rerun the full scan by hand after each edit. Watch mode monitors your workspace in real-time, automatically debounces rapid file saves, and rescans only the modified file:
+
+```bash
+secureflow --watch
+# or shorthand
+secureflow -w
+```
+
+### Key Features:
+- **Instant Incremental Rescan**: When a file is edited and saved, only that file is rescanned.
+- **Smart Debouncing**: Rapid editor autosaves and flushes within 200ms are coalesced into a single rescan.
+- **Live Finding Resolution**: As soon as a vulnerability or secret logging call is fixed or removed, SecureFlow reports it as resolved:
+  ```text
+  ✨ Resolved: [HIGH] console-secret-logging in src/auth.ts:12
+     Fixed: console.log(process.env.API_KEY);
+  ```
+- **New Finding Detection**: Any newly introduced vulnerability or secret is surfaced immediately:
+  ```text
+  ⚠️  New finding: [HIGH] console-secret-logging in src/auth.ts:15
+     console.log(process.env.NEW_KEY) (secret logging)
+  ```
+- **Line Shift Stability**: Adding comments or restructuring code above an existing violation does not produce spurious "resolved" and "new" notifications.
+- **Excluded Build Artifacts**: Directories such as `node_modules`, `dist`, `build`, `.next`, `.turbo`, and temporary files are automatically ignored.
+- **Graceful Termination**: Clean shutdown on `Ctrl+C` (`SIGINT`).
 
 ---
 

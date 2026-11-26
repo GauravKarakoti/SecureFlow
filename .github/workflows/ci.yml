@@ -76,6 +76,10 @@ jobs:
       - name: Verify OpenAPI spec covers every API route
         run: npm run verify:openapi
 
+      # Fails when openapi.yaml has changed without regenerating packages/api-client.
+      - name: Verify API client is in sync with OpenAPI spec
+        run: npm run client:check-drift
+
       # Enforce ArmorIQ policy guardrails and intent verification quality gate (#1710).
       - name: Enforce ArmorIQ Policy Guardrails
         run: npm run verify:armoriq
@@ -258,6 +262,10 @@ jobs:
             exit 1
           fi
           exit "$code"
+
+      - name: Check new migration safety (drops, renames, type changes)
+        run: |
+          npm run db:check-migration-safety -- --base=origin/${{ github.base_ref || 'main' }}
 
   helm-migration-check:
     name: Helm Migration Job Check

@@ -21,6 +21,7 @@
 
 import { withRateLimit } from "@/lib/middleware/rate-limit";
 import { createInboundWebhookHandler } from "@/lib/webhooks/inbound-handler";
+import { withDeprecation } from "@/lib/api/deprecation";
 
 const handler = createInboundWebhookHandler({
   readSecret: () => process.env.WEBHOOK_SECRET,
@@ -28,14 +29,21 @@ const handler = createInboundWebhookHandler({
   logComponent: "webhook-default",
 });
 
-export const POST = withRateLimit(handler, {
-  limit: 100,
-  windowSeconds: 60,
-  // Distinct from `/api/webhooks/generic`. Both routes shipped with
-  // `webhook:generic`, and `withRateLimit` keys on
-  // `rate-limit:${keyPrefix}:${ip}` -- so traffic to either endpoint spent the
-  // other's budget (#720).
-  keyPrefix: "webhook:default",
-});
+export const POST = withDeprecation(
+  withRateLimit(handler, {
+    limit: 100,
+    windowSeconds: 60,
+    // Distinct from `/api/webhooks/generic`. Both routes shipped with
+    // `webhook:generic`, and `withRateLimit` keys on
+    // `rate-limit:${keyPrefix}:${ip}` -- so traffic to either endpoint spent the
+    // other's budget (#720).
+    keyPrefix: "webhook:default",
+  }),
+  {
+    deprecatedAt: new Date("2026-11-01T00:00:00Z"),
+    sunsetAt: new Date("2027-05-01T00:00:00Z"),
+    successorUrl: "/api/webhooks/generic",
+  }
+);
 
 export const dynamic = "force-dynamic";
