@@ -43,7 +43,7 @@
     "db:backup": "tsx scripts/db-backup.ts",
     "db:restore": "tsx scripts/db-restore.ts",
     "db:verify-backup": "tsx scripts/db-verify-backup.ts",
-    "postinstall": "npm run db:gen",
+    "postinstall": "npm run db:gen && npm run client:generate",
     "worker": "tsx --env-file=.env scripts/start-worker.ts",
     "worker:render": "tsx scripts/start-worker.ts",
     "retention": "tsx --env-file=.env scripts/retention.ts",
