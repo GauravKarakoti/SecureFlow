@@ -313,6 +313,7 @@ const FLAGS_WITH_VALUE = new Set([
 const KNOWN_COMMANDS = new Set([
   "validate",
   "init",
+  "doctor",
   "mcp",
   "sbom",
   "explain",
