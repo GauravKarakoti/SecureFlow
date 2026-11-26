@@ -35,8 +35,24 @@ export const TRIAGE_STATUSES = [
   "DISMISSED",
 ] as const;
 
-export const DISMISSAL_REASONS = ["FALSE_POSITIVE", "ACCEPTED_RISK", "WONT_FIX"] as const;
+export const DISMISSAL_REASONS = [
+  "FALSE_POSITIVE",
+  "ACCEPTED_RISK",
+  "WONT_FIX",
+  "TEST_CODE",
+  "MITIGATED_ELSEWHERE",
+  "UNSPECIFIED",
+] as const;
 export type DismissalReason = (typeof DISMISSAL_REASONS)[number];
+
+export const DISMISSAL_REASON_LABELS: Record<DismissalReason, string> = {
+  FALSE_POSITIVE: "False positive",
+  ACCEPTED_RISK: "Accepted risk",
+  WONT_FIX: "Won't fix",
+  TEST_CODE: "Test code",
+  MITIGATED_ELSEWHERE: "Mitigated elsewhere",
+  UNSPECIFIED: "Unspecified",
+};
 
 const DISMISSAL_REASON_SET = new Set<string>(DISMISSAL_REASONS);
 

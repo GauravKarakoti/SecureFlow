@@ -712,6 +712,15 @@ function FindingsClientInner({
                                     : (TRIAGE_LABELS[finding.triageStatus] ?? finding.triageStatus)}
                                 </Badge>
                               )}
+                              {finding.triageStatus === "DISMISSED" && finding.triageReason && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500/30 bg-amber-500/10 text-amber-300 font-mono text-[10px] shrink-0"
+                                  title={`Dismissal category: ${finding.triageReason}`}
+                                >
+                                  {finding.triageReason.toLowerCase().replace(/_/g, " ")}
+                                </Badge>
+                              )}
                               {expiryDate && (
                                 <Badge
                                   variant="outline"

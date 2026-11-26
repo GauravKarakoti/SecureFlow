@@ -33,6 +33,7 @@ export interface SetFindingStatusInput {
   fingerprint: string;
   status: TriageStatus;
   reason?: DismissalReason | string | null;
+  category?: DismissalReason | string | null;
   note?: string | null;
   expiresAt?: Date | string | null;
 }
@@ -54,6 +55,7 @@ export interface SetFindingStatusesInput {
   items: FindingTriageTarget[];
   status: TriageStatus;
   reason?: DismissalReason | string | null;
+  category?: DismissalReason | string | null;
   note?: string | null;
   expiresAt?: Date | string | null;
 }
@@ -88,20 +90,21 @@ export async function setFindingStatus(
     return { ok: false, error: "Permission denied: your role does not allow triaging findings" };
   }
 
-  // A category is required; the explanatory note is optional.
+  // A category is required; the explanatory note is optional (#2096).
   let dismissalReason: DismissalReason | null = null;
   let dismissedAt: Date | null = null;
   let dismissedById: string | null = null;
 
   if (status === "DISMISSED" || status === "FALSE_POSITIVE" || status === "IGNORED") {
     if (status === "DISMISSED") {
-      if (typeof input.reason === "string" && input.reason.trim().length < 5) {
-        return { ok: false, error: "Reason must be at least 5 characters" };
+      const category = input.category || input.reason;
+      if (!category) {
+        return { ok: false, error: "Dismissal reason category is required" };
       }
-      if (!input.reason || !isDismissalReason(input.reason)) {
+      if (!isDismissalReason(category)) {
         return { ok: false, error: "Invalid dismissal reason category" };
       }
-      dismissalReason = input.reason;
+      dismissalReason = category;
       dismissedAt = new Date();
       dismissedById = userId;
     }
@@ -257,13 +260,14 @@ export async function setFindingStatuses(
   let dismissedById: string | null = null;
 
   if (input.status === "DISMISSED") {
-    if (!input.reason || (typeof input.reason === "string" && input.reason.trim().length < 5)) {
-      return { ok: false, error: "Reason must be at least 5 characters" };
+    const category = input.category || input.reason;
+    if (!category) {
+      return { ok: false, error: "Dismissal reason category is required" };
     }
-    if (!isDismissalReason(input.reason)) {
+    if (!isDismissalReason(category)) {
       return { ok: false, error: "Invalid dismissal reason category" };
     }
-    dismissalReason = input.reason;
+    dismissalReason = category;
     dismissedAt = new Date();
     dismissedById = userId;
   }
@@ -416,4 +420,27 @@ export async function setFindingStatuses(
     skippedCount,
     ...(warning ? { warning } : {}),
   };
+}
+
+/**
+ * Migration helper to migrate existing dismissals with null or missing dismissalReason
+ * to the 'UNSPECIFIED' category (#2096).
+ */
+export async function migrateUnspecifiedDismissals(): Promise<{ updatedCount: number }> {
+  try {
+    const result = await prisma.findingTriage.updateMany({
+      where: {
+        status: { in: ["DISMISSED", "FALSE_POSITIVE", "IGNORED"] },
+        dismissalReason: null,
+      },
+      data: {
+        dismissalReason: "UNSPECIFIED",
+      },
+    });
+
+    return { updatedCount: result.count };
+  } catch (error) {
+    console.error("[Triage] Failed to migrate unspecified dismissals:", error);
+    return { updatedCount: 0 };
+  }
 }
