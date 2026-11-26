@@ -43,11 +43,15 @@ function PageButtonSlot({ disabled, children }: { disabled: boolean; children: R
   );
 }
 
+export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+
 export interface FindingsPaginationProps {
   page: number;
   pageSize: number;
   total: number;
   totalPages: number;
+  onLoadingChange?: (loading: boolean) => void;
+  onPageSizeChange?: (newPageSize: number) => void;
 }
 
 export default function FindingsPagination({
@@ -55,26 +59,51 @@ export default function FindingsPagination({
   pageSize,
   total,
   totalPages,
+  onLoadingChange,
+  onPageSizeChange,
 }: FindingsPaginationProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const goTo = useCallback(
-    (nextPage: number) => {
+  const changePageSize = useCallback(
+    (newPageSize: number) => {
+      onLoadingChange?.(true);
+      onPageSizeChange?.(newPageSize);
       const params = new URLSearchParams(searchParams.toString());
-      // Page 1 is the default, so it is left out of the URL entirely — a clean
-      // view should have a clean address.
-      if (nextPage <= 1) params.delete("page");
-      else params.set("page", String(nextPage));
+      if (newPageSize === 20) {
+        params.delete("pageSize");
+      } else {
+        params.set("pageSize", String(newPageSize));
+      }
+      params.delete("page");
+      params.delete("cursor");
 
       const query = params.toString();
       startTransition(() => {
         router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
       });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, onLoadingChange, onPageSizeChange],
+  );
+
+  const goTo = useCallback(
+    (nextPage: number) => {
+      onLoadingChange?.(true);
+      const params = new URLSearchParams(searchParams.toString());
+      // Page 1 is the default, so it is left out of the URL entirely — a clean
+      // view should have a clean address.
+      if (nextPage <= 1) params.delete("page");
+      else params.set("page", String(nextPage));
+      params.delete("cursor");
+
+      const query = params.toString();
+      startTransition(() => {
+        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      });
+    },
+    [pathname, router, searchParams, onLoadingChange],
   );
 
   if (total === 0) return null;
@@ -93,11 +122,34 @@ export default function FindingsPagination({
       data-testid="findings-pagination"
       className="flex flex-wrap items-center justify-between gap-3 border-t border-foreground/10 px-6 py-4"
     >
-      <p className="text-xs text-muted-foreground" aria-live="polite">
-        Showing <span className="font-medium text-foreground">{first.toLocaleString()}</span>–
-        <span className="font-medium text-foreground">{last.toLocaleString()}</span> of{" "}
-        <span className="font-medium text-foreground">{total.toLocaleString()}</span>
-      </p>
+      <div className="flex flex-wrap items-center gap-4">
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          Showing <span className="font-medium text-foreground">{first.toLocaleString()}</span>–
+          <span className="font-medium text-foreground">{last.toLocaleString()}</span> of{" "}
+          <span className="font-medium text-foreground">{total.toLocaleString()}</span>
+        </p>
+
+        <div className="flex items-center gap-2" data-testid="page-size-selector-container">
+          <label htmlFor="page-size-select" className="text-xs text-muted-foreground whitespace-nowrap">
+            Rows per page:
+          </label>
+          <select
+            id="page-size-select"
+            data-testid="page-size-select"
+            aria-label="Rows per page"
+            value={pageSize}
+            disabled={isPending}
+            onChange={(e) => changePageSize(Number(e.target.value))}
+            className="h-8 rounded-md border border-input bg-background/50 px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 cursor-pointer"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size} className="bg-background text-foreground">
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <div className="flex items-center gap-2">
         <PageButtonSlot disabled={previousDisabled}>
