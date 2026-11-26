@@ -44,6 +44,10 @@ vi.mock("@/lib/armor/iq", () => ({
   },
 }));
 
+vi.mock("./policy-effectiveness-card", () => ({
+  PolicyEffectivenessCard: () => <div data-testid="policy-effectiveness-card" />,
+}));
+
 vi.mock("./policy-card", () => ({
   PolicyCard: ({
     id,

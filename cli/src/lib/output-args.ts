@@ -34,6 +34,7 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   "csv",
   "html",
   "markdown",
+  "junit",
 ];
 
 /** Accepted spellings that are not themselves format names. */
@@ -100,6 +101,14 @@ export function parseIgnoreFilePath(argv: readonly string[]): string | undefined
   const raw = optionValue(argv, ["--ignore-file", "--ignore"]);
   if (raw === undefined) return undefined;
   if (raw === null) throw new CliUsageError("--ignore-file requires a file path");
+  return raw;
+}
+
+/** `--config <path>` (alias `-c`), or `undefined` for the default configuration file lookup. */
+export function parseConfigFilePath(argv: readonly string[]): string | undefined {
+  const raw = optionValue(argv, ["--config", "-c"]);
+  if (raw === undefined) return undefined;
+  if (raw === null) throw new CliUsageError("--config requires a file path");
   return raw;
 }
 
@@ -181,6 +190,20 @@ export function parseCacheClearArg(argv: readonly string[]): boolean {
 }
 
 /**
+ * `--ignore-suppressions`: ignore inline suppression comments and treat all violations as active (#2051).
+ */
+export function parseIgnoreSuppressionsArg(argv: readonly string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--ignore-suppressions") return true;
+    if (arg.startsWith("--ignore-suppressions=")) {
+      const val = arg.slice("--ignore-suppressions=".length).toLowerCase();
+      return val !== "false" && val !== "0";
+    }
+  }
+  return false;
+}
+
+/**
  * Parse cache prune command: `cache-prune`, `cache prune`, or `--cache-prune`.
  */
 export function parseCachePruneArg(argv: readonly string[]): boolean {
@@ -231,6 +254,8 @@ export function parseCacheMaxSizeArg(argv: readonly string[]): string | undefine
 }
 
 /**
+
+/**
  * `--cache-dir <path>`: optional custom cache directory.
  */
 export function parseCacheDirArg(argv: readonly string[]): string | undefined {
@@ -242,7 +267,29 @@ export function parseCacheDirArg(argv: readonly string[]): string | undefined {
   return raw.trim();
 }
 
+/**
+ * `--baseline [path]`: path to baseline file, or default ".secureflow-baseline.json" if flag passed (#2060).
+ */
+export function parseBaselineArg(argv: readonly string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--baseline") {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        return next;
+      }
+      return ".secureflow-baseline.json";
+    }
+    if (arg.startsWith("--baseline=")) {
+      const val = arg.slice("--baseline=".length).trim();
+      return val || ".secureflow-baseline.json";
+    }
+  }
+  return undefined;
+}
+
 const FLAGS_WITH_VALUE = new Set([
+  "--baseline",
   "-o",
   "--output",
   "--format",
@@ -272,6 +319,7 @@ const KNOWN_COMMANDS = new Set([
   "cache-clear",
   "cache-prune",
   "cache-stats",
+  "hook",
 ]);
 
 /**
@@ -279,6 +327,11 @@ const KNOWN_COMMANDS = new Set([
  * Returns undefined if scanning staged git files or running a specific subcommand.
  */
 export function parseTargetDirectoryArg(argv: readonly string[]): string | undefined {
+  // If --staged is explicitly requested, directory scanning is disabled
+  if (argv.includes("--staged")) {
+    return undefined;
+  }
+
   // Check explicit --dir
   const explicit = optionValue(argv, ["--dir"]);
   if (explicit !== undefined) {
@@ -305,12 +358,19 @@ export function parseTargetDirectoryArg(argv: readonly string[]): string | undef
       if (next && !next.startsWith("-")) {
         return next;
       }
-      return ".";
+      return undefined;
     }
     return arg;
   }
 
   return undefined;
+}
+
+/**
+ * Checks whether `--staged` was passed.
+ */
+export function parseStagedArg(argv: readonly string[]): boolean {
+  return argv.includes("--staged");
 }
 
 export type VerbosityLevel = "quiet" | "normal" | "verbose";
@@ -359,4 +419,3 @@ export function parseVerbosityArg(argv: readonly string[]): VerbosityLevel {
   if (verbose) return "verbose";
   return "normal";
 }
-

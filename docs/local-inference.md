@@ -61,13 +61,16 @@ Configure local model inference across the web app, background workers, and CLI 
 
 ### Generic Local AI Variables
 
-| Variable                   | Description                                                                                                          | Example / Default                |
-| :------------------------- | :------------------------------------------------------------------------------------------------------------------- | :------------------------------- |
-| `LOCAL_AI_URL`             | Base URL of the OpenAI-compatible inference server. Auto-detects provider (`:11434` -> `ollama`, `:8000` -> `vllm`). | `http://localhost:11434/v1`      |
-| `LOCAL_AI_MODEL`           | Model tag or identifier to load for analysis.                                                                        | `llama3`, `codellama`, `mistral` |
-| `LOCAL_AI_PROVIDER`        | Explicit provider designation (`ollama`, `vllm`, or `custom`).                                                       | `ollama`                         |
-| `LOCAL_AI_API_KEY`         | Optional bearer token for authenticated on-prem cluster endpoints.                                                   | Defaults to `"local"`            |
-| `LOCAL_AI_FALLBACK_MODELS` | Comma-separated list of smaller fallback model tags to try in order when GPU memory is exhausted.                    | `llama3.2:3b,llama3.2:1b`        |
+| Variable                         | Description                                                                                                                   | Example / Default                |
+| :------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- | :------------------------------- |
+| `LOCAL_AI_URL`                   | Base URL of the OpenAI-compatible inference server. Auto-detects provider (`:11434` -> `ollama`, `:8000` -> `vllm`).          | `http://localhost:11434/v1`      |
+| `LOCAL_AI_MODEL`                 | Model tag or identifier to load for analysis.                                                                                 | `llama3`, `codellama`, `mistral` |
+| `LOCAL_AI_PROVIDER`              | Explicit provider designation (`ollama`, `vllm`, or `custom`).                                                                | `ollama`                         |
+| `LOCAL_AI_API_KEY`               | Optional bearer token for authenticated on-prem cluster endpoints.                                                            | Defaults to `"local"`            |
+| `LOCAL_AI_FALLBACK_MODELS`       | Comma-separated list of smaller fallback model tags to try in order when GPU memory is exhausted.                             | `llama3.2:3b,llama3.2:1b`        |
+| `VRAM_CONCURRENCY_THRESHOLD`     | Max concurrent local inference generations permitted per worker via `Semaphore` (`DEFAULT_LOCAL_VRAM_CONCURRENCY`).           | `1`                              |
+| `LOCAL_AI_MAX_CONCURRENCY`       | High-priority concurrency alias (`LOCAL_AI_CONCURRENCY_LIMIT` also accepted before `VRAM_CONCURRENCY_THRESHOLD`).             | `1`                              |
+| `LOCAL_AI_MAX_QUEUE_WAIT_MS`     | Max semaphore queue wait duration in ms before failing over or throwing `VRAMConcurrencyError` (`DEFAULT_LOCAL_QUEUE_WAIT_MS`). | `30000`                          |
 
 ### Dedicated Ollama Variables
 
@@ -139,18 +142,19 @@ The system inspects server error messages for known out-of-memory indicators:
 - **vLLM**: `"CUDA out of memory"`, `"No available memory for the cache blocks"`
 - **General**: `"insufficient vram"`, `"insufficient gpu memory"`, `"OOM"`
 
-### Fallback Sequence (`LOCAL_AI_FALLBACK_MODELS`)
+### Fallback Sequence (`LOCAL_AI_FALLBACK_MODELS`) & Concurrency Budgets
 
 1. Define a list of progressively smaller models in `LOCAL_AI_FALLBACK_MODELS`:
    ```bash
    LOCAL_AI_FALLBACK_MODELS=llama3.2:3b,llama3.2:1b
    ```
-2. When the primary model fails due to insufficient memory, SecureFlow automatically retries with each fallback model in order.
-3. If all models fail, `InsufficientVRAMError` is thrown with an actionable recommendation:
+2. When the primary model fails due to insufficient memory (`isInsufficientMemoryError`) or local GPU queue saturation (`isVramConcurrencyError` / `VRAMConcurrencyError`), SecureFlow does **not** retry the same failing model — it immediately advances to each fallback model in order and never caches fallback answers under the primary model key.
+3. If all models fail with out-of-memory errors, `InsufficientVRAMError` (`insufficientVramMessage`) is thrown/surfaced with a single-line actionable recommendation (no stack traces leaked):
    ```text
    Not enough GPU memory to load local model "llama3", "llama3.2:3b", "llama3.2:1b". Switch to a smaller model (for example LOCAL_AI_MODEL=llama3.2:3b) or list smaller ones in LOCAL_AI_FALLBACK_MODELS.
    ```
-4. **Air-Gap Invariant**: Local mode **never** falls back to cloud providers. All fallback attempts remain strictly bound to the configured local endpoint.
+4. **Concurrency Budget Defaults**: Worker local inference defaults to `VRAM_CONCURRENCY_THRESHOLD=1` (`DEFAULT_LOCAL_VRAM_CONCURRENCY = 1`, resolved via `getLocalModelVramThreshold()` with precedence `LOCAL_AI_MAX_CONCURRENCY` → `LOCAL_AI_CONCURRENCY_LIMIT` → `VRAM_CONCURRENCY_THRESHOLD`) and `LOCAL_AI_MAX_QUEUE_WAIT_MS=30000` (`DEFAULT_LOCAL_QUEUE_WAIT_MS = 30000`, resolved via `getLocalQueueWaitMs()`). See [Local Inference & Worker HPA Architecture Guide](./helm-local-inference-vram-hpa.md) for Kubernetes GPU scheduling and HPA configuration.
+5. **Air-Gap Invariant**: Local mode **never** falls back to cloud providers. All fallback attempts remain strictly bound to the configured local endpoint (`openai/<model>`).
 
 ---
 

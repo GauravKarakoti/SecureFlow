@@ -5,12 +5,12 @@
  * for direct ingestion by GitHub Advanced Security, GitLab Security Dashboards, and enterprise CI/CD systems.
  */
 
-// Added `type` prefix for verbatimModuleSyntax compliance
 import fs from "node:fs";
 import crypto from "node:crypto";
 import type { Readable } from "node:stream";
 import type { FileScanResult, Violation } from "./scanner.js";
 import type { AiFinding } from "./lib/api-client.js";
+import { maskSecrets } from "./secret-masker.js";
 
 export interface SarifArtifactLocation {
   uri: string;
@@ -76,6 +76,12 @@ export interface SarifReportingDescriptor {
   properties?: Record<string, unknown>;
 }
 
+export interface SarifSuppression {
+  kind: "inSource" | "external";
+  justification?: string;
+  status?: "accepted" | "underReview" | "rejected";
+}
+
 export interface SarifResult {
   ruleId: string;
   ruleIndex?: number;
@@ -86,6 +92,8 @@ export interface SarifResult {
   locations: SarifLocation[];
   partialFingerprints?: Record<string, string>;
   fixes?: SarifFix[];
+  suppressions?: SarifSuppression[];
+  baselineState?: "new" | "existing" | "absent" | "updated" | undefined;
   properties?: Record<string, unknown>;
 }
 
@@ -121,10 +129,6 @@ export class SarifValidationError extends Error {
   }
 }
 
-/**
- * Validates a document against the OASIS SARIF v2.1.0 specification and
- * external CI/CD ingestion requirements (such as GitHub Advanced Security).
- */
 export function validateSarifDocument(doc: unknown): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
@@ -134,19 +138,16 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
 
   const root = doc as Record<string, unknown>;
 
-  // Schema validation
   if (typeof root.$schema !== "string" || !root.$schema.trim()) {
     errors.push("SARIF '$schema' must be a non-empty URI string");
   } else if (!root.$schema.includes("sarif")) {
     errors.push(`SARIF '$schema' must reference a SARIF schema (got: '${root.$schema}')`);
   }
 
-  // Version validation
   if (root.version !== "2.1.0") {
     errors.push(`SARIF 'version' must be '2.1.0' (got: '${String(root.version)}')`);
   }
 
-  // Runs validation
   if (!Array.isArray(root.runs)) {
     errors.push("SARIF 'runs' must be an array");
   } else if (root.runs.length === 0) {
@@ -160,7 +161,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
       }
       const run = runItem as Record<string, unknown>;
 
-      // Tool validation
       if (!run.tool || typeof run.tool !== "object" || Array.isArray(run.tool)) {
         errors.push(`${runPath}.tool must be an object`);
       } else {
@@ -201,8 +201,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
                   errors.push(`${rulePath}.name must be a string`);
                 }
 
-                // Read the property once: casting twice makes the second read a
-                // fresh expression, so the typeof narrowing does not reach .trim().
                 const shortDescriptionText = (
                   rule.shortDescription as Record<string, unknown> | undefined
                 )?.text;
@@ -230,7 +228,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
         }
       }
 
-      // Results validation
       if (!Array.isArray(run.results)) {
         errors.push(`${runPath}.results must be an array`);
       } else {
@@ -274,8 +271,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
                   `${resPath}.ruleIndex (${res.ruleIndex}) is out of bounds for rules array of length ${driverRules.length}`,
                 );
               } else {
-                // Bound once: under noUncheckedIndexedAccess every re-index is a
-                // separate possibly-undefined read.
                 const referencedRule = driverRules[res.ruleIndex];
                 if (referencedRule && referencedRule.id !== res.ruleId) {
                   errors.push(
@@ -367,7 +362,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
             }
           }
 
-          // Partial Fingerprints validation (#1754)
           if (res.partialFingerprints !== undefined) {
             if (
               typeof res.partialFingerprints !== "object" ||
@@ -388,7 +382,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
             }
           }
 
-          // Fixes / Replacement Hunks validation (#1754)
           if (res.fixes !== undefined) {
             if (!Array.isArray(res.fixes)) {
               errors.push(`${resPath}.fixes must be an array`);
@@ -457,6 +450,36 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
               });
             }
           }
+
+          if (res.suppressions !== undefined) {
+            if (!Array.isArray(res.suppressions)) {
+              errors.push(`${resPath}.suppressions must be an array`);
+            } else {
+              res.suppressions.forEach((supItem: unknown, supIdx: number) => {
+                const supPath = `${resPath}.suppressions[${supIdx}]`;
+                if (!supItem || typeof supItem !== "object" || Array.isArray(supItem)) {
+                  errors.push(`${supPath} must be an object`);
+                  return;
+                }
+                const sup = supItem as Record<string, unknown>;
+                if (sup.kind !== "inSource" && sup.kind !== "external") {
+                  errors.push(`${supPath}.kind must be 'inSource' or 'external'`);
+                }
+                if (sup.justification !== undefined && typeof sup.justification !== "string") {
+                  errors.push(`${supPath}.justification must be a string`);
+                }
+              });
+            }
+          }
+
+          // Baseline state validation (SARIF v2.1.0 §3.27.24 / #2060)
+          if (res.baselineState !== undefined) {
+            if (!["new", "existing", "absent", "updated"].includes(res.baselineState as string)) {
+              errors.push(
+                `${resPath}.baselineState must be one of: 'new', 'existing', 'absent', 'updated'`,
+              );
+            }
+          }
         });
       }
     });
@@ -465,9 +488,6 @@ export function validateSarifDocument(doc: unknown): { valid: boolean; errors: s
   return { valid: errors.length === 0, errors };
 }
 
-/**
- * Asserts that a document is a valid SARIF document, throwing a SarifValidationError if invalid.
- */
 export function assertValidSarifDocument(doc: unknown): asserts doc is SarifDocument {
   const result = validateSarifDocument(doc);
   if (!result.valid) {
@@ -517,17 +537,11 @@ const DEFAULT_RULE_DEFINITIONS: Record<string, SarifReportingDescriptor> = {
   },
 };
 
-/**
- * Normalizes source text snippet to compute deterministic fingerprint across line shifts (#1754).
- */
 export function computeSnippetFingerprint(text: string): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
 }
 
-/**
- * Builds standard SARIF v2.1.0 fix hunks from remediation text/diff (#1754).
- */
 export function buildSarifFix(
   filePath: string,
   startLine: number,
@@ -561,9 +575,6 @@ export function buildSarifFix(
   };
 }
 
-/**
- * Converts finding severity into SARIF level ("error" | "warning" | "note") (#1766).
- */
 export function severityToSarifLevel(severity?: string): "error" | "warning" | "note" {
   switch (severity?.toUpperCase()) {
     case "CRITICAL":
@@ -578,10 +589,6 @@ export function severityToSarifLevel(severity?: string): "error" | "warning" | "
   }
 }
 
-/**
- * Maps CLI scan results into a valid OASIS SARIF v2.1.0 document object.
- * Validates the schema before returning.
- */
 export function generateSarifReport(
   scanResults: FileScanResult[],
   options?: {
@@ -596,37 +603,73 @@ export function generateSarifReport(
   const sarifResults: SarifResult[] = [];
 
   for (const fileResult of scanResults) {
-    if (!fileResult.violations || fileResult.violations.length === 0) {
+    const allViolations = [
+      ...(fileResult.violations || []),
+      ...(fileResult.suppressedViolations || []),
+    ];
+
+    if (allViolations.length === 0) {
       continue;
     }
 
     const normalizedPath = fileResult.path.replace(/\\/g, "/");
 
-    for (const violation of fileResult.violations) {
-      const reasonKey = violation.reason || "generic-secret-logging";
+    for (const violation of allViolations) {
+      const isCustom = Boolean(
+        violation.custom || (violation.ruleId && violation.ruleId !== "console-secret-logging"),
+      );
+      const reasonKey = isCustom
+        ? `custom-${violation.ruleId || violation.reason}`
+        : violation.reason || "generic-secret-logging";
       let ruleInfo = rulesMap.get(reasonKey);
 
       if (!ruleInfo) {
-        const descriptor = DEFAULT_RULE_DEFINITIONS[reasonKey] || {
-          id: `SECUREFLOW-${rulesMap.size + 100}`,
-          name: `ConsoleSecretLoggingCustomRule${rulesMap.size + 1}`,
-          shortDescription: {
-            text: `Console logging of ${violation.reason}`,
-          },
-          defaultConfiguration: {
-            level: severityToSarifLevel(violation.severity),
-          },
-          helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
-        };
+        const descriptor = isCustom
+          ? {
+              id: violation.ruleId
+                ? `CUSTOM-${violation.ruleId.toUpperCase().replace(/[^A-Z0-9_-]/g, "-")}`
+                : `CUSTOM-RULE-${rulesMap.size + 1}`,
+              name: violation.ruleId || `CustomRule${rulesMap.size + 1}`,
+              shortDescription: {
+                text: `[Custom Rule] ${violation.reason}`,
+              },
+              fullDescription: {
+                text: `Custom project-specific rule: ${violation.reason}`,
+              },
+              defaultConfiguration: {
+                level: severityToSarifLevel(violation.severity),
+              },
+              properties: {
+                custom: true,
+                ruleId: violation.ruleId,
+              },
+            }
+          : DEFAULT_RULE_DEFINITIONS[reasonKey] || {
+              id: `SECUREFLOW-${rulesMap.size + 100}`,
+              name: `ConsoleSecretLoggingCustomRule${rulesMap.size + 1}`,
+              shortDescription: {
+                text: `Console logging of ${violation.reason}`,
+              },
+              defaultConfiguration: {
+                level: severityToSarifLevel(violation.severity),
+              },
+              helpUri: "https://github.com/GauravKarakoti/SecureFlow#rules",
+            };
 
         ruleInfo = { descriptor, index: rulesMap.size };
         rulesMap.set(reasonKey, ruleInfo);
       }
 
+      // Compute deterministic fingerprint on raw snippet before redaction (#2080)
       const fingerprint = computeSnippetFingerprint(violation.text);
+      const redactedText = maskSecrets(violation.text);
       const fixKey = `${normalizedPath}:${violation.line}`;
       const replacement = options?.remediations?.[fixKey] || options?.remediations?.[fingerprint];
       const fix = buildSarifFix(normalizedPath, violation.line, replacement);
+
+      const messageText = isCustom
+        ? `[SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] ${violation.reason}: "${redactedText}"`
+        : `[SecureFlow] ${violation.reason} passed to console call: "${redactedText}"`;
 
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
@@ -635,7 +678,7 @@ export function generateSarifReport(
           ? severityToSarifLevel(violation.severity)
           : ruleInfo.descriptor.defaultConfiguration?.level || "error",
         message: {
-          text: `[SecureFlow] ${violation.reason} passed to console call: "${violation.text}"`,
+          text: messageText,
         },
         locations: [
           {
@@ -646,7 +689,7 @@ export function generateSarifReport(
               region: {
                 startLine: Math.max(1, violation.line),
                 snippet: {
-                  text: violation.text,
+                  text: redactedText,
                 },
               },
             },
@@ -657,29 +700,43 @@ export function generateSarifReport(
           primaryLocationLineHash: fingerprint,
         },
         ...(fix ? { fixes: [fix] } : {}),
+        ...(violation.suppression
+          ? {
+              suppressions: [
+                {
+                  kind: "inSource" as const,
+                  justification: violation.suppression.reason,
+                  status: "accepted" as const,
+                },
+              ],
+            }
+          : {}),
+        ...(violation.baselineState ? { baselineState: violation.baselineState } : {}),
         properties: {
           reason: violation.reason,
           severity: violation.severity || "HIGH",
+          ...(isCustom ? { custom: true, ruleId: violation.ruleId } : {}),
         },
       });
     }
   }
 
-  // Include AI-detected findings in the SARIF report (#1766)
   if (options?.aiFindings && options.aiFindings.length > 0) {
     for (const aiFinding of options.aiFindings) {
       const ruleKey = `AI-${aiFinding.type}`;
       let ruleInfo = rulesMap.get(ruleKey);
+
+      const redactedDescription = maskSecrets(aiFinding.description);
 
       if (!ruleInfo) {
         const descriptor: SarifReportingDescriptor = {
           id: `SECUREFLOW-AI-${rulesMap.size + 100}`,
           name: aiFinding.type.replace(/[^A-Za-z0-9]/g, ""),
           shortDescription: {
-            text: aiFinding.description,
+            text: redactedDescription,
           },
           fullDescription: {
-            text: `AI-detected vulnerability of type ${aiFinding.type}: ${aiFinding.description}`,
+            text: `AI-detected vulnerability of type ${aiFinding.type}: ${redactedDescription}`,
           },
           defaultConfiguration: {
             level: severityToSarifLevel(aiFinding.severity),
@@ -693,15 +750,16 @@ export function generateSarifReport(
 
       const normUri = aiFinding.fileLocation.replace(/\\/g, "/");
       const line = aiFinding.lineStart && aiFinding.lineStart > 0 ? aiFinding.lineStart : 1;
-      const snippet = aiFinding.codeSnippet || aiFinding.description;
-      const fingerprint = aiFinding.dynamicFingerprint || computeSnippetFingerprint(snippet);
+      const rawSnippet = aiFinding.codeSnippet || aiFinding.description;
+      const fingerprint = aiFinding.dynamicFingerprint || computeSnippetFingerprint(rawSnippet);
+      const redactedSnippet = maskSecrets(rawSnippet);
 
       sarifResults.push({
         ruleId: ruleInfo.descriptor.id,
         ruleIndex: ruleInfo.index,
         level: severityToSarifLevel(aiFinding.severity),
         message: {
-          text: `[SecureFlow AI] ${aiFinding.description}`,
+          text: `[SecureFlow AI] ${redactedDescription}`,
         },
         locations: [
           {
@@ -715,7 +773,7 @@ export function generateSarifReport(
                   ? { endLine: aiFinding.lineEnd }
                   : {}),
                 snippet: {
-                  text: snippet,
+                  text: redactedSnippet,
                 },
               },
             },
@@ -736,7 +794,6 @@ export function generateSarifReport(
 
   const rulesArray = Array.from(rulesMap.values()).map((r) => r.descriptor);
   if (rulesArray.length === 0) {
-    // Appended `!` to override 'undefined' error resulting from Record<string, ...> signature
     rulesArray.push(DEFAULT_RULE_DEFINITIONS["generic-secret-logging"]!);
   }
 
@@ -763,9 +820,6 @@ export function generateSarifReport(
   return sarifDoc;
 }
 
-/**
- * Format SARIF report as pretty JSON string.
- */
 export function formatSarifJson(
   scanResults: FileScanResult[],
   options?: {
@@ -779,23 +833,10 @@ export function formatSarifJson(
   return JSON.stringify(sarifDoc, null, 2);
 }
 
-/**
- * Streaming parser options for SARIF processing (#1232).
- */
 export interface SarifStreamOptions {
   highWaterMark?: number;
 }
 
-/**
- * Stream-based JSON parser for large SARIF reports (#1232).
- *
- * Reads a SARIF report sequentially from an fs.createReadStream or Readable stream,
- * extracting and yielding each `SarifResult` from `runs[].results[]` without
- * loading the entire AST or file into memory.
- *
- * Keeps memory consumption flat (under 150MB) regardless of SARIF file size,
- * preventing Out of Memory (OOM) crashes on constrained CI/CD runners.
- */
 export async function* streamSarifResults(
   source: string | NodeJS.ReadableStream | Readable,
   options?: SarifStreamOptions,
@@ -812,7 +853,6 @@ export async function* streamSarifResults(
     stream.setEncoding("utf-8");
   }
 
-  // Parser state
   enum State {
     SEARCHING_RESULTS,
     WAITING_ARRAY_OPEN,
@@ -845,10 +885,6 @@ export async function* streamSarifResults(
             }
             searchWindow = "";
           } else if (searchWindow.length < "results".length) {
-            // Only the "results" comparison matters, so cap the window:
-            // accumulating every char of a large string value before the
-            // results key (e.g. a big fullDescription) was O(n²) and broke
-            // the flat-memory guarantee this parser exists for.
             searchWindow += char;
           }
         } else {
@@ -866,7 +902,6 @@ export async function* streamSarifResults(
           inString = false;
           isEscaped = false;
         } else if (!/\s|:/.test(char)) {
-          // If unexpected non-whitespace token appears before '[', resume search
           state = State.SEARCHING_RESULTS;
           searchWindow = "";
         }
@@ -878,11 +913,9 @@ export async function* streamSarifResults(
             inString = false;
             isEscaped = false;
           } else if (char === "]") {
-            // End of current results array
             state = State.SEARCHING_RESULTS;
           }
         } else {
-          // Inside a single result object
           currentObjectStr += char;
 
           if (inString) {
@@ -902,12 +935,11 @@ export async function* streamSarifResults(
             } else if (char === "}") {
               braceDepth--;
               if (braceDepth === 0) {
-                // Completed one complete SarifResult object
                 try {
                   const result = JSON.parse(currentObjectStr) as SarifResult;
                   yield result;
                 } catch {
-                  // In case of malformed chunk, continue gracefully
+                  // Ignore malformed chunk and continue
                 }
                 currentObjectStr = "";
               }
@@ -919,9 +951,6 @@ export async function* streamSarifResults(
   }
 }
 
-/**
- * Processes a SARIF report using streaming and invokes a callback for each result.
- */
 export async function parseSarifStream(
   source: string | NodeJS.ReadableStream | Readable,
   onResult: (result: SarifResult) => void | Promise<void>,
@@ -935,9 +964,6 @@ export async function parseSarifStream(
   return { totalResults };
 }
 
-/**
- * Streaming parser that reads a SARIF file from disk with fs.createReadStream.
- */
 export async function parseSarifFileStream(
   filePath: string,
   onResult?: (result: SarifResult) => void | Promise<void>,

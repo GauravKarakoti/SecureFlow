@@ -190,4 +190,104 @@ describe("OutboundWebhooksCard UI (#1866)", () => {
       expect(screen.getByText(/1 attempt/i)).toBeDefined();
     });
   });
+
+  it("handles viewing and replaying quarantined dead-letter queue (DLQ) entries (#2061)", async () => {
+    const mockDlqEntries = [
+      {
+        id: "dlq_entry_1",
+        webhookId: "wh_1",
+        url: "https://siem.example.com/hook",
+        event: "scan.completed",
+        status: "quarantined",
+        attempts: 3,
+        statusCode: 503,
+        failureReason: "Service Unavailable",
+        circuitBroken: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.includes("/api/webhooks/dlq/entry_1/replay") ||
+        url.includes("/api/webhooks/dlq/dlq_entry_1/replay")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true, result: { success: true } }),
+        });
+      }
+      if (url.includes("/api/webhooks/dlq/replay")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ total: 1, replayed: 1, succeeded: 1, failed: 0, circuitBroken: 0 }),
+        });
+      }
+      if (url.includes("/api/webhooks/dlq") && init?.method === "DELETE") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true, purgedId: "dlq_entry_1" }),
+        });
+      }
+      if (url.includes("/api/webhooks/dlq")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ total: 1, entries: mockDlqEntries }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL: " + url));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const webhooks = [
+      {
+        id: "wh_1",
+        url: "https://siem.example.com/hook",
+        events: ["scan.completed"],
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+
+    render(<OutboundWebhooksCard initialWebhooks={webhooks} />);
+
+    // Open DLQ from header
+    const dlqHeaderButton = screen.getByRole("button", { name: /dead-letter queue \(dlq\)/i });
+    fireEvent.click(dlqHeaderButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/webhooks/dlq?limit=50");
+      expect(screen.getByText("Outbound Dead-Letter Queue (DLQ)")).toBeDefined();
+      expect(screen.getByText("Circuit Breaker OPEN")).toBeDefined();
+      expect(screen.getByText(/Service Unavailable/i)).toBeDefined();
+    });
+
+    // Replay single entry
+    const replayButton = screen.getByRole("button", { name: /^replay$/i });
+    fireEvent.click(replayButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/webhooks/dlq/dlq_entry_1/replay", {
+        method: "POST",
+      });
+      expect(toast.success).toHaveBeenCalledWith("Webhook delivery successfully replayed!");
+    });
+
+    // Batch replay
+    const batchReplayButton = screen.getByRole("button", { name: /batch replay/i });
+    fireEvent.click(batchReplayButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/webhooks/dlq/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(toast.success).toHaveBeenCalledWith("Batch replay completed: 1 succeeded, 0 failed");
+    });
+
+    vi.unstubAllGlobals();
+  });
 });

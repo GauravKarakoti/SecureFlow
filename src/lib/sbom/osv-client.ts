@@ -22,6 +22,8 @@ const ECOSYSTEM_MAP: Record<string, string> = {
   pypi: "PyPI",
   maven: "Maven",
   gem: "RubyGems",
+  cargo: "crates.io",
+  go: "Go",
 };
 
 // ── OSV response types ─────────────────────────────────────────────────

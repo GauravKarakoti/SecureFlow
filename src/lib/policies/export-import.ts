@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolvePolicyDependencyGraph } from "./dependency-graph";
 
 /**
  * Maximum permitted size for policy export/import files (1 MB).
@@ -50,6 +51,7 @@ export const policyBundleItemSchema = z
       .optional()
       .default([]),
     complianceTags: z.array(z.string().trim().max(64)).max(20).optional().default([]),
+    dependsOn: z.array(z.string().trim().max(128)).max(20).optional().default([]),
   })
   .strict();
 
@@ -93,9 +95,28 @@ export function validatePolicyImportPayload(data: unknown): {
       error: `Invalid policy import file: ${issues}`,
     };
   }
+
+  // Validate DAG acyclicity across policy dependencies
+  const dagResult = resolvePolicyDependencyGraph(
+    parsed.data.policies.map((p) => ({
+      id: p.name,
+      dependsOn: p.dependsOn,
+      policy: p,
+    })),
+  );
+  if (!dagResult.valid) {
+    return {
+      success: false,
+      error: dagResult.error || "Invalid policy dependency graph",
+    };
+  }
+
   return {
     success: true,
-    data: parsed.data,
+    data: {
+      ...parsed.data,
+      policies: dagResult.ordered.map((node) => node.policy),
+    },
   };
 }
 

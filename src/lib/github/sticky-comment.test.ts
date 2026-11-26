@@ -882,5 +882,106 @@ describe("upsertSecureFlowComment", () => {
       expect(matches.map((m) => m.id)).toEqual([51, 101]);
       expect(listComments).toHaveBeenCalledTimes(2);
     });
+
+    it("matches legacy comments containing 'SecureFlow AI Security Report' even without the hidden marker", async () => {
+      const listComments = vi.fn().mockResolvedValue({
+        data: [{ id: 88, body: "### 🛡️ SecureFlow AI Security Report\n\nInitial scan findings..." }],
+      });
+      const updateComment = vi.fn().mockResolvedValue({
+        data: { id: 88, body: "updated" },
+      });
+
+      const mockOctokit = {
+        rest: {
+          issues: { listComments, updateComment },
+        },
+      };
+
+      const result = await upsertSecureFlowComment(mockOctokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 174,
+        body: "### 🛡️ SecureFlow AI Security Report\n\nSecond push findings...",
+        commitSha: "sha-push-2",
+        scanTime: "2026-11-25T22:30:00Z",
+      });
+
+      expect(result.action).toBe("updated");
+      expect(updateComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        comment_id: 88,
+        body: expect.stringContaining("Scanned commit: `sha-push-2`"),
+      });
+      expect(updateComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "repo",
+        comment_id: 88,
+        body: expect.stringContaining(SECUREFLOW_COMMENT_MARKER),
+      });
+    });
+
+    it("ensures a PR with several pushes maintains exactly one comment reflecting the latest scan", async () => {
+      let currentComment: { id: number; body: string } | null = null;
+
+      const listComments = vi.fn().mockImplementation(async () => ({
+        data: currentComment ? [currentComment] : [],
+      }));
+
+      const createComment = vi.fn().mockImplementation(async ({ body }) => {
+        currentComment = { id: 1, body };
+        return { data: currentComment };
+      });
+
+      const updateComment = vi.fn().mockImplementation(async ({ body }) => {
+        currentComment = { id: 1, body };
+        return { data: currentComment };
+      });
+
+      const octokit = {
+        rest: {
+          issues: { listComments, createComment, updateComment },
+        },
+      };
+
+      // Push 1
+      const res1 = await upsertSecureFlowComment(octokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 174,
+        body: "Scan 1",
+        commitSha: "sha111",
+        scanTime: "2026-11-25T10:00:00Z",
+      });
+      expect(res1.action).toBe("created");
+      expect(currentComment?.body).toContain("Scanned commit: `sha111`");
+
+      // Push 2
+      const res2 = await upsertSecureFlowComment(octokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 174,
+        body: "Scan 2",
+        commitSha: "sha222",
+        scanTime: "2026-11-25T11:00:00Z",
+      });
+      expect(res2.action).toBe("updated");
+      expect(currentComment?.body).toContain("Scanned commit: `sha222`");
+      expect(currentComment?.body).not.toContain("sha111");
+
+      // Push 3
+      const res3 = await upsertSecureFlowComment(octokit, {
+        owner: "acme",
+        repo: "repo",
+        issueNumber: 174,
+        body: "Scan 3",
+        commitSha: "sha333",
+        scanTime: "2026-11-25T12:00:00Z",
+      });
+      expect(res3.action).toBe("updated");
+      expect(currentComment?.body).toContain("Scanned commit: `sha333`");
+      expect(createComment).toHaveBeenCalledTimes(1);
+      expect(updateComment).toHaveBeenCalledTimes(2);
+    });
   });
 });

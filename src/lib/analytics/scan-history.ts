@@ -12,6 +12,7 @@
 
 import prisma from "@/lib/prisma";
 import { isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
+import { fetchDirectoryHotspots, type RepoHotspotGroup } from "./hotspots";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,8 @@ export interface AnalyticsPayload {
   topFindingTypes: TopFindingType[];
   /** Scan velocity data (scans per day for last 30 days) */
   scanVelocity: ScanVelocity[];
+  /** Directory hotspots grouped by repository (#2018) */
+  hotspots?: RepoHotspotGroup[];
   /** Aggregate summary stats */
   summary: {
     totalScans: number;
@@ -769,6 +772,7 @@ export async function getAnalyticsPayload(
     summary,
     overdueFindings,
     resolutionMetrics,
+    hotspots,
   ] = await Promise.all([
     fetchDailyScanMetrics(userId, days),
     fetchSeverityTrend(userId, days),
@@ -778,6 +782,7 @@ export async function getAnalyticsPayload(
     fetchAnalyticsSummary(userId, days),
     fetchOverdueCount(userId),
     fetchResolutionMetrics(userId),
+    fetchDirectoryHotspots(userId),
   ]);
 
   return {
@@ -786,6 +791,7 @@ export async function getAnalyticsPayload(
     repoSummaries,
     topFindingTypes,
     scanVelocity,
+    hotspots,
     summary: {
       ...summary,
       overdueFindings,

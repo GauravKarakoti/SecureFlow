@@ -228,6 +228,9 @@ export default function FindingsToolbar({
   const hasActiveExpiring = activeExpiring !== ANY;
   const hasActiveAssignee = activeAssignee !== ANY;
 
+  const activePath = searchParams.get("path") || searchParams.get("pathPrefix");
+  const hasActivePath = Boolean(activePath);
+
   const activeCount = [
     hasActiveSeverity,
     hasActiveType,
@@ -238,13 +241,24 @@ export default function FindingsToolbar({
     hasActiveTo,
     hasActiveExpiring,
     hasActiveAssignee,
+    hasActivePath,
   ].filter(Boolean).length;
 
   const hasFilterParams =
     activeCount > 0 ||
-    ["severity", "type", "status", "repo", "q", "from", "to", "expiring", "assignee"].some((key) =>
-      searchParams.has(key),
-    );
+    [
+      "severity",
+      "type",
+      "status",
+      "repo",
+      "q",
+      "from",
+      "to",
+      "expiring",
+      "assignee",
+      "path",
+      "pathPrefix",
+    ].some((key) => searchParams.has(key));
 
   return (
     <div className="glass-card rounded-xl p-4" data-testid="findings-toolbar">
@@ -436,6 +450,28 @@ export default function FindingsToolbar({
           )}
         </div>
 
+        {activePath && (
+          <Badge
+            variant="secondary"
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary border border-primary/20"
+          >
+            <span>path: {activePath}</span>
+            <button
+              type="button"
+              onClick={() => {
+                apply((params) => {
+                  params.delete("path");
+                  params.delete("pathPrefix");
+                });
+              }}
+              className="rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+              aria-label="Remove path filter"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        )}
+
         {hasFilterParams && (
           <Button
             variant="ghost"
@@ -445,7 +481,19 @@ export default function FindingsToolbar({
             onClick={() => {
               setSearchDraft("");
               apply((params) => {
-                for (const key of ["severity", "type", "status", "repo", "q", "from", "to"]) {
+                for (const key of [
+                  "severity",
+                  "type",
+                  "status",
+                  "repo",
+                  "q",
+                  "from",
+                  "to",
+                  "expiring",
+                  "assignee",
+                  "path",
+                  "pathPrefix",
+                ]) {
                   params.delete(key);
                 }
               });

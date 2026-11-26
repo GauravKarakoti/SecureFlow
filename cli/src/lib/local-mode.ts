@@ -80,6 +80,7 @@ export function hostedAiScanSkipReason(argv: readonly string[]): "no-ai" | "loca
   if (argv.includes("--no-ai")) return "no-ai";
   if (
     argv.includes("--local") ||
+    argv.includes("--staged") ||
     argv.some((a) => a === "--ollama" || a.startsWith("--ollama=")) ||
     argv.some((a) => a === "--vllm" || a.startsWith("--vllm="))
   ) {

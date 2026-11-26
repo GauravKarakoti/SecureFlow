@@ -126,7 +126,9 @@ export default function FindingsClient({
     searchParams?.get("from") ||
     searchParams?.get("to") ||
     searchParams?.get("tab") ||
-    searchParams?.get("tag"),
+    searchParams?.get("tag") ||
+    searchParams?.get("path") ||
+    searchParams?.get("pathPrefix"),
   );
 
   const currentTab =
@@ -490,6 +492,8 @@ export default function FindingsClient({
                       "from",
                       "to",
                       "page",
+                      "path",
+                      "pathPrefix",
                     ]) {
                       params.delete(key);
                     }

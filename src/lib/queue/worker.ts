@@ -49,6 +49,7 @@ import {
 import { upsertSecureFlowComment, formatScanMetadata } from "@/lib/github/sticky-comment";
 import {
   buildInlineReviewComments,
+  postSuggestedChangesReview,
   resolveSuggestionsConfig,
 } from "@/lib/github/suggested-changes";
 import {
@@ -68,6 +69,7 @@ import { getGitHubAppCredentials } from "@/lib/github/app-auth";
 import { isSecureFlowCheckRun, isSecureFlowCheckSuite } from "@/lib/github/webhook-verification";
 import { handlePullRequestSynchronize } from "@/lib/sbom/pull-request-manifests";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
+import { encryptFinding } from "@/lib/security/finding-encryption";
 import { severityBadge, toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import {
   normalizeFindingTypeEnum,
@@ -78,6 +80,7 @@ import { logger, sanitizeLogValue } from "@/lib/logger";
 import { getActivePoliciesForUser } from "@/lib/policies/policy-cache";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
+import { dispatchCriticalChatAlert } from "@/lib/integrations/chat-webhook";
 import { publishVoiceAlert } from "@/lib/voice-alert-events";
 import {
   dispatchOutboundWebhooksForUser,
@@ -855,7 +858,7 @@ export async function runPullRequestScan({
       const zeroReason = getZeroScanReason(pullRequestFilesResult.files);
       const combinedNotice = [coverageNotice].filter(Boolean).join("\n\n") || undefined;
 
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "check_run.update",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);
@@ -984,6 +987,7 @@ export async function runPullRequestScan({
       userId,
       correlationId,
       deliveryId: deliveryId ?? null,
+      skippedFiles: pullRequestFilesResult.unscannedFiles,
     };
     // Scanning only. This function posts its own check run and pull request
     // comment below, writes its own AuditLog row and creates its own
@@ -1170,12 +1174,21 @@ export async function runPullRequestScan({
         ? getZeroScanReason(pullRequestFilesResult.files, scanJobData.customIgnores)
         : undefined);
 
-    const workerSkippedFiles = [
+    const seenSkipped = new Set<string>();
+    const workerSkippedFiles: Array<{ filename: string; reason: string }> = [];
+    for (const item of [
+      ...((pullRequestFilesResult.unscannedFiles as
+        Array<{ filename: string; reason: string }> | undefined) || []),
       ...((scanResult.skippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
         []),
       ...((scanner.lastSkippedFiles as Array<{ filename: string; reason: string }> | undefined) ||
         []),
-    ];
+    ]) {
+      if (item && item.filename && !seenSkipped.has(item.filename)) {
+        seenSkipped.add(item.filename);
+        workerSkippedFiles.push(item);
+      }
+    }
     const isPartialScan =
       Boolean(coverageNotice) ||
       Boolean((scanResult as any).isPartial) ||
@@ -1293,16 +1306,15 @@ export async function runPullRequestScan({
       let inlinePosted = false;
       if (inlineComments.length > 0) {
         try {
-          await octokit.rest.pulls.createReview({
+          const reviewResult = await postSuggestedChangesReview(octokit, {
             owner: repository.owner.login,
             repo: repository.name,
-            pull_number: pullRequest.number,
-            commit_id: pullRequest.head?.sha,
-            event: "COMMENT",
+            pullNumber: pullRequest.number,
+            commitId: pullRequest.head?.sha,
             body: renderScanReportSummary(summaryInput(summaryFindings)),
             comments: inlineComments,
           });
-          inlinePosted = true;
+          inlinePosted = reviewResult.success;
         } catch (err: any) {
           log.error(
             `[REVIEW] Failed to post inline review comments, falling back to summary comment: ${sanitize(err.message)}`,
@@ -1480,7 +1492,7 @@ export async function runPullRequestScan({
       // counting toward the stored score (and the risk-trend average).
       const riskScore = totalRiskScore(activeFindings as Array<{ severity: unknown }>);
 
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "db.write",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);
@@ -1510,21 +1522,28 @@ export async function runPullRequestScan({
               riskScore,
               policyDecision: normalizePolicyDecisionEnum(decision),
               findings: {
-                create: findingsToPersist.map((f: any) => ({
-                  type: normalizeFindingTypeEnum(f.type),
-                  // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
-                  // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
-                  // not a `FindingSeverity` member, so the insert fails outright (#686).
-                  severity: toStoredSeverity(f.severity),
-                  fileLocation: f.fileLocation,
-                  lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
-                  lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
-                  codeSnippet: f.codeSnippet || null,
-                  explanation: f.explanation || null,
-                  remediation: f.remediation || null,
-                  promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
-                  fingerprint: f.fingerprint || "",
-                })),
+                create: findingsToPersist.map((f: any) => {
+                  const encrypted = encryptFinding({
+                    codeSnippet: f.codeSnippet || null,
+                    explanation: f.explanation || null,
+                  });
+                  return {
+                    type: normalizeFindingTypeEnum(f.type),
+                    // `toStoredSeverity`, not `normalizeSeverity`: the latter can return
+                    // 'NONE' (for a scanner answer of clean/pass/ok/unknown) and 'NONE' is
+                    // not a `FindingSeverity` member, so the insert fails outright (#686).
+                    severity: toStoredSeverity(f.severity),
+                    fileLocation: f.fileLocation,
+                    lineStart: typeof f.lineStart === "number" ? f.lineStart : null,
+                    lineEnd: typeof f.lineEnd === "number" ? f.lineEnd : null,
+                    codeSnippet: encrypted.codeSnippet || null,
+                    explanation: encrypted.explanation || null,
+                    remediation: f.remediation || null,
+                    promptInjectionSuspected: Boolean(f.promptInjectionSuspected),
+                    fingerprint: f.fingerprint || "",
+                    encryptionKeyId: encrypted.encryptionKeyId || null,
+                  };
+                }),
               },
             },
           });
@@ -1563,6 +1582,17 @@ export async function runPullRequestScan({
             repositoryFullName: repository.full_name,
             prNumber: pullRequest.number,
             findings: enrichedFindings,
+          });
+
+          // Real-time Slack or Discord alert for newly introduced CRITICAL findings
+          await dispatchCriticalChatAlert({
+            userId,
+            repositoryId: repository.id,
+            repositoryFullName: repository.full_name,
+            pullRequestId: pullRequest.id,
+            prNumber: pullRequest.number,
+            findings: enrichedFindings,
+            currentScanResultId: (persistedScanRecord as any)?.id,
           });
 
           if (decision === "BLOCKED") {
@@ -1691,7 +1721,7 @@ export const worker = new Worker<WebhookJobData>(
 
     // Record queue wait span if the job was queued
     if (job.timestamp) {
-      await withSpan(
+      const persistedScanRecord = await withSpan(
         "queue.wait",
         async (span) => {
           span.setAttribute("secureflow.correlation_id", correlationId);

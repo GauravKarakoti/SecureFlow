@@ -304,5 +304,50 @@ describe("environment validation (src/lib/env.ts)", () => {
         /Failed to read secret for GROQ_API_KEY from GROQ_API_KEY_FILE/,
       );
     });
+
+    it("rejects startup when ENCRYPTION_ENABLED is true without ENCRYPTION_KEY (#2016)", () => {
+      const envWithEncryptionNoKey = {
+        ...validEnv,
+        ENCRYPTION_ENABLED: "true",
+      };
+
+      expect(() => validateEnv(envWithEncryptionNoKey)).toThrowError(
+        /ENCRYPTION_KEY is required when encryption is enabled/,
+      );
+    });
+
+    it("accepts startup when ENCRYPTION_ENABLED is true with ENCRYPTION_KEY (#2016)", () => {
+      const envWithEncryptionAndKey = {
+        ...validEnv,
+        ENCRYPTION_ENABLED: "true",
+        ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      };
+
+      const result = validateEnv(envWithEncryptionAndKey);
+      expect(result.ENCRYPTION_ENABLED).toBe("true");
+      expect(result.ENCRYPTION_KEY).toBe(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      );
+    });
+
+    it("resolves ENCRYPTION_KEY from ENCRYPTION_KEY_FILE when encryption is enabled (#2016)", () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "secureflow-encryption-test-"));
+      try {
+        const keyFile = path.join(tempDir, "encryption_key.txt");
+        const keyVal = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        fs.writeFileSync(keyFile, `${keyVal}\n`, "utf8");
+
+        const envWithKeyFile = {
+          ...validEnv,
+          ENCRYPTION_ENABLED: "true",
+          ENCRYPTION_KEY_FILE: keyFile,
+        };
+
+        const result = validateEnv(envWithKeyFile);
+        expect(result.ENCRYPTION_KEY).toBe(keyVal);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 });

@@ -1,4 +1,10 @@
 import type { Dependency } from "@/types/sbom";
+import {
+  evaluateDependenciesLicenses,
+  STANDARD_OSS_POLICY,
+  type LicensePolicyConfig,
+  type SbomLicenseComplianceSummary,
+} from "./spdx-license-policy";
 
 export type SbomFormat = "cyclonedx" | "spdx";
 
@@ -6,6 +12,7 @@ export interface SbomDetectionResult {
   format: SbomFormat;
   dependencies: Dependency[];
   warnings: string[];
+  licenseCompliance?: SbomLicenseComplianceSummary;
 }
 
 const PURL_ECOSYSTEM: Record<string, Dependency["ecosystem"]> = {
@@ -76,6 +83,45 @@ function isSpdx(doc: Record<string, unknown>): boolean {
   return typeof doc.spdxVersion === "string" && (doc.spdxVersion as string).startsWith("SPDX-");
 }
 
+function extractCycloneDxLicense(comp: Record<string, unknown>): string | undefined {
+  const licenses = comp.licenses;
+  if (!Array.isArray(licenses) || licenses.length === 0) return undefined;
+
+  const parts: string[] = [];
+  for (const item of licenses) {
+    if (typeof item !== "object" || item === null) continue;
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.expression === "string" && entry.expression.trim()) {
+      parts.push(entry.expression.trim());
+    } else if (typeof entry.license === "object" && entry.license !== null) {
+      const lic = entry.license as Record<string, unknown>;
+      if (typeof lic.id === "string" && lic.id.trim()) {
+        parts.push(lic.id.trim());
+      } else if (typeof lic.name === "string" && lic.name.trim()) {
+        parts.push(lic.name.trim());
+      }
+    }
+  }
+
+  if (parts.length === 0) return undefined;
+  return parts.length === 1
+    ? parts[0]
+    : parts.map((p) => (p.includes(" ") ? `(${p})` : p)).join(" AND ");
+}
+
+function extractSpdxLicense(pkg: Record<string, unknown>): string | undefined {
+  const candidates = [pkg.licenseConcluded, pkg.licenseDeclared];
+  for (const cand of candidates) {
+    if (typeof cand === "string") {
+      const trimmed = cand.trim();
+      if (trimmed && trimmed.toUpperCase() !== "NOASSERTION" && trimmed.toUpperCase() !== "NONE") {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
 function parseCycloneDxComponents(
   doc: Record<string, unknown>,
   fileName: string,
@@ -119,7 +165,14 @@ function parseCycloneDxComponents(
       name = qualifiedName(ecosystem, c.group.trim(), name);
     }
 
-    dependencies.push({ name, version, manifestFile: fileName, ecosystem });
+    const license = extractCycloneDxLicense(c);
+    dependencies.push({
+      name,
+      version,
+      manifestFile: fileName,
+      ecosystem,
+      ...(license ? { license } : {}),
+    });
   }
 
   return { dependencies, warnings };
@@ -180,7 +233,14 @@ function parseSpdxPackages(
       }
     }
 
-    dependencies.push({ name, version, manifestFile: fileName, ecosystem });
+    const license = extractSpdxLicense(p);
+    dependencies.push({
+      name,
+      version,
+      manifestFile: fileName,
+      ecosystem,
+      ...(license ? { license } : {}),
+    });
   }
 
   return { dependencies, warnings };
@@ -188,11 +248,15 @@ function parseSpdxPackages(
 
 /**
  * Detect whether a parsed JSON document is a CycloneDX or SPDX SBOM and
- * extract dependencies from it.
+ * extract dependencies + evaluate SPDX license compliance from it.
  *
  * Returns null if the document matches neither format.
  */
-export function detectAndParseSbom(doc: unknown, fileName: string): SbomDetectionResult | null {
+export function detectAndParseSbom(
+  doc: unknown,
+  fileName: string,
+  licensePolicy: LicensePolicyConfig = STANDARD_OSS_POLICY,
+): SbomDetectionResult | null {
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     return null;
   }
@@ -201,12 +265,22 @@ export function detectAndParseSbom(doc: unknown, fileName: string): SbomDetectio
 
   if (isCycloneDx(obj)) {
     const { dependencies, warnings } = parseCycloneDxComponents(obj, fileName);
-    return { format: "cyclonedx", dependencies, warnings };
+    return {
+      format: "cyclonedx",
+      dependencies,
+      warnings,
+      licenseCompliance: evaluateDependenciesLicenses(dependencies, licensePolicy),
+    };
   }
 
   if (isSpdx(obj)) {
     const { dependencies, warnings } = parseSpdxPackages(obj, fileName);
-    return { format: "spdx", dependencies, warnings };
+    return {
+      format: "spdx",
+      dependencies,
+      warnings,
+      licenseCompliance: evaluateDependenciesLicenses(dependencies, licensePolicy),
+    };
   }
 
   return null;

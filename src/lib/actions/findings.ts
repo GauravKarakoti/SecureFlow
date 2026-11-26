@@ -20,6 +20,7 @@ import { parseStoredSeverity, type StoredSeverity } from "@/lib/severity";
 import { decodeCursor, encodeCursor, buildCursorWhere } from "@/lib/pagination/cursor";
 import { findingAgeDays, isFindingOverdue, AGE_TARGETS } from "@/lib/findings/age";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import { decryptFinding } from "@/lib/security/finding-encryption";
 
 /**
  * Server actions for the Security Findings dashboard (#561).
@@ -282,7 +283,8 @@ export async function getUserFindings(
     }
   }
 
-  const findings: FindingRow[] = rows.map((finding: any) => {
+  const findings: FindingRow[] = rows.map((rawFinding: any) => {
+    const finding = decryptFinding(rawFinding);
     const pullRequest = finding.scanResult.pullRequest;
     const repositoryId = pullRequest.repositoryId;
     const triage = byKey.get(triageKey(repositoryId, finding.fingerprint));

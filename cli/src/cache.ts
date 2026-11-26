@@ -17,6 +17,8 @@ export const DEFAULT_CACHE_SUBDIR = path.join(".secureflow", "cache");
 export const DEFAULT_MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 export const DEFAULT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const DEFAULT_ORPHANED_TEMP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+export const DEFAULT_LOCK_TIMEOUT_MS = 2000; // 2 seconds
+export const DEFAULT_STALE_LOCK_MS = 10000; // 10 seconds
 
 /**
  * Parses duration string (e.g. "7d", "24h", "30m", "3600s", or raw ms) to milliseconds.
@@ -101,8 +103,15 @@ export function parseSizeBytes(sizeStr: string | number | undefined | null): num
   }
 }
 
+function isTempOrLockFile(filename: string): boolean {
+  return (
+    filename.endsWith(".tmp") || /\.tmp_[^/\\]+$/.test(filename) || filename.startsWith(".lock_")
+  );
+}
+
 /**
- * Removes temporary files (.tmp) in the cache directory that exceed the maximum age.
+ * Removes temporary files (.tmp, .tmp_*, and stale .lock_*) in the cache directory
+ * that exceed the maximum age.
  */
 export function reapOrphanedTempFiles(
   cacheDir: string,
@@ -114,7 +123,7 @@ export function reapOrphanedTempFiles(
   try {
     const files = fs.readdirSync(cacheDir);
     for (const file of files) {
-      if (file.endsWith(".tmp")) {
+      if (isTempOrLockFile(file)) {
         const fullPath = path.join(cacheDir, file);
         try {
           const stat = fs.statSync(fullPath);
@@ -273,6 +282,118 @@ export interface CacheEntry {
   result: FileScanResult;
   aiFindings?: AiFinding[] | undefined;
   cachedAt: number;
+  checksum?: string | undefined;
+}
+
+export interface CacheLockOptions {
+  timeoutMs?: number | undefined;
+  staleLockMs?: number | undefined;
+}
+
+function syncSleepMs(ms: number): void {
+  if (ms <= 0) return;
+  try {
+    const sab = new SharedArrayBuffer(4);
+    const view = new Int32Array(sab);
+    Atomics.wait(view, 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      // fallback busy-wait only if SharedArrayBuffer is unavailable
+    }
+  }
+}
+
+/**
+ * Computes a deterministic SHA-256 checksum over the cache entry payload.
+ */
+export function computeEntryChecksum(entry: Omit<CacheEntry, "checksum">): string {
+  const canonical = JSON.stringify({
+    version: entry.version,
+    rulesetVersion: entry.rulesetVersion,
+    contentHash: entry.contentHash,
+    filePath: entry.filePath,
+    result: entry.result,
+    aiFindings: entry.aiFindings ?? [],
+    cachedAt: entry.cachedAt,
+  });
+  return crypto.createHash("sha256").update(canonical).digest("hex");
+}
+
+/**
+ * Acquires a cooperative advisory lockfile (`.lock_<hash>`) using exclusive file creation (`wx`),
+ * exponential backoff polling, and automatic stale lock eviction.
+ */
+export function acquireCacheLock(
+  cacheDir: string,
+  hash: string,
+  options: CacheLockOptions = {},
+): boolean {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
+  const staleLockMs = options.staleLockMs ?? DEFAULT_STALE_LOCK_MS;
+  const lockPath = path.join(cacheDir, `.lock_${hash}`);
+  const deadline = Date.now() + timeoutMs;
+  let backoffMs = 5;
+
+  fs.mkdirSync(cacheDir, { recursive: true });
+
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, "wx");
+      try {
+        const lockMeta = JSON.stringify({ pid: process.pid, acquiredAt: Date.now() });
+        fs.writeFileSync(fd, lockMeta, "utf-8");
+      } finally {
+        fs.closeSync(fd);
+      }
+      return true;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "EEXIST") {
+        return false;
+      }
+
+      // Check if existing lock is stale and can be reclaimed
+      try {
+        const stat = fs.statSync(lockPath);
+        let lockTimestamp = stat.mtimeMs;
+        try {
+          const raw = fs.readFileSync(lockPath, "utf-8");
+          const parsed = JSON.parse(raw) as { acquiredAt?: number };
+          if (typeof parsed?.acquiredAt === "number") {
+            lockTimestamp = parsed.acquiredAt;
+          }
+        } catch {
+          // fallback to stat.mtimeMs if lock file is partially written or empty
+        }
+
+        if (Date.now() - lockTimestamp > staleLockMs) {
+          safeRemoveFile(lockPath);
+          continue;
+        }
+      } catch {
+        // Lock disappeared concurrently; retry immediately
+        continue;
+      }
+
+      if (Date.now() >= deadline) {
+        return false;
+      }
+
+      const jitter = Math.floor(Math.random() * 5);
+      const waitMs = Math.min(backoffMs + jitter, Math.max(1, deadline - Date.now()));
+      syncSleepMs(waitMs);
+      backoffMs = Math.min(backoffMs * 2, 100);
+    }
+  }
+}
+
+/**
+ * Releases the cooperative advisory lockfile for a given cache hash.
+ */
+export function releaseCacheLock(cacheDir: string, hash: string): void {
+  const lockPath = path.join(cacheDir, `.lock_${hash}`);
+  safeRemoveFile(lockPath);
 }
 
 export interface GetCacheEntryOptions {
@@ -349,6 +470,15 @@ export function getCacheEntry(options: GetCacheEntryOptions): CacheEntry | null 
       return null;
     }
 
+    // Integrity verification: validate SHA-256 payload checksum if present
+    if (parsed.checksum !== undefined) {
+      const expectedChecksum = computeEntryChecksum(parsed);
+      if (parsed.checksum !== expectedChecksum) {
+        safeRemoveFile(cacheFile);
+        return null;
+      }
+    }
+
     return parsed;
   } catch {
     // Gracefully handle corrupt cache file: treat as miss and clean up
@@ -369,7 +499,8 @@ export interface SetCacheEntryOptions {
 }
 
 /**
- * Writes a scan result to the local cache directory keyed by content hash.
+ * Writes a scan result to the local cache directory keyed by content hash
+ * using cooperative file locking and atomic temp-file rename-into-place.
  */
 export function setCacheEntry(options: SetCacheEntryOptions): void {
   const hash =
@@ -381,7 +512,7 @@ export function setCacheEntry(options: SetCacheEntryOptions): void {
   const cacheDir = resolveCacheDir(options.cacheDir);
   const cacheFile = path.join(cacheDir, `${hash}.json`);
 
-  const entry: CacheEntry = {
+  const baseEntry: Omit<CacheEntry, "checksum"> = {
     version: 1,
     rulesetVersion,
     contentHash: hash,
@@ -391,17 +522,38 @@ export function setCacheEntry(options: SetCacheEntryOptions): void {
     cachedAt: Date.now(),
   };
 
+  const entry: CacheEntry = {
+    ...baseEntry,
+    checksum: computeEntryChecksum(baseEntry),
+  };
+
+  let locked = false;
+  let tmpFile: string | null = null;
+
   try {
     fs.mkdirSync(cacheDir, { recursive: true });
-    const tmpFile = path.join(
-      cacheDir,
-      `.${hash}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
-    );
+    locked = acquireCacheLock(cacheDir, hash);
+    if (!locked) {
+      return;
+    }
+
+    const nonce = crypto.randomBytes(4).toString("hex");
+    tmpFile = path.join(cacheDir, `${hash}.json.tmp_${process.pid}_${Date.now()}_${nonce}`);
     fs.writeFileSync(tmpFile, JSON.stringify(entry, null, 2), "utf-8");
-    try {
-      fs.renameSync(tmpFile, cacheFile);
-    } catch {
-      fs.writeFileSync(cacheFile, JSON.stringify(entry, null, 2), "utf-8");
+
+    // Atomic rename-into-place (retry briefly on Windows transient EPERM/EACCES)
+    let renamed = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        fs.renameSync(tmpFile, cacheFile);
+        renamed = true;
+        break;
+      } catch {
+        syncSleepMs(10 * (attempt + 1));
+      }
+    }
+
+    if (!renamed) {
       safeRemoveFile(tmpFile);
     }
 
@@ -414,7 +566,14 @@ export function setCacheEntry(options: SetCacheEntryOptions): void {
     enforceCacheStorageLimit(cacheDir, maxBytes, hash);
     reapOrphanedTempFiles(cacheDir);
   } catch {
+    if (tmpFile) {
+      safeRemoveFile(tmpFile);
+    }
     // Non-fatal write failure (e.g. read-only filesystem or disk full)
+  } finally {
+    if (locked) {
+      releaseCacheLock(cacheDir, hash);
+    }
   }
 }
 
@@ -437,7 +596,7 @@ export function clearCache(customDir?: string, cwd?: string): ClearCacheResult {
     const files = fs.readdirSync(cacheDir);
     let count = 0;
     for (const file of files) {
-      if (file.endsWith(".json") || file.endsWith(".tmp")) {
+      if (file.endsWith(".json") || isTempOrLockFile(file)) {
         try {
           fs.unlinkSync(path.join(cacheDir, file));
           count++;
@@ -627,6 +786,7 @@ export function getCacheStats(customDir?: string, cwd?: string): CacheStatsRepor
 
 export interface ScanFileWithCacheOptions {
   customIgnores?: RegExp[] | undefined;
+  customRules?: import("./custom-rules.js").CompiledCustomRule[] | undefined;
   cacheDir?: string | undefined;
   rulesetVersion?: string | undefined;
   noCache?: boolean | undefined;
@@ -678,7 +838,7 @@ export function scanFileWithCache(
   }
 
   // Cache miss or --no-cache: analyze file
-  const result = scanFile(filePath, content, options.customIgnores);
+  const result = scanFile(filePath, content, options.customIgnores, options.customRules);
 
   if (!options.noCache) {
     setCacheEntry({
