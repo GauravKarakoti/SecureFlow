@@ -478,11 +478,6 @@ async function main(): Promise<number> {
     }
   }
 
-  if (process.argv[2] === "doctor" || process.argv.includes("--doctor")) {
-    const { runDoctor } = await import("./doctor.js");
-    return await runDoctor(process.argv);
-  }
-
   const isValidateCommand =
     process.argv[2] === "validate" ||
     process.argv.includes("--validate") ||
@@ -552,19 +547,19 @@ async function main(): Promise<number> {
     }
   }
 
-  if (process.argv[2] === "doctor") {
-    const { runDoctor, formatDoctorReport, printDoctorHelp } = await import("./doctor.js");
+  if (process.argv[2] === "doctor" || process.argv.includes("--doctor")) {
+    const { runDiagnostics, formatDoctorReport, printDoctorHelp } = await import("./doctor.js");
     if (process.argv.includes("--help") || process.argv.includes("-h")) {
       printDoctorHelp();
       return 0;
     }
-    const report = await runDoctor();
+    const report = await runDiagnostics({ argv: process.argv });
     if (process.argv.includes("--json")) {
       console.log(JSON.stringify(report, null, 2));
     } else {
       console.log(formatDoctorReport(report));
     }
-    return report.exitCode;
+    return report.success ? 0 : 1;
   }
 
   const isMcpCommand = process.argv[2] === "mcp";
