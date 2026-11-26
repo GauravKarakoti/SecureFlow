@@ -65,6 +65,7 @@ import {
   parseTargetDirectoryArg,
   parseStagedArg,
   parseBaselineArg,
+  parseWatchArg,
 } from "./lib/output-args.js";
 import {
   DEFAULT_BASELINE_FILENAME,
@@ -92,6 +93,7 @@ import {
   initSecureFlow,
   formatInitGreeting,
 } from "./lib/tui.js";
+import { runWatchMode } from "./watch.js";
 
 let VERBOSE = process.argv.includes("--verbose");
 let QUIET = process.argv.includes("--quiet") || process.argv.includes("-q");
@@ -170,6 +172,7 @@ Usage:
   secureflow [path] [options]
   secureflow scan [path] [options]
   secureflow scan --staged [options]
+  secureflow watch [path] [options]
   secureflow hook install [options]
   secureflow hook uninstall [options]
   secureflow validate [file] [options]
@@ -180,6 +183,7 @@ Usage:
 
 Commands:
   scan                   Scan workspace or staged files for security violations
+  watch [path]           Watch workspace for file changes and rescan continuously
   hook install           Install Git pre-commit hook to block commits with staged secrets (#2020)
   hook uninstall         Uninstall Git pre-commit hook and restore previous hook backup (#2020)
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
@@ -194,6 +198,7 @@ Commands:
   baseline update [file] Update baseline with current scan results (removes fixed, records new) (#2060)
 
 Options:
+  -w, --watch            Watch workspace for file changes and rescan continuously
   --baseline [file]      Path to baseline file to suppress legacy findings (default: .secureflow-baseline.json)
   --staged               Scan only the staged diff (blocks commits on secrets at configured severity)
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
@@ -850,6 +855,19 @@ Description:
     console.log(
       `ℹ️  [SecureFlow] Loaded ${customRules.length} custom security rule(s) from ${customRulesResult.configPath}`,
     );
+  }
+
+  const isWatchMode = parseWatchArg(process.argv);
+  if (isWatchMode) {
+    return await runWatchMode({
+      targetDir: targetDir ?? ".",
+      workspaceRoot: repoRoot ?? process.cwd(),
+      customIgnores,
+      customRules,
+      severityFilter,
+      failOnThreshold,
+      ignoreSuppressions,
+    });
   }
 
   let filesToScan: string[] = [];
