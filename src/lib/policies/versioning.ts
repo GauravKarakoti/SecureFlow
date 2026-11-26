@@ -8,6 +8,16 @@ export const editPolicySchema = z.object({
   description: z.string().trim().min(1, "Policy description cannot be empty").max(4096),
   severity: z.enum(STORED_SEVERITIES as unknown as [string, ...string[]]),
   action: z.string().trim().min(1).max(64).optional(),
+  helpUrl: z
+    .string()
+    .trim()
+    .max(512)
+    .optional()
+    .nullable()
+    .refine((url) => !url || url === "" || url.startsWith("https://"), {
+      message: "Policy helpUrl must use https:// protocol",
+    }),
+  guidance: z.string().trim().max(1024).optional().nullable(),
 });
 
 export type EditPolicyInput = z.infer<typeof editPolicySchema>;
@@ -28,6 +38,8 @@ export interface PolicyVersionDto {
   severity: string;
   action: string;
   rules: unknown;
+  helpUrl?: string | null;
+  guidance?: string | null;
   createdAt: string;
   editor: {
     id: string;

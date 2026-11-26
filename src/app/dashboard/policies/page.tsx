@@ -8,6 +8,7 @@ import { ArmorIQService } from "@/lib/armor/iq";
 import { PolicyCard } from "./policy-card"; // <-- Import the new Client Component
 import { TestPolicyPanel } from "./test-policy-panel";
 import { PolicyExportImport } from "./policy-export-import";
+import { PolicyEffectivenessCard } from "./policy-effectiveness-card";
 import { togglePolicy } from "./actions";
 
 // --- Page Component ---
@@ -99,6 +100,9 @@ export default async function PoliciesPage() {
         }))}
       />
 
+      {/* Policy Effectiveness & Dismissal Analytics Report (#2019) */}
+      <PolicyEffectivenessCard />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {policiesToRender.length === 0 && (
           <div className="col-span-full text-center text-muted-foreground p-8 border border-dashed border-white/10 rounded-xl">
@@ -120,6 +124,8 @@ export default async function PoliciesPage() {
               severity={policy.severity}
               action={policy.action}
               rules={conditions}
+              helpUrl={policy.helpUrl}
+              guidance={policy.guidance}
               toggleAction={togglePolicy} // <-- Pass the Server Action here
             />
           );

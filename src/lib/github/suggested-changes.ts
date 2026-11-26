@@ -14,16 +14,29 @@
  */
 
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import { SECRET_FAMILIES } from "@/lib/armor/secret-detector";
 import type { ScanFinding } from "@/lib/armor/scanner";
 import type { EnrichedScanFinding } from "@/lib/scanner/scan-persistence";
 import {
   type SuggestionsConfig,
   DEFAULT_MAX_SUGGESTIONS,
+  DEFAULT_MAX_INLINE_COMMENTS,
   resolveSuggestionsConfig,
 } from "@/lib/scanner/gate-config";
 
-export { type SuggestionsConfig, DEFAULT_MAX_SUGGESTIONS, resolveSuggestionsConfig };
+export {
+  type SuggestionsConfig,
+  DEFAULT_MAX_SUGGESTIONS,
+  DEFAULT_MAX_INLINE_COMMENTS,
+  resolveSuggestionsConfig,
+};
+
+export const SECUREFLOW_INLINE_COMMENT_MARKER = "<!-- secureflow-inline-comment -->";
+
+export function getInlineFindingMarker(fingerprintOrId: string): string {
+  return `<!-- secureflow-inline-finding: ${fingerprintOrId} -->`;
+}
 
 export interface InlineComment {
   path: string;
@@ -39,6 +52,7 @@ export interface BuildInlineCommentsResult {
   inlineComments: InlineComment[];
   summaryFindings: (ScanFinding | EnrichedScanFinding)[];
   suggestionsAppliedCount: number;
+  skippedDuplicatesCount?: number;
 }
 
 /**
@@ -203,32 +217,47 @@ export function formatInlineCommentBody(
   suggestion?: string | null,
 ): string {
   const badge = severityBadge(finding.severity as any);
-  let body = `**${badge} · ${finding.type}**\n\n`;
-
   const anyFinding = finding as any;
+  const title = anyFinding.title || finding.type || "Security Finding";
+  const fingerprint =
+    anyFinding.fingerprint || `${finding.fileLocation}:${finding.lineStart}:${finding.type}`;
+
+  let body = `**${badge} · ${title}**\n\n`;
+  body += `${SECUREFLOW_INLINE_COMMENT_MARKER}\n${getInlineFindingMarker(fingerprint)}\n\n`;
+
   if (anyFinding.promptInjectionSuspected) {
     body += `> ⚠️ **AI explanation may be unreliable for this finding — verify manually.** The code snippet associated with this finding triggered prompt-injection heuristics or produced a severity-inconsistent response. Trust the ${badge} badge from the static scanner above the AI narrative.\n\n`;
   }
 
   const narrative = anyFinding.explanation ?? finding.description;
   if (narrative) {
-    body += `${narrative}\n\n`;
+    body += `**Explanation:**\n${narrative}\n\n`;
+  }
+
+  const policyInfo = resolvePolicyGuidance(finding);
+  const helpUrl = (finding as any).helpUrl || policyInfo.helpUrl;
+  const guidance = (finding as any).guidance || policyInfo.guidance;
+  if (helpUrl) {
+    body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
   }
 
   if (suggestion) {
-    body += formatSuggestionBlock(suggestion) + "\n\n";
+    body += `**Suggested Fix:**\n${formatSuggestionBlock(suggestion)}\n\n`;
+  } else if (finding.remediation) {
+    const sanitizedRemediation = finding.remediation
+      .replace(/```suggestion\r?\n/gi, "```\n")
+      .trim();
+    body += `**Suggested Fix:**\n${sanitizedRemediation}\n\n`;
   }
 
-  if (finding.remediation) {
-    // If remediation has ```suggestion fences, replace with standard code fences inside <details>
-    // so GitHub does not treat details text as an unintentional extra suggestion or suggest changes when disabled.
+  if (finding.remediation && suggestion) {
     const sanitizedRemediation = finding.remediation
       .replace(/```suggestion\r?\n/gi, "```\n")
       .trim();
     body += `<details>\n<summary><b>🛠️ View Remediation Suggestions</b></summary>\n\n${sanitizedRemediation}\n\n</details>`;
   }
 
-  return body;
+  return body.trimEnd();
 }
 
 /**
@@ -251,16 +280,63 @@ export function resolveAnchorLine(
 }
 
 /**
+ * Checks whether an inline comment for this finding already exists on the pull request.
+ */
+export function isDuplicateInlineComment(
+  finding: ScanFinding | EnrichedScanFinding,
+  anchorLine: number,
+  existingComments?: Array<{ path?: string; line?: number; body?: string }>,
+): boolean {
+  if (!existingComments || existingComments.length === 0) return false;
+
+  const anyFinding = finding as any;
+  const fingerprint =
+    anyFinding.fingerprint || `${finding.fileLocation}:${finding.lineStart}:${finding.type}`;
+  const findingMarker = getInlineFindingMarker(fingerprint);
+
+  for (const comment of existingComments) {
+    if (!comment.body) continue;
+
+    // Exact marker match (most reliable)
+    if (comment.body.includes(findingMarker)) {
+      return true;
+    }
+
+    // Path and line match with SecureFlow inline marker
+    if (
+      comment.path === finding.fileLocation &&
+      comment.line === anchorLine &&
+      comment.body.includes(SECUREFLOW_INLINE_COMMENT_MARKER)
+    ) {
+      if (
+        (finding.type && comment.body.includes(finding.type)) ||
+        (anyFinding.title && comment.body.includes(anyFinding.title)) ||
+        (anyFinding.ruleId && comment.body.includes(anyFinding.ruleId))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export interface BuildInlineCommentsOptions {
+  suggestionsConfig?: SuggestionsConfig;
+  maxSuggestions?: number;
+  maxInlineComments?: number;
+  limit?: number;
+  existingComments?: Array<{ path?: string; line?: number; body?: string }>;
+}
+
+/**
  * Builds inline review comments from scan findings, applying GitHub suggested changes
- * when enabled, within limits, and strictly on commentable diff lines.
+ * when enabled, within limits, and strictly on commentable diff lines for CRITICAL and HIGH findings.
  */
 export function buildInlineReviewComments(
   findings: (ScanFinding | EnrichedScanFinding)[],
   commentableLinesByFile: Map<string, Set<number>>,
-  options: {
-    suggestionsConfig?: SuggestionsConfig;
-    maxSuggestions?: number;
-  } = {},
+  options: BuildInlineCommentsOptions = {},
 ): BuildInlineCommentsResult {
   const inlineComments: InlineComment[] = [];
   const summaryFindings: (ScanFinding | EnrichedScanFinding)[] = [];
@@ -268,23 +344,51 @@ export function buildInlineReviewComments(
   const config = options.suggestionsConfig ?? {
     enabled: false,
     maxSuggestions: DEFAULT_MAX_SUGGESTIONS,
+    maxInlineComments: DEFAULT_MAX_INLINE_COMMENTS,
   };
-  const effectiveLimit = options.maxSuggestions ?? config.maxSuggestions;
+
+  const effectiveSuggestionLimit = options.maxSuggestions ?? config.maxSuggestions;
+  const effectiveInlineLimit =
+    options.maxInlineComments ??
+    options.limit ??
+    config.maxInlineComments ??
+    DEFAULT_MAX_INLINE_COMMENTS;
+
   let suggestionsAppliedCount = 0;
+  let skippedDuplicatesCount = 0;
 
   for (const f of findings) {
-    const fileLines = commentableLinesByFile.get(f.fileLocation);
-    const line = resolveAnchorLine(f, fileLines);
-
-    if (line === null) {
-      // Lines outside the diff never receive suggestions or inline review comments
+    // 1. Only CRITICAL and HIGH severity findings produce inline comments; others fall back to summary
+    const severity = (f.severity || "").toUpperCase();
+    const isCriticalOrHigh = severity === "CRITICAL" || severity === "HIGH";
+    if (!isCriticalOrHigh) {
       summaryFindings.push(f);
       continue;
     }
 
-    let suggestion: string | null = null;
-    const canSuggest = config.enabled && suggestionsAppliedCount < effectiveLimit;
+    // 2. Findings outside the PR diff never produce inline comments
+    const fileLines = commentableLinesByFile.get(f.fileLocation);
+    const line = resolveAnchorLine(f, fileLines);
+    if (line === null) {
+      summaryFindings.push(f);
+      continue;
+    }
 
+    // 3. Avoid posting duplicates if already present in PR review comments
+    if (isDuplicateInlineComment(f, line, options.existingComments)) {
+      skippedDuplicatesCount++;
+      continue;
+    }
+
+    // 4. Cap the number of inline comments through configurable limit, falling back to summary for the rest
+    if (inlineComments.length >= effectiveInlineLimit) {
+      summaryFindings.push(f);
+      continue;
+    }
+
+    // 5. Code suggestion replacement extraction if enabled
+    let suggestion: string | null = null;
+    const canSuggest = config.enabled && suggestionsAppliedCount < effectiveSuggestionLimit;
     if (canSuggest) {
       suggestion = extractSuggestedReplacement(f);
       if (suggestion !== null) {
@@ -305,11 +409,13 @@ export function buildInlineReviewComments(
     inlineComments,
     summaryFindings,
     suggestionsAppliedCount,
+    skippedDuplicatesCount,
   };
 }
 
 /**
- * Posts an inline review to GitHub with suggested changes and inline comments.
+ * Posts an inline review to GitHub with suggested changes and inline comments,
+ * automatically filtering out duplicate comments from previous workflow runs.
  */
 export async function postSuggestedChangesReview(
   octokit: any,
@@ -320,14 +426,78 @@ export async function postSuggestedChangesReview(
     commitId?: string;
     comments: InlineComment[];
     body?: string;
+    existingComments?: Array<{ path?: string; line?: number; body?: string }>;
+    checkDuplicates?: boolean;
   },
-): Promise<{ success: boolean; reviewId?: number; error?: string }> {
+): Promise<{
+  success: boolean;
+  reviewId?: number;
+  postedCount?: number;
+  skippedDuplicates?: number;
+  error?: string;
+}> {
   if (!params.comments || params.comments.length === 0) {
-    return { success: true };
+    return { success: true, postedCount: 0, skippedDuplicates: 0 };
   }
 
   try {
-    const formattedComments = params.comments.map((c) => ({
+    let existingReviewComments = params.existingComments;
+    if (
+      !existingReviewComments &&
+      params.checkDuplicates !== false &&
+      octokit?.rest?.pulls?.listReviewComments
+    ) {
+      try {
+        const response = await octokit.rest.pulls.listReviewComments({
+          owner: params.owner,
+          repo: params.repo,
+          pull_number: params.pullNumber,
+          per_page: 100,
+        });
+        existingReviewComments = response?.data || [];
+      } catch (err: any) {
+        // If fetching comments fails, proceed with posting
+      }
+    }
+
+    // Filter out comments that already exist on the PR
+    let commentsToPost = params.comments;
+    let skippedDuplicates = 0;
+
+    if (existingReviewComments && existingReviewComments.length > 0) {
+      commentsToPost = params.comments.filter((c) => {
+        const isDupe = existingReviewComments!.some((existing: any) => {
+          if (!existing.body) return false;
+          // Check for matching finding marker
+          const markerMatch = c.body.match(/<!-- secureflow-inline-finding: [^>]+ -->/);
+          if (markerMatch && existing.body.includes(markerMatch[0])) {
+            return true;
+          }
+          // Check for path + line + inline marker
+          if (
+            existing.path === c.path &&
+            existing.line === c.line &&
+            existing.body.includes(SECUREFLOW_INLINE_COMMENT_MARKER)
+          ) {
+            return true;
+          }
+          return false;
+        });
+        return !isDupe;
+      });
+      skippedDuplicates = params.comments.length - commentsToPost.length;
+    }
+
+    // If all candidate comments are duplicates, skip review creation to avoid noise
+    if (commentsToPost.length === 0) {
+      return {
+        success: true,
+        postedCount: 0,
+        skippedDuplicates,
+      };
+    }
+
+    const formattedComments = commentsToPost.map((c) => ({
       path: c.path,
       line: c.line,
       ...(c.start_line && c.start_line < c.line
@@ -346,7 +516,12 @@ export async function postSuggestedChangesReview(
       comments: formattedComments,
     });
 
-    return { success: true, reviewId: response?.data?.id };
+    return {
+      success: true,
+      reviewId: response?.data?.id,
+      postedCount: commentsToPost.length,
+      skippedDuplicates,
+    };
   } catch (err: any) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return { success: false, error: errorMsg };

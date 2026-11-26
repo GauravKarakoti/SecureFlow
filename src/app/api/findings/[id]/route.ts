@@ -25,6 +25,7 @@ import { checkRateLimitDetailed } from "@/lib/redis";
 import { isTriageStatus, type TriageStatus } from "@/lib/triage/statuses";
 import type { FindingSeverity } from "@prisma/client";
 import { can } from "@/lib/auth/permissions";
+import { decryptFinding } from "@/lib/security/finding-encryption";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ const FINDING_SELECT = {
   promptInjectionSuspected: true,
   fingerprint: true,
   complianceTags: true,
+  encryptionKeyId: true,
   issueUrl: true,
   createdAt: true,
   remediationPatch: {
@@ -122,7 +124,7 @@ const getHandler = withErrorHandler(async function GET(
     throw new AppError("Forbidden: Your role does not allow deleting findings", 403);
   }
 
-  return NextResponse.json(finding, {
+  return NextResponse.json(decryptFinding(finding), {
     status: 200,
     headers: { "Cache-Control": "private, no-store" },
   });

@@ -17,6 +17,7 @@ import {
   parseCacheMaxSizeArg,
   parseCacheDirArg,
   parseTargetDirectoryArg,
+  parseStagedArg,
   parseVerbosityArg,
   parseQuietArg,
   parseVerboseArg,
@@ -266,6 +267,24 @@ describe("parseTargetDirectoryArg (#1933)", () => {
     expect(parseTargetDirectoryArg(argv("init"))).toBeUndefined();
     expect(parseTargetDirectoryArg(argv("mcp"))).toBeUndefined();
     expect(parseTargetDirectoryArg(argv("cache-clear"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("hook"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("hook", "install"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("hook", "uninstall"))).toBeUndefined();
+  });
+
+  it("returns undefined when --staged is passed", () => {
+    expect(parseTargetDirectoryArg(argv("--staged"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("scan", "--staged"))).toBeUndefined();
+    expect(parseTargetDirectoryArg(argv("src", "--staged"))).toBeUndefined();
+  });
+});
+
+describe("parseStagedArg (#2020)", () => {
+  it("detects --staged flag accurately", () => {
+    expect(parseStagedArg(argv())).toBe(false);
+    expect(parseStagedArg(argv("scan"))).toBe(false);
+    expect(parseStagedArg(argv("--staged"))).toBe(true);
+    expect(parseStagedArg(argv("scan", "--staged"))).toBe(true);
   });
 });
 

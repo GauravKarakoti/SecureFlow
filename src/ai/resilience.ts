@@ -324,9 +324,11 @@ export function isLocalModel(modelName: string): boolean {
 }
 
 export const DEFAULT_LOCAL_VRAM_CONCURRENCY = 1;
+export const DEFAULT_LOCAL_QUEUE_WAIT_MS = 30_000;
 
 /**
  * Resolves maximum permitted concurrent local model executions from environment.
+ * Mirrors Helm `worker.localInference.vramConcurrencyThreshold` (default: 1).
  */
 export function getLocalModelVramThreshold(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -337,6 +339,21 @@ export function getLocalModelVramThreshold(
     env.VRAM_CONCURRENCY_THRESHOLD;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCAL_VRAM_CONCURRENCY;
+}
+
+/**
+ * Resolves maximum queue wait timeout (ms) before timing out local VRAM semaphore
+ * acquisition and throwing `VRAMConcurrencyError`. Matches Helm `maxQueueWaitMs` (default: 30000).
+ */
+export function getLocalQueueWaitMs(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const raw = env.LOCAL_AI_MAX_QUEUE_WAIT_MS;
+  if (raw === undefined || raw.trim() === "") {
+    return DEFAULT_LOCAL_QUEUE_WAIT_MS;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_LOCAL_QUEUE_WAIT_MS;
 }
 
 let localModelSemaphore: Semaphore | null = null;
@@ -539,7 +556,7 @@ export async function executeWithFallbackAndRetry<T, TModel extends string = str
       try {
         if (sem) {
           release = await sem.acquire({
-            timeoutMs: config.queueTimeoutMs ?? 5000,
+            timeoutMs: config.queueTimeoutMs ?? getLocalQueueWaitMs(),
             signal: config.signal,
           });
         }

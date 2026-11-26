@@ -30,6 +30,7 @@ vi.mock("@/ai/flows/developer-receives-ai-security-explanations", () => ({
 import {
   addedLines,
   commentableLineNumbers,
+  extractDiffFileMetadata,
   lineAt,
   parseUnifiedPatch,
   renderNumberedLines,
@@ -304,5 +305,68 @@ describe("the scanner and the worker agree on every line number", () => {
     expect([...commentable].sort((x, y) => x - y)).toEqual(
       [...new Set(reported)].sort((x, y) => x - y),
     );
+  });
+});
+
+describe("extractDiffFileMetadata (#2052)", () => {
+  it("extracts renamed files from git diff headers", () => {
+    const rawDiff = `
+diff --git a/src/old-auth.ts b/src/new-auth.ts
+similarity index 98%
+rename from src/old-auth.ts
+rename to src/new-auth.ts
+--- a/src/old-auth.ts
++++ b/src/new-auth.ts
+@@ -1,3 +1,3 @@
+ export function login() {
+-  return false;
++  return true;
+ }
+`;
+    const meta = extractDiffFileMetadata(rawDiff);
+    expect(meta.renamedFiles).toEqual([{ from: "src/old-auth.ts", to: "src/new-auth.ts" }]);
+    expect(meta.deletedFiles).toEqual([]);
+  });
+
+  it("extracts deleted files from git diff headers", () => {
+    const rawDiff = `
+diff --git a/legacy/deprecated.ts b/legacy/deprecated.ts
+deleted file mode 100644
+--- a/legacy/deprecated.ts
++++ /dev/null
+@@ -1,2 +0,0 @@
+-const x = 1;
+-const y = 2;
+`;
+    const meta = extractDiffFileMetadata(rawDiff);
+    expect(meta.deletedFiles).toEqual(["legacy/deprecated.ts"]);
+    expect(meta.renamedFiles).toEqual([]);
+  });
+
+  it("handles multi-file patches with mixed modifications, renames and deletions", () => {
+    const rawDiff = `
+diff --git a/src/utils.ts b/src/utils.ts
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -1,1 +1,2 @@
++const helper = true;
+diff --git a/src/old.ts b/src/renamed.ts
+rename from src/old.ts
+rename to src/renamed.ts
+diff --git a/src/dead.ts b/src/dead.ts
+deleted file mode 100644
+--- a/src/dead.ts
++++ /dev/null
+`;
+    const meta = extractDiffFileMetadata(rawDiff);
+    expect(meta.renamedFiles).toEqual([{ from: "src/old.ts", to: "src/renamed.ts" }]);
+    expect(meta.deletedFiles).toEqual(["src/dead.ts"]);
+  });
+
+  it("returns empty arrays for empty or unrelated patches", () => {
+    expect(extractDiffFileMetadata("")).toEqual({
+      renamedFiles: [],
+      deletedFiles: [],
+    });
   });
 });

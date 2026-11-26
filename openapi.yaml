@@ -4,6 +4,9 @@ info:
   description: |
     SecureFlow is a GitHub App that provides automated security scanning for pull requests.
     This API enables programmatic access to findings, repositories, SBOM scanning, and more.
+
+    For versioning and breaking change lifecycle rules, consult our [API Versioning and Deprecation Policy](https://github.com/GauravKarakoti/SecureFlow/blob/main/docs/api-versioning.md).
+    Deprecated routes emit RFC 8594 `Deprecation` and `Sunset` headers alongside `Link: <...>; rel="successor-version"`.
   version: 1.0.0
   contact:
     name: SecureFlow Team
@@ -569,6 +572,13 @@ paths:
         - Findings
       security:
         - sessionAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Unique identifier of the finding
       responses:
         "200":
           description: Issue from Finding
@@ -1349,6 +1359,47 @@ paths:
                   error:
                     type: string
                     example: Internal Server Error
+
+  /api/admin/webhooks/{id}/redeliver:
+    post:
+      summary: Redeliver a webhook delivery
+      description: |
+        Admin-only endpoint to manually trigger redelivery of a specific recorded outbound webhook delivery.
+      operationId: redeliverWebhookDelivery
+      tags:
+        - Admin
+        - Webhooks
+      security:
+        - sessionAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Unique identifier of the webhook delivery to redeliver
+      responses:
+        "200":
+          description: Redelivery completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deliveryId:
+                    type: string
+                  message:
+                    type: string
+                  statusCode:
+                    type: integer
+        "400":
+          description: Delivery ID is required
+        "403":
+          description: Unauthorized - requires ADMIN role
+        "500":
+          description: Redelivery failed
 
   /api/webhooks/gitlab:
     post:
@@ -2269,7 +2320,17 @@ paths:
                     properties:
                       action:
                         type: string
-                        enum: [LOCKDOWN, EVACUATE, ISOLATE, CREDENTIAL_REVOCATION, NETWORK_ISOLATION, POLICY_ENFORCEMENT, MONITOR, ALERT]
+                        enum:
+                          [
+                            LOCKDOWN,
+                            EVACUATE,
+                            ISOLATE,
+                            CREDENTIAL_REVOCATION,
+                            NETWORK_ISOLATION,
+                            POLICY_ENFORCEMENT,
+                            MONITOR,
+                            ALERT,
+                          ]
                         example: LOCKDOWN
                       target:
                         type: string
@@ -2420,10 +2481,13 @@ paths:
 
   /api/webhooks:
     post:
-      summary: Generic inbound webhook
+      deprecated: true
+      summary: Generic inbound webhook (Deprecated)
       description: |
         Accepts inbound webhooks from any sender, verified with an HMAC-SHA256 signature.
         The event type is read from the `x-webhook-event` or `x-event-type` header.
+
+        Deprecated: Prefer `/api/webhooks/generic` with dedicated webhook secrets. Emits standard RFC 8594 `Deprecation` and `Sunset` headers.
       operationId: receiveGenericWebhook
       tags:
         - Webhooks
@@ -2461,6 +2525,173 @@ paths:
           description: Missing or invalid signature
         "429":
           description: Rate limit exceeded
+
+  /api/webhooks/dlq:
+    get:
+      summary: List quarantined webhook DLQ entries
+      description: |
+        Retrieves dead-letter queue (DLQ) entries for failed outbound webhook deliveries.
+        Supports filtering by webhookId, status (quarantined, replaying, replayed, purged),
+        and circuitBroken flag. Requires ADMIN role.
+      operationId: listWebhookDlqEntries
+      tags:
+        - Webhooks
+        - Admin
+      security:
+        - sessionAuth: []
+      parameters:
+        - in: query
+          name: webhookId
+          schema:
+            type: string
+          description: Filter by target webhook endpoint ID
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [quarantined, replaying, replayed, purged]
+          description: Filter by delivery status
+        - in: query
+          name: circuitBroken
+          schema:
+            type: boolean
+          description: Filter for entries quarantined due to an open circuit breaker
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Quarantined DLQ entries retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  entries:
+                    type: array
+                    items:
+                      type: object
+        "403":
+          description: Unauthorized - requires ADMIN role
+    delete:
+      summary: Purge webhook DLQ entries
+      description: |
+        Purges a single quarantined entry by ID, or purges all quarantined DLQ entries
+        if no ID parameter is supplied. Requires ADMIN role.
+      operationId: purgeWebhookDlqEntries
+      tags:
+        - Webhooks
+        - Admin
+      security:
+        - sessionAuth: []
+      parameters:
+        - in: query
+          name: id
+          required: false
+          schema:
+            type: string
+          description: Specific DLQ entry ID to purge (omitting purges all entries)
+      responses:
+        "200":
+          description: DLQ entries purged successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          description: Unauthorized - requires ADMIN role
+        "404":
+          description: DLQ entry not found
+
+  /api/webhooks/dlq/replay:
+    post:
+      summary: Batch replay quarantined DLQ entries
+      description: |
+        Replays multiple or all quarantined webhook delivery attempts. If a list of
+        IDs is provided in the request body, only those entries are replayed; otherwise,
+        all quarantined entries are replayed. Respects circuit breaker status. Requires ADMIN role.
+      operationId: batchReplayWebhookDlq
+      tags:
+        - Webhooks
+        - Admin
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Batch replay completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  replayed:
+                    type: integer
+                  succeeded:
+                    type: integer
+                  failed:
+                    type: integer
+                  circuitBroken:
+                    type: integer
+        "403":
+          description: Unauthorized - requires ADMIN role
+
+  /api/webhooks/dlq/{id}/replay:
+    post:
+      summary: Replay a single quarantined DLQ entry
+      description: |
+        Manually triggers a redelivery attempt for a specific quarantined DLQ entry by ID.
+        If the downstream circuit breaker is OPEN, the replay is rejected immediately to protect
+        both caller and endpoint. Requires ADMIN role.
+      operationId: replayWebhookDlqEntry
+      tags:
+        - Webhooks
+        - Admin
+      security:
+        - sessionAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Unique identifier of the DLQ entry to replay
+      responses:
+        "200":
+          description: DLQ entry successfully replayed and delivered
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Missing or invalid DLQ entry ID
+        "403":
+          description: Unauthorized - requires ADMIN role
+        "404":
+          description: DLQ entry not found
+        "502":
+          description: Downstream endpoint failed delivery or circuit breaker is open
 
   /api/policies/export:
     get:
@@ -2577,6 +2808,62 @@ paths:
         "429":
           description: Rate limit exceeded
 
+  /api/policies/effectiveness:
+    get:
+      summary: Retrieve policy effectiveness metrics
+      description: |
+        Retrieves policy effectiveness data and metrics across security rules.
+      operationId: getPolicyEffectiveness
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: integer
+            default: 30
+          description: Number of days in the evaluation window
+      responses:
+        "200":
+          description: Policy effectiveness summary metrics
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+
+  /api/policies/effectiveness/export:
+    get:
+      summary: Export policy effectiveness report as CSV
+      description: |
+        Exports policy effectiveness metrics as a sanitized CSV spreadsheet.
+      operationId: exportPolicyEffectivenessCSV
+      tags:
+        - Policies
+      security:
+        - sessionAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: integer
+            default: 30
+          description: Number of days in the evaluation window
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Unauthorized
+
   /api/badge/{owner}/{repo}:
     parameters:
       - name: owner
@@ -2641,3 +2928,5 @@ tags:
     description: Public metrics
   - name: System
     description: Health and API metadata
+  - name: Policies
+    description: Security policy configuration and effectiveness analysis

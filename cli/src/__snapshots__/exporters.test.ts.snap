@@ -1,0 +1,76 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`--severity and --fail-on combined > Snapshot Tests for JUnit XML and Markdown formats (#2021) > matches snapshot for JUnit exporter with default thresholds 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="SecureFlow Security Scan" tests="3" failures="2" errors="0" time="0.000">
+  <testsuite name="src/auth/token.ts" tests="2" failures="2" errors="0" time="0.000">
+    <testcase name="[console-secret-logging] line 10: secret-named identifier" classname="src/auth/token.ts" time="0.000">
+      <failure message="secret-named identifier (severity: HIGH)" type="HIGH">File: src/auth/token.ts:10
+Severity: HIGH
+Rule: console-secret-logging
+Violation: console.log(&quot;Bearer token:&quot;, bearerToken);
+Reason: secret-named identifier</failure>
+    </testcase>
+    <testcase name="[master-key-logging] line 25: master key exposed" classname="src/auth/token.ts" time="0.000">
+      <failure message="master key exposed (severity: CRITICAL)" type="CRITICAL">File: src/auth/token.ts:25
+Severity: CRITICAL
+Rule: master-key-logging
+Violation: console.error(&quot;Master key:&quot;, masterSecretKey);
+Reason: master key exposed</failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="src/utils/sanitize.ts" tests="1" failures="0" errors="0" time="0.000">
+    <testcase name="Security scan: no violations" classname="src/utils/sanitize.ts" time="0.000" />
+  </testsuite>
+</testsuites>
+"
+`;
+
+exports[`--severity and --fail-on combined > Snapshot Tests for JUnit XML and Markdown formats (#2021) > matches snapshot for Markdown exporter 1`] = `
+"# 🛡️ SecureFlow Scan Report
+
+### Summary
+
+| Severity | Count |
+| :--- | :--- |
+| Critical | 1 |
+| High | 1 |
+| Medium | 0 |
+| Low | 0 |
+| **Total** | **2** |
+
+Found **2** violations.
+
+| Severity | Rule | File:Line | Violation | Reason |
+| --- | --- | --- | --- | --- |
+| HIGH | console-secret-logging | src/auth/token.ts:10 | \`console.log("Bearer token:", bearerToken);\` | secret-named identifier |
+| CRITICAL | master-key-logging | src/auth/token.ts:25 | \`console.error("Master key:", masterSecretKey);\` | [Custom Rule: master-key-logging] master key exposed |
+"
+`;
+
+exports[`--severity and --fail-on combined > Snapshot Tests for JUnit XML and Markdown formats (#2021) > matches snapshot for clean scan in both formats 1`] = `
+"# 🛡️ SecureFlow Scan Report
+
+### Summary
+
+| Severity | Count |
+| :--- | :--- |
+| Critical | 0 |
+| High | 0 |
+| Medium | 0 |
+| Low | 0 |
+| **Total** | **0** |
+
+✅ **No violations detected.**
+"
+`;
+
+exports[`--severity and --fail-on combined > Snapshot Tests for JUnit XML and Markdown formats (#2021) > matches snapshot for clean scan in both formats 2`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="SecureFlow Security Scan" tests="1" failures="0" errors="0" time="0.000">
+  <testsuite name="src/safe.ts" tests="1" failures="0" errors="0" time="0.000">
+    <testcase name="Security scan: no violations" classname="src/safe.ts" time="0.000" />
+  </testsuite>
+</testsuites>
+"
+`;

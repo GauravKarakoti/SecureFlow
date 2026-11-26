@@ -60,6 +60,7 @@ Because migration folders use timestamp-only naming, refer to this audit table f
 | `20261117084000_finding_triage_scan_context` | Triage Scan Context           | Stores the scanned commit and gate policy for safe post-triage verdict updates.                                 |
 | `20261119210000_personal_api_tokens`         | Personal API Tokens           | Creates `ApiToken` model with token hash, scopes, expiry, and last-used tracking.                               |
 | `20261119223000_auto_resolve_findings`       | Auto-Resolve Findings         | Adds `resolvedAt` and `resolvedCommitSha` to `FindingTriage` for commit-based finding resolution.               |
+| `20261126104000`                             | Policy Help URL and Guidance  | Adds `helpUrl` and `guidance` columns to `PolicyTemplate` and `PolicyVersion` tables (#2098).                   |
 
 ---
 

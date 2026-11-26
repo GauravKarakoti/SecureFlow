@@ -27,6 +27,7 @@ The SecureFlow CLI intercepts code vulnerabilities and exposed secrets right at 
   - [Connecting to Cursor / Windsurf / Claude Desktop](#connecting-to-cursor--windsurf--claude-desktop)
   - [Available MCP Tools](#available-mcp-tools)
 - [⚙️ Configuration (`.secureflowignore`)](#️-configuration-secureflowignore)
+- [🛠️ Custom Security Rules (`.secureflow.json`)](#️-custom-security-rules-secureflowjson)
 - [🔄 CI/CD Pipeline Integration](#-cicd-pipeline-integration)
 - [🎨 Terminal Color Support & NO_COLOR](#-terminal-color-support--no_color)
 - [📄 License](#-license)
@@ -115,12 +116,16 @@ Now, every `git commit` automatically triggers a security check on staged files.
 ```text
 Usage:
   secureflow [options]
+  secureflow doctor [options]
+  secureflow watch [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  doctor                 Run pre-scan diagnostics on Node version, git, config, and AI endpoint reachability
+  watch [path]           Watch workspace for file changes and rescan continuously in real time
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
@@ -132,6 +137,7 @@ Commands:
 | Flag                   | Shorthand | Default             | Description                                                                                                                 |
 | :--------------------- | :-------- | :------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
 | `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)                                   |
+| `--watch`              | `-w`      | `false`             | Watch workspace for file changes and rescan modified files in real time                                                     |
 | `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors                        |
 | `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt                                   |
 | `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)                                |
@@ -148,6 +154,7 @@ Commands:
 | `--voice`              | `-v`      | `false`             | Play an audio debrief of findings in your terminal upon completion                                                          |
 | `--local`              |           | `false`             | Skip cloud AI upload and run fully local pattern analysis                                                                   |
 | `--local-model <tag>`  |           | `llama3`            | Specify local model tag when using local AI providers                                                                       |
+| `--config <path>`      | `-c`      | `.secureflow.json`  | Custom path to `.secureflow.json` configuration file                                                                        |
 | `--ignore-file <path>` |           | `.secureflowignore` | Custom path to ignore configuration file                                                                                    |
 | `--dry-run`            |           | `false`             | Simulate scan execution without writing output files                                                                        |
 | `--color`              |           |                     | Force colored output even on non-TTY terminals (pipes / redirects)                                                          |
@@ -227,12 +234,14 @@ Findings by severity: critical: 0, high: 2, medium: 1, low: 0
 - **HTML (`html`)**: Self-contained, responsive HTML report suitable for sharing and compliance reviews.
 - **CSV (`csv`)**: Formatted tabular output hardened against spreadsheet formula injection (CWE-1236).
 - **JSON (`json`)**: Machine-readable JSON object representing findings and metadata.
-- **Markdown (`markdown` / `md`)**: GitHub-Flavored Markdown table with sanitized code fences.
+- **Markdown (`markdown` / `md`)**: GitHub-Flavored Markdown summary with severity counts and findings table (secrets masked).
+- **JUnit (`junit`)**: Standard JUnit XML test report mapping findings to test cases for native rendering in CI/CD platforms (failures for blocking severities).
 
 ```bash
 secureflow --format html -o security-report.html
 secureflow --format sarif -o results.sarif
 secureflow --format markdown -o findings.md
+secureflow --format junit -o test-results.xml
 ```
 
 #### GitHub Advanced Security (GHAS) Integration (#1766)
@@ -268,6 +277,51 @@ SARIF findings exported by SecureFlow conform strictly to OASIS SARIF v2.1.0 spe
 - Standard GitHub severity mappings (`CRITICAL`/`HIGH` -> `error`, `MEDIUM` -> `warning`, `LOW`/`INFO` -> `note`)
 - Cryptographic code snippet fingerprints for tracking issues across code refactors
 - Automated remediation patch replacements within SARIF `fixes` arrays
+
+---
+
+## 🩺 Pre-Scan Diagnostics (`doctor`)
+
+Diagnose and verify your development or CI environment upfront to eliminate setup surprises before scanning:
+
+```bash
+secureflow doctor
+```
+
+### Diagnostics Checked:
+- **Node.js Runtime**: Ensures Node.js >= 20.0.0.
+- **Git Availability**: Checks git CLI presence and whether the current directory is inside a valid git repository.
+- **Configuration**: Verifies that `.secureflow.json` exists and validates its schema syntax.
+- **AI Endpoint Reachability & VRAM**: Pings the configured AI provider endpoint (or local Ollama/vLLM server), reporting available VRAM/system memory for local inference.
+- **Credential Safety**: All API keys, tokens, and secrets are strictly redacted (`[REDACTED]`) from diagnostic messages and logs.
+- **CI / Non-Zero Exit**: Every check executes and reports independently. Returns exit code `0` when all checks pass or warn, and `1` if any check fails.
+
+## 👀 Real-Time Watch Mode (`--watch`)
+
+Developers fixing security findings no longer need to rerun the full scan by hand after each edit. Watch mode monitors your workspace in real-time, automatically debounces rapid file saves, and rescans only the modified file:
+
+```bash
+secureflow --watch
+# or shorthand
+secureflow -w
+```
+
+### Key Features:
+- **Instant Incremental Rescan**: When a file is edited and saved, only that file is rescanned.
+- **Smart Debouncing**: Rapid editor autosaves and flushes within 200ms are coalesced into a single rescan.
+- **Live Finding Resolution**: As soon as a vulnerability or secret logging call is fixed or removed, SecureFlow reports it as resolved:
+  ```text
+  ✨ Resolved: [HIGH] console-secret-logging in src/auth.ts:12
+     Fixed: console.log(process.env.API_KEY);
+  ```
+- **New Finding Detection**: Any newly introduced vulnerability or secret is surfaced immediately:
+  ```text
+  ⚠️  New finding: [HIGH] console-secret-logging in src/auth.ts:15
+     console.log(process.env.NEW_KEY) (secret logging)
+  ```
+- **Line Shift Stability**: Adding comments or restructuring code above an existing violation does not produce spurious "resolved" and "new" notifications.
+- **Excluded Build Artifacts**: Directories such as `node_modules`, `dist`, `build`, `.next`, `.turbo`, and temporary files are automatically ignored.
+- **Graceful Termination**: Clean shutdown on `Ctrl+C` (`SIGINT`).
 
 ---
 
@@ -370,9 +424,62 @@ EXAMPLE_SECRET
 
 ---
 
+## 🛠️ Custom Security Rules (`.secureflow.json`)
+
+Teams can define project-specific security rules in `.secureflow.json` to detect internal token formats, banned APIs, or proprietary coding patterns that generic scanners miss.
+
+```json
+{
+  "rules": [
+    {
+      "id": "internal-auth-token",
+      "pattern": "SEC_AUTH_[A-Za-z0-9]{32}",
+      "globs": ["**/*.ts", "**/*.js"],
+      "severity": "CRITICAL",
+      "message": "Internal authentication token detected in source code"
+    },
+    {
+      "id": "banned-eval-api",
+      "pattern": "\\beval\\s*\\(",
+      "globs": ["src/**/*.js"],
+      "severity": "HIGH",
+      "message": "Direct invocation of eval() is strictly prohibited"
+    }
+  ]
+}
+```
+
+### Rule Properties
+
+| Property    | Type       | Required | Description                                                         |
+| :---------- | :--------- | :------- | :------------------------------------------------------------------ |
+| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores) |
+| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                            |
+| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)       |
+| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`    |
+| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                     |
+| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms)|
+
+### ReDoS & Catastrophic Backtracking Protection
+
+To safeguard scans against catastrophic regex backtracking (Regular Expression Denial of Service - ReDoS):
+- **Sandboxed Execution**: Custom regex evaluations run in a dedicated, timeout-enforced Node.js VM context (`timeoutMs`, default 100ms per file).
+- **Graceful Abortion**: If a regex evaluation exceeds the timeout limit, the pattern is aborted with a clean warning rather than hanging the scan.
+- **Input Bounds**: Lines longer than 20,000 characters and files exceeding 512 KB are safely bounded to prevent excessive memory overhead.
+
+### Labeled Findings & Quality Gates
+
+Findings generated from custom rules are clearly labeled across all exporters:
+- **Terminal Output**: Prefix labeled as `🚨 [SecureFlow] [Custom Rule: <id>] <message>`
+- **SARIF**: Exported with rule identifier `CUSTOM-<id>`, level mapped according to severity, and custom metadata tags
+- **Markdown / HTML / CSV**: Labeled with `[Custom Rule: <id>]`
+- **Quality Gates**: Custom rule severities are evaluated directly against your `--fail-on` threshold.
+
+---
+
 ## 🔄 CI/CD Pipeline Integration
 
-### GitHub Actions Workflow
+### GitHub Actions Workflow (SARIF & Markdown)
 
 ```yaml
 name: Security Scan
@@ -389,7 +496,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run SecureFlow Scanner
+      - name: Run SecureFlow Scanner (SARIF)
         run: npx secureflow-cli --format sarif -o results.sarif --fail-on high
 
       - name: Upload SARIF to GitHub Security tab
@@ -397,6 +504,80 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+
+      - name: Generate PR Markdown Summary
+        if: always()
+        run: npx secureflow-cli --format markdown -o pr-summary.md
+```
+
+### Jenkins Pipeline (JUnit Test Results)
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Security Scan') {
+            steps {
+                sh 'npx secureflow-cli --format junit -o secureflow-junit.xml --fail-on high'
+            }
+            post {
+                always {
+                    junit testResults: 'secureflow-junit.xml', allowEmptyResults: true
+                }
+            }
+        }
+    }
+}
+```
+
+### GitLab CI/CD (`.gitlab-ci.yml`)
+
+```yaml
+stages:
+  - test
+
+secureflow_scan:
+  stage: test
+  image: node:20
+  script:
+    - npx secureflow-cli --format junit -o secureflow-junit.xml --fail-on high
+  artifacts:
+    when: always
+    reports:
+      junit: secureflow-junit.xml
+```
+
+### Azure DevOps Pipeline (`azure-pipelines.yml`)
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '20.x'
+    displayName: 'Install Node.js'
+
+  - script: |
+      npx secureflow-cli --format junit -o $(Build.SourcesDirectory)/test-results.xml --fail-on high
+    displayName: 'Run SecureFlow Security Scan'
+
+  - task: PublishTestResults@2
+    condition: always()
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/test-results.xml'
+      testRunTitle: 'SecureFlow Security Scan'
+      failTaskOnFailedTests: true
 ```
 
 ---

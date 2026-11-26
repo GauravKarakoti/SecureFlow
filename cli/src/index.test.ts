@@ -31,11 +31,17 @@ const m = vi.hoisted(() => ({
   parseOutputFormat: vi.fn(),
   parseOutputPath: vi.fn(),
   parseIgnoreFilePath: vi.fn(),
+  parseConfigFilePath: vi.fn(),
   parseVoiceArg: vi.fn(),
   parseColorArg: vi.fn(),
   playVoiceDebrief: vi.fn(),
   startMcpServer: vi.fn(),
   getChangedFilesSince: vi.fn(),
+  getStagedDiffLineNumbers: vi.fn(() => new Set<number>()),
+  getStagedDiff: vi.fn(() => ""),
+  installHook: vi.fn(),
+  uninstallHook: vi.fn(),
+  printHookHelp: vi.fn(),
   getRepoRoot: vi.fn(),
   parseSinceArg: vi.fn(),
   parseNoCacheArg: vi.fn(),
@@ -45,7 +51,11 @@ const m = vi.hoisted(() => ({
   parseCacheTtlArg: vi.fn(),
   parseCacheMaxSizeArg: vi.fn(),
   parseCacheDirArg: vi.fn(),
+  parseIgnoreSuppressionsArg: vi.fn(() => false),
   parseTargetDirectoryArg: vi.fn(),
+  parseStagedArg: vi.fn(() => false),
+  parseBaselineArg: vi.fn(() => undefined),
+  parseWatchArg: vi.fn(() => false),
   parseVerbosityArg: vi.fn(),
   parseQuietArg: vi.fn(),
   parseVerboseArg: vi.fn(),
@@ -59,6 +69,7 @@ const m = vi.hoisted(() => ({
   parseDurationMs: vi.fn(),
   parseSizeBytes: vi.fn(),
   resolveCacheDir: vi.fn(),
+  runWatchMode: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("./git.js", () => ({
@@ -66,8 +77,15 @@ vi.mock("./git.js", () => ({
   getStagedFiles: m.getStagedFiles,
   readStagedContent: m.readStagedContent,
   getChangedFilesSince: m.getChangedFilesSince,
+  getStagedDiffLineNumbers: m.getStagedDiffLineNumbers,
+  getStagedDiff: m.getStagedDiff,
   getRepoRoot: m.getRepoRoot,
   isGitRepository: m.isGitRepository,
+}));
+vi.mock("./hook.js", () => ({
+  installHook: m.installHook,
+  uninstallHook: m.uninstallHook,
+  printHookHelp: m.printHookHelp,
 }));
 vi.mock("./scanner.js", () => ({
   scanFile: m.scanFile,
@@ -113,6 +131,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseOutputFormat: m.parseOutputFormat,
   parseOutputPath: m.parseOutputPath,
   parseIgnoreFilePath: m.parseIgnoreFilePath,
+  parseConfigFilePath: m.parseConfigFilePath,
   parseVoiceArg: m.parseVoiceArg,
   parseSinceArg: m.parseSinceArg,
   parseColorArg: m.parseColorArg,
@@ -123,7 +142,11 @@ vi.mock("./lib/output-args.js", () => ({
   parseCacheTtlArg: m.parseCacheTtlArg,
   parseCacheMaxSizeArg: m.parseCacheMaxSizeArg,
   parseCacheDirArg: m.parseCacheDirArg,
+  parseIgnoreSuppressionsArg: m.parseIgnoreSuppressionsArg,
   parseTargetDirectoryArg: m.parseTargetDirectoryArg,
+  parseStagedArg: m.parseStagedArg,
+  parseBaselineArg: m.parseBaselineArg,
+  parseWatchArg: m.parseWatchArg,
   parseVerbosityArg: m.parseVerbosityArg,
   parseQuietArg: m.parseQuietArg,
   parseVerboseArg: m.parseVerboseArg,
@@ -144,6 +167,7 @@ vi.mock("./cache.js", () => ({
   resolveCacheDir: m.resolveCacheDir,
 }));
 
+vi.mock("./watch.js", () => ({ runWatchMode: m.runWatchMode }));
 vi.mock("./lib/tui.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/tui.js")>();
   return {
@@ -200,6 +224,7 @@ beforeEach(() => {
   m.parseOutputFormat.mockReturnValue("text");
   m.parseOutputPath.mockReturnValue(null);
   m.parseIgnoreFilePath.mockReturnValue(undefined);
+  m.parseConfigFilePath.mockReturnValue(undefined);
   m.parseVoiceArg.mockReturnValue(false);
   m.parseSinceArg.mockReturnValue(undefined);
   m.parseNoCacheArg.mockReturnValue(false);
@@ -214,7 +239,9 @@ beforeEach(() => {
         if (val !== "false" && val !== "0") q = true;
       }
       if (a === "--verbose" || a.startsWith("--verbose=")) {
-        const val = a.startsWith("--verbose=") ? a.slice("--verbose=".length).toLowerCase() : "true";
+        const val = a.startsWith("--verbose=")
+          ? a.slice("--verbose=".length).toLowerCase()
+          : "true";
         if (val !== "false" && val !== "0") v = true;
       }
     }
@@ -662,7 +689,7 @@ describe("--since flag (#1760)", () => {
     expect(code).toBe(0);
     expect(m.getChangedFilesSince).toHaveBeenCalledWith("origin/main");
     expect(m.getStagedFiles).not.toHaveBeenCalled();
-    expect(m.scanFile).toHaveBeenCalledWith("changed.ts", "const x = 1;", []);
+    expect(m.scanFile).toHaveBeenCalledWith("changed.ts", "const x = 1;", [], expect.anything());
     expect(output(logSpy)).toContain(
       "✅ SecureFlow scan passed (1 changed file(s) since origin/main).",
     );
@@ -1072,7 +1099,9 @@ describe("--fail-on thresholds, exit codes, and severity counts", () => {
       m.scanFile.mockReturnValue(scanResult("a.ts", []));
 
       // With non-TTY stderr/stdout
-      const stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation((() => true) as any);
+      const stderrWriteSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation((() => true) as any);
       try {
         const code = await runCli();
         expect(code).toBe(0);
@@ -1082,6 +1111,76 @@ describe("--fail-on thresholds, exit codes, and severity counts", () => {
       } finally {
         stderrWriteSpy.mockRestore();
       }
+    });
+  });
+
+  describe("hook subcommand and staged scan routing (#2020)", () => {
+    it("delegates to installHook on 'secureflow hook install'", async () => {
+      m.installHook.mockResolvedValue({ success: true, message: "Hook installed successfully" });
+      const code = await runCli("hook", "install");
+      expect(code).toBe(0);
+      expect(m.installHook).toHaveBeenCalledWith({ force: false, dryRun: false });
+      expect(output(logSpy)).toContain("Hook installed successfully");
+    });
+
+    it("passes --force and --dry-run to installHook", async () => {
+      m.installHook.mockResolvedValue({ success: true, message: "Hook force installed" });
+      const code = await runCli("hook", "install", "--force", "--dry-run");
+      expect(code).toBe(0);
+      expect(m.installHook).toHaveBeenCalledWith({ force: true, dryRun: true });
+    });
+
+    it("returns exit code 1 when installHook fails", async () => {
+      m.installHook.mockResolvedValue({ success: false, message: "Failed to install hook" });
+      const code = await runCli("hook", "install");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("Failed to install hook");
+    });
+
+    it("delegates to uninstallHook on 'secureflow hook uninstall'", async () => {
+      m.uninstallHook.mockResolvedValue({
+        success: true,
+        message: "Hook uninstalled successfully",
+      });
+      const code = await runCli("hook", "uninstall");
+      expect(code).toBe(0);
+      expect(m.uninstallHook).toHaveBeenCalledWith({ dryRun: false });
+      expect(output(logSpy)).toContain("Hook uninstalled successfully");
+    });
+
+    it("returns exit code 1 when uninstallHook fails", async () => {
+      m.uninstallHook.mockResolvedValue({ success: false, message: "Failed to uninstall hook" });
+      const code = await runCli("hook", "uninstall");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("Failed to uninstall hook");
+    });
+
+    it("prints hook help on 'secureflow hook --help'", async () => {
+      const code = await runCli("hook", "--help");
+      expect(code).toBe(0);
+      expect(m.printHookHelp).toHaveBeenCalled();
+    });
+
+    it("fails with exit code 1 on unknown hook action", async () => {
+      const code = await runCli("hook", "unknown-action");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain('Unknown hook command "unknown-action"');
+    });
+
+    it("fails when --staged is used outside a git repository", async () => {
+      m.parseStagedArg.mockReturnValue(true);
+      m.isGitRepository.mockReturnValue(false);
+      const code = await runCli("scan", "--staged");
+      expect(code).toBe(1);
+      expect(output(errorSpy)).toContain("Not a git repository");
+    });
+
+    it("delegates to runWatchMode when --watch is supplied", async () => {
+      m.parseWatchArg.mockReturnValue(true);
+      m.runWatchMode.mockResolvedValue(0);
+      const code = await runCli("--watch");
+      expect(code).toBe(0);
+      expect(m.runWatchMode).toHaveBeenCalled();
     });
   });
 });

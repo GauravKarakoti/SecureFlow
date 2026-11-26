@@ -4,10 +4,18 @@ import { getAiInstance, getDefaultModelRef } from "@/ai/genkit";
 import {
   isRateLimitError,
   isTimeoutError,
+  isVramConcurrencyError,
   getModelCircuitBreaker,
   CircuitBreakerError,
   CircuitState,
 } from "@/ai/resilience";
+import {
+  InsufficientVRAMError,
+  insufficientVramMessage,
+  isInsufficientMemoryError,
+  resolveLocalFallbackModels,
+  resolveLocalModelConfig,
+} from "@/ai/local-model";
 import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
 import { detectPromptInjection } from "./security-helpers";
 import {
@@ -129,19 +137,57 @@ Provide ONLY the unified diff patch that fixes this issue securely. Do not inclu
   // Wrap AI inference call with circuit breaker to prevent blocking during provider outages (#1768)
   const modelKey =
     typeof activeModel === "string" ? activeModel : (activeModel as any)?.name || "default";
-  const breaker = getModelCircuitBreaker(modelKey);
+  const localConfig = resolveLocalModelConfig();
+  const localFallbackRefs = localConfig
+    ? resolveLocalFallbackModels().map((model) => `openai/${model}`)
+    : [];
+  const modelsToTry: unknown[] = [
+    activeModel,
+    ...localFallbackRefs.filter((ref) => ref !== activeModel && ref !== modelKey),
+  ];
+  let selectedModel: unknown = activeModel;
+  let selectedBreaker = getModelCircuitBreaker(modelKey);
+  const modelsAttempted: string[] = [];
 
   try {
-    const output = await breaker.execute(async () => {
-      const res = await retryWithBackoff(() =>
-        activeAi.generate({
-          model: activeModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
-          prompt,
-          output: { schema: PatchOutputSchema, format: "json" },
-        }),
-      );
-      return res.output;
-    });
+    let output: PatchOutput | null = null;
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const candidate = modelsToTry[i];
+      const candidateKey =
+        typeof candidate === "string" ? candidate : (candidate as any)?.name || "default";
+      const candidateBreaker = getModelCircuitBreaker(candidateKey);
+      modelsAttempted.push(candidateKey);
+
+      try {
+        output = await candidateBreaker.execute(async () => {
+          const res = await retryWithBackoff(() =>
+            activeAi.generate({
+              model: candidate as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
+              prompt,
+              output: { schema: PatchOutputSchema, format: "json" },
+            }),
+          );
+          return res.output;
+        });
+        selectedModel = candidate;
+        selectedBreaker = candidateBreaker;
+        break;
+      } catch (candidateErr) {
+        const hasNext = i < modelsToTry.length - 1;
+        if (
+          hasNext &&
+          (isInsufficientMemoryError(candidateErr) ||
+            isVramConcurrencyError(candidateErr) ||
+            candidateErr instanceof CircuitBreakerError)
+        ) {
+          console.warn(
+            `[LOCAL_AI] Remediation model ${candidateKey} unavailable under memory/circuit pressure. Switching to ${String(modelsToTry[i + 1])}`,
+          );
+          continue;
+        }
+        throw candidateErr;
+      }
+    }
 
     if (output) {
       if (
@@ -220,10 +266,10 @@ Provide ONLY the corrected raw unified diff patch and a brief 1-sentence explana
 
       let retryOutput: PatchOutput | null = null;
       try {
-        retryOutput = await breaker.execute(async () => {
+        retryOutput = await selectedBreaker.execute(async () => {
           const res = await retryWithBackoff(() =>
             activeAi.generate({
-              model: activeModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
+              model: selectedModel as Awaited<Parameters<typeof activeAi.generate>[0]>["model"],
               prompt: retryPrompt,
               output: { schema: PatchOutputSchema, format: "json" },
             }),
@@ -279,6 +325,20 @@ Provide ONLY the corrected raw unified diff patch and a brief 1-sentence explana
       };
     }
   } catch (error) {
+    if (isInsufficientMemoryError(error)) {
+      const vramMsg =
+        error instanceof InsufficientVRAMError
+          ? error.message
+          : insufficientVramMessage(modelsAttempted.length > 0 ? modelsAttempted : [modelKey]);
+      console.warn(`[LOCAL_AI] ${vramMsg}`);
+      return {
+        patchDiff: "",
+        explanation: `The AI remediation service is temporarily unavailable: ${vramMsg}`,
+        failureReason: "unavailable",
+        note: vramMsg,
+      };
+    }
+
     if (error instanceof CircuitBreakerError) {
       failureReason = "unavailable";
       console.warn(

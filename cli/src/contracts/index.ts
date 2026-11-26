@@ -123,12 +123,41 @@ export const gateConfigSchema = z
 
 export type GateConfigSchema = z.infer<typeof gateConfigSchema>;
 
+export const customRuleContractSchema = z
+  .object({
+    id: z.string().min(1, "Rule must have a non-empty string 'id'"),
+    pattern: z.string().min(1, "Rule must have a non-empty string 'pattern'"),
+    regex: z.string().min(1).optional(),
+    globs: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+    fileGlobs: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+    paths: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+    severity: z.string().min(1),
+    message: z.string().min(1, "Rule must have a non-empty string 'message'"),
+    description: z.string().min(1).optional(),
+    flags: z.string().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    helpUrl: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((url) => url.startsWith("https://"), {
+        message: "Policy helpUrl must use https:// protocol",
+      })
+      .optional(),
+    guidance: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
+export type CustomRuleContractSchema = z.infer<typeof customRuleContractSchema>;
+
 export const secureFlowConfigSchema = z
   .object({
     $schema: z.string().optional(),
     $comment: z.string().optional(),
     gate: gateConfigSchema.optional(),
     policyScopes: z.array(policyScopeRuleSchema).optional(),
+    rules: z.array(customRuleContractSchema).optional(),
+    customRules: z.array(customRuleContractSchema).optional(),
   })
   .strict();
 
@@ -678,7 +707,14 @@ export function validateSecureFlowJson(
     return errors;
   }
 
-  const allowedRootKeys = new Set(["$schema", "$comment", "gate", "policyScopes"]);
+  const allowedRootKeys = new Set([
+    "$schema",
+    "$comment",
+    "gate",
+    "policyScopes",
+    "rules",
+    "customRules",
+  ]);
 
   for (const prop of root.properties) {
     if (!allowedRootKeys.has(prop.key)) {
@@ -686,7 +722,7 @@ export function validateSecureFlowJson(
         file: filePath,
         line: prop.keyLine,
         column: prop.keyColumn,
-        message: `Unknown key "${prop.key}" at root level. Allowed keys: gate, policyScopes, $schema, $comment`,
+        message: `Unknown key "${prop.key}" at root level. Allowed keys: gate, policyScopes, rules, customRules, $schema, $comment`,
         code: "UNKNOWN_KEY",
       });
       continue;
@@ -696,10 +732,250 @@ export function validateSecureFlowJson(
       validateGateNode(prop.valueNode, filePath, errors);
     } else if (prop.key === "policyScopes") {
       validatePolicyScopesNode(prop.valueNode, filePath, "policyScopes", errors);
+    } else if (prop.key === "rules" || prop.key === "customRules") {
+      validateRulesNode(prop.valueNode, filePath, errors);
     }
   }
 
   return errors;
+}
+
+function validateRulesNode(
+  node: JsonSourceNode,
+  filePath: string,
+  errors: ValidationError[],
+): void {
+  if (node.type !== "array" || !node.items) {
+    errors.push({
+      file: filePath,
+      line: node.line,
+      column: node.column,
+      message: `'rules' must be an array of rule objects`,
+      code: "INVALID_TYPE",
+    });
+    return;
+  }
+
+  const allowedRuleKeys = new Set([
+    "id",
+    "pattern",
+    "regex",
+    "globs",
+    "fileGlobs",
+    "paths",
+    "severity",
+    "message",
+    "description",
+    "flags",
+    "timeoutMs",
+    "helpUrl",
+    "guidance",
+  ]);
+
+  const seenIds = new Set<string>();
+
+  for (const item of node.items) {
+    if (item.type !== "object" || !item.properties) {
+      errors.push({
+        file: filePath,
+        line: item.line,
+        column: item.column,
+        message: `Each rule entry must be an object`,
+        code: "INVALID_TYPE",
+      });
+      continue;
+    }
+
+    const propMap = new Map<string, JsonSourceNode>();
+    for (const p of item.properties) {
+      if (!allowedRuleKeys.has(p.key)) {
+        errors.push({
+          file: filePath,
+          line: p.keyLine,
+          column: p.keyColumn,
+          message: `Unknown key "${p.key}" in custom rule. Allowed keys: id, pattern, globs, fileGlobs, paths, severity, message, description, flags, timeoutMs, helpUrl, guidance`,
+          code: "UNKNOWN_KEY",
+        });
+      }
+      propMap.set(p.key, p.valueNode);
+    }
+
+    // Check ID
+    const idNode = propMap.get("id");
+    if (!idNode) {
+      errors.push({
+        file: filePath,
+        line: item.line,
+        column: item.column,
+        message: `Custom rule is missing required "id" field`,
+        code: "UNKNOWN_SECTION",
+      });
+    } else if (idNode.type !== "string" || !String(idNode.value).trim()) {
+      errors.push({
+        file: filePath,
+        line: idNode.line,
+        column: idNode.column,
+        message: `Rule "id" must be a non-empty string`,
+        code: "INVALID_TYPE",
+      });
+    } else {
+      const idVal = String(idNode.value).trim();
+      if (seenIds.has(idVal)) {
+        errors.push({
+          file: filePath,
+          line: idNode.line,
+          column: idNode.column,
+          message: `Duplicate custom rule id "${idVal}"`,
+          code: "SYNTAX_ERROR",
+        });
+      }
+      seenIds.add(idVal);
+    }
+
+    // Check Pattern
+    const patternNode = propMap.get("pattern") ?? propMap.get("regex");
+    if (!patternNode) {
+      errors.push({
+        file: filePath,
+        line: item.line,
+        column: item.column,
+        message: `Custom rule is missing required "pattern" field`,
+        code: "UNKNOWN_SECTION",
+      });
+    } else if (patternNode.type !== "string" || !String(patternNode.value).trim()) {
+      errors.push({
+        file: filePath,
+        line: patternNode.line,
+        column: patternNode.column,
+        message: `Rule "pattern" must be a non-empty string`,
+        code: "INVALID_TYPE",
+      });
+    } else {
+      try {
+        new RegExp(String(patternNode.value).trim());
+      } catch (err: any) {
+        errors.push({
+          file: filePath,
+          line: patternNode.line,
+          column: patternNode.column,
+          message: `Invalid regex pattern "${patternNode.value}": ${err?.message || String(err)}`,
+          code: "SYNTAX_ERROR",
+        });
+      }
+    }
+
+    // Check Severity
+    const severityNode = propMap.get("severity");
+    if (!severityNode) {
+      errors.push({
+        file: filePath,
+        line: item.line,
+        column: item.column,
+        message: `Custom rule is missing required "severity" field`,
+        code: "UNKNOWN_SECTION",
+      });
+    } else if (severityNode.type !== "string") {
+      errors.push({
+        file: filePath,
+        line: severityNode.line,
+        column: severityNode.column,
+        message: `"severity" must be a string. Expected one of: CRITICAL, HIGH, MEDIUM, LOW`,
+        code: "INVALID_SEVERITY",
+      });
+    } else {
+      const upper = String(severityNode.value).trim().toUpperCase();
+      if (!["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(upper)) {
+        errors.push({
+          file: filePath,
+          line: severityNode.line,
+          column: severityNode.column,
+          message: `Invalid severity "${severityNode.value}". Expected one of: CRITICAL, HIGH, MEDIUM, LOW`,
+          code: "INVALID_SEVERITY",
+        });
+      }
+    }
+
+    // Check Message
+    const messageNode = propMap.get("message") ?? propMap.get("description");
+    if (!messageNode) {
+      errors.push({
+        file: filePath,
+        line: item.line,
+        column: item.column,
+        message: `Custom rule is missing required "message" field`,
+        code: "UNKNOWN_SECTION",
+      });
+    } else if (messageNode.type !== "string" || !String(messageNode.value).trim()) {
+      errors.push({
+        file: filePath,
+        line: messageNode.line,
+        column: messageNode.column,
+        message: `Rule "message" must be a non-empty string`,
+        code: "INVALID_TYPE",
+      });
+    }
+
+    // Check Globs
+    const globsNode = propMap.get("globs") ?? propMap.get("fileGlobs") ?? propMap.get("paths");
+    if (globsNode) {
+      if (globsNode.type === "string") {
+        if (!isValidGlob(String(globsNode.value).trim())) {
+          errors.push({
+            file: filePath,
+            line: globsNode.line,
+            column: globsNode.column,
+            message: `Invalid file glob pattern "${globsNode.value}"`,
+            code: "INVALID_GLOB",
+          });
+        }
+      } else if (globsNode.type === "array" && globsNode.items) {
+        for (const g of globsNode.items) {
+          if (g.type !== "string" || !isValidGlob(String(g.value).trim())) {
+            errors.push({
+              file: filePath,
+              line: g.line,
+              column: g.column,
+              message: `Invalid file glob pattern "${g.value}"`,
+              code: "INVALID_GLOB",
+            });
+          }
+        }
+      } else {
+        errors.push({
+          file: filePath,
+          line: globsNode.line,
+          column: globsNode.column,
+          message: `"globs" must be a string or array of strings`,
+          code: "INVALID_TYPE",
+        });
+      }
+    }
+
+    // Check helpUrl
+    const helpUrlNode = propMap.get("helpUrl");
+    if (helpUrlNode) {
+      if (helpUrlNode.type !== "string") {
+        errors.push({
+          file: filePath,
+          line: helpUrlNode.line,
+          column: helpUrlNode.column,
+          message: `Rule "helpUrl" must be a string`,
+          code: "INVALID_TYPE",
+        });
+      } else {
+        const urlStr = String(helpUrlNode.value).trim();
+        if (!urlStr.startsWith("https://")) {
+          errors.push({
+            file: filePath,
+            line: helpUrlNode.line,
+            column: helpUrlNode.column,
+            message: `Custom rule "helpUrl" must use https:// protocol (got '${urlStr}')`,
+            code: "INVALID_TYPE",
+          });
+        }
+      }
+    }
+  }
 }
 
 function validateSeverityValue(

@@ -66,6 +66,10 @@ describe("isSupportedManifest", () => {
   it("accepts the supported manifests anywhere in the tree", () => {
     expect(isSupportedManifest("package.json")).toBe(true);
     expect(isSupportedManifest("services/api/package.json")).toBe(true);
+    expect(isSupportedManifest("package-lock.json")).toBe(true);
+    expect(isSupportedManifest("deep/package-lock.json")).toBe(true);
+    expect(isSupportedManifest("pnpm-lock.yaml")).toBe(true);
+    expect(isSupportedManifest("apps/pnpm-lock.yaml")).toBe(true);
     expect(isSupportedManifest("requirements.txt")).toBe(true);
   });
 
@@ -291,6 +295,45 @@ describe("parseManifestFile — SPDX SBOM", () => {
       version: "2.3.2",
       manifestFile: "output.spdx.json",
       ecosystem: "pypi",
+    });
+  });
+});
+
+describe("parseManifestFile — package-lock.json and pnpm-lock.yaml", () => {
+  it("routes package-lock.json to lockfile parser", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        "": { dependencies: { lodash: "^4.17.21" } },
+        "node_modules/lodash": { version: "4.17.21" },
+      },
+    });
+    const deps = parseManifestFile(lockfile, "package-lock.json");
+    expect(deps).toHaveLength(1);
+    expect(deps[0]).toMatchObject({
+      name: "lodash",
+      version: "4.17.21",
+      ecosystem: "npm",
+      isTransitive: false,
+    });
+  });
+
+  it("routes pnpm-lock.yaml to pnpm parser", () => {
+    const pnpmLock = `
+lockfileVersion: '6.0'
+dependencies:
+  express: 4.18.2
+packages:
+  express@4.18.2:
+    resolution: {integrity: sha512-...}
+`;
+    const deps = parseManifestFile(pnpmLock, "pnpm-lock.yaml");
+    expect(deps).toHaveLength(1);
+    expect(deps[0]).toMatchObject({
+      name: "express",
+      version: "4.18.2",
+      ecosystem: "npm",
+      isTransitive: false,
     });
   });
 });

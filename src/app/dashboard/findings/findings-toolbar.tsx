@@ -67,6 +67,7 @@ export interface FindingsToolbarProps {
   canBulkSelect?: boolean;
   /** Saved views for the current user (#1786). */
   savedViews?: SavedViewDto[];
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 export default function FindingsToolbar({
@@ -76,6 +77,7 @@ export default function FindingsToolbar({
   onToggleBulkMode,
   canBulkSelect,
   savedViews = [],
+  onLoadingChange,
 }: FindingsToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -105,11 +107,13 @@ export default function FindingsToolbar({
 
   const apply = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
+      onLoadingChange?.(true);
       const params = new URLSearchParams(searchParams.toString());
       mutate(params);
       // Any filter change invalidates the current offset: staying on page 4
       // after narrowing to two results shows an empty list.
       params.delete("page");
+      params.delete("cursor");
 
       const query = params.toString();
       const navigate = router.push ?? router.replace;
@@ -117,7 +121,7 @@ export default function FindingsToolbar({
         navigate.call(router, query ? `${pathname}?${query}` : pathname, { scroll: false });
       });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, onLoadingChange],
   );
 
   const setSingle = useCallback(
@@ -228,6 +232,9 @@ export default function FindingsToolbar({
   const hasActiveExpiring = activeExpiring !== ANY;
   const hasActiveAssignee = activeAssignee !== ANY;
 
+  const activePath = searchParams.get("path") || searchParams.get("pathPrefix");
+  const hasActivePath = Boolean(activePath);
+
   const activeCount = [
     hasActiveSeverity,
     hasActiveType,
@@ -238,13 +245,24 @@ export default function FindingsToolbar({
     hasActiveTo,
     hasActiveExpiring,
     hasActiveAssignee,
+    hasActivePath,
   ].filter(Boolean).length;
 
   const hasFilterParams =
     activeCount > 0 ||
-    ["severity", "type", "status", "repo", "q", "from", "to", "expiring", "assignee"].some((key) =>
-      searchParams.has(key),
-    );
+    [
+      "severity",
+      "type",
+      "status",
+      "repo",
+      "q",
+      "from",
+      "to",
+      "expiring",
+      "assignee",
+      "path",
+      "pathPrefix",
+    ].some((key) => searchParams.has(key));
 
   return (
     <div className="glass-card rounded-xl p-4" data-testid="findings-toolbar">
@@ -436,6 +454,28 @@ export default function FindingsToolbar({
           )}
         </div>
 
+        {activePath && (
+          <Badge
+            variant="secondary"
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary border border-primary/20"
+          >
+            <span>path: {activePath}</span>
+            <button
+              type="button"
+              onClick={() => {
+                apply((params) => {
+                  params.delete("path");
+                  params.delete("pathPrefix");
+                });
+              }}
+              className="rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+              aria-label="Remove path filter"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        )}
+
         {hasFilterParams && (
           <Button
             variant="ghost"
@@ -445,7 +485,19 @@ export default function FindingsToolbar({
             onClick={() => {
               setSearchDraft("");
               apply((params) => {
-                for (const key of ["severity", "type", "status", "repo", "q", "from", "to"]) {
+                for (const key of [
+                  "severity",
+                  "type",
+                  "status",
+                  "repo",
+                  "q",
+                  "from",
+                  "to",
+                  "expiring",
+                  "assignee",
+                  "path",
+                  "pathPrefix",
+                ]) {
                   params.delete(key);
                 }
               });

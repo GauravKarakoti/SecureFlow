@@ -52,6 +52,8 @@ export interface ScanJobData {
   traceContext?: Record<string, string>;
   /** GitHub webhook delivery ID if triggered via webhook. */
   deliveryId?: string | null;
+  /** Files not scanned (e.g. binary or diff too large / unpatched) with reasons (#2015). */
+  skippedFiles?: Array<{ filename: string; reason: string }>;
 }
 
 // --- Queue setup ---

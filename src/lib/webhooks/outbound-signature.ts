@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { verifyWithRotationGrace } from "./secret-rotation";
 
 /**
  * Outbound Webhook HMAC-SHA256 Signature & Replay Protection (#1866).
@@ -38,21 +39,29 @@ export interface VerifySignatureOptions {
   payload: string;
   signature: string;
   secret: string;
+  previousSecret?: string | null;
+  rotationGraceUntil?: Date | number | string | null;
   timestamp?: string | number | null;
   toleranceSeconds?: number;
 }
 
 /**
  * Verify an incoming webhook signature using constant-time comparison,
- * with optional replay protection check on timestamp.
+ * with optional replay protection check on timestamp and dual-key rotation grace window.
  */
 export function verifyOutboundWebhookSignature({
   payload,
   signature,
   secret,
+  previousSecret,
+  rotationGraceUntil,
   timestamp,
   toleranceSeconds = 300, // 5 minutes default replay window
-}: VerifySignatureOptions): { valid: boolean; reason?: string } {
+}: VerifySignatureOptions): {
+  valid: boolean;
+  reason?: string;
+  matchedKey?: "primary" | "previous" | "none";
+} {
   if (!signature || typeof signature !== "string") {
     return { valid: false, reason: "Missing or invalid signature header." };
   }
@@ -71,6 +80,19 @@ export function verifyOutboundWebhookSignature({
         reason: `Timestamp outside tolerance window (${ageSeconds.toFixed(1)}s > ${toleranceSeconds}s).`,
       };
     }
+  }
+
+  if (previousSecret !== undefined) {
+    const rotationResult = verifyWithRotationGrace(payload, signature, {
+      primarySecret: secret,
+      previousSecret,
+      rotationGraceUntil,
+    });
+    return {
+      valid: rotationResult.valid,
+      matchedKey: rotationResult.matchedKey,
+      reason: rotationResult.reason,
+    };
   }
 
   const expectedSignature = computeOutboundWebhookSignature(payload, secret);

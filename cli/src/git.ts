@@ -21,6 +21,7 @@
  */
 
 import { execFileSync } from "child_process";
+import path from "path";
 
 /**
  * Buffer ceiling for git output.
@@ -161,4 +162,66 @@ export function getCurrentBranch(cwd?: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Returns the entire staged diff (`git diff --cached`).
+ */
+export function getStagedDiff(cwd?: string): string {
+  try {
+    return git(["diff", "--cached"], cwd);
+  } catch (error) {
+    throw new GitError(
+      isGitRepository(cwd)
+        ? "Could not get staged diff. `git diff --cached` failed."
+        : "Not a git repository (or git is not on PATH).",
+      error,
+    );
+  }
+}
+
+/**
+ * Returns the set of line numbers in the staged version of `filePath` that were added or modified
+ * in the staged diff (`git diff --cached -U0`).
+ * Used to focus `--staged` scans strictly on the lines introduced or modified in the current staged changes (#2020).
+ */
+export function getStagedDiffLineNumbers(filePath: string, cwd?: string): Set<number> {
+  const lineNumbers = new Set<number>();
+  try {
+    const diffOutput = git(["diff", "--cached", "-U0", "--", filePath], cwd);
+    if (!diffOutput) {
+      return lineNumbers;
+    }
+    const lines = diffOutput.split(/\r?\n/);
+    for (const line of lines) {
+      const match = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (match) {
+        const start = parseInt(match[1]!, 10);
+        const count = match[2] !== undefined ? parseInt(match[2]!, 10) : 1;
+        for (let i = 0; i < count; i++) {
+          lineNumbers.add(start + i);
+        }
+      }
+    }
+  } catch {
+    // If diff inspection fails, return empty set
+  }
+  return lineNumbers;
+}
+
+/**
+ * Resolves the absolute directory where Git hooks are located for the repository.
+ * Queries `git rev-parse --git-path hooks`, falling back to `<repoRoot>/.git/hooks`.
+ */
+export function getGitHooksDir(cwd?: string): string {
+  const repoRoot = getRepoRoot(cwd);
+  try {
+    const rawPath = git(["rev-parse", "--git-path", "hooks"], cwd).trim();
+    if (rawPath) {
+      return path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath);
+    }
+  } catch {
+    // Fallback
+  }
+  return path.join(repoRoot, ".git", "hooks");
 }

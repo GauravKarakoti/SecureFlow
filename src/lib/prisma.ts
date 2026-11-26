@@ -10,6 +10,8 @@ import {
   resolvePoolMax,
   type PgPoolConfig,
 } from "@/lib/db/pool-config";
+import { decryptFinding, decryptFindings, encryptFinding } from "@/lib/security/finding-encryption";
+import { env } from "./env";
 
 const log = createLogger({ context: { component: "prisma" } });
 
@@ -600,16 +602,11 @@ export function getDatabaseConnectionString(): string | undefined {
   return resolveConnectionString() ?? undefined;
 }
 
-/**
- * PostgreSQL pool options for a serverless deployment.
- *
- * `DB_POOL_MAX` used to be read with a bare `parseInt`, so `DB_POOL_MAX=abc`
- * reached `new Pool({ max: NaN })` and `DB_POOL_MAX=0` disabled the pool
- * outright. It is clamped now, and an unusable value is reported rather than
- * propagated (#688).
- */
 export function getPgPoolConfig(overrideConnectionString?: string): PgPoolConfig {
-  const { config } = resolvePoolConfig();
+  const { config } = resolvePoolConfig({
+    ...env,
+    NODE_ENV: env.NODE_ENV as "development" | "production" | "test",
+  });
   const { warning } = resolvePoolMax();
 
   if (warning) log.warn(warning);
@@ -824,6 +821,82 @@ export function handlePrismaQueryEvent(
   }
 }
 
+/**
+ * Extends the Prisma Client to transparently encrypt sensitive finding fields
+ * on write and decrypt on read (#2016).
+ */
+export function withFindingEncryption(client: any): any {
+  if (!client || typeof client.$extends !== "function") {
+    return withFindingEncryption(client);
+  }
+
+  return client.$extends({
+    query: {
+      finding: {
+        async findUnique({ args, query }: any) {
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async findFirst({ args, query }: any) {
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async findMany({ args, query }: any) {
+          const res = await query(args);
+          return Array.isArray(res) ? decryptFindings(res) : res;
+        },
+        async create({ args, query }: any) {
+          if (args?.data) {
+            args.data = encryptFinding(args.data);
+          }
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+        async createMany({ args, query }: any) {
+          if (Array.isArray(args?.data)) {
+            args.data = args.data.map((d: any) => encryptFinding(d));
+          }
+          return query(args);
+        },
+        async update({ args, query }: any) {
+          if (args?.data) {
+            args.data = encryptFinding(args.data);
+          }
+          const res = await query(args);
+          return res ? decryptFinding(res) : res;
+        },
+      },
+      scanResult: {
+        async findUnique({ args, query }: any) {
+          const res = await query(args);
+          if (res && Array.isArray(res.findings)) {
+            res.findings = decryptFindings(res.findings);
+          }
+          return res;
+        },
+        async findFirst({ args, query }: any) {
+          const res = await query(args);
+          if (res && Array.isArray(res.findings)) {
+            res.findings = decryptFindings(res.findings);
+          }
+          return res;
+        },
+        async findMany({ args, query }: any) {
+          const res = await query(args);
+          if (Array.isArray(res)) {
+            for (const item of res) {
+              if (item && Array.isArray(item.findings)) {
+                item.findings = decryptFindings(item.findings);
+              }
+            }
+          }
+          return res;
+        },
+      },
+    },
+  });
+}
+
 const prismaClientSingleton = () => {
   const mockDb = resolveMockDb();
 
@@ -837,7 +910,7 @@ const prismaClientSingleton = () => {
 
   if (mockDb.allowed) {
     log.warn("Using the in-memory mock database. Every response below is fabricated.");
-    return createMockPrismaClient() as any;
+    return withFindingEncryption(createMockPrismaClient()) as any;
   }
 
   // 1. Initialize a connection pool using the standard pg driver, with the
@@ -890,7 +963,7 @@ const prismaClientSingleton = () => {
     });
   }
 
-  return client;
+  return withFindingEncryption(client);
 };
 
 declare const globalThis: {

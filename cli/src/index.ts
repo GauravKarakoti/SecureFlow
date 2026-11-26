@@ -6,9 +6,11 @@ import {
   getStagedFiles,
   readStagedContent,
   getChangedFilesSince,
+  getStagedDiffLineNumbers,
   getRepoRoot,
   isGitRepository,
 } from "./git.js";
+import { installHook, uninstallHook, printHookHelp } from "./hook.js";
 import {
   scanFile,
   formatScanResults,
@@ -29,6 +31,7 @@ import {
   type OutputFormat,
   type Severity,
 } from "./scanner.js";
+import { loadCustomRulesFromConfig, type CompiledCustomRule } from "./custom-rules.js";
 import {
   NetworkUnavailableError,
   requestAiFileScan,
@@ -46,6 +49,7 @@ import {
   parseVerboseArg,
   type VerbosityLevel,
   parseIgnoreFilePath,
+  parseConfigFilePath,
   parseOutputFormat,
   parseOutputPath,
   parseVoiceArg,
@@ -57,8 +61,20 @@ import {
   parseCacheTtlArg,
   parseCacheMaxSizeArg,
   parseCacheDirArg,
+  parseIgnoreSuppressionsArg,
   parseTargetDirectoryArg,
+  parseStagedArg,
+  parseBaselineArg,
+  parseWatchArg,
 } from "./lib/output-args.js";
+import {
+  DEFAULT_BASELINE_FILENAME,
+  loadBaseline,
+  saveBaseline,
+  createBaselineFromResults,
+  updateBaselineWithResults,
+  filterResultsWithBaseline,
+} from "./baseline.js";
 import { discoverWorkspaceFiles } from "./workspace.js";
 import {
   getCacheEntry,
@@ -77,6 +93,7 @@ import {
   initSecureFlow,
   formatInitGreeting,
 } from "./lib/tui.js";
+import { runWatchMode } from "./watch.js";
 
 let VERBOSE = process.argv.includes("--verbose");
 let QUIET = process.argv.includes("--quiet") || process.argv.includes("-q");
@@ -87,15 +104,6 @@ if (VERBOSE && QUIET) {
 const DRY_RUN = process.argv.includes("--dry-run");
 const AI_SKIP_REASON = hostedAiScanSkipReason(process.argv);
 
-/**
- * --local / --ollama / --vllm flags: keep staged code on this machine (#892).
- *
- * The hosted AI pass is skipped (see hostedAiScanSkipReason), because it
- * uploads file contents to the SecureFlow API whatever LOCAL_AI_URL says.
- * LOCAL_AI_URL / LOCAL_AI_MODEL / LOCAL_AI_PROVIDER are still set for any in-process AI module
- * that reads them via resolveLocalModelConfig().
- * The model can be overridden with --local-model <tag>, --ollama-model <tag>, or --vllm-model <tag>.
- */
 Object.assign(process.env, localModeEnv(process.argv, process.env));
 
 if (typeof validateCliAiConfig === "function") {
@@ -163,21 +171,36 @@ SecureFlow CLI - Security analysis tool for staged git files
 Usage:
   secureflow [path] [options]
   secureflow scan [path] [options]
+  secureflow scan --staged [options]
+  secureflow watch [path] [options]
+  secureflow hook install [options]
+  secureflow hook uninstall [options]
   secureflow validate [file] [options]
+  secureflow doctor [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  scan                   Scan workspace or staged files for security violations
+  watch [path]           Watch workspace for file changes and rescan continuously
+  hook install           Install Git pre-commit hook to block commits with staged secrets (#2020)
+  hook uninstall         Uninstall Git pre-commit hook and restore previous hook backup (#2020)
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
+  doctor                 Diagnose environment variables, DB/Redis connectivity, migrations, LLM keys, and GitHub App setup
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
   cache-clear            Clear the local scan cache directory (.secureflow/cache)
   cache-prune            Prune expired (TTL) and excess (max size) entries from cache
   cache-stats            Display diagnostic storage statistics and telemetry for scan cache
+  baseline create [file] Create or overwrite a findings baseline file (.secureflow-baseline.json) (#2060)
+  baseline update [file] Update baseline with current scan results (removes fixed, records new) (#2060)
 
 Options:
+  -w, --watch            Watch workspace for file changes and rescan continuously
+  --baseline [file]      Path to baseline file to suppress legacy findings (default: .secureflow-baseline.json)
+  --staged               Scan only the staged diff (blocks commits on secrets at configured severity)
   --init                 Initialize SecureFlow (interactive wizard for git hooks, .secureflow.json, and .secureflowignore)
   --validate [file]      Validate configuration files against schema
   --force, -f            Overwrite existing configuration files without confirmation
@@ -194,9 +217,10 @@ Options:
   --cache-max-size <sz>  Maximum cache directory storage ceiling (e.g. 50MB, 100M)
   -q, --quiet            Print only the summary and errors
   --verbose              Enable verbose logging (per-file timing and skipped files)
-  --format <format>      Output format: text, json, sarif, csv, html, markdown (default: text)
+  --format <format>      Output format: text, json, sarif, csv, html, markdown, junit (default: text)
   -o, --output <path>    Write output to specified file path
   --ignore-file <path>   Path to custom ignore configuration file
+  --config <path>, -c    Path to custom configuration file (.secureflow.json)
   --fail-on <level>      Fail scan threshold (critical, high, medium, low, none)
   --local                Run scan locally without uploading files externally
   --local-model <tag>    Specify local AI model tag (default: llama3)
@@ -208,29 +232,6 @@ Options:
   --color                Force colored output even on non-TTY terminals
   --no-color             Disable colored output
   -h, --help             Show this help message
-
-Examples:
-  $ secureflow --init                              # Initialize configuration (.secureflow.json, .secureflowignore) and git hooks
-  $ secureflow --init --severity HIGH --force      # Non-interactive initialization with severity threshold
-  $ secureflow validate                            # Validate .secureflow.json and .secureflowignore
-  $ secureflow validate .secureflow.json           # Validate specific configuration file
-  $ secureflow                                     # Run standard security scan on staged files
-  $ secureflow src/                                # Recursively scan target workspace directory
-  $ secureflow --dir .                             # Recursively scan entire workspace
-  $ secureflow --since origin/main                 # Scan only files changed versus origin/main
-  $ secureflow --no-cache                          # Force fresh scan without reading/writing cache
-  $ secureflow cache-clear                         # Clear the local scan results cache
-  $ secureflow cache-prune --ttl 7d                # Prune cache entries older than 7 days
-  $ secureflow cache-prune --max-size 50MB         # Evict oldest cache entries until within 50MB
-  $ secureflow cache-stats                         # Show cache size, entry count, and health stats
-  $ secureflow sbom package.json                   # Enqueue an SBOM dependency scan
-  $ secureflow sbom requirements.txt --poll        # Enqueue and poll until SBOM results arrive
-  $ secureflow explain --web3 --file Token.sol     # Get Web3 audit explanation for a smart contract
-  $ secureflow -v                                  # Run scan and play audio summary debrief
-  $ secureflow mcp                                 # Start the Threat Intelligence MCP server over stdio
-  $ secureflow --format json -o res.json           # Scan and export results to JSON file
-  $ secureflow --fail-on high                      # Fail commit only on high/critical findings
-  $ secureflow --local --local-model llama3        # Run completely local scan
 `);
 }
 
@@ -275,9 +276,17 @@ function reportFileTiming(filePath: string, durationMs: number, cached = false):
 
 function reportViolations(result: FileScanResult): void {
   for (const violation of result.violations) {
-    console.error(`🚨 [SecureFlow] Secret logging detected in ${result.path}:${violation.line}`);
-    console.error(`  -> ${violation.text}`);
-    console.error(`  why: ${violation.reason} passed to a console call`);
+    if (violation.custom || (violation.ruleId && violation.ruleId !== "console-secret-logging")) {
+      console.error(
+        `🚨 [SecureFlow] [Custom Rule: ${violation.ruleId || "custom"}] Violation detected in ${result.path}:${violation.line}`,
+      );
+      console.error(`  -> ${violation.text}`);
+      console.error(`  why: ${violation.reason}`);
+    } else {
+      console.error(`🚨 [SecureFlow] Secret logging detected in ${result.path}:${violation.line}`);
+      console.error(`  -> ${violation.text}`);
+      console.error(`  why: ${violation.reason} passed to a console call`);
+    }
   }
 }
 
@@ -290,14 +299,16 @@ function reportAiFinding(finding: AiFinding): void {
   console.error(`  -> ${finding.description}`);
 }
 
-/**
- * Best-effort AI-powered scan on top of the always-on local scan above.
- * Never throws and never delays the commit beyond its own short internal
- * timeout -- if the network is down, this is a silent (or
- * --verbose-logged) no-op and the local scan result stands on its own,
- * unchanged.
- */
 async function runAiScanIfAvailable(stagedForAi: StagedFileForAiScan[]): Promise<AiFinding[]> {
+  const isStagedMode = process.argv.includes("--staged");
+  if (isStagedMode) {
+    if (VERBOSE) {
+      console.log(
+        "ℹ️  [SecureFlow] Pre-commit staged mode: running deterministic local scan without network.",
+      );
+    }
+    return [];
+  }
   if (AI_SKIP_REASON === "local" && VERBOSE) {
     console.warn(
       "ℹ️  [SecureFlow] --local: hosted AI scan skipped, staged code stays on this machine.",
@@ -429,6 +440,49 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (process.argv[2] === "hook") {
+    const action = process.argv[3];
+    if (action === "install") {
+      const force =
+        process.argv.includes("--force") ||
+        process.argv.includes("-f") ||
+        process.argv.includes("-y") ||
+        process.argv.includes("--yes");
+      const dryRun = process.argv.includes("--dry-run");
+      const result = await installHook({ force, dryRun });
+      if (result.success) {
+        console.log(result.message);
+        return 0;
+      } else {
+        console.error(result.message);
+        return 1;
+      }
+    } else if (action === "uninstall") {
+      const dryRun = process.argv.includes("--dry-run");
+      const result = await uninstallHook({ dryRun });
+      if (result.success) {
+        console.log(result.message);
+        return 0;
+      } else {
+        console.error(result.message);
+        return 1;
+      }
+    } else if (action === "--help" || action === "-h" || !action) {
+      printHookHelp();
+      return 0;
+    } else {
+      console.error(
+        `❌ [SecureFlow] Unknown hook command "${action}". Supported commands: install, uninstall.`,
+      );
+      return 1;
+    }
+  }
+
+  if (process.argv[2] === "doctor" || process.argv.includes("--doctor")) {
+    const { runDoctor } = await import("./doctor.js");
+    return await runDoctor(process.argv);
+  }
+
   const isValidateCommand =
     process.argv[2] === "validate" ||
     process.argv.includes("--validate") ||
@@ -498,6 +552,21 @@ async function main(): Promise<number> {
     }
   }
 
+  if (process.argv[2] === "doctor") {
+    const { runDoctor, formatDoctorReport, printDoctorHelp } = await import("./doctor.js");
+    if (process.argv.includes("--help") || process.argv.includes("-h")) {
+      printDoctorHelp();
+      return 0;
+    }
+    const report = await runDoctor();
+    if (process.argv.includes("--json")) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatDoctorReport(report));
+    }
+    return report.exitCode;
+  }
+
   const isMcpCommand = process.argv[2] === "mcp";
 
   if (isMcpCommand) {
@@ -522,7 +591,6 @@ async function main(): Promise<number> {
     }
   }
 
-  // Handle `secureflow sbom <file>` command (#1589)
   if (process.argv[2] === "sbom") {
     const filePath = process.argv[3];
     if (!filePath || filePath.startsWith("-")) {
@@ -585,7 +653,6 @@ async function main(): Promise<number> {
     }
   }
 
-  // Handle `secureflow explain --web3` command (#1589)
   if (
     process.argv[2] === "explain" ||
     (process.argv.includes("explain") && process.argv.includes("--web3"))
@@ -635,6 +702,76 @@ async function main(): Promise<number> {
     }
   }
 
+  if (process.argv[2] === "baseline") {
+    const action = process.argv[3];
+    if (action === "--help" || action === "-h" || !action) {
+      console.log(`
+SecureFlow CLI - Findings Baseline Management (#2060)
+
+Usage:
+  secureflow baseline create [path]
+  secureflow baseline update [path]
+
+Description:
+  Manage findings baseline files (.secureflow-baseline.json) to suppress legacy
+  violations and only block commits on newly introduced security issues.
+`);
+      return 0;
+    }
+
+    let targetBaselinePath = DEFAULT_BASELINE_FILENAME;
+    if (process.argv[4] && !process.argv[4].startsWith("-")) {
+      targetBaselinePath = process.argv[4];
+    }
+
+    if (action === "create" || action === "update") {
+      const repoRoot = getRepoRoot();
+      const files = discoverWorkspaceFiles(".", { workspaceRoot: repoRoot });
+      const customIgnores = compileIgnorePatterns([...DEFAULT_IGNORE_PATTERNS]);
+      const scanResults: FileScanResult[] = [];
+
+      for (const file of files) {
+        const resolved = repoRoot ? path.resolve(repoRoot, file) : file;
+        try {
+          if (fs.existsSync(resolved)) {
+            const content = fs.readFileSync(resolved, "utf-8");
+            const result = scanFile(file, content, customIgnores);
+            if (result.violations.length > 0) {
+              scanResults.push(result);
+            }
+          }
+        } catch {
+          // ignore unreadable
+        }
+      }
+
+      if (action === "create") {
+        const baseline = createBaselineFromResults(scanResults);
+        const saved = saveBaseline(baseline, targetBaselinePath, repoRoot);
+        console.log(
+          `✅ [SecureFlow] Created baseline file at ${saved} (${baseline.violations.length} violation(s) recorded).`,
+        );
+        return 0;
+      } else {
+        const existing = loadBaseline(targetBaselinePath, repoRoot);
+        const { updatedBaseline, addedCount, removedCount } = updateBaselineWithResults(
+          existing,
+          scanResults,
+        );
+        const saved = saveBaseline(updatedBaseline, targetBaselinePath, repoRoot);
+        console.log(
+          `✅ [SecureFlow] Updated baseline file at ${saved} (+${addedCount} added, -${removedCount} removed, ${updatedBaseline.violations.length} total).`,
+        );
+        return 0;
+      }
+    } else {
+      console.error(
+        `❌ [SecureFlow] Unknown baseline action "${action}". Expected "create" or "update".`,
+      );
+      return 1;
+    }
+  }
+
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;
@@ -643,10 +780,13 @@ async function main(): Promise<number> {
   let format: OutputFormat;
   let outputPath: string | null;
   let customIgnorePath: string | undefined;
+  let customConfigPath: string | undefined;
   let sinceRef: string | undefined;
   let noCache = false;
   let customCacheDir: string | undefined;
   let failOnThreshold: FailOnSeverity | null = null;
+  const ignoreSuppressions = parseIgnoreSuppressionsArg(process.argv);
+
   try {
     const verbosity = parseVerbosityArg(process.argv);
     VERBOSE = verbosity === "verbose";
@@ -654,6 +794,7 @@ async function main(): Promise<number> {
     format = parseOutputFormat(process.argv);
     outputPath = parseOutputPath(process.argv);
     customIgnorePath = parseIgnoreFilePath(process.argv);
+    customConfigPath = parseConfigFilePath(process.argv);
     sinceRef = parseSinceArg(process.argv);
     noCache = parseNoCacheArg(process.argv);
     customCacheDir = parseCacheDirArg(process.argv);
@@ -663,23 +804,78 @@ async function main(): Promise<number> {
     console.error(`❌ [SecureFlow] ${error.message}`);
     return 1;
   }
+
   const hasFailOnFlag = process.argv.some(
     (arg) => arg === "--fail-on" || arg.startsWith("--fail-on="),
   );
   const voiceEnabled = parseVoiceArg(process.argv);
   const severityFilter = parseSeverityArg();
   const targetDir = parseTargetDirectoryArg(process.argv);
+  const baselinePathArg = parseBaselineArg(process.argv);
   const repoInGit = isGitRepository();
   const isSinceMode = sinceRef !== undefined;
-  const isDirMode = targetDir !== undefined || (!isSinceMode && !repoInGit);
+  const isStagedMode = parseStagedArg(process.argv);
+  const isDirMode = targetDir !== undefined || (!isSinceMode && !isStagedMode && !repoInGit);
+
+  if (isStagedMode && !repoInGit) {
+    console.error("❌ [SecureFlow] Not a git repository (or git is not on PATH).");
+    return hasFailOnFlag ? 2 : 1;
+  }
+
   const repoRoot = getRepoRoot();
+  const loadedBaseline =
+    baselinePathArg !== undefined ? loadBaseline(baselinePathArg, repoRoot) : null;
+  if (baselinePathArg !== undefined && !loadedBaseline && VERBOSE) {
+    console.warn(
+      `⚠️  [SecureFlow] Baseline file "${baselinePathArg}" not found. No findings suppressed.`,
+    );
+  }
+  let baselineSuppressedCount = 0;
   const ignoreData = loadSecureFlowIgnore(customIgnorePath, repoRoot);
   const customIgnores = compileIgnorePatterns([
     ...DEFAULT_IGNORE_PATTERNS,
     ...(ignoreData ? ignoreData.config.ignoredPaths : []),
   ]);
 
-  let filesToScan: string[];
+  const customRulesResult = loadCustomRulesFromConfig({
+    configPath: customConfigPath,
+    targetDir,
+    repoRoot,
+  });
+
+  if (customRulesResult.errors.length > 0) {
+    console.error(
+      `❌ [SecureFlow] Configuration Error: Invalid custom rule configuration${
+        customRulesResult.configPath ? ` in '${customRulesResult.configPath}'` : ""
+      }:`,
+    );
+    for (const err of customRulesResult.errors) {
+      console.error(`  -> ${err}`);
+    }
+    return 1;
+  }
+
+  const customRules = customRulesResult.rules;
+  if (VERBOSE && customRules.length > 0) {
+    console.log(
+      `ℹ️  [SecureFlow] Loaded ${customRules.length} custom security rule(s) from ${customRulesResult.configPath}`,
+    );
+  }
+
+  const isWatchMode = parseWatchArg(process.argv);
+  if (isWatchMode) {
+    return await runWatchMode({
+      targetDir: targetDir ?? ".",
+      workspaceRoot: repoRoot ?? process.cwd(),
+      customIgnores,
+      customRules,
+      severityFilter,
+      failOnThreshold,
+      ignoreSuppressions,
+    });
+  }
+
+  let filesToScan: string[] = [];
 
   try {
     if (targetDir !== undefined) {
@@ -689,13 +885,13 @@ async function main(): Promise<number> {
       });
     } else if (sinceRef !== undefined) {
       filesToScan = getChangedFilesSince(sinceRef);
-    } else if (!repoInGit) {
+    } else if (isStagedMode || repoInGit) {
+      filesToScan = getStagedFiles();
+    } else {
       filesToScan = discoverWorkspaceFiles(".", {
         workspaceRoot: repoRoot,
         customIgnores,
       });
-    } else {
-      filesToScan = getStagedFiles();
     }
   } catch (error) {
     console.error(`❌ [SecureFlow] ${error instanceof GitError ? error.message : String(error)}`);
@@ -751,7 +947,6 @@ async function main(): Promise<number> {
         continue;
       }
 
-      // Check cache unless --no-cache was specified
       const cached = !noCache
         ? getCacheEntry({ filePath, content, cacheDir: customCacheDir })
         : null;
@@ -763,8 +958,20 @@ async function main(): Promise<number> {
           ...cached.result,
           path: filePath,
         };
-        fileResults.push(result);
-        if (result.skipped) {
+        if (isStagedMode) {
+          const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
+          if (diffLines && diffLines.size > 0) {
+            result.violations = result.violations.filter((v) => diffLines.has(v.line));
+          }
+        }
+        let effectiveResult = result;
+        if (loadedBaseline) {
+          const filtered = filterResultsWithBaseline([result], loadedBaseline);
+          effectiveResult = filtered.results[0]!;
+          baselineSuppressedCount += filtered.suppressedCount;
+        }
+        fileResults.push(effectiveResult);
+        if (effectiveResult.skipped) {
           skippedCount++;
         }
         if (cached.aiFindings && cached.aiFindings.length > 0) {
@@ -775,44 +982,61 @@ async function main(): Promise<number> {
         if (format === "text") {
           if (VERBOSE) {
             progress.clear();
-            if (result.skipped) {
-              reportSkipped(result);
+            if (effectiveResult.skipped) {
+              reportSkipped(effectiveResult);
             } else {
               reportFileTiming(filePath, elapsedMs, true);
             }
           }
-          if (result.violations.length > 0) {
+          if (effectiveResult.violations.length > 0) {
             progress.clear();
-            reportViolations(result);
+            reportViolations(effectiveResult);
           }
         }
-        violationCount += result.violations.length;
+        violationCount += effectiveResult.violations.length;
       } else {
         analyzedCount++;
-        const result = scanFile(filePath, content, customIgnores);
+        const rawResult = scanFile(filePath, content, customIgnores, {
+          ...(ignoreSuppressions ? { ignoreSuppressions } : {}),
+          ...(customRules.length > 0 ? { customRules } : {}),
+        });
+        if (isStagedMode) {
+          const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
+          if (diffLines && diffLines.size > 0) {
+            rawResult.violations = rawResult.violations.filter((v) => diffLines.has(v.line));
+          }
+        }
         const elapsedMs = performance.now() - startFileTime;
-        fileResults.push(result);
-        if (result.skipped) {
+        newlyAnalyzed.push({ filePath, content, result: rawResult });
+
+        let effectiveResult = rawResult;
+        if (loadedBaseline) {
+          const filtered = filterResultsWithBaseline([rawResult], loadedBaseline);
+          effectiveResult = filtered.results[0]!;
+          baselineSuppressedCount += filtered.suppressedCount;
+        }
+
+        fileResults.push(effectiveResult);
+        if (effectiveResult.skipped) {
           skippedCount++;
         }
-        newlyAnalyzed.push({ filePath, content, result });
         if (format === "text") {
           if (VERBOSE) {
             progress.clear();
-            if (result.skipped) {
-              reportSkipped(result);
+            if (effectiveResult.skipped) {
+              reportSkipped(effectiveResult);
             } else {
               reportFileTiming(filePath, elapsedMs, false);
             }
           }
-          if (result.violations.length > 0) {
+          if (effectiveResult.violations.length > 0) {
             progress.clear();
-            reportViolations(result);
+            reportViolations(effectiveResult);
           }
         }
-        violationCount += result.violations.length;
+        violationCount += effectiveResult.violations.length;
 
-        if (!result.skipped) {
+        if (!effectiveResult.skipped) {
           stagedForAi.push({ path: filePath, content });
         }
       }
@@ -820,14 +1044,16 @@ async function main(): Promise<number> {
     progress.done();
   }
 
+  if (!QUIET && baselineSuppressedCount > 0) {
+    console.log(
+      `ℹ️  [SecureFlow] Baseline suppressed ${baselineSuppressedCount} legacy violation(s) from ${baselinePathArg}.`,
+    );
+  }
+
   const filteredResults = severityFilter
     ? filterBySeverity(fileResults, severityFilter)
     : fileResults;
 
-  // AI-powered pass, additive on top of the local scan above. Only
-  // affects the text output/exit code today -- JSON/SARIF export stays
-  // local-scan-only for now so existing automated consumers of those
-  // formats aren't changed by this PR.
   const aiSpinner =
     format === "text" && stagedForAi.length > 0 && !QUIET
       ? new TerminalSpinner("Running AI security inspection").start()
@@ -839,7 +1065,6 @@ async function main(): Promise<number> {
     );
   }
 
-  // Persist newly analyzed results to cache
   if (!noCache && newlyAnalyzed.length > 0) {
     for (const item of newlyAnalyzed) {
       const fileAiFindings = aiFindings.filter((f) => f.fileLocation === item.filePath);
@@ -876,12 +1101,15 @@ async function main(): Promise<number> {
     format === "json" ||
     format === "csv" ||
     format === "html" ||
-    format === "markdown"
+    format === "markdown" ||
+    format === "junit"
   ) {
     const outputString =
       format === "sarif"
         ? formatScanResults(filteredResults, "sarif", { aiFindings: filteredAiFindings })
-        : formatScanResults(filteredResults, format);
+        : format === "junit"
+          ? formatScanResults(filteredResults, "junit", { failOnThreshold, aiFindings: filteredAiFindings })
+          : formatScanResults(filteredResults, format);
     if (outputPath) {
       if (DRY_RUN) {
         console.log(`[DRY RUN] Would write to ${outputPath}:
@@ -906,9 +1134,6 @@ ${textOutput}`);
     console.log(`📄 [SecureFlow] Scan report written to ${outputPath}`);
   }
 
-  // Warn on stderr regardless of output format: with --format json|sarif|...
-  // the scan would otherwise silently skip these entries, and stderr cannot
-  // corrupt the structured report on stdout.
   if (unreadable.length > 0) {
     const entryLabel = isSinceMode ? "changed" : "staged";
     console.warn(
@@ -918,14 +1143,44 @@ ${textOutput}`);
     );
   }
 
-  const activeThreshold = failOnThreshold ?? parseFailOnArg();
-  // Exit-code decision uses UNFILTERED aiFindings: --severity is a display
-  // filter, not a security gate bypass. --fail-on must see every finding.
-  const shouldFail = shouldFailScan(violationCount, allAiFindings, activeThreshold);
+  let configBlockOn: FailOnSeverity | null = null;
+  const configPath =
+    customConfigPath || (repoRoot ? path.join(repoRoot, ".secureflow.json") : ".secureflow.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const parsedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      const blockOn = parsedConfig?.gate?.blockOn;
+      if (typeof blockOn === "string") {
+        const upper = blockOn.toUpperCase();
+        if (
+          upper === "CRITICAL" ||
+          upper === "HIGH" ||
+          upper === "MEDIUM" ||
+          upper === "LOW" ||
+          upper === "NONE"
+        ) {
+          configBlockOn = upper as FailOnSeverity;
+        }
+      }
+    } catch {
+      // Ignored here
+    }
+  }
+
+  const activeThreshold = failOnThreshold ?? configBlockOn ?? parseFailOnArg();
+  const allLocalViolations = fileResults.flatMap((r) => r.violations);
+  const normalizedViolations = allLocalViolations.map((v) =>
+    v.severity !== undefined ? { severity: v.severity } : {},
+  );
+  const shouldFail = allLocalViolations.some((v) => v.custom)
+    ? shouldFailScan(normalizedViolations, allAiFindings, activeThreshold)
+    : shouldFailScan(violationCount, allAiFindings, activeThreshold);
   const blockingAi = blockingAiFindings(allAiFindings, activeThreshold);
 
   if (format === "text") {
-    const counts = countFindingsBySeverity(violationCount, allAiFindings);
+    const counts = allLocalViolations.some((v) => v.custom)
+      ? countFindingsBySeverity(normalizedViolations, allAiFindings)
+      : countFindingsBySeverity(violationCount, allAiFindings);
     console.log(formatSeverityCounts(counts));
   }
 
@@ -940,8 +1195,18 @@ ${textOutput}`);
   if (shouldFail) {
     if (format === "text") {
       const parts: string[] = [];
-      if (violationCount > 0) {
-        parts.push(`${violationCount} secret-logging violation${violationCount === 1 ? "" : "s"}`);
+      const secretViolations = allLocalViolations.filter((v) => !v.custom);
+      const customViolations = allLocalViolations.filter((v) => v.custom);
+
+      if (secretViolations.length > 0) {
+        parts.push(
+          `${secretViolations.length} secret-logging violation${secretViolations.length === 1 ? "" : "s"}`,
+        );
+      }
+      if (customViolations.length > 0) {
+        parts.push(
+          `${customViolations.length} custom-rule violation${customViolations.length === 1 ? "" : "s"}`,
+        );
       }
       if (blockingAi.length > 0) {
         parts.push(`${blockingAi.length} AI-detected finding${blockingAi.length === 1 ? "" : "s"}`);
@@ -979,9 +1244,6 @@ ${textOutput}`);
 main()
   .then((code) => process.exit(code))
   .catch((error: unknown) => {
-    // Last-resort handler: without it an unexpected throw (e.g. an
-    // unwritable -o path) surfaces as a raw UnhandledPromiseRejection
-    // stack and an exit code that depends on Node's rejection mode.
     console.error(
       `❌ [SecureFlow] Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
     );

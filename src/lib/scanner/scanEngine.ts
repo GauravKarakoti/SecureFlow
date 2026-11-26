@@ -18,6 +18,7 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import {
   upsertSecureFlowComment,
   SECUREFLOW_COMMENT_MARKER,
@@ -37,7 +38,17 @@ import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runIacSecurityRules } from "@/lib/rules/iac-rules";
 import { runLicenseSecurityRules } from "@/lib/rules/license-rules";
-import { resolveIacRuleOptions, resolveLicenseRuleOptions } from "./gate-config";
+import { runPatternSecurityRules } from "@/lib/rules/pattern-rules";
+import { runUnicodeSecurityRules } from "@/lib/rules/unicode-rules";
+import { runObfuscationSecurityRules } from "@/lib/rules/obfuscation-rules";
+import { runOutboundSecurityRules } from "@/lib/rules/outbound-rules";
+import { runSensitiveFileRules } from "@/lib/rules/sensitive-file-rules";
+import {
+  resolveIacRuleOptions,
+  resolvePatternRuleOptions,
+  resolveUnicodeRuleOptions,
+  resolveLicenseRuleOptions
+} from "./gate-config";
 // From the side-effect-free helper, not `@/lib/queue/worker`: that module
 // constructs the webhook BullMQ Worker when it is imported, so importing the
 // credentials from it started a queue consumer in whatever process loaded this.
@@ -101,6 +112,7 @@ import {
 } from "./policy-scopes";
 import { notifyHighSeverityFindings } from "@/lib/integrations/slack";
 import { notifyBlockedScan } from "@/lib/integrations/notification-dispatcher";
+import { dispatchCriticalChatAlert } from "@/lib/integrations/chat-webhook";
 import { activeSuppressionWhere, handleExpiredDismissals } from "../triage/expiry-server";
 import { computeScanCacheHash, getCachedScan, scanCacheKey, setCachedScan } from "./scan-cache";
 import { getPolicyVersion } from "@/lib/policies/policy-cache";
@@ -292,6 +304,7 @@ export async function processScanJob(
   const compiledCustomIgnores = compileIgnorePatterns(customIgnores);
 
   let fileChanges = initialFileChanges;
+  const fetchedUnscannedFiles: Array<{ filename: string; reason: string }> = [];
   if (
     (!fileChanges || fileChanges.length === 0) &&
     typeof (octokit as any)?.paginate?.iterator === "function"
@@ -305,6 +318,9 @@ export async function processScanJob(
     fileChanges = result.files
       .filter((f: any) => f.patch && f.status !== "removed")
       .map((f: any) => ({ filename: f.filename, patch: f.patch }));
+    if (result.unscannedFiles && result.unscannedFiles.length > 0) {
+      fetchedUnscannedFiles.push(...result.unscannedFiles);
+    }
   }
   fileChanges = fileChanges ?? [];
 
@@ -334,7 +350,10 @@ export async function processScanJob(
   let reusedFromCache = false;
   let allFindings: EnrichedScanFinding[] = [];
   let allAnalyzedFiles: string[] = [];
-  const allSkippedFiles: Array<{ filename: string; reason: string }> = [];
+  const allSkippedFiles: Array<{ filename: string; reason: string }> = [
+    ...(data.skippedFiles ?? []),
+    ...fetchedUnscannedFiles,
+  ];
   let budgetExceeded = false;
 
   const ignoreOptions = {
@@ -576,7 +595,7 @@ export async function processScanJob(
       (f) =>
         (f.fileLocation === iac.fileLocation && f.lineStart === iac.lineStart) ||
         (f.dynamicFingerprint && f.dynamicFingerprint === iac.dynamicFingerprint) ||
-        (f.fingerprint && f.fingerprint === iac.fingerprint),
+        ((f as any).fingerprint && (f as any).fingerprint === (iac as any).fingerprint),
     );
     if (existingIndex >= 0) {
       // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
@@ -620,6 +639,117 @@ export async function processScanJob(
       }
     } else {
       allFindings.push(lic);
+    }
+  }
+  
+  // Ensure deterministic dangerous pattern security rules are present (#2088)
+  const patternOptions = resolvePatternRuleOptions(repositoryGateConfig);
+  const patternRuleFindings = runPatternSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: patternOptions.enabled,
+    disabledRules: patternOptions.disabledRules,
+  });
+  for (const pat of patternRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === pat.fileLocation && f.lineStart === pat.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === pat.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === pat.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        pat.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = pat;
+      }
+    } else {
+      allFindings.push(pat);
+    }
+  }
+
+  // Ensure deterministic hidden Unicode / Trojan Source rules are present (#2089)
+  const unicodeOptions = resolveUnicodeRuleOptions(repositoryGateConfig);
+  const unicodeRuleFindings = runUnicodeSecurityRules(fileChanges, {
+    repositoryId,
+    enabled: unicodeOptions.enabled,
+    disabledRules: unicodeOptions.disabledRules,
+    allowPatterns: unicodeOptions.allowPatterns,
+  });
+  for (const uni of unicodeRuleFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === uni.fileLocation && f.lineStart === uni.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === uni.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === uni.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      // If it was an LLM finding, replace it with the deterministic rule finding to avoid duplicates
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) =>
+        uni.matchedSignatures?.includes(s),
+      );
+      if (!isDeterministic) {
+        allFindings[existingIndex] = uni;
+      }
+    } else {
+      allFindings.push(uni);
+    }
+  }
+
+  // Ensure obfuscation detection rules are present (#2090)
+  const obfuscationFindings = runObfuscationSecurityRules(fileChanges, { repositoryId });
+  for (const obf of obfuscationFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === obf.fileLocation && f.lineStart === obf.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === obf.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === obf.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => obf.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = obf;
+    } else {
+      allFindings.push(obf);
+    }
+  }
+
+  // Ensure outbound-destination detection rules are present (#2091)
+  const outboundFindings = runOutboundSecurityRules(fileChanges, { repositoryId });
+  for (const out of outboundFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === out.fileLocation && f.lineStart === out.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === out.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === out.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => out.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = out;
+    } else {
+      allFindings.push(out);
+    }
+  }
+
+  // Ensure sensitive filename detection rules are present (#2092)
+  const sensitiveFileFindings = runSensitiveFileRules(fileChanges, { repositoryId });
+  for (const sf of sensitiveFileFindings) {
+    const existingIndex = allFindings.findIndex(
+      (f) =>
+        (f.fileLocation === sf.fileLocation && f.lineStart === sf.lineStart) ||
+        (f.dynamicFingerprint && f.dynamicFingerprint === sf.dynamicFingerprint) ||
+        (f.fingerprint && f.fingerprint === sf.fingerprint),
+    );
+    if (existingIndex >= 0) {
+      const existing = allFindings[existingIndex];
+      const isDeterministic = existing.matchedSignatures?.some((s) => sf.matchedSignatures?.includes(s));
+      if (!isDeterministic) allFindings[existingIndex] = sf;
+    } else {
+      allFindings.push(sf);
     }
   }
 
@@ -935,6 +1065,12 @@ export async function processScanJob(
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
           }
+          const policyInfo = resolvePolicyGuidance(f);
+          const helpUrl = (f as any).helpUrl || policyInfo.helpUrl;
+          const guidance = (f as any).guidance || policyInfo.guidance;
+          if (helpUrl) {
+            body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
+          }
           if (f.verificationStatus === "UNVERIFIED") {
             body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
           } else if (f.verificationStatus === "CONFIRMED") {
@@ -963,7 +1099,7 @@ export async function processScanJob(
         if (
           suggestionsConfig.enabled &&
           fileChanges.length > 0 &&
-          octokit?.rest?.pulls?.createReview
+          typeof octokit?.rest?.pulls?.createReview === "function"
         ) {
           const commentableLinesByFile = new Map<string, Set<number>>();
           for (const file of fileChanges) {
@@ -1017,6 +1153,8 @@ export async function processScanJob(
   }
 
   let persistenceError: string | null = null;
+  let dbPrRecord: any = null;
+  let createdScanResult: any = null;
 
   if (persist && repositoryId) {
     try {
@@ -1027,6 +1165,7 @@ export async function processScanJob(
         repositoryFullName,
         prNumber,
       });
+      dbPrRecord = dbPr;
 
       const suppressedFindings = allFindings.filter(
         (f) => f.fingerprint && suppressedFingerprints.has(f.fingerprint),
@@ -1047,7 +1186,7 @@ export async function processScanJob(
           }
         : repositoryGateConfig;
 
-      await prisma.scanResult.create({
+      createdScanResult = await prisma.scanResult.create({
         data: scanResultCreateData({
           pullRequestId: dbPr.id,
           headSha,
@@ -1069,7 +1208,7 @@ export async function processScanJob(
             sum +
             estimateDiffTokens(f.patch, {
               contextLines: effectiveContext,
-              fullContent: f.content,
+              fullContent: (f as any).content,
             }),
           0,
         );
@@ -1146,6 +1285,17 @@ export async function processScanJob(
         repositoryFullName,
         prNumber,
         findings: enrichedFindings,
+      });
+
+      // Dispatch Slack or Discord webhook alert for newly introduced critical findings
+      await dispatchCriticalChatAlert({
+        userId,
+        repositoryId,
+        repositoryFullName,
+        pullRequestId: dbPrRecord?.id,
+        prNumber,
+        findings: enrichedFindings,
+        currentScanResultId: createdScanResult?.id,
       });
     } catch (err) {
       log.error(`[ScanEngine] Slack notification step failed:`, {

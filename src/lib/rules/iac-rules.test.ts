@@ -370,4 +370,81 @@ describe("Infrastructure-as-Code (IaC) Security Rules (#2004)", () => {
       expect(merged[1]).toEqual(distinctLlmFinding);
     });
   });
+
+  describe("Docker Compose, Kubernetes escalation & Terraform IAM wildcard rules (#2111)", () => {
+    it("detects docker.sock mounts, host namespaces, and privileged flags in Docker Compose", () => {
+      const composeYaml = `
+services:
+  runner:
+    image: alpine:3.19
+    network_mode: host
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`;
+      const findings = scanIacFile("docker-compose.yml", composeYaml);
+      expect(findings.some((f) => f.description.includes(IAC_RULE_IDS.DOCKER_SOCKET_MOUNT))).toBe(
+        true,
+      );
+      expect(
+        findings.filter((f) => f.description.includes(IAC_RULE_IDS.CONTAINER_HOST_NAMESPACE)),
+      ).toHaveLength(2);
+    });
+
+    it("detects Kubernetes allowPrivilegeEscalation, dangerous capabilities, hostNetwork, and hostPID", () => {
+      const k8sYaml = `
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: app
+          image: myapp:1.2.3
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
+`;
+      const findings = scanIacFile("k8s/deployment.yaml", k8sYaml);
+      expect(
+        findings.filter((f) => f.description.includes(IAC_RULE_IDS.CONTAINER_HOST_NAMESPACE)),
+      ).toHaveLength(2);
+      expect(
+        findings.filter((f) =>
+          f.description.includes(IAC_RULE_IDS.K8S_PRIVILEGE_ESCALATION_OR_CAP),
+        ),
+      ).toHaveLength(3);
+    });
+
+    it("detects Terraform IAM wildcard Action policies and ignores comments", () => {
+      const tfPolicy = `
+# Action = "*" (commented out example should not trigger)
+resource "aws_iam_policy" "admin" {
+  policy = jsonencode({
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "*"
+      Resource = "*"
+    }]
+  })
+}
+
+data "aws_iam_policy_document" "wildcard" {
+  statement {
+    actions = ["*"]
+  }
+}
+`;
+      const findings = scanIacFile("infra/iam.tf", tfPolicy);
+      const wildcardFindings = findings.filter((f) =>
+        f.description.includes(IAC_RULE_IDS.TF_IAM_WILDCARD_POLICY),
+      );
+      expect(wildcardFindings).toHaveLength(2);
+    });
+  });
 });

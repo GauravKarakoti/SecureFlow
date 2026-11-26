@@ -3,6 +3,14 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
+import {
+  assertChatWebhookUrl,
+  encryptWebhookUrl,
+  decryptWebhookUrl,
+  maskWebhookUrl,
+  sendChatAlert,
+  type ChatProvider,
+} from "@/lib/integrations/chat-webhook";
 import { assertSlackWebhookUrl, sendSlackAlert } from "@/lib/integrations/slack";
 import { assertTeamsWebhookUrl, sendTeamsAlert, buildTeamsAlert } from "@/lib/integrations/teams";
 import { buildBlockedSlackAlert } from "@/lib/integrations/notification-dispatcher";
@@ -22,6 +30,122 @@ import {
   type EffectiveResolvedSettings,
 } from "@/lib/scanner/installation-settings";
 import { getInstallationSettings } from "@/lib/actions/installation-settings";
+
+export interface ChatWebhookStatus {
+  isConfigured: boolean;
+  provider?: ChatProvider | null;
+  maskedUrl?: string | null;
+}
+
+export async function updateChatWebhook(
+  url: string | null,
+): Promise<{ success: boolean; provider?: ChatProvider }> {
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+  assertCan(session?.user, null, "settings:edit");
+
+  if (!url || url.trim() === "") {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        chatWebhookUrl: null,
+      } as any,
+    });
+    revalidatePath("/dashboard/settings");
+    return { success: true };
+  }
+
+  const { provider } = assertChatWebhookUrl(url);
+  const encrypted = encryptWebhookUrl(url.trim());
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      chatWebhookUrl: encrypted,
+    } as any,
+  });
+
+  revalidatePath("/dashboard/settings");
+  return { success: true, provider };
+}
+
+export async function getChatWebhookStatus(): Promise<ChatWebhookStatus> {
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  if (!userId) {
+    return { isConfigured: false, provider: null, maskedUrl: null };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { chatWebhookUrl: true, slackWebhookUrl: true } as any,
+  });
+
+  const stored = (user as any)?.chatWebhookUrl || (user as any)?.slackWebhookUrl;
+  if (!stored || typeof stored !== "string" || !stored.trim()) {
+    return { isConfigured: false, provider: null, maskedUrl: null };
+  }
+
+  const decrypted = decryptWebhookUrl(stored.trim());
+  if (!decrypted) {
+    return { isConfigured: false, provider: null, maskedUrl: null };
+  }
+
+  try {
+    const { provider } = assertChatWebhookUrl(decrypted);
+    return {
+      isConfigured: true,
+      provider,
+      maskedUrl: maskWebhookUrl(decrypted),
+    };
+  } catch {
+    return { isConfigured: true, provider: null, maskedUrl: maskWebhookUrl(decrypted) };
+  }
+}
+
+export async function testChatWebhook(
+  rawUrl?: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  try {
+    let urlToTest = rawUrl?.trim();
+    if (!urlToTest) {
+      // Read saved webhook URL
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { chatWebhookUrl: true, slackWebhookUrl: true } as any,
+      });
+      const stored = (user as any)?.chatWebhookUrl || (user as any)?.slackWebhookUrl;
+      if (!stored) {
+        return { success: false, error: "No webhook URL configured to test." };
+      }
+      urlToTest = decryptWebhookUrl(stored.trim());
+    }
+
+    if (!urlToTest) {
+      return { success: false, error: "No valid webhook URL found." };
+    }
+
+    const res = await sendChatAlert(urlToTest, {
+      repositoryFullName: "SecureFlow/test-repository",
+      count: 1,
+      prNumber: 1,
+    });
+
+    return { success: res.success, error: res.error };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export async function updateSlackWebhook(url: string | null) {
   const session = await auth();
@@ -99,22 +223,51 @@ export async function getTeamsWebhook() {
   return user?.teamsWebhookUrl || null;
 }
 
-export async function testSlackWebhook(url: string): Promise<{ success: boolean; error?: string }> {
+export async function testSlackWebhook(url?: string): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
   }
 
   try {
-    assertSlackWebhookUrl(url);
-    const testMsg = buildBlockedSlackAlert("SecureFlow/test-repository", 1, [
-      { severity: "CRITICAL", type: "Test Finding" },
-    ]);
-    const ok = await sendSlackAlert(url.trim(), testMsg);
-    if (!ok) {
-      return { success: false, error: "Slack endpoint rejected the test payload or timed out." };
+    let targetUrl = url?.trim();
+    if (!targetUrl) {
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { chatWebhookUrl: true, slackWebhookUrl: true } as any,
+      });
+      const stored = (user as any)?.chatWebhookUrl || (user as any)?.slackWebhookUrl;
+      if (!stored) {
+        return { success: false, error: "No webhook URL configured to test." };
+      }
+      targetUrl = decryptWebhookUrl(stored.trim());
     }
-    return { success: true };
+
+    if (!targetUrl) {
+      return { success: false, error: "No valid webhook URL found." };
+    }
+
+    try {
+      assertSlackWebhookUrl(targetUrl);
+      const testMsg = buildBlockedSlackAlert("SecureFlow/test-repository", 1, [
+        { severity: "CRITICAL", type: "Test Finding" },
+      ]);
+      const ok = await sendSlackAlert(targetUrl, testMsg);
+      if (!ok) {
+        return { success: false, error: "Slack endpoint rejected the test payload or timed out." };
+      }
+      return { success: true };
+    } catch {
+      const res = await sendChatAlert(targetUrl, {
+        repositoryFullName: "SecureFlow/test-repository",
+        count: 1,
+        prNumber: 1,
+      });
+      if (!res.success) {
+        return { success: false, error: res.error || "Chat webhook endpoint rejected the test payload." };
+      }
+      return { success: true };
+    }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

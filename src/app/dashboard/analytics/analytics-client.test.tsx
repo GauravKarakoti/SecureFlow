@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import AnalyticsClient from "./analytics-client";
 
 const mockProps = {
@@ -188,5 +188,95 @@ describe("AnalyticsClient", () => {
   it("defaults to 30 days", () => {
     render(<AnalyticsClient {...mockProps} />);
     expect(screen.getByText("Last 30 Days")).toBeTruthy();
+  });
+
+  describe("Hotspots Tab (#2018)", () => {
+    const mockHotspots = [
+      {
+        repositoryId: "repo-1",
+        repositoryFullName: "acme/backend-api",
+        totalOpenFindings: 12,
+        hotspotsByDepth: {
+          1: [
+            {
+              directory: "src",
+              pathPrefix: "src/",
+              openCount: 10,
+              severityCounts: { CRITICAL: 2, HIGH: 5, MEDIUM: 3, LOW: 0, INFO: 0 },
+              trend: { direction: "up" as const, change: 4, percentage: 67 },
+            },
+            {
+              directory: "docs",
+              pathPrefix: "docs/",
+              openCount: 2,
+              severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 1, LOW: 1, INFO: 0 },
+              trend: { direction: "flat" as const, change: 0, percentage: 0 },
+            },
+          ],
+          2: [
+            {
+              directory: "src/lib",
+              pathPrefix: "src/lib/",
+              openCount: 8,
+              severityCounts: { CRITICAL: 2, HIGH: 4, MEDIUM: 2, LOW: 0, INFO: 0 },
+              trend: { direction: "up" as const, change: 3, percentage: 60 },
+            },
+          ],
+          3: [],
+        },
+      },
+      {
+        repositoryId: "repo-2",
+        repositoryFullName: "acme/frontend",
+        totalOpenFindings: 0,
+        hotspotsByDepth: {
+          1: [],
+          2: [],
+          3: [],
+        },
+      },
+    ];
+
+    it("renders Hotspots tab trigger and switches tab", () => {
+      render(<AnalyticsClient {...mockProps} hotspots={mockHotspots} />);
+      const tabTrigger = screen.getByTestId("hotspots-tab-trigger");
+      expect(tabTrigger).toBeTruthy();
+
+      fireEvent.click(tabTrigger);
+      expect(screen.getByText("Directory Hotspots")).toBeTruthy();
+      expect(screen.getByText("src")).toBeTruthy();
+      expect(screen.getByText("CRIT: 2")).toBeTruthy();
+      expect(screen.getByText("+4")).toBeTruthy();
+    });
+
+    it("links directory hotspot row to Findings table filtered by path and repo", () => {
+      render(<AnalyticsClient {...mockProps} hotspots={mockHotspots} />);
+      const tabTrigger = screen.getByTestId("hotspots-tab-trigger");
+      fireEvent.click(tabTrigger);
+
+      const srcLink = screen.getByText("src").closest("a");
+      expect(srcLink).toBeTruthy();
+      expect(srcLink?.getAttribute("href")).toBe("/dashboard/findings?repo=repo-1&path=src%2F");
+    });
+
+    it("switches directory depth on depth button click", () => {
+      render(<AnalyticsClient {...mockProps} hotspots={mockHotspots} />);
+      fireEvent.click(screen.getByTestId("hotspots-tab-trigger"));
+
+      expect(screen.getByText("src")).toBeTruthy();
+
+      const depth2Btn = screen.getByTestId("depth-btn-2");
+      fireEvent.click(depth2Btn);
+
+      expect(screen.getByText("src/lib")).toBeTruthy();
+    });
+
+    it("renders empty state for empty repositories", () => {
+      render(<AnalyticsClient {...mockProps} hotspots={[mockHotspots[1]]} />);
+      fireEvent.click(screen.getByTestId("hotspots-tab-trigger"));
+
+      expect(screen.getByTestId("hotspots-empty-state")).toBeTruthy();
+      expect(screen.getByText("No Hotspots Found")).toBeTruthy();
+    });
   });
 });

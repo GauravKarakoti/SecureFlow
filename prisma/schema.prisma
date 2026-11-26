@@ -81,6 +81,12 @@ model User {
   slackWebhookUrl String?
 
   /**
+   * Incoming Slack or Discord webhook URL for real-time critical findings alerts.
+   * Stored securely (encrypted at rest).
+   */
+  chatWebhookUrl String?
+
+  /**
    * Incoming Microsoft Teams webhook URL for real-time alerts on BLOCKED scans.
    * Optional — null disables Teams notifications for this user.
    */
@@ -198,6 +204,8 @@ model PolicyTemplate {
   rules          Json
   isDefault      Boolean         @default(false)
   complianceTags String[]        @default([])
+  helpUrl        String?
+  guidance       String?
 
   activeToggles UserPolicyToggle[]
   versions      PolicyVersion[]
@@ -233,6 +241,8 @@ model PolicyVersion {
   severity         FindingSeverity
   action           String
   rules            Json?
+  helpUrl          String?
+  guidance         String?
   createdAt        DateTime        @default(now())
 
   template PolicyTemplate @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)
@@ -312,6 +322,7 @@ model Finding {
   complianceTags           String[]                @default([])
   tag                      String?
   isBaseline               Boolean                 @default(false)
+  encryptionKeyId          String?
   suppressionStatus        String?
   suppressionRuleId        String?
   issueUrl                 String?
@@ -342,6 +353,7 @@ model Finding {
   @@index([issueUrl])
   @@index([tag])
   @@index([isBaseline])
+  @@index([encryptionKeyId])
 }
 
 model FindingNote {

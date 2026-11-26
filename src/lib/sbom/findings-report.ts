@@ -45,7 +45,7 @@ function toVulnerabilityMatch(finding: SbomFindingInput): VulnerabilityMatch {
       name,
       version,
       manifestFile: finding.fileLocation,
-      ecosystem: finding.fileLocation.endsWith("package.json") ? "npm" : "pypi",
+      ecosystem: finding.fileLocation.endsWith("requirements.txt") ? "pypi" : "npm",
     },
     cveId: description.match(/CVE-\d{4}-\d+/)?.[0] ?? "CVE-Aggregated",
     severity,

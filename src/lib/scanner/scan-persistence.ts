@@ -33,6 +33,7 @@ import type { ScanFinding } from "@/lib/armor/scanner";
 import { normalizeFindingTypeEnum, normalizePolicyDecisionEnum } from "@/lib/finding-taxonomy";
 import { toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import { resolveCwe } from "@/lib/cwe";
+import { encryptFinding } from "@/lib/security/finding-encryption";
 
 /** The `PolicyDecision` members, mirroring `prisma/schema.prisma`. */
 export type StoredPolicyDecision = "PASS" | "REVIEW" | "BLOCK";
@@ -179,6 +180,7 @@ export interface FindingCreateInput {
   tag?: string | null;
   isBaseline?: boolean;
   complianceTags?: string[];
+  encryptionKeyId?: string | null;
 }
 
 /**
@@ -207,14 +209,19 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
       ? `[UNVERIFIED: ${finding.verificationReason}]\n\n${finding.explanation || ""}`.trim()
       : finding.explanation || null;
 
+  const encrypted = encryptFinding({
+    codeSnippet: finding.codeSnippet || null,
+    explanation,
+  });
+
   return {
     type: normalizeFindingTypeEnum(finding.type),
     severity: toStoredSeverity(finding.severity),
     fileLocation: finding.fileLocation,
     lineStart: typeof finding.lineStart === "number" ? finding.lineStart : null,
     lineEnd: typeof finding.lineEnd === "number" ? finding.lineEnd : null,
-    codeSnippet: finding.codeSnippet || null,
-    explanation,
+    codeSnippet: encrypted.codeSnippet || null,
+    explanation: encrypted.explanation || null,
     remediation: finding.remediation || null,
     promptInjectionSuspected: Boolean(finding.promptInjectionSuspected),
     fingerprint: finding.fingerprint || "",
@@ -226,6 +233,7 @@ export function findingCreateInput(finding: EnrichedScanFinding): FindingCreateI
     tag,
     isBaseline,
     complianceTags: isBaseline ? ["BASELINE"] : [],
+    encryptionKeyId: encrypted.encryptionKeyId || null,
   };
 }
 

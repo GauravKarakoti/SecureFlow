@@ -616,8 +616,9 @@ npm run cli:typecheck
 npm run lint
 npm run format:check
 
-# 4. Verify database schema synchronization (if touched schema.prisma)
+# 4. Verify database schema synchronization and migration safety (if touched schema.prisma or migrations)
 npm run db:check-drift
+npm run db:check-migration-safety
 
 # 5. Check accessibility (if touched dashboard UI)
 npm run test:a11y
@@ -736,6 +737,47 @@ export async function generateRemediation(options: any) {
 - Include code examples, expected output, and CLI flags for complex features.
 - Update `README.md` and related documents in `docs/` whenever introducing new flags, configuration options, or commands.
 - Ensure all markdown links are valid and point to existing files or anchors.
+
+---
+
+## 🛡️ Database Migrations & The Expand-and-Contract Pattern
+
+Database migrations in production run against live databases during rolling zero-downtime deployments. Unsafe DDL operations (such as `DROP TABLE`, `DROP COLUMN`, `ALTER COLUMN ... TYPE`, or renames) can destroy data or break running application instances that still expect the old schema.
+
+SecureFlow automatically validates new migrations in CI using `npm run db:check-migration-safety`.
+
+### 🔄 The Expand-and-Contract Pattern
+
+Whenever modifying or removing schema elements, use the **Expand-and-Contract** pattern across distinct PRs/releases:
+
+1. **Phase 1: Expand**
+   - Add the new column or table as optional or with a default value.
+   - Keep the old column intact.
+2. **Phase 2: Dual-Write / Migrate Data**
+   - Update application code to write to both the old and new columns.
+   - Run a background script or worker to backfill existing records.
+3. **Phase 3: Switch Reads**
+   - Update application code to read exclusively from the new column.
+   - The old column is now unreferenced by any running code.
+4. **Phase 4: Contract**
+   - Safely drop or rename the obsolete column or table in a new migration.
+
+### ✍️ Approving Destructive Migrations in CI
+
+If a destructive migration is genuinely intentional and safe (for example, deprecation after the contract phase has completed), you must include an explicit marker comment with a reason directly in the migration SQL file:
+
+```sql
+-- @secureflow-allow-destructive: Dropping deprecated legacy_token column after Phase 3 completion.
+ALTER TABLE "User" DROP COLUMN "legacy_token";
+```
+
+Acceptable comment marker formats:
+- `-- @secureflow-allow-destructive: <Reason>`
+- `-- @allow-destructive: <Reason>`
+- `/* @secureflow-allow-destructive: <Reason> */`
+- `/* @allow-destructive: <Reason> */`
+
+Unmarked destructive statements will fail CI. For full details, see [docs/safe-migrations.md](./docs/safe-migrations.md).
 
 ---
 
