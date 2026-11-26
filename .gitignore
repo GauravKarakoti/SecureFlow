@@ -64,3 +64,8 @@ NOTES.md
 
 # SecureFlow local cache and metadata
 .secureflow/
+
+# VitePress static output & cache
+docs/.vitepress/dist
+docs/.vitepress/cache
+

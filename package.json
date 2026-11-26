@@ -63,7 +63,11 @@
     "verify:armoriq": "tsx scripts/armoriq-verify.ts",
     "analyze": "cross-env ANALYZE=true next build",
     "check:bundle-budget": "tsx scripts/check-bundle-budgets.ts",
-    "lhci:audit": "tsx scripts/lighthouse-summary.ts"
+    "lhci:audit": "tsx scripts/lighthouse-summary.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "docs:check-links": "vitepress build docs"
   },
   "dependencies": {
     "@armoriq/sdk": "^0.8.24",
@@ -171,6 +175,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6",
     "vite": "^8.3.8",
+    "vitepress": "^1.6.4",
     "vitest": "^5.1.1"
   },
   "overrides": {
