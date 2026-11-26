@@ -173,6 +173,7 @@ Usage:
   secureflow hook install [options]
   secureflow hook uninstall [options]
   secureflow validate [file] [options]
+  secureflow doctor [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
@@ -182,6 +183,7 @@ Commands:
   hook install           Install Git pre-commit hook to block commits with staged secrets (#2020)
   hook uninstall         Uninstall Git pre-commit hook and restore previous hook backup (#2020)
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered error reports
+  doctor                 Diagnose environment variables, DB/Redis connectivity, migrations, LLM keys, and GitHub App setup
   mcp                    Start the SecureFlow Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (manifests: package.json, requirements.txt, etc.)
   explain --web3         Generate AI security analysis and remediation for Web3 / Smart Contract findings
@@ -538,6 +540,21 @@ async function main(): Promise<number> {
       console.error(greeting);
       return 1;
     }
+  }
+
+  if (process.argv[2] === "doctor") {
+    const { runDoctor, formatDoctorReport, printDoctorHelp } = await import("./doctor.js");
+    if (process.argv.includes("--help") || process.argv.includes("-h")) {
+      printDoctorHelp();
+      return 0;
+    }
+    const report = await runDoctor();
+    if (process.argv.includes("--json")) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatDoctorReport(report));
+    }
+    return report.exitCode;
   }
 
   const isMcpCommand = process.argv[2] === "mcp";
