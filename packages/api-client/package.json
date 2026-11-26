@@ -15,7 +15,12 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "npm run build",
+    "publish": "npm publish"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "secureflow",
@@ -26,7 +31,6 @@
   "author": "SecureFlow Team",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^24.22.1",
     "typescript": "^5.0.0",
     "vitest": "^5.1.1"
   }
