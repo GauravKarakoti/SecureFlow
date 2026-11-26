@@ -1129,6 +1129,22 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     maxInlineComments = rawMaxInline;
   }
 
+  // #2095: parse pullRequestReview configuration
+  const rawReviewMode = root.pullRequestReview ?? gateObj.pullRequestReview;
+  let pullRequestReview: GateConfig["pullRequestReview"] = undefined;
+  if (rawReviewMode && typeof rawReviewMode === "object" && !Array.isArray(rawReviewMode)) {
+    const rObj = rawReviewMode as Record<string, unknown>;
+    pullRequestReview = {
+      ...(typeof rObj.enabled === "boolean" ? { enabled: rObj.enabled } : {}),
+      ...(rObj.blockedEvent === "COMMENT" || rObj.blockedEvent === "REQUEST_CHANGES"
+        ? { blockedEvent: rObj.blockedEvent }
+        : {}),
+      ...(typeof rObj.dismissOnPass === "boolean" ? { dismissOnPass: rObj.dismissOnPass } : {}),
+      ...(typeof rObj.blockedMessage === "string" ? { blockedMessage: rObj.blockedMessage.trim() } : {}),
+      ...(typeof rObj.passedMessage === "string" ? { passedMessage: rObj.passedMessage.trim() } : {}),
+    };
+  }
+
   return {
     blockOn,
     reviewOn,
@@ -1159,6 +1175,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
     ...(licenses !== undefined ? { licenses } : {}),
     ...(breakglass !== undefined ? { breakglass } : {}),
+    ...(pullRequestReview !== undefined ? { pullRequestReview } : {}),
     ...(override !== undefined ? { override } : {}),
   };
 }
@@ -1261,6 +1278,29 @@ export function resolveBreakglassConfig(config?: GateConfig | null): BreakglassO
       ? { revokeOnNewCommits: bg.revokeOnNewCommits }
       : {}),
     ...(bg?.requireReason !== undefined ? { requireReason: bg.requireReason } : {}),
+  };
+}
+
+/**
+ * Resolves options for pull request review mode from repository gate configuration (#2095).
+ */
+export function resolvePullRequestReviewConfig(config?: GateConfig | null): {
+  enabled: boolean;
+  blockedEvent?: "REQUEST_CHANGES" | "COMMENT";
+  dismissOnPass?: boolean;
+  blockedMessage?: string;
+  passedMessage?: string;
+} {
+  if (!config) {
+    return { enabled: false };
+  }
+  const prReview = config.pullRequestReview;
+  return {
+    enabled: prReview?.enabled === true,
+    blockedEvent: prReview?.blockedEvent,
+    dismissOnPass: prReview?.dismissOnPass,
+    blockedMessage: prReview?.blockedMessage,
+    passedMessage: prReview?.passedMessage,
   };
 }
 
