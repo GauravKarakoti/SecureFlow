@@ -1,0 +1,33 @@
+{
+  "name": "@secureflow/api-client",
+  "version": "1.0.0",
+  "description": "Typed TypeScript API client generated from SecureFlow openapi.yaml",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "secureflow",
+    "api-client",
+    "sdk",
+    "openapi"
+  ],
+  "author": "SecureFlow Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.22.1",
+    "typescript": "^5.0.0",
+    "vitest": "^5.1.1"
+  }
+}
