@@ -478,6 +478,11 @@ async function main(): Promise<number> {
     }
   }
 
+  if (process.argv[2] === "doctor" || process.argv.includes("--doctor")) {
+    const { runDoctor } = await import("./doctor.js");
+    return await runDoctor(process.argv);
+  }
+
   const isValidateCommand =
     process.argv[2] === "validate" ||
     process.argv.includes("--validate") ||

@@ -116,6 +116,7 @@ Now, every `git commit` automatically triggers a security check on staged files.
 ```text
 Usage:
   secureflow [options]
+  secureflow doctor [options]
   secureflow watch [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
@@ -123,6 +124,7 @@ Usage:
   secureflow explain --web3 [options]
 
 Commands:
+  doctor                 Run pre-scan diagnostics on Node version, git, config, and AI endpoint reachability
   watch [path]           Watch workspace for file changes and rescan continuously in real time
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
@@ -277,6 +279,22 @@ SARIF findings exported by SecureFlow conform strictly to OASIS SARIF v2.1.0 spe
 - Automated remediation patch replacements within SARIF `fixes` arrays
 
 ---
+
+## 🩺 Pre-Scan Diagnostics (`doctor`)
+
+Diagnose and verify your development or CI environment upfront to eliminate setup surprises before scanning:
+
+```bash
+secureflow doctor
+```
+
+### Diagnostics Checked:
+- **Node.js Runtime**: Ensures Node.js >= 20.0.0.
+- **Git Availability**: Checks git CLI presence and whether the current directory is inside a valid git repository.
+- **Configuration**: Verifies that `.secureflow.json` exists and validates its schema syntax.
+- **AI Endpoint Reachability & VRAM**: Pings the configured AI provider endpoint (or local Ollama/vLLM server), reporting available VRAM/system memory for local inference.
+- **Credential Safety**: All API keys, tokens, and secrets are strictly redacted (`[REDACTED]`) from diagnostic messages and logs.
+- **CI / Non-Zero Exit**: Every check executes and reports independently. Returns exit code `0` when all checks pass or warn, and `1` if any check fails.
 
 ## 👀 Real-Time Watch Mode (`--watch`)
 
