@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import CountUp from "react-countup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -112,12 +112,16 @@ function FindingsClientInner({
   const [displayedFindings, setDisplayedFindings] = useState<FindingRow[]>(findings);
   const [cursor, setCursor] = useState<string | null | undefined>(nextCursor);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
   const [nowMs] = useState(() => Date.now());
 
   if (findings !== prevFindings) {
     setPrevFindings(findings);
     setDisplayedFindings(findings);
     setCursor(nextCursor);
+    if (isPageLoading) {
+      setIsPageLoading(false);
+    }
   }
 
   // Bulk triage (#732). Selection is keyed by finding id, but each selected
@@ -179,6 +183,15 @@ function FindingsClientInner({
     const separator = exportHref.includes("?") ? "&" : "?";
     return `${exportHref}${separator}format=json`;
   }, [exportHref]);
+
+  const currentQuery = searchParams?.toString();
+  const findingDetailHref = useCallback(
+    (findingId: string) =>
+      `/dashboard/findings/${findingId}${
+        currentQuery ? `?returnTo=${encodeURIComponent(`${pathname}?${currentQuery}`)}` : ""
+      }`,
+    [pathname, currentQuery],
+  );
 
   const heistRisk = useMemo(
     () =>
@@ -406,6 +419,7 @@ function FindingsClientInner({
         onToggleBulkMode={bulkMode ? exitBulkMode : enterBulkMode}
         canBulkSelect={selectableIds.length > 0}
         savedViews={savedViews}
+        onLoadingChange={setIsPageLoading}
       />
 
       <Card className="glass-card">
@@ -472,7 +486,30 @@ function FindingsClientInner({
         </CardHeader>
 
         <CardContent className="min-h-[520px]">
-          {displayedFindings.length === 0 ? (
+          {isPageLoading ? (
+            <div
+              className="space-y-4 py-2"
+              data-testid="findings-skeleton-loading"
+              aria-busy="true"
+              aria-label="Loading security findings"
+            >
+              {Array.from({ length: Math.min(pageSize || 20, 8) }).map((_, index) => (
+                <div
+                  key={index}
+                  data-testid="finding-skeleton-row"
+                  className="border border-white/10 rounded-xl p-4 space-y-3 animate-pulse bg-white/[0.02]"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-2 flex-1">
+                      <div className="h-4 w-36 bg-white/10 rounded" />
+                      <div className="h-3 w-72 bg-white/5 rounded" />
+                    </div>
+                    <div className="h-6 w-20 bg-white/10 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : displayedFindings.length === 0 ? (
             <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
               <ShieldAlert className="mb-5 h-16 w-16 text-red-500 opacity-70" />
 
@@ -785,7 +822,7 @@ function FindingsClientInner({
                                 Tap to view triage &amp; AI patch
                               </span>
                               <Link
-                                href={`/dashboard/findings/${finding.id}`}
+                                href={findingDetailHref(finding.id)}
                                 onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-mono transition-colors px-2 py-1 rounded-md hover:bg-white/5 border border-transparent hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] shrink-0"
                                 title="View finding permalink"
@@ -908,7 +945,7 @@ function FindingsClientInner({
                                 <Terminal className="w-3 h-3" /> Source Context
                               </h4>
                               <Link
-                                href={`/dashboard/findings/${finding.id}`}
+                                href={findingDetailHref(finding.id)}
                                 className="text-xs text-primary hover:underline inline-flex items-center gap-1 font-mono"
                               >
                                 Side-by-side review & fix &rarr;
@@ -942,7 +979,13 @@ function FindingsClientInner({
           </div>
         )}
 
-        <FindingsPagination page={page} pageSize={pageSize} total={total} totalPages={totalPages} />
+        <FindingsPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          totalPages={totalPages}
+          onLoadingChange={setIsPageLoading}
+        />
       </Card>
     </div>
   );

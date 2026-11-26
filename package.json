@@ -39,6 +39,7 @@
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",
     "db:seed": "npx prisma db seed",
+    "db:seed:large": "tsx scripts/seed-large-findings.ts",
     "db:check-drift": "node scripts/check-prisma-drift.mjs",
     "db:check-migration-safety": "npx tsx scripts/check-migration-safety.ts",
     "db:backup": "tsx scripts/db-backup.ts",

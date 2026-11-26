@@ -36,13 +36,25 @@ import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 
 export const dynamic = "force-dynamic";
 
-export default async function FindingDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function FindingDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
 
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const rawReturnTo = resolvedSearchParams?.returnTo;
+  const returnTo =
+    typeof rawReturnTo === "string" && rawReturnTo.startsWith("/dashboard/findings")
+      ? rawReturnTo
+      : "/dashboard/findings";
 
   const finding = await prisma.finding.findFirst({
     where: {
@@ -153,7 +165,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
       {/* Navigation header */}
       <div className="flex items-center justify-between">
         <Link
-          href="/dashboard/findings"
+          href={returnTo}
           className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
