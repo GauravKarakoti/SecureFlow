@@ -146,6 +146,8 @@ export interface Violation {
   severity?: Severity | undefined;
   ruleId?: string;
   custom?: boolean;
+  helpUrl?: string | undefined;
+  guidance?: string | undefined;
   /** Set if finding was suppressed via inline comment directive (#2051) */
   suppression?:
     | {

@@ -69,6 +69,8 @@ async function postHandler(req: NextRequest) {
             action: policy.action ?? existing.action,
             rules: (policy.rules as any) ?? existing.rules,
             complianceTags: policy.complianceTags ?? existing.complianceTags,
+            ...(policy.helpUrl !== undefined ? { helpUrl: policy.helpUrl } : {}),
+            ...(policy.guidance !== undefined ? { guidance: policy.guidance } : {}),
           },
         });
         templateId = existing.id;
@@ -84,6 +86,8 @@ async function postHandler(req: NextRequest) {
             rules: (policy.rules as any) ?? [],
             complianceTags: policy.complianceTags ?? [],
             isDefault: policy.enabled,
+            helpUrl: policy.helpUrl ?? null,
+            guidance: policy.guidance ?? null,
           },
         });
         templateId = created.id;

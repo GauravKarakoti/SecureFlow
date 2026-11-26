@@ -32,6 +32,7 @@ import FindingAssigneeSelect from "../finding-assignee-select";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +143,10 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         : null;
 
   const detectedLang = detectFileLanguage(finding.fileLocation);
+  const policyGuidance = resolvePolicyGuidance({
+    type: finding.type,
+    policyName: finding.scanResult.policyDecision,
+  });
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
@@ -219,6 +224,19 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                     <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
                     <span>Issue #{finding.issueUrl.split("/").pop()}</span>
                     <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+                  </a>
+                )}
+                {policyGuidance.helpUrl && (
+                  <a
+                    href={policyGuidance.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 font-mono text-xs gap-1 inline-flex items-center px-2.5 py-0.5 rounded-full hover:bg-emerald-500/20 transition-colors"
+                    title={policyGuidance.guidance || "How to fix guidance"}
+                    data-testid="finding-detail-how-to-fix"
+                  >
+                    <span>How to fix</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
                   </a>
                 )}
               </div>

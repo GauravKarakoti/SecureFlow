@@ -151,6 +151,32 @@ describe("Custom Rules Validation", () => {
     expect(res.valid).toBe(false);
     expect(res.errors[0]).toContain("Duplicate custom rule id 'rule-1'");
   });
+
+  it("validates that custom rules accept https helpUrl and guidance (#2098)", () => {
+    const res = validateCustomRule({
+      id: "rule-with-help",
+      pattern: "TODO",
+      severity: "LOW",
+      message: "TODO found",
+      helpUrl: "https://docs.secureflow.dev/rules/todo",
+      guidance: "Resolve TODO before merging",
+    });
+    expect(res.valid).toBe(true);
+    expect(res.rule?.helpUrl).toBe("https://docs.secureflow.dev/rules/todo");
+    expect(res.rule?.guidance).toBe("Resolve TODO before merging");
+  });
+
+  it("rejects non-https helpUrl in custom rule (#2098)", () => {
+    const res = validateCustomRule({
+      id: "rule-insecure-url",
+      pattern: "TODO",
+      severity: "LOW",
+      message: "TODO found",
+      helpUrl: "http://insecure-docs.example.com",
+    });
+    expect(res.valid).toBe(false);
+    expect(res.errors[0]).toContain("helpUrl must use https:// protocol");
+  });
 });
 
 describe("Custom Rules Scanning & Severity Reporting", () => {
