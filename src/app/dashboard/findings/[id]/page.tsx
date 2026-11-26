@@ -32,16 +32,29 @@ import FindingAssigneeSelect from "../finding-assignee-select";
 import type { TriageStatus } from "@/lib/triage/statuses";
 import { TimeAgo } from "@/components/time-ago";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 
 export const dynamic = "force-dynamic";
 
-export default async function FindingDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function FindingDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) {
     redirect("/api/auth/signin");
   }
 
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const rawReturnTo = resolvedSearchParams?.returnTo;
+  const returnTo =
+    typeof rawReturnTo === "string" && rawReturnTo.startsWith("/dashboard/findings")
+      ? rawReturnTo
+      : "/dashboard/findings";
 
   const finding = await prisma.finding.findFirst({
     where: {
@@ -142,13 +155,17 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         : null;
 
   const detectedLang = detectFileLanguage(finding.fileLocation);
+  const policyGuidance = resolvePolicyGuidance({
+    type: finding.type,
+    policyName: finding.scanResult.policyDecision,
+  });
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
       {/* Navigation header */}
       <div className="flex items-center justify-between">
         <Link
-          href="/dashboard/findings"
+          href={returnTo}
           className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -219,6 +236,19 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                     <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
                     <span>Issue #{finding.issueUrl.split("/").pop()}</span>
                     <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+                  </a>
+                )}
+                {policyGuidance.helpUrl && (
+                  <a
+                    href={policyGuidance.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 font-mono text-xs gap-1 inline-flex items-center px-2.5 py-0.5 rounded-full hover:bg-emerald-500/20 transition-colors"
+                    title={policyGuidance.guidance || "How to fix guidance"}
+                    data-testid="finding-detail-how-to-fix"
+                  >
+                    <span>How to fix</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
                   </a>
                 )}
               </div>

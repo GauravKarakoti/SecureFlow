@@ -136,6 +136,15 @@ export const customRuleContractSchema = z
     description: z.string().min(1).optional(),
     flags: z.string().optional(),
     timeoutMs: z.number().int().positive().optional(),
+    helpUrl: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((url) => url.startsWith("https://"), {
+        message: "Policy helpUrl must use https:// protocol",
+      })
+      .optional(),
+    guidance: z.string().trim().min(1).optional(),
   })
   .strict();
 
@@ -759,6 +768,8 @@ function validateRulesNode(
     "description",
     "flags",
     "timeoutMs",
+    "helpUrl",
+    "guidance",
   ]);
 
   const seenIds = new Set<string>();
@@ -782,7 +793,7 @@ function validateRulesNode(
           file: filePath,
           line: p.keyLine,
           column: p.keyColumn,
-          message: `Unknown key "${p.key}" in custom rule. Allowed keys: id, pattern, globs, fileGlobs, paths, severity, message, description, flags, timeoutMs`,
+          message: `Unknown key "${p.key}" in custom rule. Allowed keys: id, pattern, globs, fileGlobs, paths, severity, message, description, flags, timeoutMs, helpUrl, guidance`,
           code: "UNKNOWN_KEY",
         });
       }
@@ -937,6 +948,31 @@ function validateRulesNode(
           message: `"globs" must be a string or array of strings`,
           code: "INVALID_TYPE",
         });
+      }
+    }
+
+    // Check helpUrl
+    const helpUrlNode = propMap.get("helpUrl");
+    if (helpUrlNode) {
+      if (helpUrlNode.type !== "string") {
+        errors.push({
+          file: filePath,
+          line: helpUrlNode.line,
+          column: helpUrlNode.column,
+          message: `Rule "helpUrl" must be a string`,
+          code: "INVALID_TYPE",
+        });
+      } else {
+        const urlStr = String(helpUrlNode.value).trim();
+        if (!urlStr.startsWith("https://")) {
+          errors.push({
+            file: filePath,
+            line: helpUrlNode.line,
+            column: helpUrlNode.column,
+            message: `Custom rule "helpUrl" must use https:// protocol (got '${urlStr}')`,
+            code: "INVALID_TYPE",
+          });
+        }
       }
     }
   }

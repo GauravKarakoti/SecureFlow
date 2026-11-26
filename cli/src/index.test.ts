@@ -55,6 +55,7 @@ const m = vi.hoisted(() => ({
   parseTargetDirectoryArg: vi.fn(),
   parseStagedArg: vi.fn(() => false),
   parseBaselineArg: vi.fn(() => undefined),
+  parseWatchArg: vi.fn(() => false),
   parseVerbosityArg: vi.fn(),
   parseQuietArg: vi.fn(),
   parseVerboseArg: vi.fn(),
@@ -68,6 +69,7 @@ const m = vi.hoisted(() => ({
   parseDurationMs: vi.fn(),
   parseSizeBytes: vi.fn(),
   resolveCacheDir: vi.fn(),
+  runWatchMode: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("./git.js", () => ({
@@ -144,6 +146,7 @@ vi.mock("./lib/output-args.js", () => ({
   parseTargetDirectoryArg: m.parseTargetDirectoryArg,
   parseStagedArg: m.parseStagedArg,
   parseBaselineArg: m.parseBaselineArg,
+  parseWatchArg: m.parseWatchArg,
   parseVerbosityArg: m.parseVerbosityArg,
   parseQuietArg: m.parseQuietArg,
   parseVerboseArg: m.parseVerboseArg,
@@ -164,6 +167,7 @@ vi.mock("./cache.js", () => ({
   resolveCacheDir: m.resolveCacheDir,
 }));
 
+vi.mock("./watch.js", () => ({ runWatchMode: m.runWatchMode }));
 vi.mock("./lib/tui.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/tui.js")>();
   return {
@@ -1169,6 +1173,14 @@ describe("--fail-on thresholds, exit codes, and severity counts", () => {
       const code = await runCli("scan", "--staged");
       expect(code).toBe(1);
       expect(output(errorSpy)).toContain("Not a git repository");
+    });
+
+    it("delegates to runWatchMode when --watch is supplied", async () => {
+      m.parseWatchArg.mockReturnValue(true);
+      m.runWatchMode.mockResolvedValue(0);
+      const code = await runCli("--watch");
+      expect(code).toBe(0);
+      expect(m.runWatchMode).toHaveBeenCalled();
     });
   });
 });

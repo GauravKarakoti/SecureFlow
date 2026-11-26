@@ -313,6 +313,7 @@ const FLAGS_WITH_VALUE = new Set([
 const KNOWN_COMMANDS = new Set([
   "validate",
   "init",
+  "doctor",
   "mcp",
   "sbom",
   "explain",
@@ -320,6 +321,7 @@ const KNOWN_COMMANDS = new Set([
   "cache-prune",
   "cache-stats",
   "hook",
+  "watch",
 ]);
 
 /**
@@ -353,7 +355,7 @@ export function parseTargetDirectoryArg(argv: readonly string[]): string | undef
     if (KNOWN_COMMANDS.has(arg)) {
       return undefined;
     }
-    if (arg === "scan") {
+    if (arg === "scan" || arg === "watch") {
       const next = argv[i + 1];
       if (next && !next.startsWith("-")) {
         return next;
@@ -419,3 +421,16 @@ export function parseVerbosityArg(argv: readonly string[]): VerbosityLevel {
   if (verbose) return "verbose";
   return "normal";
 }
+
+/**
+ * Checks whether watch mode was requested via `--watch`, `-w`, or the `watch` command.
+ */
+export function parseWatchArg(argv: readonly string[]): boolean {
+  return (
+    argv.includes("--watch") ||
+    argv.includes("-w") ||
+    argv.some((arg) => arg.startsWith("--watch=")) ||
+    argv[2] === "watch"
+  );
+}
+

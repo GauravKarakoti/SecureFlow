@@ -18,6 +18,7 @@ import { maskFindingText } from "@/lib/armor/secret-masking";
 import prisma from "@/lib/prisma";
 import { sanitizeAuditLogInput } from "@/lib/audit/minimization";
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import {
   upsertSecureFlowComment,
   SECUREFLOW_COMMENT_MARKER,
@@ -81,7 +82,16 @@ import {
   resolveVerifyCritical,
   resolveContextLines,
   resolveSuggestionsConfig,
+  resolveBreakglassConfig,
+  resolvePullRequestReviewConfig,
 } from "./gate-config";
+import { syncPullRequestReview } from "@/lib/github/pull-request-review";
+import {
+  evaluateBreakglassOverride,
+  recordOverrideAuditLog,
+  type BreakglassConfig,
+  type OverrideEvaluationResult,
+} from "./breakglass-override";
 import { buildEffectiveGateConfig } from "./installation-settings";
 import { verifyCriticalFindings } from "./critical-verification";
 import { commentableLineNumbers, parseUnifiedPatch } from "@/lib/armor/diff";
@@ -867,7 +877,65 @@ export async function processScanJob(
     }
   }
 
-  const decision = iq.evaluateFindings(enrichedFindings, repositoryGateConfig);
+  let decision = iq.evaluateFindings(enrichedFindings, repositoryGateConfig);
+
+  // #2094: Evaluate break-glass emergency override label
+  let overrideResult: OverrideEvaluationResult = { isOverridden: false, status: "NO_OVERRIDE" };
+  const breakglassConfig = resolveBreakglassConfig(repositoryGateConfig);
+  const { owner, repo } = splitRepositoryFullName(repositoryFullName);
+
+  if (breakglassConfig.enabled) {
+    try {
+      // Fetch labels and comments for PR from GitHub API if available
+      let prLabels: string[] = [];
+      let prComments: Array<{ author: string; body: string; createdAt: string | Date; authorAssociation?: string }> = [];
+
+      if (octokit?.rest?.issues?.get) {
+        const issueRes = await octokit.rest.issues.get({ owner, repo, issue_number: prNumber });
+        if (issueRes?.data?.labels) {
+          prLabels = issueRes.data.labels.map((l: any) => (typeof l === "string" ? l : l.name || ""));
+        }
+      }
+
+      if (octokit?.rest?.issues?.listComments) {
+        const commentsRes = await octokit.rest.issues.listComments({ owner, repo, issue_number: prNumber, per_page: 50 });
+        if (Array.isArray(commentsRes?.data)) {
+          prComments = commentsRes.data.map((c: any) => ({
+            author: c.user?.login || "",
+            body: c.body || "",
+            createdAt: c.created_at,
+            authorAssociation: c.author_association,
+          }));
+        }
+      }
+
+      overrideResult = evaluateBreakglassOverride(
+        {
+          labels: prLabels,
+          comments: prComments,
+          currentHeadSha: headSha,
+          sender: { login: userId || "" },
+        },
+        breakglassConfig,
+      );
+
+      if (overrideResult.isOverridden) {
+        decision = "PASS";
+        await recordOverrideAuditLog({
+          repositoryId,
+          repositoryFullName,
+          prNumber,
+          actor: overrideResult.actor || userId || "unknown",
+          reason: overrideResult.reason || "Emergency release override",
+          headSha,
+          expiresAt: overrideResult.expiresAt || new Date(Date.now() + 2 * 60 * 60 * 1000),
+        });
+      }
+    } catch (overrideErr) {
+      console.warn("[ScanEngine] Error evaluating break-glass override:", overrideErr);
+    }
+  }
+
   const analyzedFilesCount = reusedFromCache ? totalFiles : allAnalyzedFiles.length;
   const zeroScanReason =
     analyzedFilesCount === 0 ? getZeroScanReason(fileChanges, customIgnores) : undefined;
@@ -908,7 +976,10 @@ export async function processScanJob(
         findings: enrichedFindings,
         isPartial: isPartialScan,
         unscannedFiles: allSkippedFiles,
-        conclusion: isPartialScan ? "neutral" : undefined,
+        conclusion: overrideResult.isOverridden ? "success" : isPartialScan ? "neutral" : undefined,
+        isOverridden: overrideResult.isOverridden,
+        overrideReason: overrideResult.reason,
+        overrideActor: overrideResult.actor,
       });
 
       const expiredRules = repositoryIgnoreConfig.expiredRules ?? [];
@@ -939,6 +1010,9 @@ export async function processScanJob(
           body += `Scan time: \`${scanTime}\`\n\n`;
         }
         if (enrichedFindings.length > 0) {
+          if (overrideResult.isOverridden) {
+            body += `> ⚠️ **SECURITY GATE OVERRIDDEN** by @${overrideResult.actor || "authorized-user"}\n> **Reason:** ${overrideResult.reason}\n> **Expires:** ${overrideResult.expiresAt?.toISOString() || "in 2 hours"}\n\n`;
+          }
           body += `⚠️ Detected **${enrichedFindings.length}** potential issues matching your code policies.\n\n`;
         } else if (analyzedFilesCount === 0) {
           body += `⚪ Nothing to scan: ${zeroScanReason}.\n\n`;
@@ -990,6 +1064,12 @@ export async function processScanJob(
           const findingId = (f as any).id;
           if (findingId) {
             body += `🔗 [View Finding Details](${appUrl}/dashboard/findings/${findingId})\n\n`;
+          }
+          const policyInfo = resolvePolicyGuidance(f);
+          const helpUrl = (f as any).helpUrl || policyInfo.helpUrl;
+          const guidance = (f as any).guidance || policyInfo.guidance;
+          if (helpUrl) {
+            body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
           }
           if (f.verificationStatus === "UNVERIFIED") {
             body += `> ℹ️ **Verification: UNVERIFIED (Non-blocking)**${f.verificationReason ? ` — Reason: ${f.verificationReason}` : ""}\n\n`;
@@ -1046,6 +1126,22 @@ export async function processScanJob(
               comments: inlineComments,
             });
           }
+        }
+
+        // Pull Request Review Mode (#2095): Request changes when blocked, dismiss when passing
+        const prReviewConfig = resolvePullRequestReviewConfig(repositoryGateConfig);
+        if (prReviewConfig.enabled && octokit?.rest?.pulls?.createReview) {
+          const isBlockedState = decision === "BLOCKED" || storedPolicyDecision(decision) === "BLOCK";
+          await syncPullRequestReview({
+            client: octokit as any,
+            owner,
+            repo,
+            prNumber,
+            isBlocked: isBlockedState && !overrideResult.isOverridden,
+            findingsCount: enrichedFindings.length,
+            config: prReviewConfig,
+            headSha,
+          });
         }
       }
     } catch (err) {

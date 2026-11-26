@@ -204,6 +204,8 @@ model PolicyTemplate {
   rules          Json
   isDefault      Boolean         @default(false)
   complianceTags String[]        @default([])
+  helpUrl        String?
+  guidance       String?
 
   activeToggles UserPolicyToggle[]
   versions      PolicyVersion[]
@@ -239,6 +241,8 @@ model PolicyVersion {
   severity         FindingSeverity
   action           String
   rules            Json?
+  helpUrl          String?
+  guidance         String?
   createdAt        DateTime        @default(now())
 
   template PolicyTemplate @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)

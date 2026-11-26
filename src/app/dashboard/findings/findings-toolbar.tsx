@@ -67,6 +67,7 @@ export interface FindingsToolbarProps {
   canBulkSelect?: boolean;
   /** Saved views for the current user (#1786). */
   savedViews?: SavedViewDto[];
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 export default function FindingsToolbar({
@@ -76,6 +77,7 @@ export default function FindingsToolbar({
   onToggleBulkMode,
   canBulkSelect,
   savedViews = [],
+  onLoadingChange,
 }: FindingsToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -105,11 +107,13 @@ export default function FindingsToolbar({
 
   const apply = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
+      onLoadingChange?.(true);
       const params = new URLSearchParams(searchParams.toString());
       mutate(params);
       // Any filter change invalidates the current offset: staying on page 4
       // after narrowing to two results shows an empty list.
       params.delete("page");
+      params.delete("cursor");
 
       const query = params.toString();
       const navigate = router.push ?? router.replace;
@@ -117,7 +121,7 @@ export default function FindingsToolbar({
         navigate.call(router, query ? `${pathname}?${query}` : pathname, { scroll: false });
       });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, onLoadingChange],
   );
 
   const setSingle = useCallback(
