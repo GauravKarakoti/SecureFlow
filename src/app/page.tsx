@@ -107,7 +107,7 @@ export default async function LandingPage() {
               </Button>
             </Link>
             <Link
-              href={process.env.NEXT_PUBLIC_DOCS_URL || "https://secureflow-docs.netlify.app"}
+              href="https://secureflow-docs.netlify.app"
               target="_blank"
               rel="noopener noreferrer"
             >
