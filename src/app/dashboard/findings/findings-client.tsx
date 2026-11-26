@@ -55,6 +55,11 @@ import { TimeAgo } from "@/components/time-ago";
 import { formatAgeDays } from "@/lib/findings/age";
 import type { SavedViewDto } from "@/lib/actions/saved-views";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
+import {
+  FindingsColumnsMenu,
+  FindingsTablePreferencesProvider,
+  useFindingsTablePreferences,
+} from "./findings-columns-menu";
 
 const TRIAGE_LABELS: Record<string, string> = {
   OPEN: "Open",
@@ -80,9 +85,18 @@ interface FindingsClientProps {
   nextCursor?: string | null;
   sbomReport?: SbomScanResult | null; // [NEW] Optional SBOM Report prop
   savedViews?: SavedViewDto[];
+  userId?: string | null;
 }
 
-export default function FindingsClient({
+export default function FindingsClient(props: FindingsClientProps) {
+  return (
+    <FindingsTablePreferencesProvider userId={props.userId}>
+      <FindingsClientInner {...props} />
+    </FindingsTablePreferencesProvider>
+  );
+}
+
+function FindingsClientInner({
   findings,
   stats,
   filterOptions,
@@ -110,6 +124,7 @@ export default function FindingsClient({
   // finding resolves to a (repositoryId, fingerprint) target for the action.
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { preferences } = useFindingsTablePreferences();
 
   // Export every finding matching the current filters, not just this page:
   // `/api/findings/export` reads the same query string as this page and streams
@@ -398,6 +413,7 @@ export default function FindingsClient({
           <CardTitle className="text-lg">Recent Findings</CardTitle>
 
           <div className="flex flex-wrap items-center gap-2">
+            <FindingsColumnsMenu />
             {total === 0 ? (
               <>
                 <Button variant="outline" size="sm" disabled className="gap-2 min-h-[44px]">
@@ -561,46 +577,66 @@ export default function FindingsClient({
                             className="shrink-0 min-h-[20px] min-w-[20px]"
                           />
                         )}
-                        <AccordionTrigger className="flex-1 hover:no-underline py-4">
-                          <div className="flex flex-col md:flex-row md:items-center gap-2.5 md:gap-4 w-full text-left pr-2 md:pr-0">
+                        <AccordionTrigger
+                          className={`flex-1 hover:no-underline ${
+                            preferences.density === "compact" ? "py-2" : "py-4"
+                          }`}
+                        >
+                          <div
+                            className={`flex flex-col md:flex-row md:items-center ${
+                              preferences.density === "compact"
+                                ? "gap-1.5 md:gap-2.5"
+                                : "gap-2.5 md:gap-4"
+                            } w-full text-left pr-2 md:pr-0`}
+                          >
                             {/* On mobile: flex header row. On desktop: contents unwraps children into the row */}
                             <div className="flex items-start justify-between md:contents gap-2">
-                              <div className="flex-1 min-w-0" data-testid="finding-file">
-                                <div className="font-bold text-sm mb-0.5 truncate">
-                                  {finding.type} Detected
-                                </div>
-                                <div className="text-[10px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 break-all">
-                                  <span>{finding.fileLocation}</span>
-                                  {finding.isBaseline && (
-                                    <Badge
-                                      variant="outline"
-                                      className="border-purple-500/30 bg-purple-500/10 text-purple-400 font-mono text-[10px] shrink-0 uppercase py-0 px-1.5 h-4"
-                                      data-testid="finding-baseline-badge"
-                                    >
-                                      BASELINE
-                                    </Badge>
+                              {(preferences.visibleColumns.type || preferences.visibleColumns.file) && (
+                                <div className="flex-1 min-w-0" data-testid="finding-file">
+                                  {preferences.visibleColumns.type && (
+                                    <div className="font-bold text-sm mb-0.5 truncate">
+                                      {finding.type} Detected
+                                    </div>
                                   )}
-                                  <Badge
-                                    variant="outline"
-                                    className="border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0 capitalize py-0 px-1.5 h-4"
-                                    data-testid="finding-language"
-                                  >
-                                    {finding.language ||
-                                      detectFileLanguage(finding.fileLocation).language}
-                                  </Badge>
-                                  {finding.createdAt && (
-                                    <>
-                                      <span>•</span>
-                                      <TimeAgo date={finding.createdAt} />
-                                    </>
-                                  )}
-                                  <span className="inline-flex md:hidden items-center gap-1">
-                                    <span>•</span>
-                                    <Clock className="w-3 h-3" />
-                                    {formatAgeDays(finding.createdAt)}
-                                  </span>
+                                  <div className="text-[10px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 break-all">
+                                    {preferences.visibleColumns.file && (
+                                      <span>{finding.fileLocation}</span>
+                                    )}
+                                    {finding.isBaseline && (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-purple-500/30 bg-purple-500/10 text-purple-400 font-mono text-[10px] shrink-0 uppercase py-0 px-1.5 h-4"
+                                        data-testid="finding-baseline-badge"
+                                      >
+                                        BASELINE
+                                      </Badge>
+                                    )}
+                                    {preferences.visibleColumns.language && (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-white/15 bg-white/5 text-muted-foreground font-mono text-[10px] shrink-0 capitalize py-0 px-1.5 h-4"
+                                        data-testid="finding-language"
+                                      >
+                                        {finding.language ||
+                                          detectFileLanguage(finding.fileLocation).language}
+                                      </Badge>
+                                    )}
+                                    {preferences.visibleColumns.age && finding.createdAt && (
+                                      <>
+                                        <span>•</span>
+                                        <TimeAgo date={finding.createdAt} />
+                                      </>
+                                    )}
+                                    {preferences.visibleColumns.age && (
+                                      <span className="inline-flex md:hidden items-center gap-1">
+                                        <span>•</span>
+                                        <Clock className="w-3 h-3" />
+                                        {formatAgeDays(finding.createdAt)}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                               <div data-testid="finding-severity" className="shrink-0 md:order-5">
                                 <SeverityBadge
                                   severity={finding.severity}
@@ -611,7 +647,7 @@ export default function FindingsClient({
 
                             {/* Badges: wrapped row on mobile, inline on desktop */}
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5 md:pt-0 md:contents">
-                              <CweBadge cwe={finding.cwe} />
+                              {preferences.visibleColumns.cwe && <CweBadge cwe={finding.cwe} />}
                               {finding.promptInjectionSuspected && (
                                 <Badge
                                   className="bg-yellow-500 text-black shrink-0 text-[10px]"
@@ -620,7 +656,7 @@ export default function FindingsClient({
                                   ⚠️ Verify manually
                                 </Badge>
                               )}
-                              {finding.triageStatus && finding.triageStatus !== "OPEN" && (
+                              {preferences.visibleColumns.status && finding.triageStatus && finding.triageStatus !== "OPEN" && (
                                 <Badge
                                   variant="outline"
                                   className={
@@ -674,7 +710,7 @@ export default function FindingsClient({
                                 </Badge>
                               )}
                               {/* Reviewer discussion note count badge (#1920) */}
-                              {Boolean(finding.noteCount && finding.noteCount > 0) && (
+                              {preferences.visibleColumns.notes && Boolean(finding.noteCount && finding.noteCount > 0) && (
                                 <Badge
                                   variant="outline"
                                   className="border-blue-500/30 bg-blue-500/10 text-blue-400 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
@@ -685,7 +721,7 @@ export default function FindingsClient({
                                   <span>{finding.noteCount}</span>
                                 </Badge>
                               )}
-                              {finding.issueUrl && (
+                              {preferences.visibleColumns.issue && finding.issueUrl && (
                                 <Badge
                                   variant="outline"
                                   className="border-purple-500/30 bg-purple-500/10 text-purple-300 font-mono text-[10px] shrink-0 inline-flex items-center gap-1"
@@ -699,45 +735,49 @@ export default function FindingsClient({
                             </div>
 
                             {/* Age column on desktop */}
-                            <span
-                              className="hidden md:inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground shrink-0 md:order-4"
-                              title="Finding age"
-                            >
-                              <Clock className="w-3 h-3" />
-                              {formatAgeDays(finding.createdAt)}
-                            </span>
+                            {preferences.visibleColumns.age && (
+                              <span
+                                className="hidden md:inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground shrink-0 md:order-4"
+                                title="Finding age"
+                              >
+                                <Clock className="w-3 h-3" />
+                                {formatAgeDays(finding.createdAt)}
+                              </span>
+                            )}
 
                             {/* Assignee display in header */}
-                            <div
-                              className="shrink-0 md:order-5 flex items-center gap-1.5"
-                              data-testid="finding-assignee-display"
-                            >
-                              {finding.assignee ? (
-                                <span
-                                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded-full"
-                                  title={`Assigned to ${finding.assignee.name || finding.assignee.email}`}
-                                >
-                                  <Avatar className="h-3.5 w-3.5">
-                                    <AvatarImage
-                                      src={finding.assignee.image ?? undefined}
-                                      alt={finding.assignee.name ?? "Assignee"}
-                                    />
-                                    <AvatarFallback className="text-[8px]">
-                                      {(finding.assignee.name ?? finding.assignee.email ?? "U")
-                                        .slice(0, 2)
-                                        .toUpperCase()}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="max-w-[80px] truncate">
-                                    {finding.assignee.name || finding.assignee.email}
+                            {preferences.visibleColumns.assignee && (
+                              <div
+                                className="shrink-0 md:order-5 flex items-center gap-1.5"
+                                data-testid="finding-assignee-display"
+                              >
+                                {finding.assignee ? (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded-full"
+                                    title={`Assigned to ${finding.assignee.name || finding.assignee.email}`}
+                                  >
+                                    <Avatar className="h-3.5 w-3.5">
+                                      <AvatarImage
+                                        src={finding.assignee.image ?? undefined}
+                                        alt={finding.assignee.name ?? "Assignee"}
+                                      />
+                                      <AvatarFallback className="text-[8px]">
+                                        {(finding.assignee.name ?? finding.assignee.email ?? "U")
+                                          .slice(0, 2)
+                                          .toUpperCase()}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="max-w-[80px] truncate">
+                                      {finding.assignee.name || finding.assignee.email}
+                                    </span>
                                   </span>
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground/60 font-mono">
-                                  Unassigned
-                                </span>
-                              )}
-                            </div>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground/60 font-mono">
+                                    Unassigned
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
                             {/* Action row on mobile / button on desktop */}
                             <div className="flex items-center justify-between md:justify-end w-full md:w-auto pt-1 md:pt-0 md:order-6">
