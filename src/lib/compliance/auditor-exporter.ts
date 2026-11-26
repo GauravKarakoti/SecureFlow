@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { HashChain } from "@/lib/audit/hashChain";
+import { buildMerkleTree } from "@/lib/audit/merkle-checkpoint";
 import {
   COMPLIANCE_CRITERIA,
   getFrameworkFromTag,
@@ -69,6 +70,7 @@ export interface AuditorComplianceDossier {
     totalLedgerEvents: number;
     genesisVerified: boolean;
     latestBlockSeq: number;
+    merkleRoot: string | null;
     recentAuditRecords: CryptographicProofRecord[];
   };
   topViolatedControls: Array<{
@@ -376,6 +378,7 @@ export async function generateAuditorComplianceDossier(
       totalLedgerEvents: ledgerProof.totalEvents,
       genesisVerified: ledgerProof.genesisVerified,
       latestBlockSeq: ledgerProof.latestSeq,
+      merkleRoot: buildMerkleTree(ledgerProof.records.map((r) => r.entryHash)).root,
       recentAuditRecords: ledgerProof.records,
     },
     topViolatedControls,
