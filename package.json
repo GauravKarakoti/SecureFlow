@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "workspaces": [
-    "cli"
+    "cli",
+    "packages/api-client"
   ],
   "scripts": {
     "dev": "concurrently \"next dev --turbopack -p 9002\" \"tsx scripts/prewarm.ts\"",
@@ -58,6 +59,11 @@
     "prepare": "husky",
     "ngrok": "ngrok http 9002",
     "secureflow": "npx secureflow",
+    "client:generate": "tsx scripts/generate-api-client.ts",
+    "client:check-drift": "tsx scripts/generate-api-client.ts --check",
+    "client:build": "npm --prefix packages/api-client run build",
+    "client:typecheck": "npm --prefix packages/api-client run typecheck",
+    "client:test": "npm --prefix packages/api-client run test",
     "lint:openapi": "spectral lint openapi.yaml --fail-severity=error",
     "verify:openapi": "tsx scripts/verify-openapi.ts",
     "verify:armoriq": "tsx scripts/armoriq-verify.ts",
