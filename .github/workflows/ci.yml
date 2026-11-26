@@ -263,6 +263,10 @@ jobs:
           fi
           exit "$code"
 
+      - name: Check new migration safety (drops, renames, type changes)
+        run: |
+          npm run db:check-migration-safety -- --base=origin/${{ github.base_ref || 'main' }}
+
   helm-migration-check:
     name: Helm Migration Job Check
     runs-on: ubuntu-latest
