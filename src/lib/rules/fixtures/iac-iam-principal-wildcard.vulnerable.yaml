@@ -1,0 +1,14 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Unrestricted wildcard principal policy
+Resources:
+  PublicBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: my-public-data-bucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicWildcardAccess
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: arn:aws:s3:::my-public-data-bucket/*

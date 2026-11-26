@@ -573,12 +573,13 @@ export async function processScanJob(
     }
   }
 
-  // Ensure deterministic IaC security rules are present (#2004)
+  // Ensure deterministic IaC security rules are present (#2004, #2160)
   const iacOptions = resolveIacRuleOptions(repositoryGateConfig);
   const iacRuleFindings = runIacSecurityRules(fileChanges, {
     repositoryId,
     enabled: iacOptions.enabled,
     disabledRules: iacOptions.disabledRules,
+    exceptions: iacOptions.exceptions,
   });
   for (const iac of iacRuleFindings) {
     const existingIndex = allFindings.findIndex(

@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OrgConditionalAccess",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::internal-bucket/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalOrgID": "o-xyz1234567"
+        }
+      }
+    },
+    {
+      "Sid": "ExplicitAccountPrincipal",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:root"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::internal-bucket/*"
+    }
+  ]
+}
