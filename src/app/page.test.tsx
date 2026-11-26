@@ -80,4 +80,21 @@ describe("LandingPage Component (#632)", () => {
     expect(screen.getByTestId("demo-secrets").textContent).toBe("1842");
     expect(screen.getByTestId("demo-repos").textContent).toBe("948");
   });
+
+  it("links View Documentation button to the documentation site (#2107)", async () => {
+    vi.spyOn(landingStatsModule, "getLandingStats").mockResolvedValue({
+      prsCount: 10,
+      secretsCount: 2,
+      reposCount: 1,
+      scanAverage: 1.0,
+      isLive: true,
+    });
+
+    const pageElement = await LandingPage();
+    render(pageElement);
+
+    const docLink = screen.getByRole("link", { name: /view documentation/i });
+    expect(docLink).toHaveAttribute("href", "https://secureflow-docs.netlify.app");
+    expect(docLink).toHaveAttribute("target", "_blank");
+  });
 });

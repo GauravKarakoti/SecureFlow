@@ -89,6 +89,10 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
 
+      # Build documentation site and enforce broken links check (#2107).
+      - name: Build Docs Site & Check Links
+        run: npm run docs:build
+
       - name: Build Application
         run: npm run build
         # `next build` evaluates src/lib/env.ts while collecting page data, and
