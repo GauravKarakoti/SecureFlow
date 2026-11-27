@@ -459,7 +459,9 @@ data "aws_iam_policy_document" "wildcard" {
         expect(adminFindings.length).toBe(1);
         expect(adminFindings[0].severity).toBe("CRITICAL");
         expect(adminFindings[0].type).toBe("Misconfig");
-        expect(adminFindings[0].remediation).toContain("Scope actions to specific service operations");
+        expect(adminFindings[0].remediation).toContain(
+          "Scope actions to specific service operations",
+        );
       });
 
       it("passes scoped JSON policy", () => {
@@ -613,7 +615,11 @@ data "aws_iam_policy_document" "wildcard" {
           }),
         );
         const options = resolveIacRuleOptions(config);
-        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        const findings = scanIacFile(
+          "policies/iac-iam-passrole.vulnerable.json",
+          vulnPassRole,
+          options,
+        );
         expect(findings.length).toBe(0);
       });
 
@@ -634,7 +640,11 @@ data "aws_iam_policy_document" "wildcard" {
           }),
         );
         const options = resolveIacRuleOptions(config);
-        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        const findings = scanIacFile(
+          "policies/iac-iam-passrole.vulnerable.json",
+          vulnPassRole,
+          options,
+        );
         expect(findings.length).toBe(0);
       });
 
@@ -651,7 +661,11 @@ data "aws_iam_policy_document" "wildcard" {
           }),
         );
         const options = resolveIacRuleOptions(config);
-        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        const findings = scanIacFile(
+          "policies/iac-iam-passrole.vulnerable.json",
+          vulnPassRole,
+          options,
+        );
         expect(findings.length).toBe(1);
       });
 
@@ -670,7 +684,11 @@ data "aws_iam_policy_document" "wildcard" {
           }),
         );
         const options = resolveIacRuleOptions(config);
-        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        const findings = scanIacFile(
+          "policies/iac-iam-passrole.vulnerable.json",
+          vulnPassRole,
+          options,
+        );
         expect(findings.length).toBe(1);
       });
     });

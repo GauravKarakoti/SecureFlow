@@ -3,6 +3,6 @@ kind: ClusterRole
 metadata:
   name: full-wildcard-operator
 rules:
-- apiGroups: ["*"]
-  resources: ["*"]
-  verbs: ["*"]
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]

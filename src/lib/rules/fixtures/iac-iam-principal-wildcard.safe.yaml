@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: Scoped principal policy with condition
 Resources:
   RestrictedBucketPolicy:
@@ -9,7 +9,7 @@ Resources:
         Statement:
           - Sid: AllowOrgAccessWithCondition
             Effect: Allow
-            Principal: '*'
+            Principal: "*"
             Action: s3:GetObject
             Resource: arn:aws:s3:::my-secure-bucket/*
             Condition:

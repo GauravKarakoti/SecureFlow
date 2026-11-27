@@ -7,6 +7,6 @@ roleRef:
   kind: ClusterRole
   name: cluster-admin
 subjects:
-- kind: ServiceAccount
-  name: custom-controller
-  namespace: default
+  - kind: ServiceAccount
+    name: custom-controller
+    namespace: default

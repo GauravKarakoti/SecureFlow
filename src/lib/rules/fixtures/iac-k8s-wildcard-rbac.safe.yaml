@@ -3,9 +3,9 @@ kind: ClusterRole
 metadata:
   name: scoped-operator
 rules:
-- apiGroups: [""]
-  resources: ["pods", "services"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]

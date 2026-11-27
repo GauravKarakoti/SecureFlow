@@ -4,10 +4,7 @@
     {
       "Sid": "ScopedServiceAccess",
       "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:ListBucket"
-      ],
+      "Action": ["s3:GetObject", "s3:ListBucket"],
       "Resource": "arn:aws:s3:::my-production-bucket/*"
     },
     {

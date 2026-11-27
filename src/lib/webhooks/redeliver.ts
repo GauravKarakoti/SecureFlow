@@ -142,7 +142,7 @@ export async function redeliverWebhookDelivery(
   }
 
   let statusCode = 202;
-  let outcomeMessage = "Redelivery request accepted by GitHub.";
+  const outcomeMessage = "Redelivery request accepted by GitHub.";
 
   try {
     // If the deliveryId is numeric (GitHub internal delivery ID) or UUID (delivery GUID),

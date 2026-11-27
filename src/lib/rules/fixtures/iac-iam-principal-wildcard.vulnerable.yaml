@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: Unrestricted wildcard principal policy
 Resources:
   PublicBucketPolicy:
@@ -9,6 +9,6 @@ Resources:
         Statement:
           - Sid: PublicWildcardAccess
             Effect: Allow
-            Principal: '*'
+            Principal: "*"
             Action: s3:GetObject
             Resource: arn:aws:s3:::my-public-data-bucket/*
