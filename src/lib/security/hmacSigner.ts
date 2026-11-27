@@ -36,6 +36,12 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { logger } from "@/lib/logger";
 import { isGraceWindowActive, type RotatingSecretConfig } from "@/lib/webhooks/secret-rotation";
+import {
+  consumeWebhookNonce,
+  defaultWebhookReplayStore,
+  deriveWebhookReplayKey,
+  type WebhookReplayStore,
+} from "./webhook-replay-store";
 
 /** Header name used for HMAC-SHA256 signatures. */
 export const SIGNATURE_HEADER = "X-SecureFlow-Signature";
@@ -340,7 +346,13 @@ export function admitWebhookRequest(
   signatureHeader: string | null | undefined,
   timestampHeader: string | null | undefined,
   replayWindowSeconds: number = DEFAULT_REPLAY_WINDOW_SECONDS,
-  options: { allowUnboundLegacySignatures?: boolean } = {},
+  options: {
+    allowUnboundLegacySignatures?: boolean;
+    deliveryId?: string | null;
+    enforceReplayCheck?: boolean;
+    replayStore?: WebhookReplayStore;
+    now?: number;
+  } = {},
 ): { ok: true; scheme: "v1" | "legacy" } | { ok: false; status: number; message: string } {
   // 1. Signature required
   if (!signatureHeader) {
@@ -408,6 +420,23 @@ export function admitWebhookRequest(
         "request; migrate the sender to the v1 signature format.",
       { scheme: "legacy", bound: false },
     );
+  }
+
+  if (options.deliveryId || options.enforceReplayCheck) {
+    const replayKey = deriveWebhookReplayKey(signatureHeader, timestampHeader, options.deliveryId);
+    const replayCheck = consumeWebhookNonce(
+      replayKey,
+      replayWindowSeconds,
+      options.now ?? Date.now(),
+      options.replayStore ?? defaultWebhookReplayStore,
+    );
+    if (!replayCheck.accepted) {
+      return {
+        ok: false,
+        status: 409,
+        message: replayCheck.reason || "Replay detected: duplicate webhook delivery",
+      };
+    }
   }
 
   return { ok: true, scheme: parsed.scheme };
