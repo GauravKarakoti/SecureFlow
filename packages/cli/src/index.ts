@@ -995,18 +995,23 @@ Description:
           ...(ignoreSuppressions ? { ignoreSuppressions } : {}),
           ...(customRules.length > 0 ? { customRules } : {}),
         });
+        let diffResult = rawResult;
         if (isStagedMode) {
           const diffLines = getStagedDiffLineNumbers(filePath, repoRoot);
           if (diffLines && diffLines.size > 0) {
-            rawResult.violations = rawResult.violations.filter((v) => diffLines.has(v.line));
+            diffResult = {
+              ...rawResult,
+              violations: rawResult.violations.filter((v) => diffLines.has(v.line)),
+            };
           }
         }
         const elapsedMs = performance.now() - startFileTime;
+        // The cache is keyed by file content only, so it must keep the unfiltered result.
         newlyAnalyzed.push({ filePath, content, result: rawResult });
 
-        let effectiveResult = rawResult;
+        let effectiveResult = diffResult;
         if (loadedBaseline) {
-          const filtered = filterResultsWithBaseline([rawResult], loadedBaseline);
+          const filtered = filterResultsWithBaseline([diffResult], loadedBaseline);
           effectiveResult = filtered.results[0]!;
           baselineSuppressedCount += filtered.suppressedCount;
         }

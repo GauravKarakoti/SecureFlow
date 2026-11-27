@@ -159,6 +159,38 @@ describe("Staged Diff Scanning and Git Hook Integration (#2020)", () => {
       expect(res.stdout).toContain("✅ SecureFlow scan passed (1 staged file(s))");
     });
 
+    it("keeps the full result in the cache so a later full scan still sees old secrets (#2194)", () => {
+      initGitRepo(tempDir);
+      const file = path.join(tempDir, "legacy.js");
+
+      fs.writeFileSync(file, "console.log(process.env.DB_PASSWORD);\nconst a = 1;\n");
+      runGit(["add", "legacy.js"], tempDir);
+      runGit(["commit", "-m", "legacy commit", "--no-verify"], tempDir);
+
+      // Stage an edit that leaves the offending line 1 untouched
+      fs.appendFileSync(file, "const b = 2;\n");
+      runGit(["add", "legacy.js"], tempDir);
+
+      const stagedRes = runCli(["scan", "--staged"], tempDir);
+      expect(stagedRes.status).toBe(0);
+      expect(stagedRes.stdout).toContain("Analyzed 1 file(s) (0 cached)");
+
+      const fullRes = runCli(["scan", ".", "--local", "--format", "json"], tempDir);
+      expect(fullRes.status).toBe(1);
+      const report = JSON.parse(fullRes.stdout);
+      expect(report).toEqual([
+        expect.objectContaining({
+          path: expect.stringContaining("legacy.js"),
+          violations: [expect.objectContaining({ line: 1 })],
+        }),
+      ]);
+
+      // Same content from the cache: staged mode still only blocks on changed lines
+      const stagedAgain = runCli(["scan", "--staged"], tempDir);
+      expect(stagedAgain.status).toBe(0);
+      expect(stagedAgain.stdout).toContain("Analyzed 0 file(s) (1 cached)");
+    });
+
     it("fails with clear error when running --staged outside a git repository", () => {
       const res = runCli(["scan", "--staged"], tempDir);
       expect(res.status).toBe(1);
