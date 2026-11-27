@@ -15,7 +15,7 @@ This document describes the automated maintenance architecture and provides main
 Dependabot is configured to check weekly for updates across all package ecosystems in the repository:
 
 - **Root web application (`/`)**: Node.js/Next.js dependencies grouped into single weekly update pull requests.
-- **CLI package (`/cli`)**: Command-line tool dependencies grouped into weekly update pull requests.
+- **CLI package (`/packages/cli`)**: Command-line tool dependencies grouped into weekly update pull requests.
 - **GitHub Actions (`/`)**: Workflow action versions grouped weekly to keep CI/CD pipelines pinned to supported action releases.
 
 Grouped updates minimize pull request noise by combining routine dependency bumps into single reviewable PRs per package directory.
@@ -24,7 +24,7 @@ Grouped updates minimize pull request noise by combining routine dependency bump
 
 - **Schedule**: Executes automatically every Monday at 04:00 UTC.
 - **On Demand**: Supports manual execution at any time via the `workflow_dispatch` trigger in the GitHub Actions UI.
-- **Failure Threshold**: Runs `npm audit --audit-level=high` across both the root package and the `/cli` workspace. Any advisory classified as **High** or **Critical** fails the workflow immediately.
+- **Failure Threshold**: Runs `npm audit --audit-level=high` across both the root package and the `/packages/cli` workspace. Any advisory classified as **High** or **Critical** fails the workflow immediately.
 - **Visibility**: Build failures are prominently surfaced in the **Actions** tab of the GitHub repository.
 
 ---
@@ -42,7 +42,7 @@ When a scheduled or on-demand **Dependency Security Audit** workflow fails in th
    - **Severity**: `HIGH` or `CRITICAL`.
    - **Advisory Identifier**: CVE ID or GitHub Security Advisory (GHSA) ID.
    - **Dependency Chain**: Whether the package is a direct dependency or a nested (transitive) dependency.
-   - **Affected File**: `package.json` (root) or `cli/package.json`.
+   - **Affected File**: `package.json` (root) or `packages/cli/package.json`.
 
 Alternatively, reproduce the audit output locally:
 
@@ -51,7 +51,7 @@ Alternatively, reproduce the audit output locally:
 npm audit --audit-level=high
 
 # Audit CLI workspace dependencies
-npm audit --audit-level=high --workspace=cli
+npm audit --audit-level=high --workspace=packages/cli
 ```
 
 ### Step 2: Assess Reachability and Impact
@@ -83,7 +83,7 @@ If Dependabot has already submitted a weekly grouped PR addressing the vulnerabi
 
 If a newer patched version of a direct dependency is released:
 
-1. Update the version constraint in `package.json` or `cli/package.json`:
+1. Update the version constraint in `package.json` or `packages/cli/package.json`:
    ```bash
    npm install <package>@latest
    ```
@@ -115,7 +115,7 @@ If the advisory resides in a nested transitive dependency and the parent package
 If patching requires updating a dependency across a major breaking version:
 
 1. Review the library's release notes and migration guide.
-2. Update call sites in `src/` or `cli/`.
+2. Update call sites in `src/` or `packages/cli/`.
 3. Run the full test suite (`npm test`, `npm run test:e2e`, `npm run typecheck`).
 
 #### Option E: No Upstream Patch Available
@@ -134,7 +134,7 @@ If no patched version has been released yet:
 1. Verify locally that the audit passes:
    ```bash
    npm audit --audit-level=high
-   npm audit --audit-level=high --workspace=cli
+   npm audit --audit-level=high --workspace=packages/cli
    ```
 2. Commit the changes and open a pull request.
 3. Once merged to `main`, navigate to **GitHub &rarr; Actions &rarr; Dependency Security Audit**.

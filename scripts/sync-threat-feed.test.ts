@@ -19,7 +19,7 @@ vi.mock("../src/lib/security/threat-feed", () => ({
   syncThreatFeeds: syncThreatFeedsMock,
 }));
 
-vi.mock("../cli/src/threat-intel-feed", () => ({
+vi.mock("../packages/cli/src/threat-intel-feed", () => ({
   syncCisaKevCatalog: syncCisaKevCatalogMock,
 }));
 

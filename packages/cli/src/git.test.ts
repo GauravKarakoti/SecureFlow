@@ -17,7 +17,7 @@ import {
   getCurrentBranch,
 } from "./git.js";
 
-describe("cli/src/git", () => {
+describe("packages/cli/src/git", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     execFileSyncMock.mockReset();

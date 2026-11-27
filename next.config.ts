@@ -12,8 +12,8 @@ const nextConfig: NextConfig = {
 
   turbopack: {
     resolveAlias: {
-      "./threat-intel-feed.js": "./cli/src/threat-intel-feed.ts",
-      "./threat-intel-cache.js": "./cli/src/threat-intel-cache.ts",
+      "./threat-intel-feed.js": "./packages/cli/src/threat-intel-feed.ts",
+      "./threat-intel-cache.js": "./packages/cli/src/threat-intel-cache.ts",
     },
   },
 

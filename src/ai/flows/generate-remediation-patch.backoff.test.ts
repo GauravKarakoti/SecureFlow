@@ -8,7 +8,7 @@ vi.mock("@/ai/genkit", () => ({
   getDefaultModelRef: vi.fn(() => "groq/openai/gpt-oss-20b"),
 }));
 
-vi.mock("../../../cli/src/threat-intel", () => ({
+vi.mock("../../../packages/cli/src/threat-intel", () => ({
   queryLiveThreatIntelligence: vi.fn(async () => ""),
 }));
 

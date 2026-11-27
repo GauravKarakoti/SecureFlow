@@ -6,7 +6,7 @@ describe("npm workspaces and lockfile configuration (#636)", () => {
   const rootDir = process.cwd();
   const rootPackageJsonPath = path.join(rootDir, "package.json");
   const rootPackageLockPath = path.join(rootDir, "package-lock.json");
-  const cliDir = path.join(rootDir, "cli");
+  const cliDir = path.join(rootDir, "packages", "cli");
   const cliPackageJsonPath = path.join(cliDir, "package.json");
   const cliPackageLockPath = path.join(cliDir, "package-lock.json");
 
@@ -16,12 +16,12 @@ describe("npm workspaces and lockfile configuration (#636)", () => {
 
     expect(rootPkg).toHaveProperty("workspaces");
     expect(Array.isArray(rootPkg.workspaces)).toBe(true);
-    expect(rootPkg.workspaces).toContain("cli");
+    expect(rootPkg.workspaces).toContain("packages/cli");
   });
 
   it("maintains a single source of truth for the lockfile at repository root", () => {
     expect(fs.existsSync(rootPackageLockPath)).toBe(true);
-    // cli/package-lock.json must be removed in favor of root package-lock.json
+    // packages/cli/package-lock.json must be removed in favor of root package-lock.json
     expect(fs.existsSync(cliPackageLockPath)).toBe(false);
   });
 
@@ -29,9 +29,9 @@ describe("npm workspaces and lockfile configuration (#636)", () => {
     const rootLock = JSON.parse(fs.readFileSync(rootPackageLockPath, "utf8"));
     expect(rootLock).toHaveProperty("packages");
 
-    // In npm workspaces, packages['cli'] or packages['node_modules/secureflow-cli'] is defined
+    // In npm workspaces, packages['packages/cli'] or packages['node_modules/secureflow-cli'] is defined
     const hasCliPackage = Boolean(
-      rootLock.packages["cli"] || rootLock.packages["node_modules/secureflow-cli"],
+      rootLock.packages["packages/cli"] || rootLock.packages["node_modules/secureflow-cli"],
     );
     expect(hasCliPackage).toBe(true);
   });
@@ -40,8 +40,8 @@ describe("npm workspaces and lockfile configuration (#636)", () => {
     const rootPkg = JSON.parse(fs.readFileSync(rootPackageJsonPath, "utf8"));
     expect(rootPkg.scripts).toHaveProperty("cli:build");
     expect(rootPkg.scripts).toHaveProperty("cli:test");
-    expect(rootPkg.scripts["cli:build"]).toContain("--workspace=cli");
-    expect(rootPkg.scripts["cli:test"]).toContain("--workspace=cli");
+    expect(rootPkg.scripts["cli:build"]).toContain("--workspace=packages/cli");
+    expect(rootPkg.scripts["cli:test"]).toContain("--workspace=packages/cli");
   });
 
   it("validates cli package.json structure and compatibility with workspaces", () => {

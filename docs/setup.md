@@ -192,7 +192,7 @@ If ArmorIQ becomes slow or unreachable, a circuit breaker opens after 3 consecut
 
 ## 7. Workspace Architecture & Dependency Management
 
-SecureFlow is organized as an **npm workspace** monorepo with the root project and the `cli/` workspace (`secureflow-cli`). All dependencies are hoisted and managed under a single source of truth at `package-lock.json` in the project root.
+SecureFlow is organized as an **npm workspace** monorepo with the root project and the `packages/cli/` workspace (`secureflow-cli`). All dependencies are hoisted and managed under a single source of truth at `package-lock.json` in the project root.
 
 ### Common Workspace Commands
 
@@ -204,13 +204,13 @@ SecureFlow is organized as an **npm workspace** monorepo with the root project a
   ```bash
   npm run cli:build
   # or directly with npm workspace:
-  npm run build --workspace=cli
+  npm run build --workspace=packages/cli
   ```
 - **Run CLI tests via workspace**:
   ```bash
   npm run cli:test
   # or directly with npm workspace:
-  npm run test --workspace=cli
+  npm run test --workspace=packages/cli
   ```
 - **Typecheck CLI workspace**:
   ```bash

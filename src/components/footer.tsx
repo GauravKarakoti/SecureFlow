@@ -168,7 +168,7 @@ export function Footer() {
             </span>
             <span>·</span>
             <Link
-              href="https://github.com/GauravKarakoti/SecureFlow/blob/main/cli/CHANGELOG.md"
+              href="https://github.com/GauravKarakoti/SecureFlow/blob/main/packages/cli/CHANGELOG.md"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground transition-colors hover:text-foreground"

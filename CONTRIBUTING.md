@@ -92,9 +92,9 @@ SecureFlow categorizes open issues with difficulty labels to help you find tasks
 1. **Accessibility & Contrast Enhancements**:
    - _Example_: Adjusting badge contrast ratios in `src/lib/severity-theme.ts` to satisfy WCAG AA (4.5:1 ratio) and adding `aria-label` / `role="status"` attributes to `src/components/ui/severity-badge.tsx`.
 2. **CLI Output Formatting & Standard Conventions**:
-   - _Example_: Supporting the `NO_COLOR` standard and `--no-color` flag in `cli/src/lib/tui.ts` to disable ANSI escape sequences when piping output to files or CI viewers.
+   - _Example_: Supporting the `NO_COLOR` standard and `--no-color` flag in `packages/cli/src/lib/tui.ts` to disable ANSI escape sequences when piping output to files or CI viewers.
 3. **Snapshot & Unit Tests**:
-   - _Example_: Adding snapshot tests in `cli/src/lib/tui.snapshot.test.ts` to prevent terminal UI layout regressions on tables and summary banners.
+   - _Example_: Adding snapshot tests in `packages/cli/src/lib/tui.snapshot.test.ts` to prevent terminal UI layout regressions on tables and summary banners.
 4. **Documentation & Typos**:
    - _Example_: Fixing broken documentation links, clarifying prerequisites in guides, or updating JSDoc comments on utility functions.
 
@@ -112,9 +112,9 @@ SecureFlow categorizes open issues with difficulty labels to help you find tasks
 **Concrete Examples:**
 
 1. **Interactive CLI Initialization (`secureflow init`)**:
-   - _Example_: Adding `cli/src/config.ts` and wiring `secureflow init` in `cli/src/index.ts` to prompt users for scan paths, fail-on thresholds, and AI remediation, writing a commented `.secureflowrc.json`, while supporting `--yes` and `--force`.
+   - _Example_: Adding `packages/cli/src/config.ts` and wiring `secureflow init` in `packages/cli/src/index.ts` to prompt users for scan paths, fail-on thresholds, and AI remediation, writing a commented `.secureflowrc.json`, while supporting `--yes` and `--force`.
 2. **Git Diff Scanning (`--since REF`)**:
-   - _Example_: Adding `--since <ref>` in `cli/src/git.ts` and `cli/src/index.ts` to scan only added, modified, and renamed files compared to a branch (e.g. `origin/main`), skipping deleted files, and handling non-git directories gracefully.
+   - _Example_: Adding `--since <ref>` in `packages/cli/src/git.ts` and `packages/cli/src/index.ts` to scan only added, modified, and renamed files compared to a branch (e.g. `origin/main`), skipping deleted files, and handling non-git directories gracefully.
 3. **Dark / Light / System Theme Toggle**:
    - _Example_: Creating `src/components/theme-toggle.tsx`, persisting preference in `localStorage`, handling system preference changes, and preventing flashes of unstyled content in `src/app/layout.tsx`.
 4. **Side-by-Side Code Context & Remediation Viewer**:
@@ -151,7 +151,7 @@ Before diving in, take a moment to review our primary stack:
 
 - **Web Application**: Next.js 16 (App Router), React 19, TypeScript
 - **Styling & Components**: Tailwind CSS, Radix UI primitives, Lucide React
-- **CLI**: Node.js CLI workspace (`cli/`), TypeScript, Zod, Model Context Protocol (MCP) SDK
+- **CLI**: Node.js CLI workspace (`packages/cli/`), TypeScript, Zod, Model Context Protocol (MCP) SDK
 - **Database & Cache**: PostgreSQL with Prisma ORM, Redis (Upstash / ioredis)
 - **Background Jobs**: BullMQ distributed task queues
 - **Testing**: Vitest (Unit & Integration), Playwright (E2E & Accessibility with `@axe-core/playwright`), k6 (Load Testing)
@@ -222,12 +222,12 @@ SecureFlow provides a fully automated **Dev Container** setup that works out-of-
 
 ### 1. Running & Testing the CLI (`secureflow`)
 
-The SecureFlow CLI lives in the `cli/` workspace and provides developer-facing pre-commit scanning, SBOM inspection, and threat intelligence MCP tooling.
+The SecureFlow CLI lives in the `packages/cli/` workspace and provides developer-facing pre-commit scanning, SBOM inspection, and threat intelligence MCP tooling.
 
 #### Building the CLI
 
 ```bash
-# Compile CLI TypeScript code into cli/dist/
+# Compile CLI TypeScript code into packages/cli/dist/
 npm run cli:build
 ```
 
@@ -351,7 +351,7 @@ We prioritize deterministic, fast, and comprehensive testing. Always ensure rele
 | `npm test`                    | Unit & Integration   | Runs all root and workspace unit tests via Vitest                            |
 | `npm run cli:test`            | CLI Workspace        | Runs all 700+ CLI parser, argument, and diff integration tests               |
 | `npm run typecheck`           | TypeScript           | Verifies root and dashboard types with `tsc --noEmit`                        |
-| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `cli/tsconfig.json`                               |
+| `npm run cli:typecheck`       | TypeScript           | Verifies CLI types against `packages/cli/tsconfig.json`                      |
 | `npm run lint`                | ESLint               | Lints TypeScript and React source code                                       |
 | `npm run format:check`        | Prettier             | Checks code formatting adheres to repository standards                       |
 | `npm run format`              | Prettier             | Automatically formats all files with Prettier                                |
@@ -800,16 +800,18 @@ Follow the interactive prompts to choose the change severity (`patch`, `minor`, 
 
 ```
 SecureFlow/
-├── cli/                        # SecureFlow CLI workspace (npm workspace)
-│   ├── src/                    # CLI source code
-│   │   ├── lib/                # TUI formatters, API client, local mode
-│   │   ├── mcp/                # Model Context Protocol server tools
-│   │   ├── git.ts              # Git diff & staged file utilities
-│   │   ├── scanner.ts          # Secret & vulnerability detection rules
-│   │   └── index.ts            # CLI entry point (secureflow executable)
-│   └── package.json            # CLI package manifest
 ├── docs/                       # Technical architecture & setup guides
 ├── e2e/                        # Playwright E2E and accessibility test suites
+├── packages/                   # npm workspace packages
+│   ├── api-client/             # Typed API client generated from openapi.yaml
+│   └── cli/                    # SecureFlow CLI workspace (secureflow-cli)
+│       ├── src/                # CLI source code
+│       │   ├── lib/            # TUI formatters, API client, local mode
+│       │   ├── mcp/            # Model Context Protocol server tools
+│       │   ├── git.ts          # Git diff & staged file utilities
+│       │   ├── scanner.ts      # Secret & vulnerability detection rules
+│       │   └── index.ts        # CLI entry point (secureflow executable)
+│       └── package.json        # CLI package manifest
 ├── prisma/                     # Database schema, migrations, and seeds
 │   ├── schema.prisma           # Prisma data models
 │   └── migrations/             # Applied SQL migrations

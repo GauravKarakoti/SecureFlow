@@ -1,6 +1,6 @@
 # Local Model & VRAM Configuration
 
-SecureFlow supports completely **air-gapped, zero-cloud-egress security scanning** (`src/ai/local-model.ts`, `cli/src/lib/local-mode.ts`). This allows development and security teams to scan proprietary or sensitive codebases entirely on-premises using locally-hosted Large Language Models (LLMs) rather than sending code diffs to cloud AI providers.
+SecureFlow supports completely **air-gapped, zero-cloud-egress security scanning** (`src/ai/local-model.ts`, `packages/cli/src/lib/local-mode.ts`). This allows development and security teams to scan proprietary or sensitive codebases entirely on-premises using locally-hosted Large Language Models (LLMs) rather than sending code diffs to cloud AI providers.
 
 ---
 

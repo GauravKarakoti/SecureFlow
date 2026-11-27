@@ -28,7 +28,7 @@ describe("SecureFlow CLI Workspace Integration (#636)", () => {
   it("verifies cli is properly configured as an npm workspace package", () => {
     const rootPkg = readJsonFile<{ workspaces?: string[] }>(paths.rootPackageJsonPath);
     expect(rootPkg.workspaces).toBeDefined();
-    expect(rootPkg.workspaces).toContain("cli");
+    expect(rootPkg.workspaces).toContain("packages/cli");
   });
 
   it("ensures no isolated package-lock.json remains inside cli workspace", () => {
@@ -67,27 +67,27 @@ describe("workspace module helpers (#1526)", () => {
   });
 
   describe("getWorkspacePaths", () => {
-    it("treats the base directory as cli/src and derives cli and root from it", () => {
+    it("treats the base directory as packages/cli/src and derives cli and root from it", () => {
       const root = makeTmpDir();
-      const paths = getWorkspacePaths(path.join(root, "cli", "src"));
+      const paths = getWorkspacePaths(path.join(root, "packages", "cli", "src"));
 
-      expect(paths.cliDir).toBe(path.join(root, "cli"));
+      expect(paths.cliDir).toBe(path.join(root, "packages", "cli"));
       expect(paths.rootDir).toBe(root);
     });
 
     it("places each file in the right directory", () => {
       const root = makeTmpDir();
-      const paths = getWorkspacePaths(path.join(root, "cli", "src"));
+      const paths = getWorkspacePaths(path.join(root, "packages", "cli", "src"));
 
-      expect(paths.cliPackageJsonPath).toBe(path.join(root, "cli", "package.json"));
-      expect(paths.nestedLockPath).toBe(path.join(root, "cli", "package-lock.json"));
+      expect(paths.cliPackageJsonPath).toBe(path.join(root, "packages", "cli", "package.json"));
+      expect(paths.nestedLockPath).toBe(path.join(root, "packages", "cli", "package-lock.json"));
       expect(paths.rootPackageJsonPath).toBe(path.join(root, "package.json"));
       expect(paths.rootPackageLockPath).toBe(path.join(root, "package-lock.json"));
     });
 
     it("does not depend on the current working directory", () => {
       const root = makeTmpDir();
-      const base = path.join(root, "cli", "src");
+      const base = path.join(root, "packages", "cli", "src");
       const before = getWorkspacePaths(base);
 
       const originalCwd = process.cwd();

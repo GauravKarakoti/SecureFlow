@@ -23,7 +23,7 @@ const VALID_ACTION: LifeSavingAction = {
 
 const threatIntelMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../../cli/src/threat-intel", () => ({
+vi.mock("../../../packages/cli/src/threat-intel", () => ({
   queryLiveThreatIntelligence: threatIntelMock,
 }));
 

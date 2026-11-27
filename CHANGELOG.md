@@ -5,7 +5,7 @@ All notable changes to the SecureFlow application, API services, and infrastruct
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-> Note: For changes specific to the command-line interface tool, please see [`cli/CHANGELOG.md`](cli/CHANGELOG.md).
+> Note: For changes specific to the command-line interface tool, please see [`packages/cli/CHANGELOG.md`](packages/cli/CHANGELOG.md).
 
 ---
 

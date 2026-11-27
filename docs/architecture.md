@@ -9,7 +9,7 @@ Every module, class, function, and database table name documented here matches t
 ## Table of Contents
 
 - [1. System Topology & Component Responsibilities](#1-system-topology--component-responsibilities)
-  - [1.1 SecureFlow CLI (`cli/`)](#11-secureflow-cli-cli)
+  - [1.1 SecureFlow CLI (`packages/cli/`)](#11-secureflow-cli-packagescli)
   - [1.2 GitHub Actions CI Integration](#12-github-actions-ci-integration)
   - [1.3 Ingestion & Background Worker Pipeline](#13-ingestion--background-worker-pipeline)
   - [1.4 Multi-Stage Scanning & Rules Engine](#14-multi-stage-scanning--rules-engine)
@@ -67,15 +67,15 @@ SecureFlow provides end-to-end application and supply-chain security across the 
                                                    [Mission Control Dashboard]
 ```
 
-### 1.1 SecureFlow CLI (`cli/`)
+### 1.1 SecureFlow CLI (`packages/cli/`)
 
-The **SecureFlow CLI** (`cli/src/index.ts`) is a standalone command-line security scanner designed for developer machines and local pre-commit hooks:
+The **SecureFlow CLI** (`packages/cli/src/index.ts`) is a standalone command-line security scanner designed for developer machines and local pre-commit hooks:
 
 - **Local Pre-Commit Guard**: Runs against staged git changes (`git diff --cached`) before commits are finalized, blocking exposed credentials with exit code `1`.
-- **Ignore Management**: Evaluates `.secureflowignore` and default exclude lists (`cli/src/ignore.ts`).
-- **Scan Caching**: Persists scan results in `.secureflow/cache` by content hash and ruleset version (`cli/src/cache.ts`).
-- **Threat Intel MCP Server**: Hosts a Model Context Protocol (MCP) server over stdio for IDE agents (`cli/src/mcp/index.ts`).
-- **Air-Gapped Local Mode**: Supports offline execution via `--local`, `--ollama`, or `--vllm` without external uploads (`cli/src/lib/local-mode.ts`).
+- **Ignore Management**: Evaluates `.secureflowignore` and default exclude lists (`packages/cli/src/ignore.ts`).
+- **Scan Caching**: Persists scan results in `.secureflow/cache` by content hash and ruleset version (`packages/cli/src/cache.ts`).
+- **Threat Intel MCP Server**: Hosts a Model Context Protocol (MCP) server over stdio for IDE agents (`packages/cli/src/mcp/index.ts`).
+- **Air-Gapped Local Mode**: Supports offline execution via `--local`, `--ollama`, or `--vllm` without external uploads (`packages/cli/src/lib/local-mode.ts`).
 - **Quality Gates & Exit Codes**: Implements `--fail-on <severity>` quality gates and configurable verbosity (`--quiet`, `--verbose`).
 
 ### 1.2 GitHub Actions CI Integration
@@ -149,7 +149,7 @@ flowchart TD
     subgraph TriggerLayer["1. Trigger & Ingestion Layer"]
         Developer["Developer Workstation"]
         HuskyHook["Git Pre-Commit Hook\n(.husky/pre-commit)"]
-        CLI["SecureFlow CLI\n(cli/src/index.ts)"]
+        CLI["SecureFlow CLI\n(packages/cli/src/index.ts)"]
         GH_Action["GitHub Actions Workflow\n(npx secureflow-cli)"]
         GH_PR["GitHub Pull Request Event\n(pull_request)"]
         WebhookRoute["Webhook Route Handler\n(src/app/api/webhooks/github/route.ts)"]
@@ -379,7 +379,7 @@ SecureFlow separates rules into deterministic static checks and AI detection rul
 - **Dependency Rules** (`src/lib/rules/dependency-rules.ts`): Scans software manifests (`package.json`, `requirements.txt`) for high-risk or malicious packages.
 - **IaC Rules** (`src/lib/rules/iac-rules.ts`): Checks Dockerfiles, Terraform, Kubernetes, and Helm manifests for misconfigurations.
 - **Secret Detection Rules** (`src/lib/armor/secret-detector.ts`): High-speed regex and entropy detection for hardcoded tokens and credentials.
-- **CLI Secret Indicators** (`cli/src/scanner.ts`): Terminal-side secret logging patterns checked during pre-commit.
+- **CLI Secret Indicators** (`packages/cli/src/scanner.ts`): Terminal-side secret logging patterns checked during pre-commit.
 
 #### Step 2: Implement the Rule Function
 
@@ -433,7 +433,7 @@ SecureFlow supports multiple LLM providers (`groq`, `ollama`, `vllm`, `openai`, 
 Add the provider to `SUPPORTED_AI_PROVIDERS` in:
 
 - `src/ai/model-config.ts` (`SUPPORTED_AI_PROVIDERS = ["groq", "ollama", "vllm", "openai", "custom", "my_new_provider"] as const`)
-- `cli/src/lib/local-mode.ts` (`SUPPORTED_AI_PROVIDERS`)
+- `packages/cli/src/lib/local-mode.ts` (`SUPPORTED_AI_PROVIDERS`)
 
 #### Step 2: Update Environment Schema
 
@@ -469,7 +469,7 @@ In `src/ai/resilience.ts`, add model references to the fallback chain so outages
 Run the AI model configuration test suites:
 
 ```bash
-npx vitest run src/ai/model-config.test.ts src/ai/genkit.test.ts cli/src/lib/local-mode.test.ts
+npx vitest run src/ai/model-config.test.ts src/ai/genkit.test.ts packages/cli/src/lib/local-mode.test.ts
 ```
 
 ---
@@ -724,12 +724,12 @@ erDiagram
 
 | Functional Area            | Source File Path                                              | Description                                                       |
 | :------------------------- | :------------------------------------------------------------ | :---------------------------------------------------------------- |
-| **CLI Entry Point**        | `cli/src/index.ts`                                            | CLI option parsing, scan orchestrator, output format router       |
-| **CLI Pattern Scanner**    | `cli/src/scanner.ts`                                          | Secret detector, entropy calculator, and formatting engine        |
-| **CLI Ignore Rules**       | `cli/src/ignore.ts`                                           | `.secureflowignore` parser and path glob matcher                  |
-| **CLI Local Cache**        | `cli/src/cache.ts`                                            | Local hash cache and ruleset version invalidator                  |
-| **CLI API Client**         | `cli/src/lib/api-client.ts`                                   | Remote scan and SBOM API client                                   |
-| **CLI Terminal UI**        | `cli/src/lib/tui.ts`                                          | ANSI styling, progress indicator, and spinner                     |
+| **CLI Entry Point**        | `packages/cli/src/index.ts`                                   | CLI option parsing, scan orchestrator, output format router       |
+| **CLI Pattern Scanner**    | `packages/cli/src/scanner.ts`                                 | Secret detector, entropy calculator, and formatting engine        |
+| **CLI Ignore Rules**       | `packages/cli/src/ignore.ts`                                  | `.secureflowignore` parser and path glob matcher                  |
+| **CLI Local Cache**        | `packages/cli/src/cache.ts`                                   | Local hash cache and ruleset version invalidator                  |
+| **CLI API Client**         | `packages/cli/src/lib/api-client.ts`                          | Remote scan and SBOM API client                                   |
+| **CLI Terminal UI**        | `packages/cli/src/lib/tui.ts`                                 | ANSI styling, progress indicator, and spinner                     |
 | **Webhook Ingestion**      | `src/app/api/webhooks/github/route.ts`                        | Ingestion route handler, rate limit, verification, and enqueueing |
 | **Webhook Security**       | `src/lib/github/webhook-verification.ts`                      | HMAC SHA-256 validation with zero-downtime secret rotation        |
 | **Deduplication**          | `src/lib/github/webhook-dedup.ts`                             | Atomic Redis delivery ID deduplication with 24h TTL               |

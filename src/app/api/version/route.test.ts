@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GET } from "./route";
-import cliPackageJson from "../../../../cli/package.json";
+import cliPackageJson from "../../../../packages/cli/package.json";
 
 describe("GET /api/version", () => {
   const originalEnv = process.env;

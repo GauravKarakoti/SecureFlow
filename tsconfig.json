@@ -20,7 +20,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "secureflow-cli/contracts": ["./cli/src/contracts/index.ts"]
+      "secureflow-cli/contracts": ["./packages/cli/src/contracts/index.ts"]
     }
   },
   "include": [

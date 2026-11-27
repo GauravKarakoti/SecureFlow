@@ -116,7 +116,7 @@ export function scanSuppliedContent(args: Record<string, unknown>) {
       ? (args.threatIntelSource as ThreatIntelResolutionSource)
       : getThreatIntelSource();
 
-  // ── Incremental Mode: Scans uncommitted Git diff changes via cli/src/git.ts ──
+  // ── Incremental Mode: Scans uncommitted Git diff changes via packages/cli/src/git.ts ──
   if (isIncremental) {
     if (!isGitRepository()) {
       throw new Error("Incremental scan mode requires execution inside a Git repository");

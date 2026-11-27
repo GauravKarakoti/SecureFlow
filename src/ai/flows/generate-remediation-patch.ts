@@ -16,7 +16,7 @@ import {
   resolveLocalFallbackModels,
   resolveLocalModelConfig,
 } from "@/ai/local-model";
-import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
+import { queryLiveThreatIntelligence } from "../../../packages/cli/src/threat-intel";
 import { detectPromptInjection } from "./security-helpers";
 import { verifyPatchInTempCopy, type PatchVerificationResult } from "@/lib/patch/patch-verifier";
 

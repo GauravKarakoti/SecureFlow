@@ -18,7 +18,8 @@ const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export function getWorkspacePaths(baseDir: string = moduleDir): WorkspacePaths {
   const cliDir = path.resolve(baseDir, "..");
-  const rootDir = path.resolve(cliDir, "..");
+  // The CLI lives at packages/cli, so the repo root is two levels up.
+  const rootDir = path.resolve(cliDir, "..", "..");
 
   return {
     cliDir,
