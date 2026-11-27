@@ -16,6 +16,7 @@ import { parseUnifiedPatch, addedLines } from "@/lib/armor/diff";
 import { detectFileLanguage } from "@/lib/scanner/language-detector";
 import type { Severity } from "@/lib/severity";
 import type { FileChange, ScanFinding } from "@/lib/armor/scanner";
+import { scanChangedFileForPrototypePollution } from "@/lib/rules/prototype-pollution-rules";
 
 export const PATTERN_RULE_IDS = {
   // Python
@@ -374,7 +375,7 @@ export function scanFileWithPatternRules(
     }
   }
 
-  return findings;
+  return [...findings, ...scanChangedFileForPrototypePollution(file, repositoryId)];
 }
 
 /**
