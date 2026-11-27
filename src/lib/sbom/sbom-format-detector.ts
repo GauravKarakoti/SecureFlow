@@ -20,6 +20,8 @@ const PURL_ECOSYSTEM: Record<string, Dependency["ecosystem"]> = {
   pypi: "pypi",
   maven: "maven",
   gem: "gem",
+  cargo: "cargo",
+  golang: "go",
 };
 
 interface PackageCoordinates {
@@ -47,7 +49,7 @@ function qualifiedName(
 ): string {
   if (!namespace) return name;
   if (ecosystem === "maven") return `${namespace}:${name}`;
-  if (ecosystem === "npm") return `${namespace}/${name}`;
+  if (ecosystem === "npm" || ecosystem === "go") return `${namespace}/${name}`;
   return name;
 }
 
