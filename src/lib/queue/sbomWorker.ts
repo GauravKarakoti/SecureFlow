@@ -25,6 +25,7 @@ import {
   parseManifestFile,
 } from "@/lib/sbom/dependency-parser";
 import { detectAndParseSbom } from "@/lib/sbom/sbom-format-detector";
+import { exportCycloneDxBom, exportSpdxDocument } from "@/lib/sbom/sbom-exporter";
 import { matchVulnerabilities } from "@/lib/sbom/vulnerability-matcher";
 import { sbomDLQ, SbomJobData, SBOM_QUEUE_NAME } from "./sbomQueue";
 import type { SbomScanResult, VulnerabilityMatch } from "@/types/sbom";
@@ -424,8 +425,9 @@ export async function processSbomJob(job: Job<SbomJobData>): Promise<SbomScanRes
 
     assertOwnership();
 
-    // 5. Perform dependency parsing and vulnerability matching.
+    // 5. Perform dependency parsing, SBOM normalization, and vulnerability matching.
     const dependencies = parseManifestFile(content, fileName);
+    const normalizedBom = exportCycloneDxBom(dependencies, { projectName: fileName });
     const vulnerabilities = await matchVulnerabilities(dependencies);
 
     // If a heartbeat failed or the lease was reclaimed during parsing, do not
@@ -435,7 +437,7 @@ export async function processSbomJob(job: Job<SbomJobData>): Promise<SbomScanRes
     const result: SbomScanResult = {
       scanId: scanJobId,
       timestamp: new Date(),
-      totalDependencies: dependencies.length,
+      totalDependencies: normalizedBom.components.length,
       vulnerabilities,
       status: vulnerabilities.length > 0 ? "VULNERABLE" : "CLEAN",
     };
@@ -700,3 +702,17 @@ sbomWorker.on("failed", async (job: Job | undefined, err: Error) => {
     });
   }
 });
+
+/**
+ * Export a parsed manifest file as a CycloneDX 1.5 or SPDX 2.3 SBOM document.
+ */
+export function generateSbomExportForManifest(
+  content: string,
+  fileName: string,
+  format: "cyclonedx" | "spdx" = "cyclonedx",
+) {
+  const dependencies = parseManifestFile(content, fileName);
+  return format === "spdx"
+    ? exportSpdxDocument(dependencies, { documentName: fileName })
+    : exportCycloneDxBom(dependencies, { projectName: fileName });
+}
