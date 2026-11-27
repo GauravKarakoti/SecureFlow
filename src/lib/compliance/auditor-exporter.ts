@@ -8,6 +8,11 @@ import {
 } from "@/lib/compliance/taxonomy";
 import { enrichFindingsWithComplianceTags } from "@/lib/policies/compliance-engine";
 import { calculateHeistRiskScore, calculateVaultIntegrity } from "@/lib/reports/shareable-report";
+import {
+  buildOpenVexFromDossier,
+  type OpenVexDocument,
+  type OpenVexDocumentOptions,
+} from "@/lib/compliance/vex-exporter";
 /**
  * Compliance Auditor Export Engine
  *
@@ -559,4 +564,14 @@ export function generateAuditorPdfHtml(dossier: AuditorComplianceDossier): strin
 </body>
 </html>
   `.trim();
+}
+
+/**
+ * Exports an AuditorComplianceDossier's findings as an OpenVEX v0.2.0 exploitability document.
+ */
+export function exportComplianceDossierAsOpenVex(
+  dossier: AuditorComplianceDossier,
+  options?: OpenVexDocumentOptions & { productPurlPrefix?: string },
+): OpenVexDocument {
+  return buildOpenVexFromDossier(dossier, options);
 }
