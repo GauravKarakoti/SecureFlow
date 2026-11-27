@@ -8,6 +8,20 @@ export default defineConfig({
   lastUpdated: true,
   // Ignore links to source files outside the docs folder and local dev ports
   ignoreDeadLinks: [/^https?:\/\/localhost/, /^(\.\/)?\.\.\//, /^file:\/\//, /^mailto:/],
+  markdown: {
+    // Turn ```mermaid fences into <MermaidDiagram> (registered in ./theme) so they
+    // render as diagrams instead of plain code blocks (#2178).
+    config(md) {
+      const fence = md.renderer.rules.fence!;
+      md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+        const token = tokens[idx];
+        if (token.info.trim() === "mermaid") {
+          return `<MermaidDiagram code="${encodeURIComponent(token.content)}" />\n`;
+        }
+        return fence(tokens, idx, options, env, self);
+      };
+    },
+  },
   themeConfig: {
     siteTitle: "SecureFlow",
     logo: "/logo.png",
