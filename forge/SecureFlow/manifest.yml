@@ -1,0 +1,80 @@
+modules:
+  rovo:agent:
+    - key: secureflow-security-agent
+      name: SecureFlow Triage Agent
+      description: Context-aware security and CI/CD triage agent grounded in Jira, Confluence, and Teamwork Graph
+      prompt: >
+        You are the SecureFlow Security & Release Context Agent for software engineering teams.
+        Use your actions to inspect repository security findings, correlate related Jira issues,
+        Confluence architecture/decision docs, and Teamwork Graph relationships, and recommend
+        safe remediation or deployment gates.
+        Always state severity, affected files/dependencies, and linked organizational context
+        before proposing an action. If required parameters (such as a repository, PR/issue key,
+        or finding ID) are missing, ask the user clearly before executing mutating actions.
+      conversationStarters:
+        - Triage open security findings for this issue or repository
+        - Check deployment risk and linked decisions in Teamwork Graph
+        - Summarize policy and MCP threat-intel context for a PR
+      actions:
+        - triage-security-context
+        - query-teamwork-context
+  action:
+    - key: triage-security-context
+      name: Triage Security Context
+      function: triageSecurityContext
+      actionVerb: GET
+      description: >
+        Retrieves security findings, policy status, and contextual triage guidance
+        for a given repository, pull request, or Jira issue.
+      inputs:
+        target:
+          title: Target (Repo / PR / Issue Key)
+          type: string
+          required: true
+          description: |
+            Repository name, PR identifier, or Jira issue key to analyze
+        severityFilter:
+          title: Minimum Severity
+          type: string
+          required: false
+          description: |
+            Optional minimum severity filter (CRITICAL, HIGH, MEDIUM, LOW)
+    - key: query-teamwork-context
+      name: Query Teamwork Graph Context
+      function: queryTeamworkContext
+      actionVerb: GET
+      description: >
+        Fetches related work items, goals, contributors, and decision context
+        from Atlassian Teamwork Graph for a target entity.
+      inputs:
+        entityRef:
+          title: Entity Reference
+          type: string
+          required: true
+          description: |
+            Jira key, Confluence page/space reference, or service/repo identifier
+  rovo:mcp:
+    - key: secureflow-mcp-server
+      name: SecureFlow MCP Server
+      tools:
+        - triage-security-context
+        - query-teamwork-context
+  function:
+    - key: triageSecurityContext
+      handler: index.triageSecurityContext
+    - key: queryTeamworkContext
+      handler: index.queryTeamworkContext
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:confluence-content.summary
+    - read:confluence-space.summary
+    - read:graph:issue:jira
+    - read:graph:page:confluence
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/9cc42db4-313d-48da-8f9a-838ab68bf55c

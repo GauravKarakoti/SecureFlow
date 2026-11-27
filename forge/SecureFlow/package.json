@@ -1,0 +1,16 @@
+{
+  "name": "secureflow-forge-app",
+  "version": "1.0.0",
+  "description": "SecureFlow Atlassian Forge app with Rovo triage agent, Teamwork Graph context, and MCP tools",
+  "main": "index.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "lint": "forge lint",
+    "deploy": "forge deploy",
+    "install:demo": "forge install --demo-site"
+  },
+  "dependencies": {
+    "@forge/api": "^6.0.0"
+  }
+}
