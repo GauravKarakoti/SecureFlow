@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "workspaces": [
-    "cli",
+    "packages/cli",
     "packages/api-client"
   ],
   "scripts": {
@@ -31,10 +31,10 @@
     "test:a11y": "playwright test e2e/dashboard-accessibility.spec.ts",
     "test:visual": "playwright test e2e/visual-regression.spec.ts --project=visual",
     "test:visual:update": "playwright test e2e/visual-regression.spec.ts --project=visual --update-snapshots",
-    "cli:build": "npm run build --workspace=cli",
-    "cli:test": "npm run test --workspace=cli",
-    "cli:test:e2e": "npm run test:e2e --workspace=cli",
-    "cli:typecheck": "tsc --noEmit --project cli/tsconfig.json",
+    "cli:build": "npm run build --workspace=packages/cli",
+    "cli:test": "npm run test --workspace=packages/cli",
+    "cli:test:e2e": "npm run test:e2e --workspace=packages/cli",
+    "cli:typecheck": "tsc --noEmit --project packages/cli/tsconfig.json",
     "db:gen": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",

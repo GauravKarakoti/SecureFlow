@@ -15,7 +15,6 @@ export default defineConfig({
       "*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
-      "cli/src/**/*.test.ts",
       "packages/**/*.test.ts",
       "tests/**/*.test.ts",
       "scripts/**/*.test.ts",
@@ -71,7 +70,7 @@ export default defineConfig({
       },
       {
         find: "secureflow-cli/contracts",
-        replacement: import.meta.dirname + "/cli/src/contracts/index.ts",
+        replacement: import.meta.dirname + "/packages/cli/src/contracts/index.ts",
       },
     ],
   },

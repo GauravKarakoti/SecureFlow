@@ -33,7 +33,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-describe("cli/src/lib/tui (#1712)", () => {
+describe("packages/cli/src/lib/tui (#1712)", () => {
   describe("ANSI colors and styling", () => {
     it("decorates strings with ANSI codes when enabled", () => {
       expect(colors.red("test")).toContain("test");

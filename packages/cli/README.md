@@ -341,7 +341,7 @@ secureflow --local
 - **Staged Code Stays Local**: File contents are parsed and scanned strictly in-memory on your local machine.
 - **Compatible with Local Models**: Seamlessly pairs with local Ollama or vLLM deployments (`--local-model <tag>`).
 
-For hardware requirements, VRAM sizing, and fallback configuration, see the [Local Model & VRAM Guide](../docs/local-inference.md).
+For hardware requirements, VRAM sizing, and fallback configuration, see the [Local Model & VRAM Guide](../../docs/local-inference.md).
 
 ---
 
@@ -399,7 +399,7 @@ Add this configuration to your `claude_desktop_config.json` or Cursor MCP settin
 
 _All MCP tool calls are gated behind ArmorIQ cryptographic intent verification to enforce zero-trust boundary compliance and mitigate Prompt Injection (CWE-94)._
 
-For comprehensive IDE configuration steps, intent signing keys, and manual testing instructions, see the dedicated [Threat Intelligence MCP Server Guide](../docs/mcp-server.md).
+For comprehensive IDE configuration steps, intent signing keys, and manual testing instructions, see the dedicated [Threat Intelligence MCP Server Guide](../../docs/mcp-server.md).
 
 ---
 

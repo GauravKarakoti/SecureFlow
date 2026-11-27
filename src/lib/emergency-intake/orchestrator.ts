@@ -1,7 +1,7 @@
 import Groq from "groq-sdk";
 import type { ChatCompletionContentPart } from "groq-sdk/resources/chat/completions";
 import { env } from "@/lib/env";
-import { queryLiveThreatIntelligence } from "../../../cli/src/threat-intel";
+import { queryLiveThreatIntelligence } from "../../../packages/cli/src/threat-intel";
 import type { EmergencyIntakeInput, LifeSavingAction } from "./schemas";
 import { EmergencyIntakeInputSchema } from "./schemas";
 import { LifeSavingActionSchema, LifeSavingActionValidationError } from "./schemas";

@@ -7,7 +7,7 @@ import { resolveCwe } from "@/lib/cwe";
 /**
  * Publishing scan results to GitHub's native Code Scanning UI.
  *
- * `cli/src/sarif.ts` also produces SARIF, but from the CLI scanner's own
+ * `packages/cli/src/sarif.ts` also produces SARIF, but from the CLI scanner's own
  * `FileScanResult[]` and only for its console-secret-logging rules. Server
  * findings are a different shape entirely (type, severity, fileLocation,
  * fingerprint, AI-written explanation), so the two builders stay separate

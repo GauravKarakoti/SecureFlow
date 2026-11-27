@@ -186,7 +186,7 @@ describe("CLI Scan Cache Atomic Write, Locking & Checksum Integrity (#2070)", ()
 
     const workerScriptFile = path.join(os.tmpdir(), `sf-cache-worker-${Date.now()}.mts`);
     fs.writeFileSync(workerScriptFile, workerScript, "utf-8");
-    const tsxCli = path.resolve(import.meta.dirname, "../../node_modules/tsx/dist/cli.mjs");
+    const tsxCli = path.resolve(import.meta.dirname, "../../../node_modules/tsx/dist/cli.mjs");
     const workerCount = 5;
 
     try {

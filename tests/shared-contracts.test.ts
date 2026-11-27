@@ -11,7 +11,7 @@ import {
   cliScanRequestSchema as contractsScanSchema,
   cliScanResponseSchema as contractsResponseSchema,
   MAX_FILES_PER_REQUEST as CONTRACTS_MAX_FILES,
-} from "../cli/src/contracts/index";
+} from "../packages/cli/src/contracts/index";
 
 describe("Shared API Contracts Integration (#1696)", () => {
   it("ensures server route and CLI contracts share identical schema references", () => {

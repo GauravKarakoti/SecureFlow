@@ -252,7 +252,7 @@ export async function run() {
 
   // Resolve CLI execution path
   const actionRoot = path.resolve(import.meta.dirname, "..");
-  const localCliDist = path.join(actionRoot, "cli", "dist", "index.js");
+  const localCliDist = path.join(actionRoot, "packages", "cli", "dist", "index.js");
   let cliCmd = "";
 
   if (fs.existsSync(localCliDist)) {

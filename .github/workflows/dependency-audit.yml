@@ -41,4 +41,4 @@ jobs:
         if: always()
         run: |
           echo "Running npm audit for CLI workspace dependencies (fails on high or critical advisories)..."
-          npm audit --audit-level=high --workspace=cli
+          npm audit --audit-level=high --workspace=packages/cli

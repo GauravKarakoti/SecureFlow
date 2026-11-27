@@ -8,7 +8,7 @@ import {
   BENIGN_PATTERN_REGEX,
 } from "./entropy.js";
 
-describe("cli/src/entropy.ts unit tests (#1512)", () => {
+describe("packages/cli/src/entropy.ts unit tests (#1512)", () => {
   describe("calculateShannonEntropy", () => {
     it("returns 0 for empty or empty-like strings", () => {
       expect(calculateShannonEntropy("")).toBe(0);

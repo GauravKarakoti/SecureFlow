@@ -1,4 +1,4 @@
-import cliPackageJson from "../../cli/package.json";
+import cliPackageJson from "../../packages/cli/package.json";
 
 export interface VersionInfo {
   version: string;

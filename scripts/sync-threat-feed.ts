@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { syncCisaKevCatalog } from "../cli/src/threat-intel-feed";
+import { syncCisaKevCatalog } from "../packages/cli/src/threat-intel-feed";
 import {
   DEFAULT_FEED_PATH,
   DEFAULT_THREAT_FEED_SOURCES,

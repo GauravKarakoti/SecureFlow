@@ -697,7 +697,7 @@ SecureFlow ships with pre-built policy templates that are seeded into the databa
 
 SecureFlow links local developer workflows, automated CI/CD pipelines, and pull request audits with a centralized Mission Control dashboard:
 
-- **CLI (`cli/`)**: Standalone developer scanner and git pre-commit hook (`.husky/pre-commit`) providing local secret checking, scan caching, and `--fail-on` quality gates.
+- **CLI (`packages/cli/`)**: Standalone developer scanner and git pre-commit hook (`.husky/pre-commit`) providing local secret checking, scan caching, and `--fail-on` quality gates.
 - **GitHub Action (`.github/workflows/`)**: Automated CI security analysis via `npx secureflow-cli`, exporting SARIF code scanning reports to GitHub Security.
 - **Backend Ingestion & Workers**: Event-driven webhook handler (`/api/webhooks/github`), Redis delivery deduplication, BullMQ fair queue scheduling, and distributed workers.
 - **Scanning & Rules Engine**: High-speed deterministic rules for secrets, workflows (`.github/workflows/*.yml`), package dependencies, and IaC manifests.

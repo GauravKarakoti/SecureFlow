@@ -1,6 +1,6 @@
 # SecureFlow Threat Intelligence MCP Server
 
-The SecureFlow CLI includes a **Model Context Protocol (MCP)** server (`cli/src/mcp/index.ts`) exposing bundled advisory examples and caller-provided remediation-history summaries over standard I/O (`stdio`). It does not fetch a live CVE feed or connect to the dashboard database.
+The SecureFlow CLI includes a **Model Context Protocol (MCP)** server (`packages/cli/src/mcp/index.ts`) exposing bundled advisory examples and caller-provided remediation-history summaries over standard I/O (`stdio`). It does not fetch a live CVE feed or connect to the dashboard database.
 
 IDE agents can retrieve the bundled guidance and inspect reported remediation outcomes. Treat these as context for review, not verification that an advisory is current or that an applied patch resolves a vulnerability.
 
@@ -60,7 +60,7 @@ heuristic checks directly quoted ASCII tokens in console calls using the CLI's
 
 When scanning files or diffs in air-gapped, offline, or network-constrained environments, or when remote threat feed queries return HTTP 429 or 5xx:
 
-- `cli/src/threat-intel-cache.ts` provides Stale-While-Revalidate (SWR) cache support with automatic fallback to stale/expired cached indicators.
+- `packages/cli/src/threat-intel-cache.ts` provides Stale-While-Revalidate (SWR) cache support with automatic fallback to stale/expired cached indicators.
 - In-memory and Redis caches verify SHA-256 integrity checksums before loading indicators into the scan pipeline.
 - The scan output schema includes `threatIntelSource: "live" | "cache" | "stale-fallback"`, guaranteeing that tool invocations remain non-blocking even during remote feed outages.
 
@@ -70,7 +70,7 @@ When `workspaceRoot` is provided (or defaulting to `process.cwd()`), all analyze
 
 - Canonical paths are resolved through realpath evaluation.
 - Relative traversal patterns (`../`, `..\\`) and symbolic links pointing outside the workspace boundary are rejected with a structured `PATH_TRAVERSAL_FORBIDDEN` error.
-- When `incremental: true` is passed, the tool interacts with `cli/src/git.ts` to inspect staged repository diffs (`getStagedFiles()`, `readStagedContent()`), sandboxing each file reference and reporting violations strictly on modified code hunks.
+- When `incremental: true` is passed, the tool interacts with `packages/cli/src/git.ts` to inspect staged repository diffs (`getStagedFiles()`, `readStagedContent()`), sandboxing each file reference and reporting violations strictly on modified code hunks.
 - Prevents malicious repository payloads from traversing outside the permitted repository directory or reading arbitary files via symlink escapes.
 - Provides native support for pre-commit CI runs and IDE agents reviewing uncommitted changes.
 
@@ -140,7 +140,7 @@ The standalone CLI has no authenticated production-data connection. Supply only
 non-sensitive advisory IDs and outcomes; do not include source code or secrets.
 
 The input JSON Schema is defined in
-[`index.ts`](../cli/src/mcp/index.ts) and returned by
+[`index.ts`](../packages/cli/src/mcp/index.ts) and returned by
 `tools/list`:
 
 ```json
@@ -495,7 +495,7 @@ If you are developing inside the SecureFlow repository or testing local modifica
 1. Build the CLI package:
 
    ```bash
-   cd cli
+   cd packages/cli
    npm run build
    ```
 
@@ -505,7 +505,7 @@ If you are developing inside the SecureFlow repository or testing local modifica
      "mcpServers": {
        "secureflow-local": {
          "command": "node",
-         "args": ["/absolute/path/to/SecureFlow/cli/dist/index.js", "mcp"]
+         "args": ["/absolute/path/to/SecureFlow/packages/cli/dist/index.js", "mcp"]
        }
      }
    }

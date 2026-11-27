@@ -19,7 +19,7 @@ function getTextContent(response: Awaited<ReturnType<Client["callTool"]>>): Text
   return response.content as TextContentItem[];
 }
 
-describe("cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
+describe("packages/cli/src/mcp (SecureFlow Threat Intelligence MCP Server)", () => {
   describe("KNOWLEDGE_BASE", () => {
     it("contains registered threat intelligence entries with required fields", () => {
       expect(KNOWLEDGE_BASE.length).toBeGreaterThanOrEqual(5);

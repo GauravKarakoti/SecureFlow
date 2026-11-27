@@ -4,7 +4,7 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { GET } from "./route";
 import { validateSecureFlowJson } from "secureflow-cli/contracts";
-import { generateSecureFlowJson } from "../../../cli/src/init-config.js";
+import { generateSecureFlowJson } from "../../../packages/cli/src/init-config.js";
 
 describe("SecureFlow Configuration Schema (/schema.json)", () => {
   const schemaPath = path.join(process.cwd(), "public", "schema.json");

@@ -64,19 +64,19 @@ jobs:
 
       - name: Verify CLI binary executable & help output
         run: |
-          test -f cli/dist/index.js || { echo "❌ CLI build failed: cli/dist/index.js not found"; exit 1; }
-          node cli/dist/index.js --help
+          test -f packages/cli/dist/index.js || { echo "❌ CLI build failed: packages/cli/dist/index.js not found"; exit 1; }
+          node packages/cli/dist/index.js --help
 
       - name: Extract CLI version
         id: pkg
         run: |
-          VERSION=$(node -p "require('./cli/package.json').version")
+          VERSION=$(node -p "require('./packages/cli/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📦 SecureFlow CLI version to publish: $VERSION"
 
       - name: Publish to NPM Registry (Dry Run)
         if: ${{ github.event.inputs.dry_run == 'true' }}
-        working-directory: cli
+        working-directory: packages/cli
         env:
           DIST_TAG: ${{ github.event.inputs.dist_tag || 'latest' }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NPM_AUTH_TOKEN }}
@@ -86,7 +86,7 @@ jobs:
 
       - name: Publish to NPM Registry
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        working-directory: cli
+        working-directory: packages/cli
         env:
           DIST_TAG: ${{ github.event.inputs.dist_tag || 'latest' }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}

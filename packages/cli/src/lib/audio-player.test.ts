@@ -21,7 +21,7 @@ import {
   playVoiceDebrief,
 } from "./audio-player.js";
 
-describe("cli/src/lib/audio-player", () => {
+describe("packages/cli/src/lib/audio-player", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {

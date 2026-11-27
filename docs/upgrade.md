@@ -23,7 +23,7 @@ Before initiating any upgrade, complete each item in this checklist:
 Every release records changes, security advisories, and database migration notes in the centralized changelog:
 
 - **Application & Server Changelog**: [`CHANGELOG.md`](../CHANGELOG.md)
-- **CLI Tool Changelog**: [`cli/CHANGELOG.md`](../cli/CHANGELOG.md)
+- **CLI Tool Changelog**: [`packages/cli/CHANGELOG.md`](../packages/cli/CHANGELOG.md)
 
 Pay close attention to sections marked **Breaking Changes** or **Migration Notes**, which specify whether manual interventions (such as index reindexing or credential rotations) are required.
 

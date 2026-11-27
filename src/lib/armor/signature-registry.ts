@@ -614,7 +614,7 @@ export interface SignatureLoadReport {
  * Merge the expanded registry into the shared engine, once per process (#751).
  *
  * `loadRegistryIntoEngine` existed and nothing called it. A `grep` for it
- * across `src`, `cli` and `scripts` returned the definition, a re-export in
+ * across `src`, `packages/cli` and `scripts` returned the definition, a re-export in
  * `./fingerprint`, and a unit test — no production caller anywhere. So the
  * engine only ever held `DEFAULT_PAYLOAD_SIGNATURES`: four JavaScript-shaped
  * patterns, for the lifetime of the process, because `dynamicFingerprintEngine`
