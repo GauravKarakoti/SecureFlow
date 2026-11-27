@@ -3,7 +3,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import React from "react";
 import LandingPage from "./page";
 import * as landingStatsModule from "@/lib/metrics/landing-stats";
@@ -96,5 +96,43 @@ describe("LandingPage Component (#632)", () => {
     const docLink = screen.getByRole("link", { name: /view documentation/i });
     expect(docLink).toHaveAttribute("href", "https://secureflow-docs.netlify.app");
     expect(docLink).toHaveAttribute("target", "_blank");
+  });
+
+  it("links the npm API client and the Marketplace GitHub Action from the navbar (#2170)", async () => {
+    vi.spyOn(landingStatsModule, "getLandingStats").mockResolvedValue({
+      prsCount: 10,
+      secretsCount: 2,
+      reposCount: 1,
+      scanAverage: 1.0,
+      isLive: true,
+    });
+
+    const pageElement = await LandingPage();
+    render(pageElement);
+
+    // The footer has its own <nav> columns; the top navbar comes first.
+    const [navbar] = screen.getAllByRole("navigation");
+    const cases = [
+      {
+        name: /api client on npm/i,
+        href: "https://www.npmjs.com/package/@secureflow/api-client",
+        label: "API Client",
+      },
+      {
+        name: /github action on the marketplace/i,
+        href: "https://github.com/marketplace/actions/secureflow-security-scan",
+        label: "GitHub Action",
+      },
+    ];
+
+    for (const { name, href, label } of cases) {
+      const link = within(navbar).getByRole("link", { name });
+      expect(link).toHaveAttribute("href", href);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(link.getAttribute("aria-label")).toMatch(/opens in a new tab/i);
+      // Visible label from xl up; below that the link is icon-only.
+      expect(link).toHaveTextContent(label);
+    }
   });
 });

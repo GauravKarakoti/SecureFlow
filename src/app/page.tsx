@@ -12,6 +12,8 @@ import {
   GitBranch,
   Trophy,
   Terminal,
+  Package,
+  Workflow,
 } from "lucide-react";
 import Image from "next/image";
 import { LoginButton } from "@/components/ui/login-button";
@@ -22,6 +24,26 @@ import { ScrollToTop } from "@/components/scroll-to-top/ScrollToTop";
 import { Footer } from "@/components/footer";
 
 export const dynamic = "force-dynamic";
+
+// Published packages linked from the navbar (#2170). Labels are icon-only below xl,
+// so each link carries its own accessible name.
+const packageLinks = [
+  {
+    href: "https://www.npmjs.com/package/@secureflow/api-client",
+    label: "API Client",
+    title: "API Client on npm",
+    ariaLabel: "SecureFlow API Client on npm (opens in a new tab)",
+    icon: Package,
+  },
+  {
+    href: "https://github.com/marketplace/actions/secureflow-security-scan",
+    label: "GitHub Action",
+    title: "GitHub Action on the Marketplace",
+    ariaLabel: "SecureFlow Security Scan GitHub Action on the Marketplace (opens in a new tab)",
+    icon: Workflow,
+  },
+];
+
 export default async function LandingPage() {
   const stats = await getLandingStats();
   const { prsCount, secretsCount, reposCount, scanAverage } = stats;
@@ -29,8 +51,8 @@ export default async function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Navigation */}
-      <nav className="border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between glass-card sticky top-0 z-50">
-        <div className="flex items-center gap-2 flex-shrink-0">
+      <nav className="border-b border-white/10 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-end gap-x-2 sm:gap-x-4 gap-y-3 glass-card sticky top-0 z-50">
+        <div className="mr-auto flex items-center gap-2 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary glow-primary">
             <Image
               src="/logo.png"
@@ -43,6 +65,24 @@ export default async function LandingPage() {
           <span className="font-headline font-bold text-xl tracking-widest uppercase">
             SecureFlow
           </span>
+        </div>
+
+        {/* Sits next to the logo on small screens; the buttons wrap to a second row there. */}
+        <div className="flex items-center gap-1 xl:gap-4">
+          {packageLinks.map(({ href, label, title, ariaLabel, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={ariaLabel}
+              title={title}
+              className="inline-flex min-h-[44px] min-w-[44px] xl:min-h-0 xl:min-w-0 items-center justify-center gap-2 text-sm font-bold uppercase tracking-wide text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Icon className="w-4 h-4" aria-hidden="true" />
+              <span className="hidden xl:inline">{label}</span>
+            </Link>
+          ))}
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4">

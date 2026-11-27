@@ -15,6 +15,14 @@ describe("Documentation Site & Netlify Deployment (#2107)", () => {
     );
   });
 
+  it("lists the npm API client and the Marketplace GitHub Action in the version dropdown (#2170)", () => {
+    const nav = (config.themeConfig?.nav ?? []) as { text: string; items?: { link: string }[] }[];
+    const links = nav.find((item) => item.text === "v0.1.0")?.items?.map((item) => item.link);
+
+    expect(links).toContain("https://www.npmjs.com/package/@secureflow/api-client");
+    expect(links).toContain("https://github.com/marketplace/actions/secureflow-security-scan");
+  });
+
   it("mirrors folder structure and ensures every sidebar link exists on disk", () => {
     const sidebar = config.themeConfig?.sidebar;
     expect(Array.isArray(sidebar)).toBe(true);

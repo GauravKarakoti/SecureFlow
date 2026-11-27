@@ -33,6 +33,14 @@ export default defineConfig({
         items: [
           { text: "Changelog", link: "https://github.com/GauravKarakoti/SecureFlow/releases" },
           { text: "GitHub Repository", link: "https://github.com/GauravKarakoti/SecureFlow" },
+          {
+            text: "API Client (npm)",
+            link: "https://www.npmjs.com/package/@secureflow/api-client",
+          },
+          {
+            text: "GitHub Action (Marketplace)",
+            link: "https://github.com/marketplace/actions/secureflow-security-scan",
+          },
         ],
       },
     ],
