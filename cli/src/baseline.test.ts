@@ -128,11 +128,7 @@ describe("CLI Findings Baseline (#2060)", () => {
     const snippet = "console.log(process.env.SECRET_TOKEN);";
     const baselineViolations = [
       {
-        fingerprint: computeBaselineFingerprint(
-          "src/server.ts",
-          "process.env",
-          snippet,
-        ),
+        fingerprint: computeBaselineFingerprint("src/server.ts", "process.env", snippet),
         path: "src/server.ts",
         line: 25, // original line was 25
         reason: "process.env",

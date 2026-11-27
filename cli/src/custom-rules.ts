@@ -1,11 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import {
-  compileIgnorePatterns,
-  shouldIgnorePath,
-  normalizeScanPath,
-} from "./ignore.js";
+import { compileIgnorePatterns, shouldIgnorePath, normalizeScanPath } from "./ignore.js";
 import { isValidGlob, stripJsonComments } from "./contracts/index.js";
 import { lineOf, type Severity, type Violation, VALID_SEVERITIES } from "./scanner.js";
 
@@ -28,6 +24,8 @@ export interface CustomRuleConfig {
   message: string;
   flags?: string | undefined;
   timeoutMs?: number | undefined;
+  helpUrl?: string | undefined;
+  guidance?: string | undefined;
 }
 
 export interface CompiledCustomRule {
@@ -39,6 +37,8 @@ export interface CompiledCustomRule {
   severity: Severity;
   message: string;
   timeoutMs: number;
+  helpUrl?: string | undefined;
+  guidance?: string | undefined;
 }
 
 export interface CustomRuleMatch {
@@ -67,7 +67,7 @@ const VM_SCAN_SCRIPT = new vm.Script(
       }
     }
     return results;
-  })()`
+  })()`,
 );
 
 /**
@@ -104,7 +104,9 @@ export function validateCustomRule(
     try {
       new RegExp(rawPattern.trim());
     } catch (err: any) {
-      errors.push(`Rule '${id}' has invalid regex pattern '${rawPattern}': ${err?.message || String(err)}`);
+      errors.push(
+        `Rule '${id}' has invalid regex pattern '${rawPattern}': ${err?.message || String(err)}`,
+      );
     }
   }
 
@@ -177,9 +179,45 @@ export function validateCustomRule(
 
   // Timeout
   const timeoutMs =
-    typeof r.timeoutMs === "number" && r.timeoutMs > 0
-      ? r.timeoutMs
-      : DEFAULT_REGEX_TIMEOUT_MS;
+    typeof r.timeoutMs === "number" && r.timeoutMs > 0 ? r.timeoutMs : DEFAULT_REGEX_TIMEOUT_MS;
+
+  // Validate helpUrl
+  const rawHelpUrl = r.helpUrl ?? r.help_url ?? r.url;
+  let helpUrl: string | undefined;
+  if (rawHelpUrl !== undefined && rawHelpUrl !== null) {
+    if (typeof rawHelpUrl !== "string") {
+      errors.push(`Rule '${id}' has invalid 'helpUrl' (must be a string)`);
+    } else {
+      const trimmedUrl = rawHelpUrl.trim();
+      if (trimmedUrl.length > 0) {
+        if (!trimmedUrl.startsWith("https://")) {
+          errors.push(`Rule '${id}' helpUrl must use https:// protocol (got '${trimmedUrl}')`);
+        } else {
+          try {
+            const parsed = new URL(trimmedUrl);
+            if (parsed.protocol !== "https:") {
+              errors.push(`Rule '${id}' helpUrl must use https:// protocol (got '${trimmedUrl}')`);
+            } else {
+              helpUrl = trimmedUrl;
+            }
+          } catch {
+            errors.push(`Rule '${id}' has malformed helpUrl '${trimmedUrl}'`);
+          }
+        }
+      }
+    }
+  }
+
+  // Validate guidance
+  const rawGuidance = r.guidance;
+  let guidance: string | undefined;
+  if (rawGuidance !== undefined && rawGuidance !== null) {
+    if (typeof rawGuidance !== "string") {
+      errors.push(`Rule '${id}' has invalid 'guidance' (must be a string)`);
+    } else {
+      guidance = rawGuidance.trim();
+    }
+  }
 
   if (errors.length > 0) {
     return { valid: false, errors };
@@ -193,6 +231,8 @@ export function validateCustomRule(
     message,
     timeoutMs,
     ...(globs && globs.length > 0 ? { globs, compiledGlobs } : {}),
+    ...(helpUrl ? { helpUrl } : {}),
+    ...(guidance ? { guidance } : {}),
   };
 
   return { valid: true, errors: [], rule: compiledRule };
@@ -201,9 +241,11 @@ export function validateCustomRule(
 /**
  * Validates a list of custom rules, ensuring unique rule IDs and returning compiled rules.
  */
-export function validateCustomRules(
-  rawRules: unknown,
-): { valid: boolean; errors: string[]; compiledRules: CompiledCustomRule[] } {
+export function validateCustomRules(rawRules: unknown): {
+  valid: boolean;
+  errors: string[];
+  compiledRules: CompiledCustomRule[];
+} {
   if (!Array.isArray(rawRules)) {
     return {
       valid: false,
@@ -242,10 +284,7 @@ export function validateCustomRules(
  * Determines whether a file path matches the rule's glob specifications.
  * If the rule has no globs, matches all files.
  */
-export function matchesRuleGlobs(
-  filePath: string,
-  rule: CompiledCustomRule,
-): boolean {
+export function matchesRuleGlobs(filePath: string, rule: CompiledCustomRule): boolean {
   if (!rule.compiledGlobs || rule.compiledGlobs.length === 0) {
     return true;
   }
@@ -326,14 +365,15 @@ export function scanContentWithCustomRule(
         severity: rule.severity,
         ruleId: rule.id,
         custom: true,
+        ...(rule.helpUrl ? { helpUrl: rule.helpUrl } : {}),
+        ...(rule.guidance ? { guidance: rule.guidance } : {}),
       });
     }
 
     return { violations, timedOut: false };
   } catch (err: any) {
     const isTimeout =
-      err?.message?.includes("timed out") ||
-      err?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+      err?.message?.includes("timed out") || err?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 
     if (isTimeout) {
       if (!options?.quiet) {
@@ -377,11 +417,13 @@ export function scanFileWithCustomRules(
 /**
  * Resolves and loads custom rules from configuration (.secureflow.json or custom path).
  */
-export function loadCustomRulesFromConfig(options: {
-  configPath?: string | undefined;
-  targetDir?: string | undefined;
-  repoRoot?: string | null | undefined;
-} = {}): {
+export function loadCustomRulesFromConfig(
+  options: {
+    configPath?: string | undefined;
+    targetDir?: string | undefined;
+    repoRoot?: string | null | undefined;
+  } = {},
+): {
   rules: CompiledCustomRule[];
   errors: string[];
   configPath: string | null;
@@ -394,11 +436,9 @@ export function loadCustomRulesFromConfig(options: {
       ? options.configPath
       : path.resolve(process.cwd(), options.configPath);
   } else {
-    const candidateDirs = [
-      options.targetDir,
-      options.repoRoot ?? undefined,
-      process.cwd(),
-    ].filter(Boolean) as string[];
+    const candidateDirs = [options.targetDir, options.repoRoot ?? undefined, process.cwd()].filter(
+      Boolean,
+    ) as string[];
 
     for (const dir of candidateDirs) {
       const p = path.join(dir, ".secureflow.json");
@@ -419,7 +459,9 @@ export function loadCustomRulesFromConfig(options: {
   } catch (err: any) {
     return {
       rules: [],
-      errors: [`Unable to read configuration file '${resolvedConfigPath}': ${err?.message || String(err)}`],
+      errors: [
+        `Unable to read configuration file '${resolvedConfigPath}': ${err?.message || String(err)}`,
+      ],
       configPath: resolvedConfigPath,
       loaded: false,
     };

@@ -431,6 +431,7 @@ SecureFlow supports multiple LLM providers (`groq`, `ollama`, `vllm`, `openai`, 
 #### Step 1: Register Provider Name
 
 Add the provider to `SUPPORTED_AI_PROVIDERS` in:
+
 - `src/ai/model-config.ts` (`SUPPORTED_AI_PROVIDERS = ["groq", "ollama", "vllm", "openai", "custom", "my_new_provider"] as const`)
 - `cli/src/lib/local-mode.ts` (`SUPPORTED_AI_PROVIDERS`)
 
@@ -737,7 +738,7 @@ erDiagram
 | **Queue Worker**           | `src/lib/queue/worker.ts`                                     | Core background job consumer, distributed lock, scan dispatcher   |
 | **Distributed Locks**      | `src/lib/queue/lock.ts`                                       | Redis distributed lock primitives and heartbeat renewal           |
 | **Deterministic Precheck** | `src/lib/armor/precheck.ts`                                   | High-speed regex and entropy secret scanner                       |
-| **Secret Detection**       | `src/lib/armor/secret-detector.ts`                            | Regex and entropy-based credential detector                      |
+| **Secret Detection**       | `src/lib/armor/secret-detector.ts`                            | Regex and entropy-based credential detector                       |
 | **Secret Redaction**       | `src/lib/armor/secret-masking.ts`                             | Ingress and egress secret masking and redaction                   |
 | **Workflow Rules**         | `src/lib/rules/workflow-rules.ts`                             | GitHub Actions workflow security checks                           |
 | **Dependency Rules**       | `src/lib/rules/dependency-rules.ts`                           | Package manifest vulnerability rules                              |

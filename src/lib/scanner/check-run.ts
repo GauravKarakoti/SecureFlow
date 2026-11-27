@@ -45,6 +45,9 @@ export interface ScanCheckParams {
   isPartial?: boolean;
   unscannedFiles?: Array<{ filename: string; reason: string }> | string[];
   conclusion?: "success" | "action_required" | "failure" | "neutral" | "skipped";
+  isOverridden?: boolean;
+  overrideReason?: string;
+  overrideActor?: string;
 }
 
 /**
@@ -200,11 +203,18 @@ export async function postScanCheckRun(octokit: ChecksClient, p: ScanCheckParams
     }
   }
 
-  const outputTitle = isPartial
-    ? `Policy Decision: PARTIAL (${p.findingsCount} issues in ${p.fileCount} analyzed files)`
-    : isZeroScan
-      ? "Nothing to scan"
-      : `Policy Decision: ${String(p.decision)}`;
+  const outputTitle = p.isOverridden
+    ? `Policy Decision: OVERRIDDEN (Passed with override: ${p.overrideReason || "Approved"})`
+    : isPartial
+      ? `Policy Decision: PARTIAL (${p.findingsCount} issues in ${p.fileCount} analyzed files)`
+      : isZeroScan
+        ? "Nothing to scan"
+        : `Policy Decision: ${String(p.decision)}`;
+
+  if (p.isOverridden) {
+    const overrideBanner = `> ⚠️ **OVERRIDDEN**: This check passed via emergency break-glass override.\n> **Authorized by:** @${p.overrideActor || "authorized-user"}\n> **Reason:** ${p.overrideReason || "Emergency release override"}\n\n`;
+    summary = overrideBanner + summary;
+  }
 
   const output: {
     title: string;

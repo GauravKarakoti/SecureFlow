@@ -228,6 +228,17 @@ export interface LicenseComplianceConfig {
   packageOverrides?: Record<string, string>;
 }
 
+export interface BreakglassOverrideConfig {
+  enabled?: boolean;
+  label?: string;
+  labels?: string[];
+  allowedRoles?: string[];
+  allowedUsers?: string[];
+  expiresInMinutes?: number;
+  revokeOnNewCommits?: boolean;
+  requireReason?: boolean;
+}
+
 export interface GateConfig {
   blockOn: GateLevel;
   reviewOn: GateLevel;
@@ -281,6 +292,8 @@ export interface GateConfig {
   unicodeAllowPatterns?: string[];
   licenses?: LicenseComplianceConfig;
   iacExceptions?: IacExceptionConfig[];
+  breakglass?: BreakglassOverrideConfig;
+  override?: BreakglassOverrideConfig;
 }
 
 export interface RulesConfig {
@@ -330,6 +343,8 @@ export interface SecureFlowConfig {
         allowPatterns?: string[];
       };
   licenses?: LicenseComplianceConfig;
+  breakglass?: BreakglassOverrideConfig;
+  override?: BreakglassOverrideConfig;
   policyScopes?: PolicyScopeRule[];
   confidence?: ConfidenceConfig;
   minCommentConfidence?: ConfidenceLevel;
@@ -653,7 +668,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       ? (rawGate as Record<string, unknown>)
       : {};
 
-  // Support both blockOn and blockAt, reviewOn and reviewAt
   const rawBlock = gateObj.blockOn ?? gateObj.blockAt;
   const rawReview = gateObj.reviewOn ?? gateObj.reviewAt;
 
@@ -681,7 +695,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // Parse optional overrides (per finding type)
   const overrides: GateOverride[] = [];
   if (Array.isArray(gateObj.overrides)) {
     for (const ov of gateObj.overrides) {
@@ -700,15 +713,10 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #1557: only add `paths` when there is at least one valid rule, so a config
-  // without paths parses exactly as before.
   const paths = parsePathRules(gateObj.paths);
-
-  // #1868: parse optional policyScopes from root or gate object
   const rawPolicyScopes = root.policyScopes ?? gateObj.policyScopes;
   const { scopes: policyScopes } = parsePolicyScopes(rawPolicyScopes);
 
-  // #1924: parse confidence settings from root.confidence, root, or gateObj
   const rawConfidenceObj =
     root.confidence && typeof root.confidence === "object" && !Array.isArray(root.confidence)
       ? (root.confidence as Record<string, unknown>)
@@ -741,7 +749,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     gateObj.filterBlocking;
   const filterBlocking = typeof rawFilterBlocking === "boolean" ? rawFilterBlocking : false;
 
-  // #1983: parse default ignore pattern overrides (includeDefaults, forceInclude)
   const rawIgnoreObj =
     root.ignore && typeof root.ignore === "object" && !Array.isArray(root.ignore)
       ? (root.ignore as Record<string, unknown>)
@@ -775,7 +782,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #1981: parse timeoutBudget and requestTimeout from root, scanner, or gate
   const rawTimeoutBudget =
     root.timeoutBudget ??
     root.timeoutBudgetSeconds ??
@@ -822,7 +828,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #1982: parse skipDrafts and skipAuthors from root or gateObj
   const rawSkipDrafts = root.skipDrafts ?? gateObj.skipDrafts;
   let skipDrafts: boolean | undefined = undefined;
   if (rawSkipDrafts !== undefined) {
@@ -859,7 +864,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2007: parse verifyCritical and maxVerificationCalls from root, scanner, or gateObj
   const rawVerifyCritical =
     root.verifyCritical ??
     root.verifyCriticalFindings ??
@@ -899,7 +903,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2006: parse contextLines from root, scanner, or gate
   const rawContextLines = root.contextLines ?? rawScannerObj?.contextLines ?? gateObj.contextLines;
   let contextLines: number | undefined = undefined;
   if (rawContextLines !== undefined && rawContextLines !== null) {
@@ -928,7 +931,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2005: parse suggestions / suggestedChanges / inlineComments configuration
   const rawSuggestions =
     root.suggestions ??
     root.suggestedChanges ??
@@ -956,7 +958,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2004: parse rules and IaC configuration
   const rawRules = root.rules ?? gateObj.rules;
   const rawRulesObj =
     rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)
@@ -973,7 +974,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     }
   }
 
-  // #2088: parse pattern rules configuration
   let patternRulesEnabled: boolean | undefined = undefined;
   const rawPatterns =
     root.patterns ??
@@ -984,13 +984,16 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     (rawRulesObj as Record<string, unknown>)?.patternRules;
   if (rawPatterns === false || gateObj.patternRulesEnabled === false) {
     patternRulesEnabled = false;
-  } else if (typeof rawPatterns === "object" && rawPatterns !== null && !Array.isArray(rawPatterns)) {
+  } else if (
+    typeof rawPatterns === "object" &&
+    rawPatterns !== null &&
+    !Array.isArray(rawPatterns)
+  ) {
     if ((rawPatterns as Record<string, unknown>).enabled === false) {
       patternRulesEnabled = false;
     }
   }
 
-  // #2089: parse unicode rules configuration
   let unicodeRulesEnabled: boolean | undefined = undefined;
   const rawUnicode =
     root.unicode ??
@@ -1074,7 +1077,6 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
 
   const disabledRules = disabledRulesSet.size > 0 ? Array.from(disabledRulesSet) : undefined;
 
-  // #2093: parse licenses configuration
   const rawLicenses = root.licenses ?? gateObj.licenses ?? rawRulesObj?.licenses;
   let licenses: GateConfig["licenses"] = undefined;
   if (rawLicenses && typeof rawLicenses === "object" && !Array.isArray(rawLicenses)) {
@@ -1100,6 +1102,32 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
         : {}),
     };
   }
+
+  const parseOverrideBlock = (raw: unknown): BreakglassOverrideConfig | undefined => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const bgObj = raw as Record<string, unknown>;
+    return {
+      ...(typeof bgObj.enabled === "boolean" ? { enabled: bgObj.enabled } : {}),
+      ...(typeof bgObj.label === "string" ? { label: bgObj.label.trim() } : {}),
+      ...(Array.isArray(bgObj.labels) ? { labels: bgObj.labels.map(String) } : {}),
+      ...(Array.isArray(bgObj.allowedRoles)
+        ? { allowedRoles: bgObj.allowedRoles.map(String) }
+        : {}),
+      ...(Array.isArray(bgObj.allowedUsers)
+        ? { allowedUsers: bgObj.allowedUsers.map(String) }
+        : {}),
+      ...(typeof bgObj.expiresInMinutes === "number"
+        ? { expiresInMinutes: bgObj.expiresInMinutes }
+        : {}),
+      ...(typeof bgObj.revokeOnNewCommits === "boolean"
+        ? { revokeOnNewCommits: bgObj.revokeOnNewCommits }
+        : {}),
+      ...(typeof bgObj.requireReason === "boolean" ? { requireReason: bgObj.requireReason } : {}),
+    };
+  };
+
+  const breakglass = parseOverrideBlock(root.breakglass ?? gateObj.breakglass);
+  const override = parseOverrideBlock(root.override ?? gateObj.override);
 
   const rawMaxInline =
     root.maxInlineComments ??
@@ -1153,6 +1181,26 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       }
     }
   }
+  
+  // #2095: parse pullRequestReview configuration
+  const rawReviewMode = root.pullRequestReview ?? gateObj.pullRequestReview;
+  let pullRequestReview: GateConfig["pullRequestReview"] = undefined;
+  if (rawReviewMode && typeof rawReviewMode === "object" && !Array.isArray(rawReviewMode)) {
+    const rObj = rawReviewMode as Record<string, unknown>;
+    pullRequestReview = {
+      ...(typeof rObj.enabled === "boolean" ? { enabled: rObj.enabled } : {}),
+      ...(rObj.blockedEvent === "COMMENT" || rObj.blockedEvent === "REQUEST_CHANGES"
+        ? { blockedEvent: rObj.blockedEvent }
+        : {}),
+      ...(typeof rObj.dismissOnPass === "boolean" ? { dismissOnPass: rObj.dismissOnPass } : {}),
+      ...(typeof rObj.blockedMessage === "string"
+        ? { blockedMessage: rObj.blockedMessage.trim() }
+        : {}),
+      ...(typeof rObj.passedMessage === "string"
+        ? { passedMessage: rObj.passedMessage.trim() }
+        : {}),
+    };
+  }
 
   return {
     blockOn,
@@ -1184,6 +1232,9 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
     ...(licenses !== undefined ? { licenses } : {}),
     ...(iacExceptions.length > 0 ? { iacExceptions } : {}),
+    ...(breakglass !== undefined ? { breakglass } : {}),
+    ...(pullRequestReview !== undefined ? { pullRequestReview } : {}),
+    ...(override !== undefined ? { override } : {}),
   };
 }
 
@@ -1267,6 +1318,51 @@ export function resolveUnicodeRuleOptions(config?: GateConfig | null): {
 }
 
 /**
+ * Resolves options for break-glass emergency override from repository gate configuration (#2094).
+ */
+export function resolveBreakglassConfig(config?: GateConfig | null): BreakglassOverrideConfig & {
+  enabled: boolean;
+} {
+  if (!config) {
+    return { enabled: true };
+  }
+  const bg = config.breakglass ?? config.override;
+  return {
+    enabled: bg?.enabled !== false,
+    ...(bg?.label !== undefined ? { label: bg.label } : {}),
+    ...(bg?.labels !== undefined ? { labels: bg.labels } : {}),
+    ...(bg?.allowedRoles !== undefined ? { allowedRoles: bg.allowedRoles } : {}),
+    ...(bg?.allowedUsers !== undefined ? { allowedUsers: bg.allowedUsers } : {}),
+    ...(bg?.expiresInMinutes !== undefined ? { expiresInMinutes: bg.expiresInMinutes } : {}),
+    ...(bg?.revokeOnNewCommits !== undefined ? { revokeOnNewCommits: bg.revokeOnNewCommits } : {}),
+    ...(bg?.requireReason !== undefined ? { requireReason: bg.requireReason } : {}),
+  };
+}
+
+/**
+ * Resolves options for pull request review mode from repository gate configuration (#2095).
+ */
+export function resolvePullRequestReviewConfig(config?: GateConfig | null): {
+  enabled: boolean;
+  blockedEvent?: "REQUEST_CHANGES" | "COMMENT";
+  dismissOnPass?: boolean;
+  blockedMessage?: string;
+  passedMessage?: string;
+} {
+  if (!config) {
+    return { enabled: false };
+  }
+  const prReview = config.pullRequestReview;
+  return {
+    enabled: prReview?.enabled === true,
+    blockedEvent: prReview?.blockedEvent,
+    dismissOnPass: prReview?.dismissOnPass,
+    blockedMessage: prReview?.blockedMessage,
+    passedMessage: prReview?.passedMessage,
+  };
+}
+
+/**
  * Resolves suggestions configuration from gate config or root config (#2005).
  * Opt-in by default: returns { enabled: false, maxSuggestions: 5 } unless configured.
  */
@@ -1323,11 +1419,7 @@ export function resolveSuggestionsConfig(
     };
   }
 
-  const raw =
-    config.inlineComments ??
-    config.suggestions ??
-    config.suggestedChanges ??
-    config;
+  const raw = config.inlineComments ?? config.suggestions ?? config.suggestedChanges ?? config;
 
   const rawMaxInline =
     config.maxInlineComments ??

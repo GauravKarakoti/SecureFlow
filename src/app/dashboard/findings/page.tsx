@@ -57,6 +57,7 @@ export default async function FindingsPage({
       nextCursor={result.nextCursor}
       sbomReport={sbomReport}
       savedViews={savedViews}
+      userId={session.user.id}
     />
   );
 }

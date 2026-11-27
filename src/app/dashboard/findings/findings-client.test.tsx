@@ -3,7 +3,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import FindingsClient from "./findings-client";
 
@@ -284,5 +284,33 @@ describe("FindingsClient Component (#633)", () => {
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("3");
     expect(badge).toHaveAttribute("title", "3 reviewer notes");
+  });
+
+  it("preserves active page and query filters in finding detail links via returnTo", () => {
+    currentParams = new URLSearchParams("page=3&pageSize=50&severity=HIGH");
+    render(<FindingsClient {...defaultProps} />);
+
+    const detailLinks = screen.getAllByRole("link", { name: /details/i });
+    expect(detailLinks[0]).toHaveAttribute(
+      "href",
+      "/dashboard/findings/f-1?returnTo=%2Fdashboard%2Ffindings%3Fpage%3D3%26pageSize%3D50%26severity%3DHIGH",
+    );
+    currentParams = new URLSearchParams();
+  });
+
+  it("renders skeleton rows when changing page size or loading a new page", () => {
+    render(<FindingsClient {...defaultProps} total={100} pageSize={20} />);
+
+    // Change page size via the pagination selector
+    const pageSizeSelect = screen.getByRole("combobox", { name: /rows per page/i });
+    fireEvent.change(pageSizeSelect, { target: { value: "50" } });
+
+    // Verify skeleton loading container and rows are displayed
+    const skeletonContainer = screen.getByTestId("findings-skeleton-loading");
+    expect(skeletonContainer).toBeInTheDocument();
+    expect(skeletonContainer).toHaveAttribute("aria-busy", "true");
+
+    const skeletonRows = screen.getAllByTestId("finding-skeleton-row");
+    expect(skeletonRows.length).toBeGreaterThan(0);
   });
 });

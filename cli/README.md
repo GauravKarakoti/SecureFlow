@@ -116,12 +116,16 @@ Now, every `git commit` automatically triggers a security check on staged files.
 ```text
 Usage:
   secureflow [options]
+  secureflow doctor [options]
+  secureflow watch [path] [options]
   secureflow validate [file] [options]
   secureflow mcp [options]
   secureflow sbom <file> [options]
   secureflow explain --web3 [options]
 
 Commands:
+  doctor                 Run pre-scan diagnostics on Node version, git, config, and AI endpoint reachability
+  watch [path]           Watch workspace for file changes and rescan continuously in real time
   validate [file]        Validate .secureflow.json and .secureflowignore against schema with line-numbered reports
   mcp                    Start the Threat Intelligence Model Context Protocol (MCP) server over stdio
   sbom <file>            Scan software bill of materials (package.json, requirements.txt) for vulnerabilities
@@ -133,6 +137,7 @@ Commands:
 | Flag                   | Shorthand | Default             | Description                                                                                                                 |
 | :--------------------- | :-------- | :------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
 | `--init`               |           |                     | Initialize SecureFlow (wizard for git hooks, `.secureflow.json`, and `.secureflowignore`)                                   |
+| `--watch`              | `-w`      | `false`             | Watch workspace for file changes and rescan modified files in real time                                                     |
 | `--validate [file]`    |           |                     | Validate `.secureflow.json` and `.secureflowignore` against shared schemas with line-numbered errors                        |
 | `--force`              | `-f`      | `false`             | Overwrite existing `.secureflow.json` and `.secureflowignore` without confirmation prompt                                   |
 | `--severity <level>`   |           | `HIGH`              | Minimum blocking severity threshold for `init` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`)                                |
@@ -275,6 +280,53 @@ SARIF findings exported by SecureFlow conform strictly to OASIS SARIF v2.1.0 spe
 
 ---
 
+## 🩺 Pre-Scan Diagnostics (`doctor`)
+
+Diagnose and verify your development or CI environment upfront to eliminate setup surprises before scanning:
+
+```bash
+secureflow doctor
+```
+
+### Diagnostics Checked:
+
+- **Node.js Runtime**: Ensures Node.js >= 20.0.0.
+- **Git Availability**: Checks git CLI presence and whether the current directory is inside a valid git repository.
+- **Configuration**: Verifies that `.secureflow.json` exists and validates its schema syntax.
+- **AI Endpoint Reachability & VRAM**: Pings the configured AI provider endpoint (or local Ollama/vLLM server), reporting available VRAM/system memory for local inference.
+- **Credential Safety**: All API keys, tokens, and secrets are strictly redacted (`[REDACTED]`) from diagnostic messages and logs.
+- **CI / Non-Zero Exit**: Every check executes and reports independently. Returns exit code `0` when all checks pass or warn, and `1` if any check fails.
+
+## 👀 Real-Time Watch Mode (`--watch`)
+
+Developers fixing security findings no longer need to rerun the full scan by hand after each edit. Watch mode monitors your workspace in real-time, automatically debounces rapid file saves, and rescans only the modified file:
+
+```bash
+secureflow --watch
+# or shorthand
+secureflow -w
+```
+
+### Key Features:
+
+- **Instant Incremental Rescan**: When a file is edited and saved, only that file is rescanned.
+- **Smart Debouncing**: Rapid editor autosaves and flushes within 200ms are coalesced into a single rescan.
+- **Live Finding Resolution**: As soon as a vulnerability or secret logging call is fixed or removed, SecureFlow reports it as resolved:
+  ```text
+  ✨ Resolved: [HIGH] console-secret-logging in src/auth.ts:12
+     Fixed: console.log(process.env.API_KEY);
+  ```
+- **New Finding Detection**: Any newly introduced vulnerability or secret is surfaced immediately:
+  ```text
+  ⚠️  New finding: [HIGH] console-secret-logging in src/auth.ts:15
+     console.log(process.env.NEW_KEY) (secret logging)
+  ```
+- **Line Shift Stability**: Adding comments or restructuring code above an existing violation does not produce spurious "resolved" and "new" notifications.
+- **Excluded Build Artifacts**: Directories such as `node_modules`, `dist`, `build`, `.next`, `.turbo`, and temporary files are automatically ignored.
+- **Graceful Termination**: Clean shutdown on `Ctrl+C` (`SIGINT`).
+
+---
+
 ## 🔒 Air-Gapped & Local Mode (`--local`)
 
 When handling proprietary or classified source code, use the `--local` flag:
@@ -401,18 +453,19 @@ Teams can define project-specific security rules in `.secureflow.json` to detect
 
 ### Rule Properties
 
-| Property    | Type       | Required | Description                                                         |
-| :---------- | :--------- | :------- | :------------------------------------------------------------------ |
-| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores) |
-| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                            |
-| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)       |
-| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`    |
-| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                     |
-| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms)|
+| Property    | Type       | Required | Description                                                           |
+| :---------- | :--------- | :------- | :-------------------------------------------------------------------- |
+| `id`        | `string`   | Yes      | Unique identifier (alphanumeric characters, dashes, and underscores)  |
+| `pattern`   | `string`   | Yes      | Regular expression pattern to search for                              |
+| `globs`     | `string[]` | Yes      | File glob patterns to include (e.g. `["**/*.ts", "**/*.js"]`)         |
+| `severity`  | `string`   | Yes      | Finding severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`      |
+| `message`   | `string`   | Yes      | Human-readable explanation and remediation hint                       |
+| `timeoutMs` | `number`   | No       | Regex evaluation timeout in milliseconds per file (default: `100` ms) |
 
 ### ReDoS & Catastrophic Backtracking Protection
 
 To safeguard scans against catastrophic regex backtracking (Regular Expression Denial of Service - ReDoS):
+
 - **Sandboxed Execution**: Custom regex evaluations run in a dedicated, timeout-enforced Node.js VM context (`timeoutMs`, default 100ms per file).
 - **Graceful Abortion**: If a regex evaluation exceeds the timeout limit, the pattern is aborted with a clean warning rather than hanging the scan.
 - **Input Bounds**: Lines longer than 20,000 characters and files exceeding 512 KB are safely bounded to prevent excessive memory overhead.
@@ -420,6 +473,7 @@ To safeguard scans against catastrophic regex backtracking (Regular Expression D
 ### Labeled Findings & Quality Gates
 
 Findings generated from custom rules are clearly labeled across all exporters:
+
 - **Terminal Output**: Prefix labeled as `🚨 [SecureFlow] [Custom Rule: <id>] <message>`
 - **SARIF**: Exported with rule identifier `CUSTOM-<id>`, level mapped according to severity, and custom metadata tags
 - **Markdown / HTML / CSV**: Labeled with `[Custom Rule: <id>]`
@@ -509,24 +563,24 @@ trigger:
   - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: "ubuntu-latest"
 
 steps:
   - task: NodeTool@0
     inputs:
-      versionSpec: '20.x'
-    displayName: 'Install Node.js'
+      versionSpec: "20.x"
+    displayName: "Install Node.js"
 
   - script: |
       npx secureflow-cli --format junit -o $(Build.SourcesDirectory)/test-results.xml --fail-on high
-    displayName: 'Run SecureFlow Security Scan'
+    displayName: "Run SecureFlow Security Scan"
 
   - task: PublishTestResults@2
     condition: always()
     inputs:
-      testResultsFormat: 'JUnit'
-      testResultsFiles: '**/test-results.xml'
-      testRunTitle: 'SecureFlow Security Scan'
+      testResultsFormat: "JUnit"
+      testResultsFiles: "**/test-results.xml"
+      testRunTitle: "SecureFlow Security Scan"
       failTaskOnFailedTests: true
 ```
 

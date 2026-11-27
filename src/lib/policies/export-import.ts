@@ -52,6 +52,16 @@ export const policyBundleItemSchema = z
       .default([]),
     complianceTags: z.array(z.string().trim().max(64)).max(20).optional().default([]),
     dependsOn: z.array(z.string().trim().max(128)).max(20).optional().default([]),
+    helpUrl: z
+      .string()
+      .trim()
+      .max(512)
+      .optional()
+      .nullable()
+      .refine((url) => !url || url === "" || url.startsWith("https://"), {
+        message: "Policy helpUrl must use https:// protocol",
+      }),
+    guidance: z.string().trim().max(1024).optional().nullable(),
   })
   .strict();
 

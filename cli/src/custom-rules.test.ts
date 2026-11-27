@@ -12,12 +12,7 @@ import {
   sanitizeContentForRegex,
   type CompiledCustomRule,
 } from "./custom-rules.js";
-import {
-  scanFile,
-  shouldFailScan,
-  countFindingsBySeverity,
-  formatScanResults,
-} from "./scanner.js";
+import { scanFile, shouldFailScan, countFindingsBySeverity, formatScanResults } from "./scanner.js";
 import { formatSarifJson } from "./sarif.js";
 import { CsvExporter, MarkdownExporter, HtmlExporter } from "./exporters.js";
 
@@ -151,6 +146,32 @@ describe("Custom Rules Validation", () => {
     expect(res.valid).toBe(false);
     expect(res.errors[0]).toContain("Duplicate custom rule id 'rule-1'");
   });
+
+  it("validates that custom rules accept https helpUrl and guidance (#2098)", () => {
+    const res = validateCustomRule({
+      id: "rule-with-help",
+      pattern: "TODO",
+      severity: "LOW",
+      message: "TODO found",
+      helpUrl: "https://docs.secureflow.dev/rules/todo",
+      guidance: "Resolve TODO before merging",
+    });
+    expect(res.valid).toBe(true);
+    expect(res.rule?.helpUrl).toBe("https://docs.secureflow.dev/rules/todo");
+    expect(res.rule?.guidance).toBe("Resolve TODO before merging");
+  });
+
+  it("rejects non-https helpUrl in custom rule (#2098)", () => {
+    const res = validateCustomRule({
+      id: "rule-insecure-url",
+      pattern: "TODO",
+      severity: "LOW",
+      message: "TODO found",
+      helpUrl: "http://insecure-docs.example.com",
+    });
+    expect(res.valid).toBe(false);
+    expect(res.errors[0]).toContain("helpUrl must use https:// protocol");
+  });
 });
 
 describe("Custom Rules Scanning & Severity Reporting", () => {
@@ -206,18 +227,10 @@ console.log("ready");
     expect(matchesRuleGlobs("src/file.ts", ruleWithGlobs)).toBe(true);
     expect(matchesRuleGlobs("src/file.py", ruleWithGlobs)).toBe(false);
 
-    const tsRes = scanContentWithCustomRule(
-      "src/file.ts",
-      "const x = FORBIDDEN;",
-      ruleWithGlobs,
-    );
+    const tsRes = scanContentWithCustomRule("src/file.ts", "const x = FORBIDDEN;", ruleWithGlobs);
     expect(tsRes.violations).toHaveLength(1);
 
-    const pyRes = scanContentWithCustomRule(
-      "src/file.py",
-      "x = FORBIDDEN",
-      ruleWithGlobs,
-    );
+    const pyRes = scanContentWithCustomRule("src/file.py", "x = FORBIDDEN", ruleWithGlobs);
     expect(pyRes.violations).toHaveLength(0);
   });
 

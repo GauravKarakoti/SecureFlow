@@ -10,6 +10,7 @@ import {
   TOKEN_PREFIX,
   TOKEN_PREFIX_DISPLAY_LENGTH,
 } from "./api-token-types";
+import { findMissingScopes } from "./scope-attenuation";
 
 export { API_TOKEN_SCOPES, type ApiTokenScope, TOKEN_PREFIX, TOKEN_PREFIX_DISPLAY_LENGTH };
 
@@ -104,6 +105,7 @@ export async function authenticateApiToken(
   options?: {
     requiredScopes?: ApiTokenScope[];
     updateLastUsed?: boolean;
+    repository?: string;
   },
 ): Promise<ApiTokenAuthResult> {
   const rawToken = extractBearerToken(req);
@@ -159,7 +161,11 @@ export async function authenticateApiToken(
   }
 
   if (options?.requiredScopes && options.requiredScopes.length > 0) {
-    const missing = options.requiredScopes.filter((scope) => !apiToken.scopes.includes(scope));
+    const missing = findMissingScopes(
+      apiToken.scopes,
+      options.requiredScopes,
+      options.repository ? { repository: options.repository } : undefined,
+    );
     if (missing.length > 0) {
       return {
         ok: false,
@@ -223,6 +229,7 @@ export async function authenticateUserOrToken(
   options?: {
     requiredScopes?: ApiTokenScope[];
     updateLastUsed?: boolean;
+    repository?: string;
   },
 ): Promise<AuthContextResult> {
   const hasBearer = Boolean(extractBearerToken(req));

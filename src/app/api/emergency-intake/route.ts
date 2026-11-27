@@ -6,7 +6,13 @@ import { EmergencyIntakeError } from "@/lib/emergency-intake/schemas";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_AUDIO_MIMES = new Set(["audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/webm"]);
+const ALLOWED_AUDIO_MIMES = new Set([
+  "audio/wav",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/webm",
+]);
 const ALLOWED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 async function readFileBuffer(file: File, maxBytes: number): Promise<Buffer> {
@@ -94,8 +100,12 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     text,
     hasAudio,
     hasImage,
-    ...(audioFile ? { audioMimeType: audioFile.type, audioSizeBytes: mediaBuffers.audio.byteLength } : {}),
-    ...(imageFile ? { imageMimeType: imageFile.type, imageSizeBytes: mediaBuffers.image.byteLength } : {}),
+    ...(audioFile
+      ? { audioMimeType: audioFile.type, audioSizeBytes: mediaBuffers.audio.byteLength }
+      : {}),
+    ...(imageFile
+      ? { imageMimeType: imageFile.type, imageSizeBytes: mediaBuffers.image.byteLength }
+      : {}),
   };
 
   const action = await runEmergencyIntakePipeline(input, mediaBuffers);

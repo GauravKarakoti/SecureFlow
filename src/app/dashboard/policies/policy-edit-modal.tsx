@@ -22,6 +22,8 @@ interface PolicyEditModalProps {
   policyName: string;
   currentDescription: string;
   currentSeverity: string;
+  currentHelpUrl?: string | null;
+  currentGuidance?: string | null;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -31,12 +33,16 @@ export function PolicyEditModal({
   policyName,
   currentDescription,
   currentSeverity,
+  currentHelpUrl,
+  currentGuidance,
   isOpen,
   onClose,
 }: PolicyEditModalProps) {
   const { toast } = useToast();
   const [description, setDescription] = useState(currentDescription);
   const [severity, setSeverity] = useState(currentSeverity);
+  const [helpUrl, setHelpUrl] = useState(currentHelpUrl ?? "");
+  const [guidance, setGuidance] = useState(currentGuidance ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewResult, setPreviewResult] = useState<PolicyPreviewImpactResult | null>(null);
@@ -94,12 +100,23 @@ export function PolicyEditModal({
       return;
     }
 
+    if (helpUrl.trim() && !helpUrl.trim().startsWith("https://")) {
+      toast({
+        variant: "destructive",
+        title: "Validation error",
+        description: "Policy help URL must use https:// protocol",
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await editPolicy({
         templateId: policyId,
         description: description.trim(),
         severity,
+        helpUrl: helpUrl.trim() || undefined,
+        guidance: guidance.trim() || undefined,
       });
 
       if (!res.ok) {
@@ -179,6 +196,32 @@ export function PolicyEditModal({
               placeholder="Enter policy description..."
               className="w-full bg-zinc-900 border border-white/10 rounded-md p-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary resize-y"
               data-testid="edit-policy-description-input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-zinc-300">
+              Help URL (How to fix link - must use https://)
+            </label>
+            <input
+              type="url"
+              value={helpUrl}
+              onChange={(e) => setHelpUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full bg-zinc-900 border border-white/10 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+              data-testid="edit-policy-help-url-input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-zinc-300">Short Guidance Text</label>
+            <input
+              type="text"
+              value={guidance}
+              onChange={(e) => setGuidance(e.target.value)}
+              placeholder="Explain how developers should fix violations..."
+              className="w-full bg-zinc-900 border border-white/10 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+              data-testid="edit-policy-guidance-input"
             />
           </div>
 

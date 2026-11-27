@@ -128,4 +128,54 @@ describe("FindingsPagination", () => {
 
     expect(screen.getByRole("navigation", { name: /findings pagination/i })).toBeInTheDocument();
   });
+
+  describe("Page Size Selector", () => {
+    it("renders page size selector with options", () => {
+      render(<FindingsPagination page={1} pageSize={20} total={57} totalPages={3} />);
+
+      const select = screen.getByRole("combobox", { name: /rows per page/i });
+      expect(select).toBeInTheDocument();
+      expect(select).toHaveValue("20");
+
+      const options = screen.getAllByRole("option");
+      expect(options.map((o) => o.textContent)).toEqual(["10", "20", "50", "100"]);
+    });
+
+    it("updates URL with pageSize and resets page when changing page size", () => {
+      currentParams = new URLSearchParams("page=3&severity=HIGH");
+      const onLoadingChange = vi.fn();
+      const onPageSizeChange = vi.fn();
+
+      render(
+        <FindingsPagination
+          page={3}
+          pageSize={20}
+          total={200}
+          totalPages={10}
+          onLoadingChange={onLoadingChange}
+          onPageSizeChange={onPageSizeChange}
+        />,
+      );
+
+      const select = screen.getByRole("combobox", { name: /rows per page/i });
+      fireEvent.change(select, { target: { value: "50" } });
+
+      expect(onLoadingChange).toHaveBeenCalledWith(true);
+      expect(onPageSizeChange).toHaveBeenCalledWith(50);
+      expect(replace).toHaveBeenCalledWith("/dashboard/findings?severity=HIGH&pageSize=50", {
+        scroll: false,
+      });
+    });
+
+    it("drops pageSize from URL when resetting to default 20", () => {
+      currentParams = new URLSearchParams("pageSize=50&page=2");
+
+      render(<FindingsPagination page={2} pageSize={50} total={200} totalPages={4} />);
+
+      const select = screen.getByRole("combobox", { name: /rows per page/i });
+      fireEvent.change(select, { target: { value: "20" } });
+
+      expect(replace).toHaveBeenCalledWith("/dashboard/findings", { scroll: false });
+    });
+  });
 });

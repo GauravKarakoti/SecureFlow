@@ -124,6 +124,8 @@ export default async function PoliciesPage() {
               severity={policy.severity}
               action={policy.action}
               rules={conditions}
+              helpUrl={policy.helpUrl}
+              guidance={policy.guidance}
               toggleAction={togglePolicy} // <-- Pass the Server Action here
             />
           );

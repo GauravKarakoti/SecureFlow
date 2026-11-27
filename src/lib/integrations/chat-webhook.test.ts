@@ -103,18 +103,18 @@ describe("assertChatWebhookUrl", () => {
     expect(() =>
       assertChatWebhookUrl("https://user:pass@hooks.slack.com/services/T000/B000/XXXX"),
     ).toThrow(/must not embed credentials/);
-    expect(() =>
-      assertChatWebhookUrl("https://discord.com:8443/api/webhooks/123/abc"),
-    ).toThrow(/must not specify a custom port/);
+    expect(() => assertChatWebhookUrl("https://discord.com:8443/api/webhooks/123/abc")).toThrow(
+      /must not specify a custom port/,
+    );
   });
 
   it("rejects query strings and hash fragments", () => {
     expect(() =>
       assertChatWebhookUrl("https://hooks.slack.com/services/T000/B000/XXXX?tracking=1"),
     ).toThrow(/must not include query parameters/);
-    expect(() =>
-      assertChatWebhookUrl("https://discord.com/api/webhooks/123/abc#hash"),
-    ).toThrow(/must not include query parameters/);
+    expect(() => assertChatWebhookUrl("https://discord.com/api/webhooks/123/abc#hash")).toThrow(
+      /must not include query parameters/,
+    );
   });
 
   it("rejects invalid path structures", () => {
@@ -135,7 +135,9 @@ describe("maskWebhookUrl", () => {
   });
 
   it("masks Discord webhook secret tokens", () => {
-    const masked = maskWebhookUrl("https://discord.com/api/webhooks/123456789/SECRET_DISCORD_TOKEN");
+    const masked = maskWebhookUrl(
+      "https://discord.com/api/webhooks/123456789/SECRET_DISCORD_TOKEN",
+    );
     expect(masked).toBe("https://discord.com/api/webhooks/123456789/••••••••");
     expect(masked).not.toContain("SECRET_DISCORD_TOKEN");
   });
@@ -152,7 +154,9 @@ describe("encryptWebhookUrl and decryptWebhookUrl", () => {
 
   it("encrypts plaintext URL into AES-256-GCM ciphertext format", () => {
     const encrypted = encryptWebhookUrl(TEST_URL);
-    expect(encrypted).toMatch(/^enc:v1:aes-256-gcm:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+    expect(encrypted).toMatch(
+      /^enc:v1:aes-256-gcm:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/,
+    );
     expect(encrypted).not.toContain("my_secret_token");
   });
 

@@ -47,16 +47,7 @@ const DATABASE_SINK_METHODS = new Set([
 
 const SHELL_SINK_METHODS = new Set(["exec", "execsync", "spawn", "spawnsync"]);
 
-const CONSOLE_METHODS = new Set([
-  "log",
-  "info",
-  "warn",
-  "error",
-  "debug",
-  "trace",
-  "dir",
-  "table",
-]);
+const CONSOLE_METHODS = new Set(["log", "info", "warn", "error", "debug", "trace", "dir", "table"]);
 
 /**
  * Returns true if the file extension is eligible for AST analysis.
@@ -102,11 +93,7 @@ function isEnvAccess(node: ts.Node): boolean {
       }
     }
     // import.meta.env.*
-    if (
-      ts.isMetaProperty(parentExpr) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === "env"
-    ) {
+    if (ts.isMetaProperty(parentExpr) && ts.isIdentifier(node.name) && node.name.text === "env") {
       return true;
     }
   }
@@ -213,9 +200,7 @@ export function scanFileWithAst(filePath: string, content: string): Violation[] 
       content,
       ts.ScriptTarget.Latest,
       true,
-      filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS,
+      filePath.endsWith(".tsx") || filePath.endsWith(".jsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
   } catch {
     return [];
@@ -228,8 +213,12 @@ export function scanFileWithAst(filePath: string, content: string): Violation[] 
     const { line } = sourceFile.getLineAndCharacterOfPosition(pos);
     const lineStarts = sourceFile.getLineStarts();
     const start = lineStarts[line] ?? 0;
-    const end = line + 1 < lineStarts.length ? (lineStarts[line + 1] ?? content.length) : content.length;
-    return content.slice(start, end).replace(/\r?\n$/, "").trim();
+    const end =
+      line + 1 < lineStarts.length ? (lineStarts[line + 1] ?? content.length) : content.length;
+    return content
+      .slice(start, end)
+      .replace(/\r?\n$/, "")
+      .trim();
   }
 
   function visit(node: ts.Node): void {
@@ -278,10 +267,7 @@ export function scanFileWithAst(filePath: string, content: string): Violation[] 
           if (DATABASE_SINK_METHODS.has(methodName)) {
             isDatabase = true;
           }
-        } else if (
-          SHELL_SINK_METHODS.has(methodName) ||
-          calleeObj.includes("child_process")
-        ) {
+        } else if (SHELL_SINK_METHODS.has(methodName) || calleeObj.includes("child_process")) {
           if (SHELL_SINK_METHODS.has(methodName)) {
             isShell = true;
           }
@@ -337,8 +323,7 @@ export function scanFileWithAst(filePath: string, content: string): Violation[] 
         for (const arg of node.arguments) {
           const isTemplateOrConcat =
             ts.isTemplateExpression(arg) ||
-            (ts.isBinaryExpression(arg) &&
-              arg.operatorToken.kind === ts.SyntaxKind.PlusToken);
+            (ts.isBinaryExpression(arg) && arg.operatorToken.kind === ts.SyntaxKind.PlusToken);
           const isTaintedVar = ts.isIdentifier(arg) && taintScope.has(arg.text);
 
           if (isTemplateOrConcat || isTaintedVar) {

@@ -107,7 +107,7 @@ export default async function LandingPage() {
               </Button>
             </Link>
             <Link
-              href="https://github.com/GauravKarakoti/SecureFlow/tree/main/docs"
+              href="https://secureflow-docs.netlify.app"
               target="_blank"
               rel="noopener noreferrer"
             >

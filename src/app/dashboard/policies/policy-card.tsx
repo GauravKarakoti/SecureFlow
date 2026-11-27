@@ -7,9 +7,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Lock, AlertCircle, ShieldCheck, FileKey2, ScanLine, History, Edit3 } from "lucide-react";
+import {
+  Lock,
+  AlertCircle,
+  ShieldCheck,
+  FileKey2,
+  ScanLine,
+  History,
+  Edit3,
+  ExternalLink,
+} from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import { PolicyHistoryModal } from "./policy-history-modal";
 import { PolicyEditModal } from "./policy-edit-modal";
 
@@ -21,8 +31,13 @@ export function PolicyCard({
   severity,
   action,
   rules,
+  helpUrl,
+  guidance,
   toggleAction,
 }: any) {
+  const policyGuidance = resolvePolicyGuidance({ name: title, helpUrl, guidance });
+  const effectiveHelpUrl = helpUrl || policyGuidance.helpUrl;
+  const effectiveGuidance = guidance || policyGuidance.guidance;
   // Initialize optimistic state using the real state from the database
   const [optimisticActive, addOptimisticActive] = useOptimistic(
     isActive,
@@ -161,6 +176,26 @@ export function PolicyCard({
             </div>
           )}
         </div>
+
+        {effectiveHelpUrl && (
+          <div className="pt-2 border-t border-foreground/5 space-y-1">
+            <a
+              href={effectiveHelpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+              data-testid={`policy-how-to-fix-${id}`}
+            >
+              <span>How to fix</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+            {effectiveGuidance && (
+              <p className="text-[11px] text-muted-foreground leading-normal">
+                {effectiveGuidance}
+              </p>
+            )}
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="relative z-[1] pt-3 pb-3 flex items-center justify-between border-t border-foreground/10 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-auto bg-background/30">
@@ -203,6 +238,8 @@ export function PolicyCard({
         policyName={title}
         currentDescription={description}
         currentSeverity={severity}
+        currentHelpUrl={effectiveHelpUrl}
+        currentGuidance={effectiveGuidance}
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
       />

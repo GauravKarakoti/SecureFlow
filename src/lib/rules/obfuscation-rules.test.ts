@@ -40,7 +40,10 @@ function hexBlob(len: number): string {
 describe("Obfuscation Detection Rules (#2090)", () => {
   describe("SEC_OBFUSC_DECODE_EXECUTE – decode-and-execute patterns", () => {
     it("flags eval(atob(...)) in JS", () => {
-      const findings = scanFileWithObfuscationRules("src/app.js", makePatch("eval(atob('aGVsbG8='))"));
+      const findings = scanFileWithObfuscationRules(
+        "src/app.js",
+        makePatch("eval(atob('aGVsbG8='))"),
+      );
       expect(findings).toHaveLength(1);
       expect(findings[0].matchedSignatures?.[0]).toBe(OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE);
       expect(findings[0].severity).toBe("HIGH");
@@ -48,28 +51,48 @@ describe("Obfuscation Detection Rules (#2090)", () => {
     });
 
     it("flags new Function(atob(...))", () => {
-      const findings = scanFileWithObfuscationRules("src/loader.js", makePatch("const f = new Function(atob(payload));"));
-      expect(findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE)).toBe(true);
+      const findings = scanFileWithObfuscationRules(
+        "src/loader.js",
+        makePatch("const f = new Function(atob(payload));"),
+      );
+      expect(
+        findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE),
+      ).toBe(true);
     });
 
     it("flags exec(base64.b64decode(...)) in Python", () => {
-      const findings = scanFileWithObfuscationRules("setup.py", makePatch("exec(base64.b64decode(blob))"));
-      expect(findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE)).toBe(true);
+      const findings = scanFileWithObfuscationRules(
+        "setup.py",
+        makePatch("exec(base64.b64decode(blob))"),
+      );
+      expect(
+        findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE),
+      ).toBe(true);
     });
 
     it("flags eval(base64_decode(...)) in PHP", () => {
-      const findings = scanFileWithObfuscationRules("index.php", makePatch("eval(base64_decode($code));"));
-      expect(findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE)).toBe(true);
+      const findings = scanFileWithObfuscationRules(
+        "index.php",
+        makePatch("eval(base64_decode($code));"),
+      );
+      expect(
+        findings.some((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE),
+      ).toBe(true);
     });
 
     it("does NOT flag normal eval of a string literal", () => {
       const findings = scanFileWithObfuscationRules("src/test.js", makePatch('eval("1+1")'));
-      const decodeExec = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE);
+      const decodeExec = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE,
+      );
       expect(decodeExec).toHaveLength(0);
     });
 
     it("does NOT flag decode-and-execute on removed lines", () => {
-      const findings = scanFileWithObfuscationRules("src/app.js", makeRemovedPatch("eval(atob('aGVsbG8='))"));
+      const findings = scanFileWithObfuscationRules(
+        "src/app.js",
+        makeRemovedPatch("eval(atob('aGVsbG8='))"),
+      );
       expect(findings).toHaveLength(0);
     });
   });
@@ -77,39 +100,64 @@ describe("Obfuscation Detection Rules (#2090)", () => {
   describe("SEC_OBFUSC_LONG_BASE64_BLOB – boundary tests", () => {
     it(`does NOT flag base64 blob shorter than MIN_BLOB_LENGTH (${MIN_BLOB_LENGTH})`, () => {
       const short = base64Blob(MIN_BLOB_LENGTH - 4);
-      const findings = scanFileWithObfuscationRules("src/data.js", makePatch(`const x = "${short}";`));
-      const blobFindings = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB);
+      const findings = scanFileWithObfuscationRules(
+        "src/data.js",
+        makePatch(`const x = "${short}";`),
+      );
+      const blobFindings = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB,
+      );
       expect(blobFindings).toHaveLength(0);
     });
 
     it(`flags base64 blob exactly at MIN_BLOB_LENGTH (${MIN_BLOB_LENGTH})`, () => {
       // base64Blob ensures multiple-of-4 length ≥ MIN_BLOB_LENGTH
       const blob = base64Blob(MIN_BLOB_LENGTH);
-      const findings = scanFileWithObfuscationRules("src/data.js", makePatch(`const x = "${blob}";`));
-      const blobFindings = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB);
+      const findings = scanFileWithObfuscationRules(
+        "src/data.js",
+        makePatch(`const x = "${blob}";`),
+      );
+      const blobFindings = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB,
+      );
       expect(blobFindings.length).toBeGreaterThanOrEqual(1);
       expect(blobFindings[0].severity).toBe("MEDIUM");
     });
 
     it("does NOT flag short data URI (image) even if it has base64", () => {
       const shortDataUri = `data:image/png;base64,${base64Blob(100)}`;
-      const findings = scanFileWithObfuscationRules("src/app.js", makePatch(`const img = "${shortDataUri}";`));
-      const blobFindings = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB);
+      const findings = scanFileWithObfuscationRules(
+        "src/app.js",
+        makePatch(`const img = "${shortDataUri}";`),
+      );
+      const blobFindings = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_BASE64_BLOB,
+      );
       expect(blobFindings).toHaveLength(0);
     });
   });
 
   describe("SEC_OBFUSC_LONG_HEX_BLOB – boundary tests", () => {
     it("does NOT flag a short hex string", () => {
-      const findings = scanFileWithObfuscationRules("src/constants.js", makePatch(`const COLOR = "deadbeef";`));
-      const hexFindings = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_HEX_BLOB);
+      const findings = scanFileWithObfuscationRules(
+        "src/constants.js",
+        makePatch(`const COLOR = "deadbeef";`),
+      );
+      const hexFindings = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_HEX_BLOB,
+      );
       expect(hexFindings).toHaveLength(0);
     });
 
     it(`flags hex blob at exactly MIN_BLOB_LENGTH (${MIN_BLOB_LENGTH})`, () => {
       const blob = hexBlob(MIN_BLOB_LENGTH);
-      const findings = scanFileWithObfuscationRules("src/shellcode.c", makePatch(`char code[] = "${blob}";`));
-      const hexFindings = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_HEX_BLOB);
+      const findings = scanFileWithObfuscationRules(
+        "src/shellcode.c",
+        makePatch(`char code[] = "${blob}";`),
+      );
+      const hexFindings = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.LONG_HEX_BLOB,
+      );
       expect(hexFindings.length).toBeGreaterThanOrEqual(1);
       expect(hexFindings[0].severity).toBe("MEDIUM");
     });
@@ -117,7 +165,10 @@ describe("Obfuscation Detection Rules (#2090)", () => {
 
   describe("Lockfile exclusion", () => {
     it("does NOT flag decode-and-execute in package-lock.json", () => {
-      const findings = scanFileWithObfuscationRules("package-lock.json", makePatch("eval(atob(payload))"));
+      const findings = scanFileWithObfuscationRules(
+        "package-lock.json",
+        makePatch("eval(atob(payload))"),
+      );
       expect(findings).toHaveLength(0);
     });
 
@@ -135,7 +186,9 @@ describe("Obfuscation Detection Rules (#2090)", () => {
         makePatch("eval(atob(payload))"),
         { disabledRules: ["SEC_OBFUSC_DECODE_EXECUTE"] },
       );
-      const decodeExec = findings.filter((f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE);
+      const decodeExec = findings.filter(
+        (f) => f.matchedSignatures?.[0] === OBFUSCATION_RULE_IDS.DECODE_AND_EXECUTE,
+      );
       expect(decodeExec).toHaveLength(0);
     });
 

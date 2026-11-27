@@ -442,7 +442,12 @@ export function scanFileWithUnicodeRules(
     const lines = file.patch.split(/\r?\n/);
     let lineNum = 1;
     for (const l of lines) {
-      if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff ") || l.startsWith("index ")) {
+      if (
+        l.startsWith("+++") ||
+        l.startsWith("---") ||
+        l.startsWith("diff ") ||
+        l.startsWith("index ")
+      ) {
         continue;
       }
       if (l.startsWith("+")) {

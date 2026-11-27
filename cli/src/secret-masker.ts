@@ -6,11 +6,7 @@
  * reports (JUnit XML, Markdown, CSV, HTML, SARIF).
  */
 
-import {
-  calculateShannonEntropy,
-  isBenignSecretCandidate,
-  UUID_REGEX,
-} from "./entropy.js";
+import { calculateShannonEntropy, isBenignSecretCandidate, UUID_REGEX } from "./entropy.js";
 
 export const REDACTION_PLACEHOLDER = "[REDACTED]";
 
@@ -29,13 +25,20 @@ const SECRET_NAME =
 export const KNOWN_SECRET_RULES: MaskRule[] = [
   // Cloud providers & well-known vendors
   { id: "aws-access-key-id", pattern: /(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}/g },
-  { id: "aws-secret-access-key", pattern: /(?:aws_secret_access_key|aws_secret_key)\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})['"]?/gi, replace: (m, token) => m.replace(token, REDACTION_PLACEHOLDER) },
+  {
+    id: "aws-secret-access-key",
+    pattern: /(?:aws_secret_access_key|aws_secret_key)\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})['"]?/gi,
+    replace: (m, token) => m.replace(token, REDACTION_PLACEHOLDER),
+  },
   { id: "github-token", pattern: /(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,255}/g },
   { id: "github-fine-grained", pattern: /github_pat_[A-Za-z0-9_]{82}/g },
   { id: "google-api-key", pattern: /AIza[0-9A-Za-z\-_]{35}/g },
   { id: "stripe", pattern: /[sr]k_(?:live|test)_[a-zA-Z0-9]{24,}/g },
   { id: "slack-token", pattern: /xox[baprse]-[a-zA-Z0-9-]{10,}/g },
-  { id: "slack-webhook", pattern: /(?<![\w.-])https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_\-/]+/g },
+  {
+    id: "slack-webhook",
+    pattern: /(?<![\w.-])https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_\-/]+/g,
+  },
   { id: "sendgrid", pattern: /SG\.[A-Za-z0-9\-_]{16,}\.[A-Za-z0-9\-_]{16,}/g },
   { id: "npm-token", pattern: /npm_[A-Za-z0-9]{36}/g },
   { id: "twilio", pattern: /(?:AC|SK)[a-f0-9]{32}/g },
@@ -44,7 +47,11 @@ export const KNOWN_SECRET_RULES: MaskRule[] = [
   { id: "hashicorp-vault-token", pattern: /(?:hvs\.[a-zA-Z0-9_-]{24,}|s\.[a-zA-Z0-9_-]{24,})/g },
   { id: "huggingface-token", pattern: /hf_[a-zA-Z0-9]{34,}/g },
   { id: "jwt", pattern: /eyJ[a-zA-Z0-9-_]{8,}\.[a-zA-Z0-9-_]{8,}\.[a-zA-Z0-9-_]+/g },
-  { id: "private-key-header", pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g },
+  {
+    id: "private-key-header",
+    pattern:
+      /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
+  },
 
   // Authorization headers
   {

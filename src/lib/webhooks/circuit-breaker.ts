@@ -66,7 +66,10 @@ export class CircuitBreaker {
   readonly successThreshold: number;
   private readonly now: () => number;
 
-  constructor(readonly host: string, options: CircuitBreakerOptions = {}) {
+  constructor(
+    readonly host: string,
+    options: CircuitBreakerOptions = {},
+  ) {
     this.failureThreshold = options.failureThreshold ?? 5;
     this.cooldownMs = options.cooldownMs ?? 30_000;
     this.successThreshold = options.successThreshold ?? 1;

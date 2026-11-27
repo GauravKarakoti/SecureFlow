@@ -169,7 +169,8 @@ export function sanitizeForPrompt(input: string): string {
     const maliciousSet = new Set(maliciousCandidates);
     sanitized = sanitized.replace(
       /[A-Za-z0-9+/\-_](?:[A-Za-z0-9+/\-_\s]{30,})[A-Za-z0-9+/\-_]={0,2}/g,
-      (match) => (maliciousSet.has(match.replace(/\s+/g, "")) ? "[REDACTED_ENCODED_PAYLOAD]" : match),
+      (match) =>
+        maliciousSet.has(match.replace(/\s+/g, "")) ? "[REDACTED_ENCODED_PAYLOAD]" : match,
     );
   }
 
@@ -181,7 +182,10 @@ export function sanitizeForPrompt(input: string): string {
     .replace(/\bEND OF CONTEXT\b/gi, "[REDACTED_DELIMITER]")
     .replace(/<\|.*?\|>/g, "[REDACTED_TOKEN]")
     .replace(/\[(?:\/)?(?:inst|system|assistant|user)\]|<<\/?SYS>>/gi, "[REDACTED_TOKEN]")
-    .replace(/<\/?(?:system_prompt|security_override|system|instruction|prompt)>/gi, "[REDACTED_TOKEN]")
+    .replace(
+      /<\/?(?:system_prompt|security_override|system|instruction|prompt)>/gi,
+      "[REDACTED_TOKEN]",
+    )
     .replace(/\[(?:SYSTEM_UPDATE[^\]]*|CONTEXT_[^\]]*|NEW INSTRUCTION)\]/gi, "[REDACTED_MARKER]")
     .replace(/###\s*(?:system|instruction|prompt)\b/gi, "[REDACTED_MARKER]");
 
@@ -442,9 +446,7 @@ export function inspectPromptSafety(payload: string | null | undefined): TextSaf
 
   // 9. Structural delimiter markers
   if (
-    DELIMITER_MARKERS.some(
-      (pattern) => pattern.test(invisibleStripped) || pattern.test(collapsed),
-    )
+    DELIMITER_MARKERS.some((pattern) => pattern.test(invisibleStripped) || pattern.test(collapsed))
   ) {
     return { isSafe: false, flaggedReason: "contains prompt structure markers" };
   }

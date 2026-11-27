@@ -1,5 +1,165 @@
 # secureflow-cli
 
+## 3.19.0
+
+### Minor Changes
+
+- d4f292b: Add CI migration safety check (`npm run db:check-migration-safety`) that scans new migration SQL for destructive operations (`DROP TABLE`, `DROP COLUMN`, `ALTER COLUMN ... TYPE`, renames) and requires an explicit approved marker comment with a reason, along with safe migration guidance and expand-and-contract documentation in CONTRIBUTING (#2104).
+- e05d864: docs(api): document API versioning policy and add RFC 8594 Deprecation and Sunset response headers (#2106)
+- 1368fdd: feat(gate): break-glass override label with required reason, expiry and audit entry (#2094)
+
+  - Implemented break-glass override evaluation in `src/lib/scanner/breakglass-override.ts`.
+  - Supports configurable label (e.g. `secureflow:override`, `security-override`).
+  - Verifies user authorization against configured `allowedRoles` (admin, maintainer, owner, write) and `allowedUsers`.
+  - Requires a comment with a justification / reason for the override.
+  - Automatically revokes the override when new commits are pushed or when the configured duration expires (defaults to 120 minutes).
+  - When active, the GitHub check-run passes with a prominent `OVERRIDDEN` banner and conclusion `success`.
+  - Adds an override banner to the PR comment and records an audit log entry in the database.
+  - Integrated into `gate-config.ts`, `check-run.ts`, and `scanEngine.ts`.
+  - Comprehensive unit tests in `src/lib/scanner/breakglass-override.test.ts`.
+
+- 93177fc: feat(alerts): add Slack and Discord chat alerts for new critical findings with retry and deduplication
+- 46f837b: Add `secureflow doctor` / `secureflow-cli doctor` command to diagnose environment variables, PostgreSQL and Redis connectivity, Prisma migration status, LLM key presence, and GitHub App permissions/webhook configuration with secret redaction (#2100).
+- d016528: feat(cli): add doctor command for pre-scan diagnostics on Node version, git, config, and AI endpoint reachability
+- ff8a675: feat(cli): deterministic secret redaction across SARIF reports and JsonExporter while preserving pre-redaction partialFingerprints (#2080)
+- 325a5fd: feat(cli): add --watch mode with debounced file rescan, resolved finding tracking, and ignore filters
+- a34f702: feat(rules): license compliance check for newly added dependencies (#2093)
+
+  - Implemented deterministic license compliance checks in `src/lib/rules/license-rules.ts`.
+  - Inspects newly added dependencies in manifest and lockfiles (`package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`).
+  - Compares dependency licenses with a per-repository `allowList` and `denyList` configured in `.secureflow.json`.
+  - Reports denied licenses as findings with package name and SPDX license ID (`SEC_LICENSE_DENIED`).
+  - Reports unknown licenses as `'unknown'` (`SEC_LICENSE_UNKNOWN`) and does not treat them as denied.
+  - Operates offline and deterministic by default without external registry calls, supported by offline known package dictionary and optional `packageLicenseOverrides`.
+  - Integrated into `gate-config.ts`, `armor/scanner.ts`, and `scanner/scanEngine.ts`.
+  - Added comprehensive unit tests in `src/lib/rules/license-rules.test.ts`.
+
+- 65a9add: feat(rules): detect hidden Unicode characters and homoglyph identifiers in added code (#2089)
+
+  Adds a new deterministic rule module (`src/lib/rules/unicode-rules.ts`) that scans only added
+  lines in pull-request diffs for three classes of invisible/deceptive Unicode attacks:
+
+  **SEC_UNICODE_BIDI_CONTROL** – Trojan Source (CVE-2021-42574)
+  Detects bidirectional override and isolate control characters (U+202A–U+202E, U+2066–U+2069,
+  U+200E, U+200F, U+061C) that change the visual rendering order of code, making malicious logic
+  appear as harmless comments or strings. These are flagged as HIGH severity in **all** files,
+  including documentation, because a bidi override in source code is unambiguously malicious.
+
+  **SEC_UNICODE_ZERO_WIDTH** – Invisible zero-width characters (CVE-2021-42694)
+  Detects zero-width spaces (U+200B), zero-width non-joiners/joiners (U+200C/U+200D), byte-order
+  marks (U+FEFF), word-joiners (U+2060), soft hyphens (U+00AD) and similar invisible characters
+  that can alter string values or parser interpretation while remaining invisible in diff views.
+  Flagged as HIGH severity in code files.
+
+  **SEC_UNICODE_HOMOGLYPH_IDENTIFIER** – Look-alike / mixed-script identifiers
+  Detects identifiers that mix Cyrillic or Greek characters visually identical to Latin letters
+  (e.g. Cyrillic 'а' U+0430 for Latin 'a', Greek 'ο' U+03BF for Latin 'o') allowing attackers
+  to introduce shadow variables or function calls that look identical in review.
+
+  ### Non-Latin file exemption
+
+  Documentation, localization, and translation files are excluded from homoglyph/zero-width
+  checks via a documented allow-list (`docs/**`, `*.md`, `locales/**`, `i18n/**`, `.po`, `.strings`,
+  etc.). Custom allow patterns can be configured per repository via `.secureflow.json`.
+
+  ### Configuration (`.secureflow.json`)
+
+  ```json
+  {
+    "unicode": {
+      "enabled": true,
+      "disabledRules": ["SEC_UNICODE_HOMOGLYPH_IDENTIFIER"],
+      "allowPatterns": ["legacy/unicode/**"]
+    }
+  }
+  ```
+
+  ### Integration
+  - Wired into `scanEngine.ts` (`processScanJob`) with fingerprint-based deduplication against LLM findings.
+  - Wired into `armor/scanner.ts` (`scanPullRequest`) in `allDeterministicFindings`.
+  - `gate-config.ts` gains `resolveUnicodeRuleOptions()` and new `GateConfig` fields
+    `unicodeRulesEnabled` and `unicodeAllowPatterns`.
+  - All exports re-exported through `armor/scanner.ts`.
+
+  ### Tests (`src/lib/rules/unicode-rules.test.ts`) – 15 tests all passing
+  - Bidi controls produce HIGH findings naming code points (U+202E, U+2066, U+2069).
+  - Zero-width chars produce HIGH findings naming code points (U+200B, U+200D, U+FEFF).
+  - Cyrillic and Greek homoglyphs in Latin identifiers produce HIGH findings.
+  - Allowed documentation/localization files are not flagged for homoglyphs.
+  - Bidi controls are still flagged even in documentation files.
+  - Custom `allowPatterns` from options are respected.
+  - `disabledRules` and `enabled: false` both suppress findings correctly.
+  - Config parsing from `.secureflow.json` via `parseSecureFlowConfig` + `resolveUnicodeRuleOptions`.
+  - Multi-file runner gathers findings from all files.
+
+- 1ba3949: feat(rules): deterministic pre-scan for dangerous API usage and disabled security controls (#2088)
+- f5c51c5: feat(findings): add server-side pagination with page size selector, skeleton rows, and large dataset seed script
+- 0580466: Add Columns & View menu with column visibility toggles, comfortable/compact row density switch, per-user localStorage persistence, and reset action for the Findings table (#2099).
+- 96f32f5: feat(ci): add action.yml composite GitHub Action with inputs, outputs, PR comment automation, and documentation
+- f20a780: feat(rules): add deterministic obfuscation, outbound destination, and sensitive filename detection (#2090 #2091 #2092)
+
+  ## Obfuscation Detection (#2090)
+
+  New rule module `src/lib/rules/obfuscation-rules.ts` with rule IDs:
+  - `SEC_OBFUSC_DECODE_EXECUTE` — detects decode-and-execute patterns (`eval(atob(...))`, `exec(base64.b64decode(...))`, `Function(...)`, `eval(Buffer.from(...))`, PHP `eval(gzinflate(...))`)
+  - `SEC_OBFUSC_LONG_BASE64_BLOB` — detects very long (≥ 200 chars) contiguous base64 strings not preceded by a data-URI prefix
+  - `SEC_OBFUSC_LONG_HEX_BLOB` — detects very long (≥ 200 chars) contiguous hex strings
+
+  Rules are skipped for lockfiles and configurable ignore paths. Minimum blob length is configurable.
+
+  ## Outbound Destination Detection (#2091)
+
+  New rule module `src/lib/rules/outbound-rules.ts` with rule IDs:
+  - `SEC_OUTBOUND_RAW_IP` — detects raw IPv4 addresses in added lines (excludes RFC-1918 private ranges, loopback, and link-local)
+  - `SEC_OUTBOUND_URL_SHORTENER` — detects URLs using well-known shortening services (bit.ly, t.co, tinyurl, etc.)
+  - `SEC_OUTBOUND_PASTE_SITE` — detects URLs using paste / file-sharing sites (pastebin.com, hastebin, file.io, etc.)
+
+  Custom allowed hosts configurable via `allowedHosts` in `.secureflow.json`.
+
+  ## Sensitive Filename Detection (#2092)
+
+  New rule module `src/lib/rules/sensitive-file-rules.ts` with rule ID:
+  - `SEC_SENSITIVE_FILE_NAME` — detects committed files whose name or extension indicates secrets (`.env`, `id_rsa`, `.pem`, `.key`, `.p12`, `.sqlite`, etc.)
+
+  Example/sample variants (`.env.example`, `.env.sample`, `.env.template`) are explicitly excluded. Custom allow-lists supported via `allowedFilenames` / `allowedPatterns`.
+
+  ## Integration
+
+  All three rule sets are integrated into the main scan pipeline (`src/lib/armor/scanner.ts` and `src/lib/scanner/scanEngine.ts`) and exported from the public scanner API. Rules run deterministically on added lines only and their findings are merged with LLM findings via fingerprint deduplication.
+
+  ## Tests
+
+  69 new unit tests covering all rule IDs, boundary conditions, ignore/allow overrides, and disabled-rule configurations:
+  - `src/lib/rules/obfuscation-rules.test.ts` (16 tests)
+  - `src/lib/rules/outbound-rules.test.ts` (17 tests)
+  - `src/lib/rules/sensitive-file-rules.test.ts` (36 tests)
+
+- aa5a945: feat(policies): link findings to policy guidance pages with 'How to fix' and short explanation (#2098)
+- c295af8: feat(github): post inline review comments on exact diff line for critical and high findings with cap limit and duplicate prevention
+- 349656b: feat(pr): optional PR review mode that requests changes when a scan is blocked (#2095)
+
+  - Added opt-in pull request review mode in `src/lib/github/pull-request-review.ts`.
+  - Submits a pull request review with `REQUEST_CHANGES` when the scan verdict is blocked in opt-in repositories.
+  - Dismisses previous `CHANGES_REQUESTED` review(s) when the next scan passes.
+  - Guaranteed never to submit an automatic `APPROVE` review under any circumstances.
+  - Handles missing GitHub permissions or API failures gracefully with a logged warning, preventing scan job failures.
+  - Supported configuration in `.secureflow.json` under `pullRequestReview`.
+  - Integrated with `gate-config.ts` and `scanEngine.ts`.
+  - Comprehensive unit tests in `src/lib/github/pull-request-review.test.ts`.
+
+- c12f3b9: feat(github): maintain a single sticky PR comment tagged with hidden HTML marker, reflecting latest commit SHA and scan time
+- 0a9d87b: feat(rules): add Docker Compose, Kubernetes privilege/capability escalation, and Terraform IAM wildcard security rules (#2111)
+- 8b6a6e7: feat(sbom): add Yarn (Classic & Berry), Rust Cargo.lock, and Go go.sum lockfile parsers for multi-ecosystem SBOM scanning (#2081)
+- db932f6: feat(sbom): deterministic SBOM snapshot diffing, version downgrade detection, and license drift analyzer integrated into scan comparison (#2110)
+- e47a59f: feat(sbom): SPDX license expression parser and copyleft compliance policy engine integrated into SBOM format detection (#2079)
+- 1c9086c: Generate and publish typed TypeScript API client in `packages/api-client` from `openapi.yaml` with typed fetch wrapper, example documentation using Personal API Token, and CI drift check (`npm run client:check-drift`) (#2105).
+- 725c6ec: feat(webhooks): zero-downtime dual-key HMAC secret rotation with time-bounded grace windows (#2109)
+
+### Patch Changes
+
+- 61125d0: fix(github): fall back to per-file pagination when GitHub refuses to return the full PR diff (#2015)
+- 2866bbf: Standardize VRAM test harness assertions and align `LOCAL_AI_MAX_QUEUE_WAIT_MS`, local fallback model chains, and insufficient-VRAM error reporting with `docs/local-inference.md` and `docs/helm-local-inference-vram-hpa.md` (#1950).
+
 ## 3.18.0
 
 ### Minor Changes

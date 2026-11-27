@@ -67,85 +67,85 @@ export interface LicenseFinding {
  */
 export const KNOWN_PACKAGE_LICENSES: Record<string, string> = {
   // Popular Permissive npm packages
-  "react": "MIT",
+  react: "MIT",
   "react-dom": "MIT",
-  "lodash": "MIT",
-  "express": "MIT",
-  "axios": "MIT",
-  "chalk": "MIT",
-  "commander": "MIT",
-  "debug": "MIT",
-  "moment": "MIT",
-  "async": "MIT",
-  "dotenv": "BSD-2-Clause",
-  "tslib": "0BSD",
-  "rxjs": "Apache-2.0",
-  "webpack": "MIT",
-  "next": "MIT",
-  "typescript": "Apache-2.0",
-  "eslint": "MIT",
-  "prettier": "MIT",
-  "glob": "ISC",
-  "semver": "ISC",
+  lodash: "MIT",
+  express: "MIT",
+  axios: "MIT",
+  chalk: "MIT",
+  commander: "MIT",
+  debug: "MIT",
+  moment: "MIT",
+  async: "MIT",
+  dotenv: "BSD-2-Clause",
+  tslib: "0BSD",
+  rxjs: "Apache-2.0",
+  webpack: "MIT",
+  next: "MIT",
+  typescript: "Apache-2.0",
+  eslint: "MIT",
+  prettier: "MIT",
+  glob: "ISC",
+  semver: "ISC",
   "fs-extra": "MIT",
-  "uuid": "MIT",
-  "inquirer": "MIT",
-  "bluebird": "MIT",
-  "winston": "MIT",
+  uuid: "MIT",
+  inquirer: "MIT",
+  bluebird: "MIT",
+  winston: "MIT",
   "socket.io": "MIT",
   "body-parser": "MIT",
-  "cors": "MIT",
-  "nodemon": "MIT",
-  "yargs": "MIT",
-  "minimist": "MIT",
-  "mongoose": "MIT",
-  "redux": "MIT",
-  "vue": "MIT",
-  "jest": "MIT",
-  "rimraf": "ISC",
-  "classnames": "MIT",
-  "sharp": "Apache-2.0",
-  "redis": "MIT",
-  "jsonwebtoken": "MIT",
-  "bcrypt": "MIT",
-  "dayjs": "MIT",
+  cors: "MIT",
+  nodemon: "MIT",
+  yargs: "MIT",
+  minimist: "MIT",
+  mongoose: "MIT",
+  redux: "MIT",
+  vue: "MIT",
+  jest: "MIT",
+  rimraf: "ISC",
+  classnames: "MIT",
+  sharp: "Apache-2.0",
+  redis: "MIT",
+  jsonwebtoken: "MIT",
+  bcrypt: "MIT",
+  dayjs: "MIT",
   "date-fns": "MIT",
 
   // Popular copyleft / GPL / AGPL packages (npm & python examples)
-  "ghost": "MIT",
-  "plone": "GPL-2.0-only",
+  ghost: "MIT",
+  plone: "GPL-2.0-only",
   "agpl-test-pkg": "AGPL-3.0-only",
   "gpl-test-pkg": "GPL-3.0-or-later",
   "lgpl-test-pkg": "LGPL-3.0-only",
 
   // Popular Python packages
-  "requests": "Apache-2.0",
-  "urllib3": "MIT",
-  "numpy": "BSD-3-Clause",
-  "pandas": "BSD-3-Clause",
-  "flask": "BSD-3-Clause",
-  "django": "BSD-3-Clause",
-  "pytest": "MIT",
-  "six": "MIT",
-  "setuptools": "MIT",
-  "pip": "MIT",
-  "boto3": "Apache-2.0",
-  "botocore": "Apache-2.0",
-  "certifi": "MPL-2.0",
-  "idna": "BSD-3-Clause",
-  "pyyaml": "MIT",
-  "cryptography": "Apache-2.0",
-  "click": "BSD-3-Clause",
-  "jinja2": "BSD-3-Clause",
-  "werkzeug": "BSD-3-Clause",
-  "scipy": "BSD-3-Clause",
+  requests: "Apache-2.0",
+  urllib3: "MIT",
+  numpy: "BSD-3-Clause",
+  pandas: "BSD-3-Clause",
+  flask: "BSD-3-Clause",
+  django: "BSD-3-Clause",
+  pytest: "MIT",
+  six: "MIT",
+  setuptools: "MIT",
+  pip: "MIT",
+  boto3: "Apache-2.0",
+  botocore: "Apache-2.0",
+  certifi: "MPL-2.0",
+  idna: "BSD-3-Clause",
+  pyyaml: "MIT",
+  cryptography: "Apache-2.0",
+  click: "BSD-3-Clause",
+  jinja2: "BSD-3-Clause",
+  werkzeug: "BSD-3-Clause",
+  scipy: "BSD-3-Clause",
   "scikit-learn": "BSD-3-Clause",
-  "torch": "BSD-3-Clause",
-  "tensorflow": "Apache-2.0",
-  "fastapi": "MIT",
-  "pydantic": "MIT",
-  "sqlalchemy": "MIT",
-  "celery": "BSD-3-Clause",
+  torch: "BSD-3-Clause",
+  tensorflow: "Apache-2.0",
+  fastapi: "MIT",
+  pydantic: "MIT",
+  sqlalchemy: "MIT",
+  celery: "BSD-3-Clause",
 };
 
 /**
@@ -375,7 +375,9 @@ export function extractAddedDependenciesFromLockfile(
       if (!line.isAdded) continue;
       const trimmed = line.content.trim();
       // pnpm format: '/foo@1.0.0': or foo: 1.0.0
-      const pnpmMatch = trimmed.match(/^(?:'|")?(?:\/)?(@?[a-zA-Z0-9_\-\.\/]+)@([0-9a-zA-Z\.\-]+)(?:'|")?:\s*$/);
+      const pnpmMatch = trimmed.match(
+        /^(?:'|")?(?:\/)?(@?[a-zA-Z0-9_\-\.\/]+)@([0-9a-zA-Z\.\-]+)(?:'|")?:\s*$/,
+      );
       if (pnpmMatch) {
         deps.push({
           name: pnpmMatch[1],
@@ -562,7 +564,12 @@ export function scanFileWithLicenseRules(
       const description = `Added dependency '${dep.name}' has denied license '${license}'. ${evalResult.reason}.`;
       const remediation = `Remove or replace '${dep.name}', or request an exception / add '${license}' to allowList in .secureflow.json.`;
 
-      const dynFp = computeDynamicFingerprint(repositoryId, filename, "License Compliance", dep.name);
+      const dynFp = computeDynamicFingerprint(
+        repositoryId,
+        filename,
+        "License Compliance",
+        dep.name,
+      );
       const langInfo = detectFileLanguage(filename, dep.lineSnippet);
 
       findings.push({
@@ -590,7 +597,12 @@ export function scanFileWithLicenseRules(
       const description = `Added dependency '${dep.name}' has unknown license. License metadata is not available offline in lockfile or metadata.`;
       const remediation = `Specify package license in .secureflow.json under packageLicenseOverrides, or verify package '${dep.name}' license manually.`;
 
-      const dynFp = computeDynamicFingerprint(repositoryId, filename, "License Compliance", dep.name);
+      const dynFp = computeDynamicFingerprint(
+        repositoryId,
+        filename,
+        "License Compliance",
+        dep.name,
+      );
       const langInfo = detectFileLanguage(filename, dep.lineSnippet);
 
       findings.push({

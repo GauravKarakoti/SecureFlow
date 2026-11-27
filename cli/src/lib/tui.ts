@@ -217,9 +217,7 @@ export class ScanProgressIndicator {
     this.stream = options.stream ?? process.stderr;
 
     const streamIsTTY =
-      options.isTTY !== undefined
-        ? options.isTTY
-        : Boolean(this.stream && this.stream.isTTY);
+      options.isTTY !== undefined ? options.isTTY : Boolean(this.stream && this.stream.isTTY);
 
     const stdoutIsTTY =
       options.isTTY !== undefined
@@ -230,9 +228,7 @@ export class ScanProgressIndicator {
 
     // Output is considered a terminal only when stderr and stdout are both TTYs
     const isTerminal =
-      options.isTTY !== undefined
-        ? options.isTTY
-        : streamIsTTY && stdoutIsTTY && !process.env.CI;
+      options.isTTY !== undefined ? options.isTTY : streamIsTTY && stdoutIsTTY && !process.env.CI;
 
     this.enabled =
       options.enabled !== undefined

@@ -14,6 +14,7 @@
  */
 
 import { severityBadge } from "@/lib/severity";
+import { resolvePolicyGuidance } from "@/lib/policies/built-in";
 import { SECRET_FAMILIES } from "@/lib/armor/secret-detector";
 import type { ScanFinding } from "@/lib/armor/scanner";
 import type { EnrichedScanFinding } from "@/lib/scanner/scan-persistence";
@@ -231,6 +232,13 @@ export function formatInlineCommentBody(
   const narrative = anyFinding.explanation ?? finding.description;
   if (narrative) {
     body += `**Explanation:**\n${narrative}\n\n`;
+  }
+
+  const policyInfo = resolvePolicyGuidance(finding);
+  const helpUrl = (finding as any).helpUrl || policyInfo.helpUrl;
+  const guidance = (finding as any).guidance || policyInfo.guidance;
+  if (helpUrl) {
+    body += `📖 [How to fix](${helpUrl})${guidance ? ` — ${guidance}` : ""}\n\n`;
   }
 
   if (suggestion) {
