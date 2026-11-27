@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
+import { applyUnifiedPatchWithConflictDetection } from "./patch-applier";
 
 export interface PatchApplyResult {
   success: boolean;
@@ -529,4 +530,20 @@ export async function verifyPatchInTempCopy(options: {
       }
     }
   }
+}
+
+/**
+ * Apply a patch using bounded fuzzy line-offset matching when exact hunk line numbers shifted.
+ */
+export function applyPatchWithFuzzyFallback(
+  source: string,
+  patch: string,
+  expectedFilePath?: string,
+  maxFuzzyOffset = 10,
+) {
+  return applyUnifiedPatchWithConflictDetection(source, patch, {
+    expectedFilePath,
+    maxFuzzyOffset,
+    dryRun: true,
+  });
 }
