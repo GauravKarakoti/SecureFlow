@@ -6,7 +6,8 @@
   "type": "module",
   "workspaces": [
     "packages/cli",
-    "packages/api-client"
+    "packages/api-client",
+    "forge/SecureFlow"
   ],
   "scripts": {
     "dev": "concurrently \"next dev --turbopack -p 9002\" \"tsx scripts/prewarm.ts\"",
