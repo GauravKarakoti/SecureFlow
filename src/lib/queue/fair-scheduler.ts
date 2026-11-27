@@ -10,6 +10,14 @@
  *   import { fairQueueScheduler, resolveInstallationConcurrencyLimit } from "@/lib/queue/fair-scheduler";
  */
 
+import {
+  BackpressureController,
+  type BackpressureConfig,
+  type BackpressureDecision,
+  type BackpressureState,
+  type JobPriority,
+} from "./backpressure";
+
 export const DEFAULT_INSTALLATION_CONCURRENCY_LIMIT = 2;
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_RETRY_DELAY_MS = 1_000;
@@ -36,6 +44,7 @@ export interface FairJob<T = unknown> {
   installationId: string | number;
   repositoryFullName: string;
   prNumber: number;
+  priority?: JobPriority;
   data?: T;
   enqueuedAt?: number;
   startedAt?: number;
@@ -71,6 +80,8 @@ export interface FairSchedulerOptions {
   onDeadLetter?: (job: FairJob, error: Error) => Promise<void> | void;
   /** Backoff delay before retrying a failed job (in ms). */
   retryDelayMs?: number;
+  /** Optional adaptive backpressure configuration for admission control. */
+  backpressure?: Partial<BackpressureConfig>;
 }
 
 export class FairQueueScheduler {
@@ -108,6 +119,9 @@ export class FairQueueScheduler {
   /** Dead-letter queue entries. */
   private deadLetterJobs: FairJob[] = [];
 
+  /** Adaptive backpressure controller for queue admission control. */
+  private backpressureController: BackpressureController;
+
   constructor(options: FairSchedulerOptions = {}) {
     this.concurrencyLimit = options.concurrencyLimit ?? resolveInstallationConcurrencyLimit();
     this.totalConcurrencyLimit = options.totalConcurrencyLimit ?? Infinity;
@@ -115,6 +129,7 @@ export class FairQueueScheduler {
     this.executor = options.executor;
     this.onDeadLetter = options.onDeadLetter;
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    this.backpressureController = new BackpressureController(options.backpressure);
   }
 
   /**
@@ -430,6 +445,53 @@ export class FairQueueScheduler {
   /**
    * Total number of currently running jobs across all installations.
    */
+  /**
+   * Evaluate adaptive backpressure and enqueue a job only if admitted.
+   */
+  public enqueueWithBackpressure(
+    job: FairJob,
+    options: { replaceExisting?: boolean; latencyP95Ms?: number } = {},
+  ): {
+    enqueued: boolean;
+    deduplicated: boolean;
+    decision: BackpressureDecision;
+  } {
+    const instKey = String(job.installationId);
+    const installationDepth = this.waitingByInstallation.get(instKey)?.length ?? 0;
+    const decision = this.backpressureController.evaluateAdmission({
+      priority: job.priority,
+      currentDepth: this.getTotalWaiting(),
+      installationDepth,
+      latencyP95Ms: options.latencyP95Ms,
+    });
+
+    if (!decision.admitted) {
+      return { enqueued: false, deduplicated: false, decision };
+    }
+
+    const enqueued = this.enqueue(job, { replaceExisting: options.replaceExisting });
+    return { enqueued, deduplicated: !enqueued, decision };
+  }
+
+  /**
+   * Current backpressure state and utilization ratio for the scheduler.
+   */
+  public getBackpressureStatus(latencyP95Ms?: number): {
+    state: BackpressureState;
+    utilization: number;
+    metrics: { admittedCount: number; shedCount: number };
+  } {
+    const { state, utilization } = this.backpressureController.getState(
+      this.getTotalWaiting(),
+      latencyP95Ms,
+    );
+    return {
+      state,
+      utilization,
+      metrics: this.backpressureController.getMetrics(),
+    };
+  }
+
   public getTotalActive(): number {
     return this.activeJobs.size;
   }
