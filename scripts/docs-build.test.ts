@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { createMarkdownRenderer } from "vitepress";
 import config from "../docs/.vitepress/config";
 
 describe("Documentation Site & Netlify Deployment (#2107)", () => {
@@ -67,6 +68,33 @@ describe("Documentation Site & Netlify Deployment (#2107)", () => {
     expect(pkg.scripts["docs:build"]).toBe("vitepress build docs");
     expect(pkg.scripts["docs:dev"]).toBe("vitepress dev docs");
     expect(pkg.scripts["docs:check-links"]).toBe("vitepress build docs");
+  });
+
+  it("renders ```mermaid fences as <MermaidDiagram> instead of code blocks (#2178)", async () => {
+    const md = await createMarkdownRenderer(docsDir, config.markdown);
+    const code = 'flowchart TD\n    A["Webhook\\n(route.ts)"] -->|"x < 3"| B';
+    const html = md.render(
+      ["```mermaid", code, "```", "", "```ts", "const a = 1;", "```"].join("\n"),
+    );
+
+    expect(html).toContain(`<MermaidDiagram code="${encodeURIComponent(code + "\n")}" />`);
+    expect(html).not.toContain("language-mermaid");
+    // Other fences still go through the normal highlighter.
+    expect(html).toContain("language-ts");
+  });
+
+  it("registers MermaidDiagram in the docs theme and recommends a VS Code preview extension (#2178)", () => {
+    const theme = fs.readFileSync(path.resolve(rootDir, "docs/.vitepress/theme/index.ts"), "utf8");
+    expect(theme).toContain('app.component("MermaidDiagram", MermaidDiagram)');
+
+    const readJson = (file: string) =>
+      JSON.parse(fs.readFileSync(path.resolve(rootDir, file), "utf8"));
+    expect(readJson(".vscode/extensions.json").recommendations).toContain(
+      "bierner.markdown-mermaid",
+    );
+    expect(readJson(".devcontainer/devcontainer.json").customizations.vscode.extensions).toContain(
+      "bierner.markdown-mermaid",
+    );
   });
 
   it("verifies homepage docs/index.md exists with hero and features", () => {
