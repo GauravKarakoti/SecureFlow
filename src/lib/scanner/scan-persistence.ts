@@ -34,6 +34,7 @@ import { normalizeFindingTypeEnum, normalizePolicyDecisionEnum } from "@/lib/fin
 import { toStoredSeverity, totalRiskScore } from "@/lib/severity";
 import { resolveCwe } from "@/lib/cwe";
 import { encryptFinding } from "@/lib/security/finding-encryption";
+import { importSarifFindings, type SarifLogDocument } from "./sarif-importer";
 
 /** The `PolicyDecision` members, mirroring `prisma/schema.prisma`. */
 export type StoredPolicyDecision = "PASS" | "REVIEW" | "BLOCK";
@@ -343,4 +344,25 @@ export function progressPercent(scannedFiles: number, totalFiles: number): numbe
   }
 
   return Math.min(100, Math.max(0, Math.round((scannedFiles / totalFiles) * 100)));
+}
+
+/**
+ * Ingest a SARIF 2.1.0 document and map normalized findings to `EnrichedScanFinding[]`
+ * compatible with SecureFlow's scan persistence pipeline.
+ */
+export function convertSarifLogToScanFindings(
+  input: string | SarifLogDocument,
+): EnrichedScanFinding[] {
+  return importSarifFindings(input).map((item) => ({
+    type: item.type,
+    severity: item.severity === "INFO" ? "LOW" : item.severity,
+    description: `[${item.toolName}:${item.ruleId}] ${item.description}`,
+    fileLocation: item.fileLocation,
+    lineStart: item.lineStart,
+    lineEnd: item.lineEnd,
+    fingerprint: item.fingerprint,
+    matchedSignatures: [item.ruleId, ...item.cweTags],
+    explanation: item.description,
+    remediation: item.helpUri ? `See guidance: ${item.helpUri}` : undefined,
+  }));
 }
