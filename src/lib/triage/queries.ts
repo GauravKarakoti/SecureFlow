@@ -3,6 +3,12 @@ import { createLogger } from "@/lib/logger";
 import { SUPPRESSED_STATUSES, type TriageStatus } from "./statuses";
 import { isSuppressionActive } from "./expiry";
 import { activeSuppressionWhere } from "./expiry-server";
+import {
+  evaluatePortfolioSla,
+  type PortfolioSlaSummary,
+  type SlaEvaluationOptions,
+  type SlaFindingInput,
+} from "./sla-escalation";
 
 /**
  * Triage lookups for the dashboard (#689, #1503).
@@ -153,4 +159,14 @@ export async function getUserTriage(userId: string): Promise<UserTriage> {
   }
 
   return { suppressedFingerprints: [...suppressed], byKey, truncated };
+}
+
+/**
+ * Compute SLA aging and breach escalation summary for dashboard findings using triage state.
+ */
+export function computeTriagePortfolioSla(
+  findings: SlaFindingInput[],
+  options?: SlaEvaluationOptions,
+): PortfolioSlaSummary {
+  return evaluatePortfolioSla(findings, options);
 }
