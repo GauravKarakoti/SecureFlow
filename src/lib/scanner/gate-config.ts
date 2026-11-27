@@ -1152,10 +1152,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
         ? (rawRulesObj.iac as Record<string, unknown>)
         : undefined;
 
-  const rawIacExceptions =
-    rawIacObj?.exceptions ??
-    root.iacExceptions ??
-    gateObj.iacExceptions;
+  const rawIacExceptions = rawIacObj?.exceptions ?? root.iacExceptions ?? gateObj.iacExceptions;
 
   const iacExceptions: IacExceptionConfig[] = [];
   if (Array.isArray(rawIacExceptions)) {
@@ -1181,7 +1178,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
       }
     }
   }
-  
+
   // #2095: parse pullRequestReview configuration
   const rawReviewMode = root.pullRequestReview ?? gateObj.pullRequestReview;
   let pullRequestReview: GateConfig["pullRequestReview"] = undefined;

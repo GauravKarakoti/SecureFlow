@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: Over-permissive IAM role template
 Resources:
   VulnerableAdminRole:
@@ -16,5 +16,5 @@ Resources:
           PolicyDocument:
             Statement:
               - Effect: Allow
-                Action: '*'
-                Resource: '*'
+                Action: "*"
+                Resource: "*"

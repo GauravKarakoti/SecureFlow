@@ -342,9 +342,7 @@ export function isIamPolicyFile(filename: string, content?: string): boolean {
   if (!filename) return false;
   const normalized = filename.replace(/\\/g, "/").toLowerCase();
   const isCandidateExt =
-    normalized.endsWith(".yaml") ||
-    normalized.endsWith(".yml") ||
-    normalized.endsWith(".json");
+    normalized.endsWith(".yaml") || normalized.endsWith(".yml") || normalized.endsWith(".json");
   if (!isCandidateExt) return false;
 
   const parts = normalized.split("/");
@@ -362,8 +360,9 @@ export function isIamPolicyFile(filename: string, content?: string): boolean {
   if (content) {
     const hasStatement = /(?:^|\b)(?:Statement|statement)\b/i.test(content);
     const hasAction = /(?:^|\b)(?:Action|actions)\b/i.test(content);
-    const hasResourceOrPrincipal =
-      /(?:^|\b)(?:Resource|resources|Principal|principal)\b/i.test(content);
+    const hasResourceOrPrincipal = /(?:^|\b)(?:Resource|resources|Principal|principal)\b/i.test(
+      content,
+    );
     if (hasStatement && hasAction && hasResourceOrPrincipal) {
       return true;
     }
@@ -1154,10 +1153,7 @@ export function splitIamStatements(
  *  - Principal: "*" without conditions
  *  - iam:PassRole on "*"
  */
-export function checkIamPrivilegeEscalation(
-  lines: IacLine[],
-  filename: string,
-): IacRuleFinding[] {
+export function checkIamPrivilegeEscalation(lines: IacLine[], filename: string): IacRuleFinding[] {
   const findings: IacRuleFinding[] = [];
   const statements = splitIamStatements(lines, filename);
 
@@ -1185,15 +1181,13 @@ export function checkIamPrivilegeEscalation(
     let passRoleLine: IacLine | undefined;
 
     let inActionBlock = false;
-    let actionItems: string[] = [];
+    const actionItems: string[] = [];
 
     for (const l of stLines) {
       const trimmed = l.content.trim();
       if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
 
-      if (
-        /(?:Action|actions)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(trimmed)
-      ) {
+      if (/(?:Action|actions)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(trimmed)) {
         hasWildcardAction = true;
         actionLine = l;
       }
@@ -1250,16 +1244,14 @@ export function checkIamPrivilegeEscalation(
     let hasWildcardResource = false;
     let resourceLine: IacLine | undefined;
     let inResourceBlock = false;
-    let resourceItems: string[] = [];
+    const resourceItems: string[] = [];
 
     for (const l of stLines) {
       const trimmed = l.content.trim();
       if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
 
       if (
-        /(?:Resource|resources)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(
-          trimmed,
-        )
+        /(?:Resource|resources)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(trimmed)
       ) {
         hasWildcardResource = true;
         resourceLine = l;
@@ -1392,8 +1384,8 @@ function evaluateRbacRule(
 
   let inVerbsList = false;
   let inResourcesList = false;
-  let verbs: string[] = [];
-  let resources: string[] = [];
+  const verbs: string[] = [];
+  const resources: string[] = [];
 
   for (const l of ruleLines) {
     const trimmed = l.content.trim();

@@ -7,9 +7,9 @@ roleRef:
   kind: ClusterRole
   name: view
 subjects:
-- kind: ServiceAccount
-  name: dashboard-reader
-  namespace: default
+  - kind: ServiceAccount
+    name: dashboard-reader
+    namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -21,6 +21,6 @@ roleRef:
   kind: ClusterRole
   name: edit
 subjects:
-- kind: ServiceAccount
-  name: developer-sa
-  namespace: test-env
+  - kind: ServiceAccount
+    name: developer-sa
+    namespace: test-env
