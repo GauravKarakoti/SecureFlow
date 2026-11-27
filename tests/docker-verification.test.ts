@@ -33,6 +33,24 @@ describe("Dockerfile & Container Infrastructure Verification (#1794)", () => {
     }
   });
 
+  it("skips only the root postinstall in the deps stage and generates in builder (#2195)", () => {
+    const content = fs.readFileSync(dockerfilePath, "utf-8");
+    const stage = (from: string, to: string) =>
+      content
+        .slice(content.indexOf(`AS ${from}`), content.indexOf(`AS ${to}`))
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("#"))
+        .join("\n");
+
+    // The deps stage has no scripts/ or openapi.yaml, so the root hook cannot run there
+    const deps = stage("deps", "builder");
+    expect(deps).toMatch(/npm pkg delete scripts\.postinstall[\s\S]*npm ci\b/);
+    // Dependencies still need their own install scripts
+    expect(deps).not.toContain("--ignore-scripts");
+
+    expect(stage("builder", "prisma-cli")).toMatch(/COPY \. \.[\s\S]*prisma generate/);
+  });
+
   it("enforces least privilege and non-root execution in runner and migrator", () => {
     const content = fs.readFileSync(dockerfilePath, "utf-8");
 
