@@ -43,8 +43,8 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "ioredis": "^6.0.0",
-    "typescript": "^5.0.0 || ^6.0.0",
+    "ioredis": "^6.1.0",
+    "typescript": "^6.0.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
