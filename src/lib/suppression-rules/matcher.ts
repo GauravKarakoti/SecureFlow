@@ -9,6 +9,12 @@
 import { compileIgnorePatterns } from "@/lib/armor/scanner";
 import { normalizeGatePath } from "@/lib/armor/iq";
 import { normalizeFindingTypeEnum } from "@/lib/finding-taxonomy";
+import {
+  evaluateInlinePragmaSuppressions,
+  type EvaluateInlinePragmaResult,
+  type ParseInlinePragmasOptions,
+  type PragmaFindingTarget,
+} from "./inline-pragma";
 
 export interface SuppressionRuleLike {
   id: string;
@@ -177,5 +183,43 @@ export function evaluateSuppressionRules<T extends FindingMatchTarget>(
     suppressedFindings,
     ruleMatches,
     suppressedCount: suppressedFindings.length,
+  };
+}
+
+/**
+ * Evaluate both inline source-code pragmas and installation-wide suppression rules.
+ */
+export function evaluateAllSuppressions<T extends FindingMatchTarget & PragmaFindingTarget>(
+  findings: T[],
+  rules: SuppressionRuleLike[],
+  sourceByFile: Record<string, string>,
+  options: {
+    repositoryId?: string | null;
+    now?: Date;
+    strictPragmaReason?: boolean;
+  } = {},
+): {
+  activeFindings: T[];
+  suppressedFindings: T[];
+  pragmaResult: EvaluateInlinePragmaResult<T>;
+  ruleResult: EvaluateSuppressionResult<T>;
+} {
+  const pragmaOptions: ParseInlinePragmasOptions = {
+    now: options.now,
+    strictReason: options.strictPragmaReason,
+  };
+  const pragmaResult = evaluateInlinePragmaSuppressions(findings, sourceByFile, pragmaOptions);
+  const ruleResult = evaluateSuppressionRules(
+    pragmaResult.activeFindings,
+    rules,
+    options.repositoryId,
+    options.now,
+  );
+
+  return {
+    activeFindings: ruleResult.activeFindings,
+    suppressedFindings: [...pragmaResult.suppressedFindings, ...ruleResult.suppressedFindings],
+    pragmaResult,
+    ruleResult,
   };
 }
