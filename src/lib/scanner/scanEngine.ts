@@ -28,6 +28,7 @@ import { App } from "octokit";
 import { logger } from "@/lib/logger";
 import { postScanCheckRun } from "./check-run";
 import { getZeroScanReason, type ZeroScanReason } from "./zero-scan";
+export { convertSarifLogToScanFindings as ingestExternalSarifFindings } from "./scan-persistence";
 import {
   compileIgnorePatterns,
   ignoreReasonFor,
