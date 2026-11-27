@@ -17,8 +17,9 @@ import {
   parseConfidence,
   DEFAULT_MIN_COMMENT_CONFIDENCE,
 } from "@/lib/confidence";
+import type { IacExceptionConfig } from "@/lib/rules/iac-rules";
 
-export { type PolicyScopeRule };
+export { type PolicyScopeRule, type IacExceptionConfig };
 
 export const SECUREFLOW_CONFIG_FILE = ".secureflow.json";
 
@@ -290,6 +291,7 @@ export interface GateConfig {
   unicodeRulesEnabled?: boolean;
   unicodeAllowPatterns?: string[];
   licenses?: LicenseComplianceConfig;
+  iacExceptions?: IacExceptionConfig[];
   breakglass?: BreakglassOverrideConfig;
   override?: BreakglassOverrideConfig;
 }
@@ -297,7 +299,14 @@ export interface GateConfig {
 export interface RulesConfig {
   disabled?: string[];
   disabledRules?: string[];
-  iac?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
+  iac?:
+    | boolean
+    | {
+        enabled?: boolean;
+        disabled?: string[];
+        disabledRules?: string[];
+        exceptions?: IacExceptionConfig[];
+      };
   patterns?: boolean | { enabled?: boolean; disabled?: string[]; disabledRules?: string[] };
   unicode?:
     | boolean
@@ -1133,6 +1142,46 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     maxInlineComments = rawMaxInline;
   }
 
+  // #2160: parse IaC exceptions per repository
+  const rawIacObj =
+    typeof root.iac === "object" && root.iac !== null && !Array.isArray(root.iac)
+      ? (root.iac as Record<string, unknown>)
+      : typeof rawRulesObj?.iac === "object" &&
+          rawRulesObj.iac !== null &&
+          !Array.isArray(rawRulesObj.iac)
+        ? (rawRulesObj.iac as Record<string, unknown>)
+        : undefined;
+
+  const rawIacExceptions =
+    rawIacObj?.exceptions ??
+    root.iacExceptions ??
+    gateObj.iacExceptions;
+
+  const iacExceptions: IacExceptionConfig[] = [];
+  if (Array.isArray(rawIacExceptions)) {
+    for (const item of rawIacExceptions) {
+      if (item && typeof item === "object") {
+        const obj = item as Record<string, unknown>;
+        const reason = typeof obj.reason === "string" ? obj.reason.trim() : "";
+        if (reason) {
+          iacExceptions.push({
+            rule:
+              typeof obj.rule === "string"
+                ? obj.rule.trim()
+                : typeof obj.ruleId === "string"
+                  ? obj.ruleId.trim()
+                  : undefined,
+            file: typeof obj.file === "string" ? obj.file.trim() : undefined,
+            path: typeof obj.path === "string" ? obj.path.trim() : undefined,
+            line: typeof obj.line === "number" ? obj.line : undefined,
+            lines: Array.isArray(obj.lines) ? (obj.lines as number[]) : undefined,
+            reason,
+          });
+        }
+      }
+    }
+  }
+  
   // #2095: parse pullRequestReview configuration
   const rawReviewMode = root.pullRequestReview ?? gateObj.pullRequestReview;
   let pullRequestReview: GateConfig["pullRequestReview"] = undefined;
@@ -1182,6 +1231,7 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
     ...(unicodeAllowPatterns && unicodeAllowPatterns.length > 0 ? { unicodeAllowPatterns } : {}),
     ...(disabledRules && disabledRules.length > 0 ? { disabledRules } : {}),
     ...(licenses !== undefined ? { licenses } : {}),
+    ...(iacExceptions.length > 0 ? { iacExceptions } : {}),
     ...(breakglass !== undefined ? { breakglass } : {}),
     ...(pullRequestReview !== undefined ? { pullRequestReview } : {}),
     ...(override !== undefined ? { override } : {}),
@@ -1189,18 +1239,20 @@ export function parseSecureFlowConfig(rawJson: string): GateConfig {
 }
 
 /**
- * Resolves options for IaC security rules from repository gate configuration (#2004).
+ * Resolves options for IaC security rules from repository gate configuration (#2004, #2160).
  */
 export function resolveIacRuleOptions(config?: GateConfig | null): {
   enabled: boolean;
   disabledRules: string[];
+  exceptions: IacExceptionConfig[];
 } {
   if (!config) {
-    return { enabled: true, disabledRules: [] };
+    return { enabled: true, disabledRules: [], exceptions: [] };
   }
   return {
     enabled: config.iacRulesEnabled !== false,
     disabledRules: config.disabledRules ?? [],
+    exceptions: config.iacExceptions ?? [],
   };
 }
 

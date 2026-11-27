@@ -31,6 +31,10 @@ export const IAC_RULE_IDS = {
   CONTAINER_HOST_NAMESPACE: "IAC_CONTAINER_HOST_NAMESPACE",
   K8S_PRIVILEGE_ESCALATION_OR_CAP: "IAC_K8S_PRIVILEGE_ESCALATION_OR_CAP",
   TF_IAM_WILDCARD_POLICY: "IAC_TF_IAM_WILDCARD_POLICY",
+  IAM_WILDCARD_FULL_ADMIN: "IAC_IAM_WILDCARD_FULL_ADMIN",
+  IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS: "IAC_IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS",
+  IAM_PASSROLE_WILDCARD: "IAC_IAM_PASSROLE_WILDCARD",
+  K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC: "IAC_K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC",
 } as const;
 
 export type IacRuleId = (typeof IAC_RULE_IDS)[keyof typeof IAC_RULE_IDS];
@@ -153,6 +157,46 @@ export const IAC_RULES: Record<IacRuleId, IacRuleDefinition> = {
     oneLineFix:
       "Scope IAM actions to specific required service operations instead of wildcard '*'.",
   },
+  [IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN]: {
+    id: IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN,
+    name: "IAM policy grants wildcard Action on wildcard Resource (* on *)",
+    severity: "CRITICAL",
+    type: "Misconfig",
+    description:
+      "IAM policy statement grants full administrator privileges (Action: '*' on Resource: '*'), enabling unrestricted account takeover.",
+    oneLineFix:
+      "Scope actions to specific service operations and restrict resources to explicit target ARNs instead of wildcard (* on *).",
+  },
+  [IAC_RULE_IDS.IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS]: {
+    id: IAC_RULE_IDS.IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS,
+    name: "IAM policy grants wildcard Principal without conditions",
+    severity: "HIGH",
+    type: "Misconfig",
+    description:
+      "IAM resource policy allows wildcard Principal ('*') without condition constraints, exposing the resource to public or arbitrary AWS account access.",
+    oneLineFix:
+      "Restrict Principal to trusted AWS account ARNs/roles, or add strict condition keys (e.g. aws:PrincipalOrgID).",
+  },
+  [IAC_RULE_IDS.IAM_PASSROLE_WILDCARD]: {
+    id: IAC_RULE_IDS.IAM_PASSROLE_WILDCARD,
+    name: "IAM policy grants iam:PassRole on wildcard Resource (*)",
+    severity: "HIGH",
+    type: "Misconfig",
+    description:
+      "Granting iam:PassRole on Resource '*' allows passing any IAM role in the account, enabling privilege escalation to higher-privileged service roles.",
+    oneLineFix:
+      "Restrict iam:PassRole resources to specific role ARNs that the service is authorized to assume.",
+  },
+  [IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC]: {
+    id: IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC,
+    name: "Kubernetes ClusterRoleBinding to cluster-admin or wildcard RBAC",
+    severity: "CRITICAL",
+    type: "Misconfig",
+    description:
+      "Kubernetes RBAC binds to cluster-admin or grants wildcard verbs ('*') on wildcard resources ('*'), granting complete cluster takeover privileges.",
+    oneLineFix:
+      "Bind a scoped Role/ClusterRole with least-privilege verbs and resources instead of cluster-admin or wildcard verbs/resources.",
+  },
 };
 
 export interface IacRuleFinding {
@@ -168,10 +212,20 @@ export interface IacRuleFinding {
   oneLineFix: string;
 }
 
+export interface IacExceptionConfig {
+  rule?: string;
+  file?: string;
+  path?: string;
+  line?: number;
+  lines?: number[];
+  reason: string;
+}
+
 export interface IacRuleOptions {
   repositoryId?: string;
   enabled?: boolean;
   disabledRules?: string[];
+  exceptions?: IacExceptionConfig[];
 }
 
 export interface IacLine {
@@ -227,10 +281,90 @@ export function isKubernetesManifest(filename: string, content?: string): boolea
   if (content) {
     const hasApiVersion = /^\s*apiVersion\s*:\s*[a-zA-Z0-9.\/]+/m.test(content);
     const hasKind =
-      /^\s*kind\s*:\s*(Deployment|Pod|DaemonSet|StatefulSet|Job|CronJob|ReplicaSet|ReplicationController|Service|Ingress|ConfigMap|Secret|Namespace)/m.test(
+      /^\s*kind\s*:\s*(Deployment|Pod|DaemonSet|StatefulSet|Job|CronJob|ReplicaSet|ReplicationController|Service|Ingress|ConfigMap|Secret|Namespace|ClusterRole|ClusterRoleBinding|Role|RoleBinding|ServiceAccount)/m.test(
         content,
       );
-    if (hasApiVersion && hasKind) {
+    const hasRbacApi = /rbac\.authorization\.k8s\.io/i.test(content);
+    if ((hasApiVersion && hasKind) || (hasKind && hasRbacApi)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a filename (and optional content) represents a CloudFormation template.
+ */
+export function isCloudFormationFile(filename: string, content?: string): boolean {
+  if (!filename) return false;
+  const normalized = filename.replace(/\\/g, "/").toLowerCase();
+  const isCandidateExt =
+    normalized.endsWith(".yaml") ||
+    normalized.endsWith(".yml") ||
+    normalized.endsWith(".json") ||
+    normalized.endsWith(".template");
+  if (!isCandidateExt) return false;
+
+  const parts = normalized.split("/");
+  const basename = parts[parts.length - 1];
+  const dirParts = parts.slice(0, -1);
+
+  if (
+    dirParts.some((d) => ["cloudformation", "cfn", "cft"].includes(d)) ||
+    basename.includes(".cf.") ||
+    basename.includes(".cft.") ||
+    basename.startsWith("cf-") ||
+    basename.startsWith("cfn-") ||
+    basename.endsWith("template.yaml") ||
+    basename.endsWith("template.yml") ||
+    basename.endsWith("template.json")
+  ) {
+    return true;
+  }
+
+  if (content) {
+    if (
+      content.includes("AWSTemplateFormatVersion") ||
+      (content.includes("Resources") && /AWS::[a-zA-Z0-9]+::[a-zA-Z0-9]+/i.test(content))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a filename (and optional content) represents a JSON/YAML IAM policy file.
+ */
+export function isIamPolicyFile(filename: string, content?: string): boolean {
+  if (!filename) return false;
+  const normalized = filename.replace(/\\/g, "/").toLowerCase();
+  const isCandidateExt =
+    normalized.endsWith(".yaml") ||
+    normalized.endsWith(".yml") ||
+    normalized.endsWith(".json");
+  if (!isCandidateExt) return false;
+
+  const parts = normalized.split("/");
+  const basename = parts[parts.length - 1];
+  const dirParts = parts.slice(0, -1);
+
+  if (
+    dirParts.some((d) => ["iam", "policies", "policy", "roles"].includes(d)) ||
+    basename.includes("policy") ||
+    basename.includes("iam")
+  ) {
+    return true;
+  }
+
+  if (content) {
+    const hasStatement = /(?:^|\b)(?:Statement|statement)\b/i.test(content);
+    const hasAction = /(?:^|\b)(?:Action|actions)\b/i.test(content);
+    const hasResourceOrPrincipal =
+      /(?:^|\b)(?:Resource|resources|Principal|principal)\b/i.test(content);
+    if (hasStatement && hasAction && hasResourceOrPrincipal) {
       return true;
     }
   }
@@ -258,14 +392,16 @@ export function isDockerComposeFile(filename: string): boolean {
 }
 
 /**
- * Checks if a file is an IaC target file (Dockerfile, Docker Compose, Kubernetes manifest, or Terraform file).
+ * Checks if a file is an IaC target file (Dockerfile, Docker Compose, Kubernetes manifest, Terraform, CloudFormation, or IAM policy).
  */
 export function isIacFile(filename: string, content?: string): boolean {
   return (
     isDockerfile(filename) ||
     isDockerComposeFile(filename) ||
     isKubernetesManifest(filename, content) ||
-    isTerraformFile(filename)
+    isTerraformFile(filename) ||
+    isCloudFormationFile(filename, content) ||
+    isIamPolicyFile(filename, content)
   );
 }
 
@@ -281,10 +417,15 @@ export function extractIacLines(patchOrContent: string): IacLine[] {
   }
 
   const rawLines = patchOrContent.split(/\r?\n/);
-  const isDiff = rawLines.some(
-    (l) =>
-      l.startsWith("+") || l.startsWith("-") || l.startsWith("diff ") || l.startsWith("index "),
-  );
+  const isDiff =
+    patchOrContent.includes("diff --git") ||
+    rawLines.some(
+      (l) =>
+        l.startsWith("+++ ") ||
+        l.startsWith("--- ") ||
+        l.startsWith("diff ") ||
+        l.startsWith("index "),
+    );
 
   if (isDiff) {
     const result: IacLine[] = [];
@@ -839,6 +980,661 @@ export function checkTerraformIamWildcardPolicy(
 }
 
 /**
+ * Splits lines into statement blocks for IAM policy analysis across Terraform, CloudFormation, and JSON/YAML files (#2160).
+ */
+export function splitIamStatements(
+  lines: IacLine[],
+  filename: string,
+): Array<{ lines: IacLine[]; startLine: number }> {
+  const statements: Array<{ lines: IacLine[]; startLine: number }> = [];
+  const lower = filename.toLowerCase();
+  const isTf = lower.endsWith(".tf");
+
+  if (isTf) {
+    let currentBlock: IacLine[] = [];
+    let braceDepth = 0;
+    let inStatement = false;
+
+    for (const line of lines) {
+      const trimmed = line.content.trim();
+      if (/^\s*(?:dynamic\s*"statement"|statement)\s*\{/i.test(trimmed)) {
+        if (inStatement && currentBlock.length > 0) {
+          statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+        }
+        inStatement = true;
+        currentBlock = [line];
+        braceDepth = 1;
+        continue;
+      }
+
+      if (inStatement) {
+        currentBlock.push(line);
+        const openBraces = (line.content.match(/\{/g) || []).length;
+        const closeBraces = (line.content.match(/\}/g) || []).length;
+        braceDepth += openBraces - closeBraces;
+
+        if (braceDepth <= 0) {
+          statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+          currentBlock = [];
+          inStatement = false;
+        }
+      } else {
+        currentBlock.push(line);
+      }
+    }
+
+    if (currentBlock.length > 0) {
+      statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+    }
+
+    return statements;
+  }
+
+  // JSON or YAML
+  const isJson =
+    lower.endsWith(".json") ||
+    lines.some((l) => l.content.includes('"Statement"') || l.content.includes('"Action"'));
+
+  if (isJson) {
+    // If the file contains "Statement": [ ... ], extract each object in that array
+    if (lines.some((l) => /"Statement"\s*:/i.test(l.content))) {
+      const arrayStatements: Array<{ lines: IacLine[]; startLine: number }> = [];
+      let inStatementArray = false;
+      let objBlock: IacLine[] = [];
+      let objDepth = 0;
+
+      for (const line of lines) {
+        const trimmed = line.content.trim();
+        if (/"Statement"\s*:\s*\[/i.test(trimmed)) {
+          inStatementArray = true;
+          continue;
+        }
+
+        if (inStatementArray) {
+          const openBraces = (line.content.match(/\{/g) || []).length;
+          const closeBraces = (line.content.match(/\}/g) || []).length;
+
+          if (objDepth === 0 && openBraces > 0) {
+            objBlock = [line];
+            objDepth += openBraces - closeBraces;
+            if (objDepth <= 0) {
+              arrayStatements.push({ lines: objBlock, startLine: objBlock[0].number });
+              objBlock = [];
+              objDepth = 0;
+            }
+          } else if (objDepth > 0) {
+            objBlock.push(line);
+            objDepth += openBraces - closeBraces;
+            if (objDepth <= 0) {
+              arrayStatements.push({ lines: objBlock, startLine: objBlock[0].number });
+              objBlock = [];
+              objDepth = 0;
+            }
+          } else if (/^\s*\]/i.test(trimmed)) {
+            inStatementArray = false;
+          }
+        }
+      }
+
+      if (arrayStatements.length > 0) {
+        return arrayStatements;
+      }
+    }
+
+    let currentBlock: IacLine[] = [];
+    let braceDepth = 0;
+    let inStatement = false;
+
+    for (const line of lines) {
+      const openBraces = (line.content.match(/\{/g) || []).length;
+      const closeBraces = (line.content.match(/\}/g) || []).length;
+
+      if (!inStatement) {
+        if (openBraces > 0) {
+          currentBlock = [line];
+          braceDepth = openBraces - closeBraces;
+          inStatement = true;
+          if (braceDepth <= 0) {
+            statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+            currentBlock = [];
+            braceDepth = 0;
+            inStatement = false;
+          }
+        }
+        continue;
+      }
+
+      if (inStatement) {
+        currentBlock.push(line);
+        braceDepth += openBraces - closeBraces;
+        if (braceDepth <= 0) {
+          statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+          currentBlock = [];
+          braceDepth = 0;
+          inStatement = false;
+        }
+      }
+    }
+
+    if (currentBlock.length > 0) {
+      statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+    }
+
+    return statements;
+  }
+
+  // YAML: split by list items `- ` under Statement or `- Effect:` / `- Action:` or document `---`
+  let currentBlock: IacLine[] = [];
+  for (const line of lines) {
+    const trimmed = line.content.trim();
+    if (
+      trimmed.startsWith("---") ||
+      /^\s*-\s+(?:Sid|Effect|Action|Principal|Resource):/i.test(line.content) ||
+      (/^\s*-\s*$/i.test(line.content) && currentBlock.length > 0)
+    ) {
+      if (currentBlock.length > 0) {
+        statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+      }
+      currentBlock = [line];
+    } else {
+      currentBlock.push(line);
+    }
+  }
+
+  if (currentBlock.length > 0) {
+    statements.push({ lines: currentBlock, startLine: currentBlock[0].number });
+  }
+
+  return statements;
+}
+
+/**
+ * Rules 12-14: Detects IAM Privilege Escalation (#2160):
+ *  - Action: "*" with Resource: "*"
+ *  - Principal: "*" without conditions
+ *  - iam:PassRole on "*"
+ */
+export function checkIamPrivilegeEscalation(
+  lines: IacLine[],
+  filename: string,
+): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const statements = splitIamStatements(lines, filename);
+
+  const fullAdminRule = IAC_RULES[IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN];
+  const principalRule = IAC_RULES[IAC_RULE_IDS.IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS];
+  const passRoleRule = IAC_RULES[IAC_RULE_IDS.IAM_PASSROLE_WILDCARD];
+
+  for (const statement of statements) {
+    const stLines = statement.lines;
+    const isDeny = stLines.some((l) =>
+      /(?:Effect|effect)["']?\s*[:=]\s*["']?Deny/i.test(l.content),
+    );
+    if (isDeny) {
+      continue;
+    }
+
+    const hasCondition = stLines.some((l) =>
+      /(?:Condition|condition)["']?\s*[:={]/i.test(l.content),
+    );
+
+    // 1. Wildcard Action check
+    let hasWildcardAction = false;
+    let hasPassRole = false;
+    let actionLine: IacLine | undefined;
+    let passRoleLine: IacLine | undefined;
+
+    let inActionBlock = false;
+    let actionItems: string[] = [];
+
+    for (const l of stLines) {
+      const trimmed = l.content.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+
+      if (
+        /(?:Action|actions)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(trimmed)
+      ) {
+        hasWildcardAction = true;
+        actionLine = l;
+      }
+
+      if (/\biam:passrole\b/i.test(trimmed)) {
+        hasPassRole = true;
+        passRoleLine = l;
+      }
+
+      if (/(?:Action|actions)["']?\s*[:=]\s*(?:\[)?\s*$/i.test(trimmed)) {
+        inActionBlock = true;
+        continue;
+      }
+
+      if (inActionBlock) {
+        if (/^\s*-\s*["']?([^"'\s#]+)["']?/i.test(trimmed)) {
+          const itemMatch = trimmed.match(/^\s*-\s*["']?([^"'\s#]+)["']?/i);
+          if (itemMatch) {
+            actionItems.push(itemMatch[1]);
+            if (itemMatch[1] === "*") {
+              actionLine = l;
+            }
+            if (/^iam:passrole$/i.test(itemMatch[1])) {
+              hasPassRole = true;
+              passRoleLine = l;
+            }
+          }
+        } else if (/^\s*["']([^"']+)["']/i.test(trimmed)) {
+          const itemMatch = trimmed.match(/^\s*["']([^"']+)["']/i);
+          if (itemMatch) {
+            actionItems.push(itemMatch[1]);
+            if (itemMatch[1] === "*") {
+              actionLine = l;
+            }
+            if (/^iam:passrole$/i.test(itemMatch[1])) {
+              hasPassRole = true;
+              passRoleLine = l;
+            }
+          }
+        } else if (
+          /^\s*\]/i.test(trimmed) ||
+          /(?:Resource|Effect|Principal|Condition)/i.test(trimmed)
+        ) {
+          inActionBlock = false;
+        }
+      }
+    }
+
+    if (actionItems.length === 1 && actionItems[0] === "*") {
+      hasWildcardAction = true;
+    }
+
+    // 2. Wildcard Resource check
+    let hasWildcardResource = false;
+    let resourceLine: IacLine | undefined;
+    let inResourceBlock = false;
+    let resourceItems: string[] = [];
+
+    for (const l of stLines) {
+      const trimmed = l.content.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+
+      if (
+        /(?:Resource|resources)["']?\s*[:=]\s*(?:["']\*["']|\[\s*["']\*["']\s*\])/i.test(
+          trimmed,
+        )
+      ) {
+        hasWildcardResource = true;
+        resourceLine = l;
+      }
+
+      if (/(?:Resource|resources)["']?\s*[:=]\s*(?:\[)?\s*$/i.test(trimmed)) {
+        inResourceBlock = true;
+        continue;
+      }
+
+      if (inResourceBlock) {
+        if (/^\s*-\s*["']?([^"'\s#]+)["']?/i.test(trimmed)) {
+          const itemMatch = trimmed.match(/^\s*-\s*["']?([^"'\s#]+)["']?/i);
+          if (itemMatch) {
+            resourceItems.push(itemMatch[1]);
+            if (itemMatch[1] === "*") {
+              resourceLine = l;
+            }
+          }
+        } else if (/^\s*["']([^"']+)["']/i.test(trimmed)) {
+          const itemMatch = trimmed.match(/^\s*["']([^"']+)["']/i);
+          if (itemMatch) {
+            resourceItems.push(itemMatch[1]);
+            if (itemMatch[1] === "*") {
+              resourceLine = l;
+            }
+          }
+        } else if (
+          /^\s*\]/i.test(trimmed) ||
+          /(?:Action|Effect|Principal|Condition)/i.test(trimmed)
+        ) {
+          inResourceBlock = false;
+        }
+      }
+    }
+
+    if (resourceItems.length === 1 && resourceItems[0] === "*") {
+      hasWildcardResource = true;
+    }
+
+    // 3. Wildcard Principal check
+    let hasWildcardPrincipal = false;
+    let principalLine: IacLine | undefined;
+
+    for (const l of stLines) {
+      const trimmed = l.content.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+
+      if (
+        /(?:Principal|principal)["']?\s*[:=]\s*["']\*["']/i.test(trimmed) ||
+        /(?:Principal|principal)["']?\s*[:=]\s*\{[^\}]*["']?AWS["']?\s*:\s*["']\*["']/i.test(
+          trimmed,
+        ) ||
+        /(?:^|\b)identifiers\s*=\s*\[\s*["']\*["']\s*\]/i.test(trimmed) ||
+        /^\s*AWS\s*[:=]\s*["']\*["']/i.test(trimmed)
+      ) {
+        hasWildcardPrincipal = true;
+        principalLine = l;
+      }
+    }
+
+    // Rule 1: Action: "*" with Resource: "*"
+    if (hasWildcardAction && hasWildcardResource) {
+      const reportLine = resourceLine || actionLine || stLines[0];
+      findings.push({
+        ruleId: fullAdminRule.id,
+        ruleName: fullAdminRule.name,
+        severity: fullAdminRule.severity,
+        type: fullAdminRule.type,
+        fileLocation: filename,
+        lineStart: reportLine.number,
+        lineEnd: reportLine.number,
+        codeSnippet: reportLine.content.trim(),
+        description: fullAdminRule.description,
+        oneLineFix: fullAdminRule.oneLineFix,
+      });
+    }
+
+    // Rule 2: Principal: "*" without conditions
+    if (hasWildcardPrincipal && !hasCondition) {
+      const reportLine = principalLine || stLines[0];
+      findings.push({
+        ruleId: principalRule.id,
+        ruleName: principalRule.name,
+        severity: principalRule.severity,
+        type: principalRule.type,
+        fileLocation: filename,
+        lineStart: reportLine.number,
+        lineEnd: reportLine.number,
+        codeSnippet: reportLine.content.trim(),
+        description: principalRule.description,
+        oneLineFix: principalRule.oneLineFix,
+      });
+    }
+
+    // Rule 3: iam:PassRole on *
+    if (hasPassRole && hasWildcardResource) {
+      const reportLine = passRoleLine || resourceLine || stLines[0];
+      findings.push({
+        ruleId: passRoleRule.id,
+        ruleName: passRoleRule.name,
+        severity: passRoleRule.severity,
+        type: passRoleRule.type,
+        fileLocation: filename,
+        lineStart: reportLine.number,
+        lineEnd: reportLine.number,
+        codeSnippet: reportLine.content.trim(),
+        description: passRoleRule.description,
+        oneLineFix: passRoleRule.oneLineFix,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Evaluates an individual RBAC rule item for wildcard verbs and wildcard resources (#2160).
+ */
+function evaluateRbacRule(
+  ruleLines: IacLine[],
+  filename: string,
+  rule: IacRuleDefinition,
+  findings: IacRuleFinding[],
+): void {
+  let hasWildcardVerbs = false;
+  let hasWildcardResources = false;
+  let verbsLine: IacLine | undefined;
+  let resourcesLine: IacLine | undefined;
+
+  let inVerbsList = false;
+  let inResourcesList = false;
+  let verbs: string[] = [];
+  let resources: string[] = [];
+
+  for (const l of ruleLines) {
+    const trimmed = l.content.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (/verbs\s*:\s*\[[^\]]*["']\*["'][^\]]*\]/i.test(trimmed)) {
+      hasWildcardVerbs = true;
+      verbsLine = l;
+    }
+
+    if (/resources\s*:\s*\[[^\]]*["']\*["'][^\]]*\]/i.test(trimmed)) {
+      hasWildcardResources = true;
+      resourcesLine = l;
+    }
+
+    if (/verbs\s*:\s*$/i.test(trimmed)) {
+      inVerbsList = true;
+      inResourcesList = false;
+      continue;
+    }
+
+    if (/resources\s*:\s*$/i.test(trimmed)) {
+      inResourcesList = true;
+      inVerbsList = false;
+      continue;
+    }
+
+    if (inVerbsList) {
+      if (/^\s*-\s*["']?([^"'\s#]+)["']?/i.test(trimmed)) {
+        const match = trimmed.match(/^\s*-\s*["']?([^"'\s#]+)["']?/i);
+        if (match) {
+          verbs.push(match[1]);
+          if (match[1] === "*") {
+            hasWildcardVerbs = true;
+            verbsLine = l;
+          }
+        }
+      } else if (/^\s*[a-zA-Z0-9_-]+\s*:/i.test(trimmed)) {
+        inVerbsList = false;
+      }
+    }
+
+    if (inResourcesList) {
+      if (/^\s*-\s*["']?([^"'\s#]+)["']?/i.test(trimmed)) {
+        const match = trimmed.match(/^\s*-\s*["']?([^"'\s#]+)["']?/i);
+        if (match) {
+          resources.push(match[1]);
+          if (match[1] === "*") {
+            hasWildcardResources = true;
+            resourcesLine = l;
+          }
+        }
+      } else if (/^\s*[a-zA-Z0-9_-]+\s*:/i.test(trimmed)) {
+        inResourcesList = false;
+      }
+    }
+  }
+
+  if (hasWildcardVerbs && hasWildcardResources) {
+    const reportLine = verbsLine || resourcesLine || ruleLines[0];
+    findings.push({
+      ruleId: rule.id,
+      ruleName: rule.name,
+      severity: rule.severity,
+      type: rule.type,
+      fileLocation: filename,
+      lineStart: reportLine.number,
+      lineEnd: reportLine.number,
+      codeSnippet: reportLine.content.trim(),
+      description: rule.description,
+      oneLineFix: rule.oneLineFix,
+    });
+  }
+}
+
+/**
+ * Rule 15: Detects Kubernetes ClusterRoleBinding to cluster-admin or wildcard RBAC verbs on wildcard resources (#2160).
+ */
+export function checkK8sClusterAdminOrWildcardRbac(
+  lines: IacLine[],
+  filename: string,
+): IacRuleFinding[] {
+  const findings: IacRuleFinding[] = [];
+  const rule = IAC_RULES[IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC];
+
+  // Split into documents by `---`
+  const docs: IacLine[][] = [];
+  let currentDoc: IacLine[] = [];
+
+  for (const l of lines) {
+    if (l.content.trim().startsWith("---")) {
+      if (currentDoc.length > 0) {
+        docs.push(currentDoc);
+        currentDoc = [];
+      }
+    } else {
+      currentDoc.push(l);
+    }
+  }
+  if (currentDoc.length > 0) {
+    docs.push(currentDoc);
+  }
+
+  for (const doc of docs) {
+    let kind: string | null = null;
+    let inRoleRef = false;
+
+    for (const l of doc) {
+      const trimmed = l.content.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+
+      if (!inRoleRef) {
+        const kindMatch = trimmed.match(/^\s*kind\s*:\s*["']?([a-zA-Z0-9]+)["']?/i);
+        if (kindMatch) {
+          kind = kindMatch[1];
+        }
+      }
+
+      if (/^\s*roleRef\s*:/i.test(trimmed)) {
+        inRoleRef = true;
+        continue;
+      }
+
+      if (inRoleRef) {
+        if (/^\s*name\s*:\s*["']?cluster-admin["']?/i.test(trimmed)) {
+          if (!kind || kind.toLowerCase() === "clusterrolebinding") {
+            findings.push({
+              ruleId: rule.id,
+              ruleName: rule.name,
+              severity: rule.severity,
+              type: rule.type,
+              fileLocation: filename,
+              lineStart: l.number,
+              lineEnd: l.number,
+              codeSnippet: trimmed,
+              description: rule.description,
+              oneLineFix: rule.oneLineFix,
+            });
+          }
+          inRoleRef = false;
+        } else if (
+          /^\s*[a-zA-Z0-9_-]+\s*:/i.test(trimmed) &&
+          !/^\s*(apiGroup|kind|name)\s*:/i.test(trimmed) &&
+          !trimmed.startsWith("-")
+        ) {
+          inRoleRef = false;
+        }
+      }
+    }
+
+    // Case B: Role or ClusterRole with verbs: ["*"] on resources: ["*"]
+    if (!kind || ["clusterrole", "role"].includes(kind.toLowerCase())) {
+      let currentRuleLines: IacLine[] = [];
+      let inRulesSection = false;
+
+      for (const l of doc) {
+        const trimmed = l.content.trim();
+        if (/^\s*rules\s*:/i.test(trimmed)) {
+          inRulesSection = true;
+          continue;
+        }
+
+        if (inRulesSection) {
+          if (/^\s*-\s+(?:apiGroups|resources|verbs|nonResourceURLs):/i.test(l.content)) {
+            if (currentRuleLines.length > 0) {
+              evaluateRbacRule(currentRuleLines, filename, rule, findings);
+              currentRuleLines = [];
+            }
+          }
+          currentRuleLines.push(l);
+        }
+      }
+
+      if (currentRuleLines.length > 0) {
+        evaluateRbacRule(currentRuleLines, filename, rule, findings);
+      }
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Matches a file path against a glob pattern.
+ */
+function matchGlob(str: string, pattern: string): boolean {
+  if (pattern === "*" || pattern === "**") return true;
+  const regexStr = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, ".*")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, ".");
+  return new RegExp(`^${regexStr}$`, "i").test(str) || new RegExp(`${regexStr}$`, "i").test(str);
+}
+
+/**
+ * Checks whether an IaC rule finding is exempted by configured exceptions (#2160).
+ */
+export function isIacFindingExempt(
+  finding: IacRuleFinding,
+  exceptions: IacExceptionConfig[] = [],
+): boolean {
+  if (!exceptions || exceptions.length === 0) return false;
+
+  for (const exc of exceptions) {
+    if (exc.rule && exc.rule !== "*" && exc.rule.toUpperCase() !== finding.ruleId.toUpperCase()) {
+      continue;
+    }
+
+    const targetPath = (exc.file || exc.path || "").trim();
+    if (targetPath) {
+      const normalizedTarget = targetPath.replace(/\\/g, "/").toLowerCase();
+      const normalizedFindingFile = finding.fileLocation.replace(/\\/g, "/").toLowerCase();
+
+      const isMatch =
+        normalizedFindingFile === normalizedTarget ||
+        normalizedFindingFile.endsWith("/" + normalizedTarget) ||
+        normalizedFindingFile.includes(normalizedTarget) ||
+        matchGlob(normalizedFindingFile, normalizedTarget);
+
+      if (!isMatch) {
+        continue;
+      }
+    }
+
+    if (exc.line !== undefined && exc.line !== finding.lineStart) {
+      continue;
+    }
+    if (Array.isArray(exc.lines) && !exc.lines.includes(finding.lineStart)) {
+      continue;
+    }
+
+    if (typeof exc.reason === "string" && exc.reason.trim()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Scans a single IaC file and returns normalized ScanFinding items.
  */
 export function scanIacFile(
@@ -864,6 +1660,8 @@ export function scanIacFile(
   const isCompose = isDockerComposeFile(filename);
   const isK8s = isKubernetesManifest(filename, patchOrContent);
   const isTf = isTerraformFile(filename);
+  const isCf = isCloudFormationFile(filename, patchOrContent);
+  const isPolicy = isIamPolicyFile(filename, patchOrContent);
 
   if (isDocker) {
     rawFindings.push(...checkDockerfileUserRoot(lines, filename));
@@ -883,6 +1681,7 @@ export function scanIacFile(
     rawFindings.push(...checkDockerSocketMount(lines, filename));
     rawFindings.push(...checkContainerHostNamespace(lines, filename));
     rawFindings.push(...checkK8sPrivilegeEscalationOrCapabilities(lines, filename));
+    rawFindings.push(...checkK8sClusterAdminOrWildcardRbac(lines, filename));
     rawFindings.push(...checkLatestImageTag(lines, filename, "k8s"));
   }
 
@@ -891,18 +1690,43 @@ export function scanIacFile(
     rawFindings.push(...checkTerraformPublicS3Acl(lines, filename));
     rawFindings.push(...checkTerraformUnencryptedStorage(lines, filename));
     rawFindings.push(...checkTerraformIamWildcardPolicy(lines, filename));
+    rawFindings.push(...checkIamPrivilegeEscalation(lines, filename));
   }
+
+  if (isCf || isPolicy) {
+    rawFindings.push(...checkIamPrivilegeEscalation(lines, filename));
+  }
+
+  // Deduplicate findings if TF_IAM_WILDCARD_POLICY and IAM_WILDCARD_FULL_ADMIN trigger on same line
+  const filteredRawFindings = rawFindings.filter((f) => {
+    if (f.ruleId === IAC_RULE_IDS.TF_IAM_WILDCARD_POLICY) {
+      const hasFullAdmin = rawFindings.some(
+        (other) =>
+          other.ruleId === IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN &&
+          other.fileLocation === f.fileLocation &&
+          Math.abs(other.lineStart - f.lineStart) <= 3,
+      );
+      if (hasFullAdmin) return false;
+    }
+    return true;
+  });
 
   // Filter out disabled rules
   const disabledSet = new Set((options.disabledRules || []).map((r) => r.trim().toUpperCase()));
   const activeFindings =
     disabledSet.size > 0
-      ? rawFindings.filter((f) => !disabledSet.has(f.ruleId.toUpperCase()))
-      : rawFindings;
+      ? filteredRawFindings.filter((f) => !disabledSet.has(f.ruleId.toUpperCase()))
+      : filteredRawFindings;
+
+  // Filter out documented exceptions per repository (#2160)
+  const unexemptFindings =
+    options.exceptions && options.exceptions.length > 0
+      ? activeFindings.filter((f) => !isIacFindingExempt(f, options.exceptions))
+      : activeFindings;
 
   const repositoryId = options.repositoryId || "default-repo";
 
-  return activeFindings.map((finding) => {
+  return unexemptFindings.map((finding) => {
     const dynFp = computeDynamicFingerprint(
       repositoryId,
       filename,

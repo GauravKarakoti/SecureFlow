@@ -447,4 +447,272 @@ data "aws_iam_policy_document" "wildcard" {
       expect(wildcardFindings).toHaveLength(2);
     });
   });
+
+  describe("Privilege Escalation Detection in IAM and Kubernetes RBAC (#2160)", () => {
+    describe("Action: '*' with Resource: '*' (IAC_IAM_WILDCARD_FULL_ADMIN)", () => {
+      it("flags full wildcard admin in JSON policy", () => {
+        const vuln = readFixture("iac-iam-admin.vulnerable.json");
+        const findings = scanIacFile("policies/admin.json", vuln);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(1);
+        expect(adminFindings[0].severity).toBe("CRITICAL");
+        expect(adminFindings[0].type).toBe("Misconfig");
+        expect(adminFindings[0].remediation).toContain("Scope actions to specific service operations");
+      });
+
+      it("passes scoped JSON policy", () => {
+        const safe = readFixture("iac-iam-admin.safe.json");
+        const findings = scanIacFile("policies/safe.json", safe);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(0);
+      });
+
+      it("flags full wildcard admin in Terraform file", () => {
+        const vuln = readFixture("iac-iam-admin.vulnerable.tf");
+        const findings = scanIacFile("infra/admin.tf", vuln);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(1);
+        expect(adminFindings[0].severity).toBe("CRITICAL");
+      });
+
+      it("passes scoped Terraform policy", () => {
+        const safe = readFixture("iac-iam-admin.safe.tf");
+        const findings = scanIacFile("infra/safe.tf", safe);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(0);
+      });
+
+      it("flags full wildcard admin in CloudFormation/YAML policy", () => {
+        const vuln = readFixture("iac-iam-admin.vulnerable.yaml");
+        const findings = scanIacFile("template.yaml", vuln);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(1);
+        expect(adminFindings[0].severity).toBe("CRITICAL");
+      });
+
+      it("passes scoped CloudFormation/YAML policy", () => {
+        const safe = readFixture("iac-iam-admin.safe.yaml");
+        const findings = scanIacFile("template.yaml", safe);
+        const adminFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_FULL_ADMIN),
+        );
+        expect(adminFindings.length).toBe(0);
+      });
+    });
+
+    describe("Principal: '*' without conditions (IAC_IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS)", () => {
+      it("flags wildcard Principal without conditions in JSON policy", () => {
+        const vuln = readFixture("iac-iam-principal.vulnerable.json");
+        const findings = scanIacFile("policy.json", vuln);
+        const principalFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS),
+        );
+        expect(principalFindings.length).toBe(1);
+        expect(principalFindings[0].severity).toBe("HIGH");
+        expect(principalFindings[0].remediation).toContain("condition keys");
+      });
+
+      it("passes wildcard Principal when constrained by Condition or scoped principal", () => {
+        const safe = readFixture("iac-iam-principal.safe.json");
+        const findings = scanIacFile("policy.json", safe);
+        const principalFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_WILDCARD_PRINCIPAL_NO_CONDITIONS),
+        );
+        expect(principalFindings.length).toBe(0);
+      });
+    });
+
+    describe("iam:PassRole on * (IAC_IAM_PASSROLE_WILDCARD)", () => {
+      it("flags iam:PassRole with wildcard Resource: *", () => {
+        const vuln = readFixture("iac-iam-passrole.vulnerable.json");
+        const findings = scanIacFile("policy.json", vuln);
+        const passroleFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_PASSROLE_WILDCARD),
+        );
+        expect(passroleFindings.length).toBe(1);
+        expect(passroleFindings[0].severity).toBe("HIGH");
+        expect(passroleFindings[0].remediation).toContain("Restrict iam:PassRole");
+      });
+
+      it("passes iam:PassRole scoped to specific role ARNs", () => {
+        const safe = readFixture("iac-iam-passrole.safe.json");
+        const findings = scanIacFile("policy.json", safe);
+        const passroleFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.IAM_PASSROLE_WILDCARD),
+        );
+        expect(passroleFindings.length).toBe(0);
+      });
+    });
+
+    describe("Kubernetes ClusterRoleBinding to cluster-admin or wildcard verbs/resources (IAC_K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC)", () => {
+      it("flags ClusterRoleBinding binding to cluster-admin", () => {
+        const vuln = readFixture("iac-k8s-cluster-admin.vulnerable.yaml");
+        const findings = scanIacFile("k8s/cluster-admin-binding.yaml", vuln);
+        const rbacFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC),
+        );
+        expect(rbacFindings.length).toBe(1);
+        expect(rbacFindings[0].severity).toBe("CRITICAL");
+        expect(rbacFindings[0].remediation).toContain("least-privilege");
+      });
+
+      it("passes scoped ClusterRoleBinding (e.g. view or edit)", () => {
+        const safe = readFixture("iac-k8s-cluster-admin.safe.yaml");
+        const findings = scanIacFile("k8s/view-binding.yaml", safe);
+        const rbacFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC),
+        );
+        expect(rbacFindings.length).toBe(0);
+      });
+
+      it("flags ClusterRole with verbs: ['*'] on resources: ['*']", () => {
+        const vuln = readFixture("iac-k8s-wildcard-rbac.vulnerable.yaml");
+        const findings = scanIacFile("k8s/wildcard-role.yaml", vuln);
+        const rbacFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC),
+        );
+        expect(rbacFindings.length).toBe(1);
+        expect(rbacFindings[0].severity).toBe("CRITICAL");
+      });
+
+      it("passes scoped ClusterRole with specific verbs and resources", () => {
+        const safe = readFixture("iac-k8s-wildcard-rbac.safe.yaml");
+        const findings = scanIacFile("k8s/scoped-role.yaml", safe);
+        const rbacFindings = findings.filter((f) =>
+          f.matchedSignatures?.includes(IAC_RULE_IDS.K8S_CLUSTER_ADMIN_OR_WILDCARD_RBAC),
+        );
+        expect(rbacFindings.length).toBe(0);
+      });
+    });
+
+    describe("Documented Repository Exceptions via .secureflow.json", () => {
+      const vulnPassRole = readFixture("iac-iam-passrole.vulnerable.json");
+
+      it("suppresses finding when documented exception with valid reason matches path and rule", () => {
+        const config = parseSecureFlowConfig(
+          JSON.stringify({
+            iac: {
+              exceptions: [
+                {
+                  ruleId: "IAC_IAM_PASSROLE_WILDCARD",
+                  path: "policies/iac-iam-passrole.vulnerable.json",
+                  reason: "Required by legacy pipeline role assumption until Q3 migration",
+                },
+              ],
+            },
+          }),
+        );
+        const options = resolveIacRuleOptions(config);
+        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        expect(findings.length).toBe(0);
+      });
+
+      it("suppresses finding using glob pattern in exception", () => {
+        const config = parseSecureFlowConfig(
+          JSON.stringify({
+            rules: {
+              iac: {
+                exceptions: [
+                  {
+                    ruleId: "IAC_IAM_PASSROLE_WILDCARD",
+                    path: "policies/*.json",
+                    reason: "Documented exception for bootstrap policies in policies dir",
+                  },
+                ],
+              },
+            },
+          }),
+        );
+        const options = resolveIacRuleOptions(config);
+        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        expect(findings.length).toBe(0);
+      });
+
+      it("does not suppress finding if exception has no valid documented reason", () => {
+        const config = parseSecureFlowConfig(
+          JSON.stringify({
+            iacExceptions: [
+              {
+                ruleId: "IAC_IAM_PASSROLE_WILDCARD",
+                path: "policies/*.json",
+                reason: "", // Empty reason
+              },
+            ],
+          }),
+        );
+        const options = resolveIacRuleOptions(config);
+        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        expect(findings.length).toBe(1);
+      });
+
+      it("does not suppress finding if exception ruleId or path does not match", () => {
+        const config = parseSecureFlowConfig(
+          JSON.stringify({
+            iac: {
+              exceptions: [
+                {
+                  ruleId: "IAC_IAM_WILDCARD_FULL_ADMIN",
+                  path: "policies/*.json",
+                  reason: "Different rule exception",
+                },
+              ],
+            },
+          }),
+        );
+        const options = resolveIacRuleOptions(config);
+        const findings = scanIacFile("policies/iac-iam-passrole.vulnerable.json", vulnPassRole, options);
+        expect(findings.length).toBe(1);
+      });
+    });
+
+    describe("Merging with LLM Results by Fingerprint", () => {
+      it("merges privilege escalation deterministic findings with LLM findings by fingerprint", () => {
+        const vuln = readFixture("iac-k8s-cluster-admin.vulnerable.yaml");
+        const findings = scanIacFile("k8s/cluster-admin.yaml", vuln);
+        expect(findings.length).toBe(1);
+        const deterministic = findings[0];
+
+        const duplicateLlmFinding: ScanFinding = {
+          type: "Misconfig",
+          severity: "CRITICAL",
+          description: "LLM duplicate detection of cluster-admin binding",
+          fileLocation: deterministic.fileLocation,
+          lineStart: deterministic.lineStart,
+          lineEnd: deterministic.lineEnd,
+          codeSnippet: deterministic.codeSnippet,
+          dynamicFingerprint: deterministic.dynamicFingerprint,
+        };
+
+        const otherLlmFinding: ScanFinding = {
+          type: "Vulnerability",
+          severity: "LOW",
+          description: "Minor configuration note elsewhere",
+          fileLocation: "k8s/other.yaml",
+          lineStart: 1,
+          lineEnd: 1,
+          codeSnippet: "apiVersion: v1",
+          dynamicFingerprint: "fp-k8s-other-999",
+        };
+
+        const merged = mergePrecheckWithLlmFindings(
+          [deterministic],
+          [duplicateLlmFinding, otherLlmFinding],
+        );
+
+        expect(merged).toHaveLength(2);
+        expect(merged[0]).toEqual(deterministic);
+        expect(merged[1]).toEqual(otherLlmFinding);
+      });
+    });
+  });
 });

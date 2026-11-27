@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ScopedPassRoleToWorkerRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::123456789012:role/ApplicationTaskRole"
+    },
+    {
+      "Sid": "OtherIamActionOnWildcard",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "*"
+    }
+  ]
+}
