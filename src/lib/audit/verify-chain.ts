@@ -6,6 +6,12 @@ import {
   parseLimit,
   DEFAULT_PAGE_LIMIT,
 } from "@/lib/pagination/cursor";
+import {
+  createPortableAuditProofBundle,
+  verifyPortableAuditProofBundle,
+  type AuditProofEventInput,
+  type PortableAuditProofBundle,
+} from "./merkle-proof";
 
 export interface VerificationResult {
   valid: boolean;
@@ -172,4 +178,21 @@ export async function verifyAuditChain(
     nextCursor,
     hasMore,
   };
+}
+
+/**
+ * Export a portable Merkle inclusion proof bundle for a verified audit event.
+ */
+export function exportAuditEventMerkleProof(
+  events: readonly AuditProofEventInput[],
+  targetEventId: string,
+): PortableAuditProofBundle {
+  return createPortableAuditProofBundle(events, targetEventId);
+}
+
+/**
+ * Offline verification wrapper for a portable Merkle inclusion proof bundle.
+ */
+export function verifyAuditEventMerkleProof(bundle: PortableAuditProofBundle) {
+  return verifyPortableAuditProofBundle(bundle);
 }
