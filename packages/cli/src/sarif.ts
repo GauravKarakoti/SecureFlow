@@ -643,6 +643,7 @@ export function generateSarifReport(
                 custom: true,
                 ruleId: violation.ruleId,
               },
+              ...(violation.helpUrl ? { helpUri: violation.helpUrl } : {}),
             }
           : DEFAULT_RULE_DEFINITIONS[reasonKey] || {
               id: `SECUREFLOW-${rulesMap.size + 100}`,

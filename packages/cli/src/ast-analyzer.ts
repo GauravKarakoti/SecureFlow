@@ -5,11 +5,14 @@
  * to trace sensitive sources (process.env, credentials, user inputs) flowing through
  * variable assignments, template strings, and concatenations into sensitive sinks
  * (database queries, shell executions, and console loggers).
+ *
+ * C and C++ files are handed to the lexical QNX rules in ./qnx-ddk-rules (#2211).
  */
 
 import ts from "typescript";
 import type { Severity, Violation } from "./scanner.js";
 import { isSecretIdentifier } from "./scanner.js";
+import { shouldRunQnxAnalysis, scanQnxSource } from "./qnx-ddk-rules.js";
 
 export type TaintSourceType = "env" | "secret_identifier" | "user_input";
 
@@ -55,6 +58,7 @@ const CONSOLE_METHODS = new Set(["log", "info", "warn", "error", "debug", "trace
 export function shouldRunAstAnalysis(filePath: string): boolean {
   const lower = filePath.toLowerCase();
   return (
+    shouldRunQnxAnalysis(lower) ||
     lower.endsWith(".ts") ||
     lower.endsWith(".tsx") ||
     lower.endsWith(".js") ||
@@ -191,6 +195,11 @@ function evaluateTaint(
 export function scanFileWithAst(filePath: string, content: string): Violation[] {
   if (!shouldRunAstAnalysis(filePath)) {
     return [];
+  }
+
+  // C / C++ goes to the QNX driver and real-time rules (#2211)
+  if (shouldRunQnxAnalysis(filePath)) {
+    return scanQnxSource(filePath, content);
   }
 
   let sourceFile: ts.SourceFile;

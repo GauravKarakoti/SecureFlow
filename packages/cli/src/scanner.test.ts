@@ -6,6 +6,8 @@
  * in its pattern could never span anything, and its string-stripping step
  * deleted template literals along with their interpolations.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   isSecretIdentifier,
@@ -27,6 +29,9 @@ import {
   formatSeverityCounts,
 } from "./scanner.js";
 import { CliUsageError, parseVoiceArg } from "./lib/output-args.js";
+import { generateSarifReport, validateSarifDocument } from "./sarif.js";
+import { QNX_RULES } from "./qnx-ddk-rules.js";
+import { formatTuiScanSummary } from "./lib/tui.js";
 import {
   isNonInteractiveCiEnvironment,
   getOsAudioCommand,
@@ -605,5 +610,363 @@ describe("entropy and benign secret false positive suppression (#1512)", () => {
       expect(violations.length).toBeGreaterThan(0);
       expect(violations[0].reason).toBe("secret-named identifier");
     }
+  });
+});
+
+describe("QNX driver and real-time C/C++ rules (#2211)", () => {
+  const RESMGR_HEADERS = [
+    "#include <devctl.h>",
+    "#include <sys/iofunc.h>",
+    "#include <sys/resmgr.h>",
+    "#include <sys/neutrino.h>",
+  ];
+
+  const cFile = (...lines: string[]) => source(...RESMGR_HEADERS, ...lines);
+  const findings = (code: string, path = "driver.c") => scanFile(path, code).violations;
+  const ruleIds = (code: string, path = "driver.c") => findings(code, path).map((v) => v.ruleId);
+
+  const VULNERABLE_DRIVER = cFile(
+    "static char shared[64];",
+    "",
+    "int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, iofunc_ocb_t *ocb) {",
+    "  void *data = _IO_INPUT_PAYLOAD(msg);",
+    "  memcpy(shared, data, msg->i.nbytes);",
+    "  return EOK;",
+    "}",
+    "",
+    "int io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb) {",
+    "  size_t n = msg->i.nbytes;",
+    "  char *buf = malloc(n + 1);",
+    "  resmgr_msgread(ctp, buf, n, sizeof(msg->i));",
+    "  return ctp->info.msglen;",
+    "}",
+  );
+
+  const CLEAN_DRIVER = cFile(
+    "#define MAX_PAYLOAD 64",
+    "static char shared[MAX_PAYLOAD];",
+    "",
+    "int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, iofunc_ocb_t *ocb) {",
+    "  size_t payload = sizeof(shared);",
+    "  if (ctp->size < sizeof(msg->i) + payload) return EBADMSG;",
+    "  memcpy(shared, _IO_INPUT_PAYLOAD(msg), payload);",
+    "  return EOK;",
+    "}",
+    "",
+    "int io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb) {",
+    "  size_t n = msg->i.nbytes;",
+    "  if (n > MAX_PAYLOAD) return EMSGSIZE;",
+    "  char *buf = malloc(n + 1);",
+    "  if (buf == NULL) return ENOMEM;",
+    "  if (resmgr_msgget(ctp, buf, n, sizeof(msg->i)) != n) return EBADMSG;",
+    '  snprintf(shared, sizeof(shared), "%s", buf);',
+    "  free(buf);",
+    "  return EOK;",
+    "}",
+    "",
+    "int main(void) {",
+    "  int id = resmgr_attach(dpp, &attr, path, _FTYPE_ANY, 0, &connect, &io, &ocb);",
+    "  run(id);",
+    "  resmgr_detach(dpp, id, 0);",
+    "}",
+  );
+
+  it("flags the vulnerable resource manager sample", () => {
+    expect(findings(VULNERABLE_DRIVER).map((v) => [v.ruleId, v.line])).toEqual([
+      ["QNX-IOCTL-001", 8],
+      ["QNX-IOCTL-002", 9],
+      ["QNX-BOUNDS-001", 9],
+      ["QNX-BOUNDS-002", 15],
+      ["QNX-BOUNDS-001", 16],
+      ["QNX-MSG-002", 17],
+    ]);
+  });
+
+  it.each(["_IO_INPUT_PAYLOAD(msg)", "_DEVCTL_DATA(msg->i)"])(
+    "requires a received-length check before %s",
+    (macro) => {
+      const handler = (...check: string[]) =>
+        cFile(
+          "int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, iofunc_ocb_t *ocb) {",
+          ...check,
+          `  uint32_t *rate = ${macro};`,
+          "  return apply(*rate);",
+          "}",
+        );
+      expect(ruleIds(handler())).toEqual(["QNX-IOCTL-001"]);
+      expect(
+        findings(
+          handler(
+            "  size_t payload_size = ctp->size - sizeof(msg->i);",
+            "  if (payload_size < sizeof(uint32_t)) return EINVAL;",
+          ),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("passes the clean reference driver", () => {
+    expect(findings(CLEAN_DRIVER)).toEqual([]);
+  });
+
+  describe("real-time paths", () => {
+    const ist = (...loopBody: string[]) =>
+      cFile(
+        "void *ist(void *arg) {",
+        "  char *scratch = malloc(32);",
+        '  printf("starting\\n");',
+        "  int id = InterruptAttachThread(irq, _NTO_INTR_FLAGS_NO_UNMASK);",
+        "  while (1) {",
+        "    InterruptWait(_NTO_INTR_WAIT_FLAGS_UNMASK, NULL);",
+        ...loopBody,
+        "  }",
+        "  InterruptDetach(id);",
+        "}",
+      );
+
+    it("flags allocation and blocking calls inside the interrupt thread loop only", () => {
+      const code = ist("    void *p = malloc(16);", "    sleep(1);", "    free(p);");
+      expect(findings(code).map((v) => [v.ruleId, v.line])).toEqual([
+        ["QNX-RT-001", 11],
+        ["QNX-RT-002", 12],
+        ["QNX-RT-001", 13],
+      ]);
+    });
+
+    it("accepts a loop that only talks to the device and sends a pulse", () => {
+      const code = ist("    value = in32(base);", "    MsgSendPulse(coid, -1, 1, value);");
+      expect(findings(code)).toEqual([]);
+    });
+
+    it("flags a spinlocked section", () => {
+      const code = cFile(
+        "void update(void) {",
+        "  InterruptLock(&lock);",
+        '  printf("locked\\n");',
+        "  InterruptUnlock(&lock);",
+        '  printf("unlocked\\n");',
+        "}",
+      );
+      expect(findings(code).map((v) => [v.ruleId, v.line])).toEqual([["QNX-RT-002", 7]]);
+    });
+
+    it("checks functions marked secureflow:realtime", () => {
+      const code = cFile(
+        "/* secureflow:realtime */",
+        "void control_step(void) {",
+        "  MsgSend(coid, &out, sizeof(out), &in, sizeof(in));",
+        "}",
+        "void setup(void) {",
+        "  buffer = calloc(1, 64);",
+        "}",
+      );
+      expect(findings(code).map((v) => [v.ruleId, v.line])).toEqual([["QNX-RT-002", 7]]);
+    });
+
+    it("accepts MsgSend() after TimerTimeout()", () => {
+      const code = cFile(
+        "// secureflow:realtime",
+        "void control_step(void) {",
+        "  TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_SEND, NULL, &timeout, NULL);",
+        "  MsgSend(coid, &out, sizeof(out), &in, sizeof(in));",
+        "}",
+      );
+      expect(findings(code)).toEqual([]);
+    });
+
+    it("flags new and delete in C++ real-time code", () => {
+      const code = cFile(
+        "// secureflow:realtime",
+        "void Controller::step() noexcept {",
+        "  auto *sample = new Sample();",
+        "  delete sample;",
+        "}",
+      );
+      expect(ruleIds(code, "controller.cpp")).toEqual(["QNX-RT-001", "QNX-RT-001"]);
+    });
+
+    it("flags InterruptAttach(), which QNX 8.0 removed", () => {
+      const code = cFile(
+        "void setup(void) {",
+        "  id = InterruptAttach(irq, isr, NULL, 0, 0);",
+        "  InterruptDetach(id);",
+        "}",
+      );
+      expect(ruleIds(code)).toEqual(["QNX-API-001"]);
+    });
+  });
+
+  describe("message passing and mappings", () => {
+    const server = (...lines: string[]) => cFile("void serve(int chid) {", ...lines, "}");
+
+    it.each([
+      ["a discarded result", ["  MsgReceive(chid, &msg, sizeof(msg), NULL);"]],
+      [
+        "a variable that is never compared",
+        ["  int rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL);", "  handle(&msg);"],
+      ],
+    ])("flags MsgReceive() with %s", (_label, lines) => {
+      expect(ruleIds(server(...lines))).toEqual(["QNX-MSG-001"]);
+    });
+
+    it.each([
+      [
+        "compared on the next line",
+        ["  rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL);", "  if (rcvid == -1) return;"],
+      ],
+      [
+        "compared in the condition",
+        ["  if ((rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL)) == -1) return;"],
+      ],
+      [
+        "switched on",
+        ["  rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL);", "  switch (rcvid) { }"],
+      ],
+    ])("accepts a MsgReceive() result %s", (_label, lines) => {
+      expect(findings(server(...lines))).toEqual([]);
+    });
+
+    it("flags an unchecked device mapping and a NULL comparison", () => {
+      const code = cFile(
+        "void map(void) {",
+        "  regs = mmap_device_memory(NULL, 4096, PROT_READ, 0, PHYS);",
+        "  if (regs == NULL) return;",
+        "  munmap_device_memory(regs, 4096);",
+        "}",
+      );
+      expect(ruleIds(code)).toEqual(["QNX-MEM-001"]);
+    });
+
+    it("accepts mappings compared with the documented failure values", () => {
+      const code = cFile(
+        "void map(void) {",
+        "  regs = mmap_device_memory(NULL, 4096, PROT_READ, 0, PHYS);",
+        "  if (regs == MAP_FAILED) return;",
+        "  port = mmap_device_io(8, 0x3f8);",
+        "  if ((uintptr_t)MAP_DEVICE_FAILED == port) return;",
+        "  munmap_device_io(port, 8);",
+        "  munmap_device_memory(regs, 4096);",
+        "}",
+      );
+      expect(findings(code)).toEqual([]);
+    });
+
+    it("reports a missing release as LOW so it does not block by default", () => {
+      const code = cFile("void start(void) {", '  att = name_attach(NULL, "svc", 0);', "}");
+      const [violation] = findings(code);
+      expect(violation?.ruleId).toBe("QNX-RES-001");
+      expect(violation?.severity).toBe("LOW");
+      expect(shouldFailScan(findings(code), [])).toBe(false);
+      // The release may live in the .c file that includes this header
+      expect(findings(code, "driver.h")).toEqual([]);
+    });
+  });
+
+  describe("bounds and string handling", () => {
+    it("flags unbounded string functions but not literals or fixed formats", () => {
+      const code = cFile(
+        "void copy(char *out, const char *in, int n) {",
+        "  strcpy(out, in);",
+        '  strcpy(out, "ready");',
+        '  sprintf(out, "%d", n);',
+        '  sprintf(out, "%.8s", in);',
+        '  sprintf(out, "%s", in);',
+        "  gets(out);",
+        "}",
+      );
+      expect(findings(code).map((v) => [v.ruleId, v.line])).toEqual([
+        ["QNX-BOUNDS-003", 6],
+        ["QNX-BOUNDS-003", 10],
+        ["QNX-BOUNDS-003", 11],
+      ]);
+    });
+
+    it("does not treat sizeof(msg->i.field) as a client supplied length", () => {
+      const code = cFile(
+        "int io_msg(resmgr_context_t *ctp, io_msg_t *msg) {",
+        "  memcpy(name, msg->i.name, sizeof(msg->i.name));",
+        "  return EOK;",
+        "}",
+      );
+      expect(findings(code)).toEqual([]);
+    });
+  });
+
+  describe("scope", () => {
+    it("leaves C code without QNX headers or APIs alone", () => {
+      const code = source(
+        "#include <string.h>",
+        "void copy(char *out, const char *in) { strcpy(out, in); }",
+      );
+      expect(findings(code)).toEqual([]);
+    });
+
+    it("ignores comments, strings and macros", () => {
+      const code = cFile(
+        "#define COPY(a, b) strcpy(a, b)",
+        "// strcpy(a, b);",
+        "/* gets(buffer); */",
+        'const char *help = "never call gets(buffer)";',
+        "long big = 1'000'000; void f(void) { }",
+      );
+      expect(findings(code)).toEqual([]);
+    });
+
+    it("does not run on other file types", () => {
+      expect(findings(VULNERABLE_DRIVER, "notes.txt")).toEqual([]);
+    });
+
+    it("honours inline suppressions by rule id", () => {
+      const code = cFile(
+        "void copy(char *out, const char *in) {",
+        "  // secureflow-ignore[rule=QNX-BOUNDS-003]: length checked by the caller",
+        "  strcpy(out, in);",
+        "}",
+      );
+      const result = scanFile("driver.c", code);
+      expect(result.violations).toEqual([]);
+      expect(result.suppressedViolations).toHaveLength(1);
+    });
+
+    it("handles many unbalanced braces quickly", () => {
+      const code = cFile("void f() {\n".repeat(20000));
+      expect(findings(code)).toEqual([]);
+    });
+  });
+
+  describe("reporting", () => {
+    const results = () => [scanFile("src/driver.c", VULNERABLE_DRIVER)];
+
+    it("exports valid SARIF with one rule per id and a policy link", () => {
+      const sarif = generateSarifReport(results());
+      expect(validateSarifDocument(sarif).errors).toEqual([]);
+      const run = sarif.runs[0]!;
+      expect(run.results).toHaveLength(6);
+      expect(run.tool.driver.rules.map((r) => r.id).sort()).toEqual([
+        "CUSTOM-QNX-BOUNDS-001",
+        "CUSTOM-QNX-BOUNDS-002",
+        "CUSTOM-QNX-IOCTL-001",
+        "CUSTOM-QNX-IOCTL-002",
+        "CUSTOM-QNX-MSG-002",
+      ]);
+      expect(run.tool.driver.rules[0]!.helpUri).toContain("/docs/policies/");
+      expect(run.results[0]!.level).toBe("error");
+      expect(run.results[0]!.locations[0]!.physicalLocation.artifactLocation.uri).toBe(
+        "src/driver.c",
+      );
+    });
+
+    it("shows the rule id in text and table output", () => {
+      expect(formatScanResults(results(), "text")).toContain("[Custom Rule: QNX-IOCTL-001]");
+      expect(formatTuiScanSummary(results())).toContain("QNX-IOCTL-001");
+    });
+
+    it("points every rule at a policy page that documents it", () => {
+      const policyDir = path.resolve(__dirname, "../../../docs/policies");
+      for (const qnxRule of Object.values(QNX_RULES)) {
+        const page = fs.readFileSync(path.join(policyDir, qnxRule.policy), "utf-8");
+        expect(page).toContain(qnxRule.id);
+      }
+    });
   });
 });

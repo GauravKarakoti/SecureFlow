@@ -100,6 +100,15 @@ export default defineConfig({
           { text: "Configurable PR Gate (.secureflow.json)", link: "/gate-configuration" },
           { text: "Blocking Merges on Critical Findings", link: "/block-merge-on-critical" },
           { text: "Policy Export and Import Format", link: "/policy-export-import" },
+          { text: "QNX Real-Time Paths", link: "/policies/bound-qnx-real-time-paths" },
+          {
+            text: "QNX Resource Manager Inputs",
+            link: "/policies/validate-qnx-resource-manager-inputs",
+          },
+          {
+            text: "QNX Driver Bounds Checks",
+            link: "/policies/enforce-bounds-checks-in-qnx-drivers",
+          },
         ],
       },
       {
