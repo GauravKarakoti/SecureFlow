@@ -20,6 +20,12 @@ import { runWorkflowSecurityRules } from "@/lib/rules/workflow-rules";
 import { runDependencySecurityRules } from "@/lib/rules/dependency-rules";
 import { fairQueueScheduler, type FairJob } from "@/lib/queue/fair-scheduler";
 import { scanResultCreateData, type EnrichedScanFinding } from "@/lib/scanner/scan-persistence";
+import {
+  evaluateBaselineDiff,
+  type BaselineDiffResult,
+  type BaselineFindingLike,
+  type BaselineGatePolicy,
+} from "@/lib/baseline/baseline-diff";
 
 export const DEFAULT_BASELINE_FILE_LIMIT = 50;
 export const MIN_BASELINE_FILE_LIMIT = 1;
@@ -389,4 +395,13 @@ export function scheduleBaselineScanJob(jobData: BaselineScanExecutionOptions): 
   };
 
   return fairQueueScheduler.enqueue(fairJob);
+}
+
+/**
+ * Evaluates current PR findings against stored baseline findings using regression gate rules.
+ */
+export function evaluatePullRequestAgainstBaseline<
+  T extends BaselineFindingLike = BaselineFindingLike,
+>(baselineFindings: T[], currentFindings: T[], policy?: BaselineGatePolicy): BaselineDiffResult<T> {
+  return evaluateBaselineDiff(baselineFindings, currentFindings, policy);
 }
