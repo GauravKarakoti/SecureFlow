@@ -26,10 +26,11 @@ WORKDIR /app
 # Copy lockfile + package.json first for maximum layer caching.
 COPY package.json package-lock.json* ./
 
-# Copy the prisma schema so the `postinstall: prisma generate` hook can run.
-# Without the schema, `prisma generate` is a no-op and the build stage would
-# have to regenerate the client, slowing iteration.
-COPY prisma ./prisma
+# The root `postinstall` generates the Prisma client and the API client, and this stage
+# does not copy the files it needs. Remove only that hook from this stage's package.json
+# (not `--ignore-scripts`), so dependencies still run their own install scripts.
+# The builder stage runs `prisma generate` after `COPY . .`.
+RUN npm pkg delete scripts.postinstall
 
 # `npm ci` respects the lockfile exactly. Mount build cache to speed up dependency installs.
 RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
