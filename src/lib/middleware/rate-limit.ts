@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { checkRateLimitDetailed, FallbackStrategy, RateLimitResult } from "../redis";
 import { getClientIp } from "../client-ip";
+import { SlidingWindowRateLimiter } from "@/lib/rate-limit/sliding-window";
 
 export interface RateLimitConfig {
   limit: number;
@@ -181,4 +182,25 @@ export function withRateLimit(
 
     return response;
   };
+}
+
+const localSlidingLimiters = new Map<string, SlidingWindowRateLimiter>();
+
+/**
+ * Evaluates a local sliding-window rate limit for a tenant/IP key and config.
+ */
+export function evaluateLocalSlidingWindow(
+  key: string,
+  config: Pick<RateLimitConfig, "limit" | "windowSeconds" | "keyPrefix">,
+) {
+  const bucketKey = `${config.keyPrefix}:${config.limit}:${config.windowSeconds}`;
+  let limiter = localSlidingLimiters.get(bucketKey);
+  if (!limiter) {
+    limiter = new SlidingWindowRateLimiter({
+      limit: config.limit,
+      windowMs: config.windowSeconds * 1000,
+    });
+    localSlidingLimiters.set(bucketKey, limiter);
+  }
+  return limiter.consume(key);
 }
