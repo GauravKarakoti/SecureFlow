@@ -334,7 +334,7 @@ export function formatTuiScanSummary(
       tableRows.push({
         severity: v.severity || "HIGH",
         location: `${res.path}:${v.line}`,
-        rule: "Secret Logging",
+        rule: v.ruleId?.startsWith("QNX-") ? v.ruleId : "Secret Logging",
         details: v.reason || v.text.trim().slice(0, 45),
       });
     }

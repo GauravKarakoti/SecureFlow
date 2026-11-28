@@ -119,6 +119,7 @@ export default defineConfig({
           { text: "Operations Runbook", link: "/runbook" },
           { text: "Logging & Metrics Observability", link: "/observability" },
           { text: "Threat Intelligence MCP Server", link: "/mcp-server" },
+          { text: "QNX 8.0 Build Provenance", link: "/qnx-build-provenance" },
         ],
       },
       {
