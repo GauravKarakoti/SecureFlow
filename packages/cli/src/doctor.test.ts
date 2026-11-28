@@ -16,8 +16,14 @@ import {
   redactDoctorText,
   checkEnvironmentVariables,
   checkLlmKeys,
+  checkQnxEnvironment,
+  findQnxProjectMarker,
+  parseQnxTargetAddress,
+  detectQnxSdpVersion,
   type DoctorDependencies,
+  type DoctorOptions,
 } from "./doctor.js";
+import { setColorEnabled, stripAnsi } from "./lib/tui.js";
 
 const { privateKey: TEST_RSA_PRIVATE_KEY } = crypto.generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -314,7 +320,10 @@ describe("SecureFlow Doctor Diagnostic Suite (#2125)", () => {
       expect(report.success).toBe(false);
     });
 
+    afterEach(() => setColorEnabled(null));
+
     it("formats diagnostic report with check symbols, summaries, and fixes", () => {
+      setColorEnabled(false);
       const report = {
         checks: [
           { name: "Node.js Version", status: "pass" as const, message: "v20.0.0 ok" },
@@ -552,5 +561,333 @@ describe("secureflow doctor (#2100)", () => {
     expect(out).not.toContain("s3cr3tPass");
     expect(out).not.toContain("gsk_real_key_987654321");
     expect(out).toContain("[REDACTED]");
+  });
+});
+
+describe("QNX SDP 8.0 host toolchain probe (#2210)", () => {
+  let root: string;
+  let project: string;
+  let home: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sf-qnx-"));
+    project = path.join(root, "project");
+    home = path.join(root, "home");
+    fs.mkdirSync(project);
+    fs.mkdirSync(path.join(home, ".qnx"), { recursive: true });
+  });
+
+  afterEach(() => {
+    setColorEnabled(null);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A fake SDP tree: no QNX binaries, just files in the expected places. */
+  function fakeSdp(
+    options: { dirName?: string; tools?: string[]; ntoVersion?: string; mode?: number } = {},
+  ) {
+    const base = path.join(root, options.dirName ?? "qnx800");
+    const qnxHost = path.join(base, "host", "linux", "x86_64");
+    const qnxTarget = path.join(base, "target", "qnx");
+    const binDir = path.join(qnxHost, "usr", "bin");
+    const sysDir = path.join(qnxTarget, "usr", "include", "sys");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(sysDir, { recursive: true });
+    for (const tool of options.tools ?? ["qcc", "q++"]) {
+      fs.writeFileSync(path.join(binDir, tool), "#!/bin/sh\n", { mode: options.mode ?? 0o755 });
+    }
+    if (options.ntoVersion) {
+      fs.writeFileSync(
+        path.join(sysDir, "neutrino.h"),
+        `#define _NTO_VERSION ${options.ntoVersion}\n`,
+      );
+    }
+    return { qnxHost, qnxTarget, binDir };
+  }
+
+  function sdpEnv(sdp: ReturnType<typeof fakeSdp>) {
+    return { QNX_HOST: sdp.qnxHost, QNX_TARGET: sdp.qnxTarget, PATH: sdp.binDir };
+  }
+
+  async function probe(options: DoctorOptions = {}) {
+    const checks = await checkQnxEnvironment({
+      cwd: project,
+      env: {},
+      argv: [],
+      platform: "linux",
+      arch: "x64",
+      homeDir: home,
+      ...options,
+    });
+    return { checks, toolchain: checks[0], target: checks[1] };
+  }
+
+  function addQnxMakefile() {
+    fs.writeFileSync(path.join(project, "common.mk"), "include $(MKFILES_ROOT)/qtargets.mk\n");
+  }
+
+  describe("when the checks run", () => {
+    it("returns nothing for a project and environment with no QNX in them", async () => {
+      fs.writeFileSync(path.join(project, "Makefile"), "all:\n\tgcc main.c\n");
+      const { checks } = await probe();
+      expect(checks).toEqual([]);
+    });
+
+    it("leaves the doctor report unchanged for non-QNX projects", async () => {
+      const report = await runDiagnostics({
+        cwd: project,
+        env: {},
+        fetchFn: vi.fn() as unknown as typeof fetch,
+      });
+      expect(report.checks.map((c) => c.name)).not.toContain("QNX 8.0 Toolchain");
+      expect(report.checks).toHaveLength(4);
+    });
+
+    it("adds both checks to the doctor report when QNX env vars are set", async () => {
+      const sdp = fakeSdp();
+      const report = await runDiagnostics({
+        cwd: project,
+        env: sdpEnv(sdp),
+        platform: "linux",
+        arch: "x64",
+        homeDir: home,
+        fetchFn: vi.fn() as unknown as typeof fetch,
+      });
+      expect(report.checks.slice(4).map((c) => c.name)).toEqual([
+        "QNX 8.0 Toolchain",
+        "QNX Target",
+      ]);
+    });
+
+    it.each([
+      ["common.mk", "include $(MKFILES_ROOT)/qtargets.mk\n"],
+      ["Makefile", "ifndef QCONFIG\nQCONFIG=qconfig.mk\nendif\ninclude qconfig.mk\n"],
+      ["Makefile", "CC = qcc -Vgcc_ntoaarch64le\n"],
+      ["image.build", "[virtual=x86_64,multiboot] boot = {\n}\n"],
+      ["toolchain.cmake", "set(CMAKE_SYSTEM_NAME QNX)\n"],
+    ])("detects a QNX project from %s", (file, content) => {
+      fs.mkdirSync(path.join(project, "src"));
+      fs.writeFileSync(path.join(project, "src", file), content);
+      expect(findQnxProjectMarker(project)).toBe(`src/${file}`);
+    });
+
+    it("ignores comments, unrelated .build files and node_modules", () => {
+      fs.writeFileSync(path.join(project, "Makefile"), "# CC = qcc -Vgcc_ntox86_64\n");
+      fs.writeFileSync(path.join(project, "app.build"), "[section]\nname = x\n");
+      fs.mkdirSync(path.join(project, "node_modules"));
+      fs.writeFileSync(path.join(project, "node_modules", "common.mk"), "include qtargets.mk\n");
+      expect(findQnxProjectMarker(project)).toBeNull();
+    });
+  });
+
+  describe("missing environment variables", () => {
+    it("warns, without failing, for a QNX project with no SDP configured", async () => {
+      addQnxMakefile();
+      const { toolchain } = await probe();
+      expect(toolchain?.status).toBe("warn");
+      expect(toolchain?.message).toContain("QNX_HOST and QNX_TARGET are not set");
+      expect(toolchain?.fix).toContain("qnxsdp-env");
+      expect(toolchain?.details?.projectMarker).toBe("common.mk");
+    });
+
+    it("fails with --qnx", async () => {
+      const { toolchain } = await probe({ argv: ["--qnx"] });
+      expect(toolchain?.status).toBe("fail");
+    });
+
+    it("fails for a QNX project when only QNX_HOST is set", async () => {
+      addQnxMakefile();
+      const sdp = fakeSdp();
+      const { toolchain } = await probe({ env: { QNX_HOST: sdp.qnxHost, PATH: sdp.binDir } });
+      expect(toolchain?.status).toBe("fail");
+      expect(toolchain?.message).toContain("QNX_TARGET is not set");
+    });
+
+    it("fails for a QNX project when a path does not exist", async () => {
+      addQnxMakefile();
+      const sdp = fakeSdp();
+      const { toolchain } = await probe({
+        env: { ...sdpEnv(sdp), QNX_TARGET: path.join(root, "nope") },
+      });
+      expect(toolchain?.status).toBe("fail");
+      expect(toolchain?.message).toContain("QNX_TARGET is not a directory");
+    });
+
+    it("only warns about a stale environment outside a QNX project", async () => {
+      const { toolchain } = await probe({ env: { QNX_HOST: path.join(root, "gone") } });
+      expect(toolchain?.status).toBe("warn");
+    });
+  });
+
+  describe("valid SDP paths", () => {
+    it("passes for a complete 8.0 layout identified by directory name", async () => {
+      const sdp = fakeSdp();
+      const { toolchain } = await probe({ env: sdpEnv(sdp), argv: ["--qnx"] });
+      expect(toolchain?.status).toBe("pass");
+      expect(toolchain?.message).toContain("License not checked");
+      expect(toolchain?.details?.sdpVersion).toBe(800);
+      expect(toolchain?.details?.qcc).toBe(path.join(sdp.binDir, "qcc"));
+    });
+
+    it("prefers _NTO_VERSION over the directory name", () => {
+      const sdp = fakeSdp({ dirName: "qnx800", ntoVersion: "710" });
+      expect(detectQnxSdpVersion(sdp.qnxHost, sdp.qnxTarget)).toEqual({
+        value: 710,
+        source: "_NTO_VERSION in sys/neutrino.h",
+      });
+    });
+
+    it("warns about SDP 7.1, and fails for it with --qnx", async () => {
+      addQnxMakefile();
+      const env = sdpEnv(fakeSdp({ dirName: "qnx710" }));
+      expect((await probe({ env })).toolchain?.status).toBe("warn");
+      const strict = await probe({ env, argv: ["--qnx"] });
+      expect(strict.toolchain?.status).toBe("fail");
+      expect(strict.toolchain?.message).toContain("expected 8.0");
+    });
+
+    it("warns when the version cannot be determined", async () => {
+      const env = sdpEnv(fakeSdp({ dirName: "sdk" }));
+      const { toolchain } = await probe({ env });
+      expect(toolchain?.status).toBe("warn");
+      expect(toolchain?.message).toContain("could not confirm");
+    });
+
+    it("warns when usr/bin is not on PATH", async () => {
+      const env = { ...sdpEnv(fakeSdp()), PATH: "/usr/bin" };
+      const { toolchain } = await probe({ env });
+      expect(toolchain?.status).toBe("warn");
+      expect(toolchain?.message).toContain("is not on PATH");
+    });
+
+    it("checks the configuration directory without reading license files", async () => {
+      const env = sdpEnv(fakeSdp());
+      const missing = await probe({
+        env: { ...env, QNX_CONFIGURATION_EXCLUSIVE: path.join(root, "no-config") },
+      });
+      expect(missing.toolchain?.status).toBe("warn");
+      expect(missing.toolchain?.message).toContain("configuration directory not found");
+    });
+
+    it("looks for .exe tools on Windows", async () => {
+      const sdp = fakeSdp({ tools: ["qcc.exe", "q++.exe"] });
+      // Path, not PATH: Windows spells it this way
+      const { toolchain } = await probe({
+        env: { QNX_HOST: sdp.qnxHost, QNX_TARGET: sdp.qnxTarget, Path: sdp.binDir },
+        platform: "win32",
+      });
+      expect(toolchain?.status).toBe("pass");
+    });
+
+    it.each([
+      ["darwin", "arm64", "macOS"],
+      ["linux", "arm64", "arm64"],
+    ] as const)("reports %s/%s as an unsupported host", async (platform, arch, label) => {
+      const { toolchain } = await probe({ env: sdpEnv(fakeSdp()), platform, arch });
+      expect(toolchain?.status).toBe("warn");
+      expect(toolchain?.message).toContain(`not supported on ${label} hosts`);
+    });
+  });
+
+  describe("missing compiler binaries", () => {
+    it("fails when qcc is missing", async () => {
+      addQnxMakefile();
+      const { toolchain } = await probe({ env: sdpEnv(fakeSdp({ tools: ["q++"] })) });
+      expect(toolchain?.status).toBe("fail");
+      expect(toolchain?.message).toContain("qcc is missing");
+    });
+
+    it("only warns when q++ is missing", async () => {
+      addQnxMakefile();
+      const { toolchain } = await probe({ env: sdpEnv(fakeSdp({ tools: ["qcc"] })) });
+      expect(toolchain?.status).toBe("warn");
+      expect(toolchain?.message).toContain("q++ is missing");
+    });
+
+    it.skipIf(process.platform === "win32")("fails when qcc is not executable", async () => {
+      addQnxMakefile();
+      const { toolchain } = await probe({ env: sdpEnv(fakeSdp({ mode: 0o644 })) });
+      expect(toolchain?.status).toBe("fail");
+    });
+
+    it("explains Windows host tools inside Linux or WSL2", async () => {
+      addQnxMakefile();
+      const env = sdpEnv(fakeSdp({ tools: ["qcc.exe", "q++.exe"] }));
+      const { toolchain } = await probe({ env });
+      expect(toolchain?.status).toBe("fail");
+      expect(toolchain?.message).toContain("only the Windows qcc.exe exists");
+      expect(toolchain?.fix).toContain("WSL2");
+    });
+  });
+
+  describe("target connectivity", () => {
+    it("parses host, host:port and bracketed IPv6", () => {
+      expect(parseQnxTargetAddress("192.168.122.10")).toEqual({
+        host: "192.168.122.10",
+        port: 8000,
+      });
+      expect(parseQnxTargetAddress("qnx.local:22")).toEqual({ host: "qnx.local", port: 22 });
+      expect(parseQnxTargetAddress("[fe80::1]:8000")).toEqual({ host: "fe80::1", port: 8000 });
+      expect(parseQnxTargetAddress("")).toBeNull();
+      expect(parseQnxTargetAddress("host:70000")).toBeNull();
+      expect(parseQnxTargetAddress("http://host")).toBeNull();
+    });
+
+    it("passes when the TCP connection succeeds", async () => {
+      const checkTcp = vi.fn(async () => {});
+      const { target } = await probe({ argv: ["--qnx-target=10.0.0.5"], checkTcp });
+      expect(checkTcp).toHaveBeenCalledWith("10.0.0.5", 8000, 3000);
+      expect(target?.status).toBe("pass");
+      expect(target?.message).toContain("not verified");
+    });
+
+    it("fails when the target cannot be reached", async () => {
+      const checkTcp = vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      });
+      const { target, toolchain } = await probe({
+        argv: ["--qnx-target", "10.0.0.5:22"],
+        checkTcp,
+      });
+      expect(target?.status).toBe("fail");
+      // --qnx-target alone does not require a local toolchain
+      expect(toolchain?.status).toBe("warn");
+    });
+
+    it("fails on an invalid or empty target without connecting", async () => {
+      const checkTcp = vi.fn(async () => {});
+      const { target } = await probe({ argv: ["--qnx-target", "--json"], checkTcp });
+      expect(target?.status).toBe("fail");
+      expect(checkTcp).not.toHaveBeenCalled();
+    });
+
+    it("never connects unless a target is passed", async () => {
+      const checkTcp = vi.fn(async () => {});
+      const sdp = fakeSdp();
+      fs.writeFileSync(path.join(sdp.binDir, "qemu-system-x86_64"), "", { mode: 0o755 });
+      const { target } = await probe({ env: sdpEnv(sdp), checkTcp });
+      expect(checkTcp).not.toHaveBeenCalled();
+      expect(target?.status).toBe("pass");
+      expect(target?.message).toContain("No target was contacted");
+    });
+
+    it("warns when there is no QEMU and no target", async () => {
+      const { target } = await probe({ env: sdpEnv(fakeSdp()) });
+      expect(target?.status).toBe("warn");
+    });
+  });
+
+  it("colors the status label in the terminal report", async () => {
+    setColorEnabled(true);
+    const { checks } = await probe({ argv: ["--qnx"] });
+    const output = formatDoctorReport({
+      checks,
+      passedCount: 0,
+      warnCount: 1,
+      failCount: 1,
+      success: false,
+    });
+    expect(output).toContain("\x1b[31m❌ [FAIL]\x1b[39m QNX 8.0 Toolchain");
+    expect(stripAnsi(output)).toContain("⚠️  [WARN] QNX Target");
   });
 });
