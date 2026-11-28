@@ -1,0 +1,91 @@
+# Sample QNX 8.0 build and provenance check (#2212). See docs/qnx-build-provenance.md.
+#
+# Manual only. GitHub hosted runners have no QNX SDP, so this needs a
+# self-hosted Linux x86_64 runner, labelled "qnx-sdp-8", with a licensed
+# QNX SDP 8.0 install and the QNX_SDP_PATH repository variable pointing at it.
+# This workflow has not been run against a QNX SDP.
+name: QNX 8.0 Build Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      compiler_version:
+        description: "qcc compiler version, as listed by 'qcc -V' on the runner"
+        required: true
+        default: "12.2.0"
+      target:
+        description: "qcc target"
+        required: true
+        type: choice
+        options:
+          - gcc_ntox86_64
+          - gcc_ntoaarch64le
+        default: gcc_ntox86_64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Scan, build and record provenance
+    runs-on: [self-hosted, linux, x64, qnx-sdp-8]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies and build the CLI
+        run: |
+          npm ci --legacy-peer-deps
+          npm run cli:build
+
+      - name: Scan QNX build files
+        run: |
+          node packages/cli/dist/index.js scan --dir . --local --no-cache \
+            --format sarif -o qnx-provenance.sarif --fail-on high
+
+      - name: Build a sample program and record the toolchain
+        env:
+          QNX_SDP_PATH: ${{ vars.QNX_SDP_PATH }}
+          QCC_VERSION: ${{ inputs.compiler_version }}
+          QCC_TARGET: ${{ inputs.target }}
+        run: |
+          if [ ! -f "$QNX_SDP_PATH/qnxsdp-env.sh" ]; then
+            echo "::error::QNX_SDP_PATH must point at a QNX SDP 8.0 install directory"
+            exit 1
+          fi
+          source "$QNX_SDP_PATH/qnxsdp-env.sh"
+
+          mkdir -p qnx-out
+          printf '#include <stdio.h>\nint main(void) { puts("hello"); return 0; }\n' > qnx-out/hello.c
+          qcc -V"$QCC_VERSION,$QCC_TARGET" qnx-out/hello.c -o qnx-out/hello
+
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "sdp_path=$QNX_SDP_PATH"
+            echo "compiler_version=$QCC_VERSION"
+            echo "target=$QCC_TARGET"
+            sha256sum qnx-out/hello
+          } > qnx-out/provenance.txt
+
+      - name: Upload report and provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qnx-build-provenance
+          path: |
+            qnx-provenance.sarif
+            qnx-out/provenance.txt
+          if-no-files-found: warn

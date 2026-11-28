@@ -53,6 +53,19 @@ export const KNOWN_SECRET_RULES: MaskRule[] = [
       /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
   },
 
+  // Passwords and license keys passed on QNX build command lines (#2212)
+  {
+    id: "qnx-software-center-credential",
+    pattern:
+      /(-(?:myqnx\.password|addLicenseKey)(?:\s+|=))(?!["']?[$%@])("[^"\n]*"|'[^'\n]*'|[^\s"']+)/g,
+    replace: (_m, prefix) => `${prefix}${REDACTION_PLACEHOLDER}`,
+  },
+  {
+    id: "sshpass-password",
+    pattern: /(\bsshpass\s+-p\s*)(?!["']?[$%])("[^"\n]*"|'[^'\n]*'|[^\s"']+)/g,
+    replace: (_m, prefix) => `${prefix}${REDACTION_PLACEHOLDER}`,
+  },
+
   // Authorization headers
   {
     id: "auth-header-bearer",

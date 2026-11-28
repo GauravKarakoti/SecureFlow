@@ -12,7 +12,7 @@ import { scanFile, type FileScanResult } from "./scanner.js";
 import { getRepoRoot } from "./git.js";
 import type { AiFinding } from "./lib/api-client.js";
 
-export const DEFAULT_RULESET_VERSION = "1.0.0";
+export const DEFAULT_RULESET_VERSION = "1.0.1";
 export const DEFAULT_CACHE_SUBDIR = path.join(".secureflow", "cache");
 export const DEFAULT_MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 export const DEFAULT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days

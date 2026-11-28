@@ -596,4 +596,111 @@ describe("CLI End-to-End (E2E) Test Suite (#1245)", () => {
       expect(ansiRegex.test(res.stdout)).toBe(true);
     });
   });
+
+  describe("10. QNX 8.0 Build Provenance (#2212)", () => {
+    // Joined so this file holds nothing that looks like a live credential
+    const FAKE_PASSWORD = ["not", "a", "real", "pw", "93"].join("-");
+
+    function writeQnxProject(dir: string): void {
+      const files: Record<string, string[]> = {
+        "images/ifs.build": ["[virtual=bios] .bootstrap = {", "    procnto-smp-instr", "}"],
+        "build.sh": [
+          "#!/bin/sh",
+          "qcc -Vgcc_ntox86_64 main.c -o app",
+          `sshpass -p ${FAKE_PASSWORD} scp app qnxuser@target:/tmp/`,
+        ],
+        "common.mk": ["include $(MKFILES_ROOT)/qtargets.mk"],
+      };
+      for (const [name, lines] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+        fs.writeFileSync(path.join(dir, name), `${lines.join("\n")}\n`);
+      }
+    }
+
+    interface ReportFile {
+      path: string;
+      violations: Array<{ line: number; ruleId: string; reason: string; guidance?: string }>;
+    }
+
+    const summarize = (report: ReportFile[]) =>
+      report.flatMap((file) => file.violations.map((v) => `${file.path}:${v.line} ${v.ruleId}`));
+
+    const EXPECTED = [
+      "build.sh:2 QNX-BUILD-001",
+      "build.sh:3 QNX-SECRET-001",
+      "images/ifs.build:1 QNX-BUILD-004",
+    ];
+
+    it("reports findings with file paths and fixes for a directory scan", () => {
+      const dir = path.join(tempBaseDir, "qnx-dir");
+      writeQnxProject(dir);
+      const reportPath = path.join(dir, "report.json");
+
+      const res = runCli(["--dir", ".", "--no-cache", "--format", "json", "-o", reportPath], dir);
+      expect(res.status).toBe(1);
+
+      const raw = fs.readFileSync(reportPath, "utf-8");
+      const report = JSON.parse(raw) as ReportFile[];
+      expect(summarize(report).sort()).toEqual(EXPECTED);
+      for (const violation of report.flatMap((f) => f.violations)) {
+        expect(violation.guidance).toBeTruthy();
+        expect(violation.reason).toContain("Fix: ");
+      }
+      expect(raw).not.toContain(FAKE_PASSWORD);
+      expect(res.stdout + res.stderr).not.toContain(FAKE_PASSWORD);
+    });
+
+    it.each(["text", "sarif", "markdown", "html", "csv", "junit"])(
+      "masks credentials in %s output",
+      (format) => {
+        const dir = path.join(tempBaseDir, `qnx-${format}`);
+        writeQnxProject(dir);
+
+        const res = runCli(["--dir", ".", "--no-cache", "--format", format], dir);
+        const output = res.stdout + res.stderr;
+        expect(res.status).toBe(1);
+        expect(output).toContain("QNX-SECRET-001");
+        expect(output).toContain("build.sh");
+        expect(output).not.toContain(FAKE_PASSWORD);
+      },
+    );
+
+    it("does not store the credential in the scan cache", () => {
+      const dir = path.join(tempBaseDir, "qnx-cache");
+      writeQnxProject(dir);
+      const cacheDir = path.join(dir, ".cache-under-test");
+
+      runCli(["--dir", ".", "--cache-dir", cacheDir], dir);
+      const entries = fs.readdirSync(cacheDir);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        expect(fs.readFileSync(path.join(cacheDir, entry), "utf-8")).not.toContain(FAKE_PASSWORD);
+      }
+    });
+
+    it("finds QNX build files changed since a git ref", () => {
+      const repoDir = path.join(tempBaseDir, "qnx-since");
+      initGitRepo(repoDir);
+      execSync("git commit --allow-empty -m base", { cwd: repoDir, stdio: "ignore" });
+      writeQnxProject(repoDir);
+      execSync("git add .", { cwd: repoDir, stdio: "ignore" });
+
+      const res = runCli(["--since", "HEAD", "--no-cache", "--format", "json"], repoDir);
+      expect(res.status).toBe(1);
+      expect(res.stdout).not.toContain(FAKE_PASSWORD);
+      const json = res.stdout.slice(res.stdout.indexOf("[\n"));
+      expect(summarize(JSON.parse(json)).sort()).toEqual(EXPECTED);
+    });
+
+    it("accepts the sample QNX verification workflow shipped in this repository", () => {
+      const repoDir = path.join(tempBaseDir, "qnx-workflow");
+      const relative = ".github/workflows/qnx-build-verify.yml";
+      const target = path.join(repoDir, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.resolve(CLI_DIR, "../..", relative), target);
+
+      const res = runCli(["--dir", ".", "--no-cache", "--fail-on", "low"], repoDir);
+      expect(res.status).toBe(0);
+    });
+  });
 });

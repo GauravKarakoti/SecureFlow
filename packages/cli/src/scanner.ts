@@ -46,6 +46,7 @@ import {
   type CustomRuleConfig,
 } from "./custom-rules.js";
 import { shouldRunAstAnalysis, scanFileWithAst } from "./ast-analyzer.js";
+import { scanQnxBuildFile } from "./qnx-build-rules.js";
 import {
   DEFAULT_BASELINE_FILENAME,
   computeBaselineFingerprint,
@@ -438,6 +439,8 @@ export function scanFile(
   }
 
   const rawViolations = findSecretLogging(content);
+  // QNX buildfiles, toolchain scripts and CI jobs (#2212)
+  rawViolations.push(...scanQnxBuildFile(path, content));
   if (options.customRules && options.customRules.length > 0) {
     const { violations: customViolations } = scanFileWithCustomRules(
       path,
