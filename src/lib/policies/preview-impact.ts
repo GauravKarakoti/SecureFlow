@@ -27,6 +27,11 @@ import {
   setCachedScan,
 } from "@/lib/scanner/scan-cache";
 import { normalizeSeverity } from "@/lib/severity";
+import {
+  resolvePolicyConflicts,
+  type PolicyResolutionResult,
+  type ScopedPolicyRule,
+} from "@/lib/policies/conflict-resolver";
 
 export const DEFAULT_PREVIEW_MAX_SCANS = 20;
 export const DEFAULT_PREVIEW_MAX_TOKENS = 50_000;
@@ -472,4 +477,11 @@ export async function previewPolicyImpact(
       draftSeverity: options.draftSeverity || currentTemplate.severity,
     },
   };
+}
+
+/**
+ * Dry-run policy conflict simulation across ORG, REPO, and BRANCH rules.
+ */
+export function simulatePolicyConflicts(rules: ScopedPolicyRule[]): PolicyResolutionResult {
+  return resolvePolicyConflicts(rules);
 }
