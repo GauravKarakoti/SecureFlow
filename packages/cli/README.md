@@ -296,6 +296,17 @@ secureflow doctor
 - **AI Endpoint Reachability & VRAM**: Pings the configured AI provider endpoint (or local Ollama/vLLM server), reporting available VRAM/system memory for local inference.
 - **Credential Safety**: All API keys, tokens, and secrets are strictly redacted (`[REDACTED]`) from diagnostic messages and logs.
 - **CI / Non-Zero Exit**: Every check executes and reports independently. Returns exit code `0` when all checks pass or warn, and `1` if any check fails.
+- **QNX SDP 8.0 (QNX projects only)**: Checks `QNX_HOST`, `QNX_TARGET`, `qcc` / `q++`, the SDP version and a QEMU or target connection. No QNX tool is run and no license is checked.
+
+```bash
+# Require a working QNX 8.0 toolchain
+secureflow doctor --qnx
+
+# Test a TCP connection to a QEMU or hardware target (default port 8000)
+secureflow doctor --qnx-target 192.168.122.10
+```
+
+See [QNX SDP 8.0 Toolchain](https://github.com/GauravKarakoti/SecureFlow/blob/main/docs/qnx-toolchain.md) for the full list of checks and the build and run steps.
 
 ## 👀 Real-Time Watch Mode (`--watch`)
 

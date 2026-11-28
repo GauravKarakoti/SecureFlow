@@ -273,6 +273,18 @@ export function formatSeverityBadge(severity: string): string {
   }
 }
 
+/** Status label used by `secureflow doctor`. Identical to plain text when color is off. */
+export function formatDiagnosticBadge(status: "pass" | "warn" | "fail"): string {
+  switch (status) {
+    case "pass":
+      return colors.green("✅ [PASS]");
+    case "warn":
+      return colors.yellow("⚠️  [WARN]");
+    case "fail":
+      return colors.red("❌ [FAIL]");
+  }
+}
+
 export interface TableRow {
   severity: string;
   location: string;

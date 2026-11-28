@@ -17,6 +17,7 @@ import { Redis } from "ioredis";
 import { isGitRepository, getRepoRoot } from "./git.js";
 import { validateSecureFlowJson } from "./contracts/index.js";
 import { maskSecrets, REDACTION_PLACEHOLDER } from "./secret-masker.js";
+import { formatDiagnosticBadge } from "./lib/tui.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +48,10 @@ export interface DoctorOptions {
   gitCommand?: (cmd: string) => string;
   vramProbe?: () => { totalMb?: number; freeMb?: number; type?: string } | null;
   fetchFn?: typeof fetch;
+  platform?: NodeJS.Platform;
+  arch?: string;
+  homeDir?: string;
+  checkTcp?: (host: string, port: number, timeoutMs?: number) => Promise<void>;
 }
 
 export interface ServerDoctorCheckResult {
@@ -486,6 +491,429 @@ export async function checkAiReachability(
 }
 
 /**
+ * QNX SDP 8.0 / QNX Everywhere host checks (#2210).
+ *
+ * Everything here reads the filesystem only. No QNX tool is executed, so no
+ * license is needed or validated. The one network call is an opt-in TCP
+ * connect to the address passed with --qnx-target.
+ *
+ * References:
+ * - QNX_HOST, QNX_TARGET, QNX_CONFIGURATION_EXCLUSIVE:
+ *   https://qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.utilities/topic/envars.html
+ * - $QNX_HOST/usr/bin on PATH:
+ *   https://qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.prog/topic/devel_OS_version.html
+ * - Supported hosts (no macOS, no ARM):
+ *   https://www.qnx.com/developers/docs/relnotes8.0/com.qnx.doc.release_notes/topic/8.0.5_prod_release_notes/8.0.5_rn.html
+ * - __QNX__ / _NTO_VERSION:
+ *   https://qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.lib_ref/topic/manifests.html
+ * - qconn default port 8000:
+ *   https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.utilities/topic/q/qconn.html
+ */
+
+export const QCONN_DEFAULT_PORT = 8000;
+
+const QNX_ENV_DOC_FIX =
+  "Source qnxsdp-env.sh (Linux) or run qnxsdp-env.bat (Windows) from your QNX SDP 8.0 install directory (see docs/qnx-toolchain.md)";
+
+const QNX_MARKER_SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".next",
+  "dist",
+  "coverage",
+  ".turbo",
+  ".secureflow",
+]);
+
+const QNX_MARKER_MAX_DEPTH = 3;
+const QNX_MARKER_MAX_ENTRIES = 2000;
+const QNX_MARKER_MAX_BYTES = 64 * 1024;
+
+const QNX_MARKER_RULES: ReadonlyArray<{ file: RegExp; content: RegExp }> = [
+  // Makefiles that use the QNX recursive make system or call qcc / q++
+  {
+    file: /^(?:(?:GNU)?[Mm]akefile|.*\.mk)$/,
+    content:
+      /^[ \t]*-?include[ \t]+\S*q(?:config|targets|rules)\.mk\b|^[^#\n]*(?<![\w-])q(?:cc|\+\+)[ \t]+-V/m,
+  },
+  // mkifs buildfiles that declare a virtual x86_64 / aarch64le boot attribute
+  { file: /\.build$/, content: /^[ \t]*\[[^\]\n]*\bvirtual=(?:x86_64|aarch64le)\b/m },
+  // CMake toolchain files targeting QNX
+  {
+    file: /^(?:CMakeLists\.txt|.*\.cmake)$/,
+    content: /^[ \t]*set\s*\(\s*CMAKE_SYSTEM_NAME\s+"?QNX"?\s*\)/im,
+  },
+];
+
+function readFileHead(filePath: string, maxBytes: number): string {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const bytes = fs.readSync(fd, buf, 0, maxBytes, 0);
+    return buf.toString("utf-8", 0, bytes);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Bounded walk looking for files that show the project builds for QNX.
+ * Returns the first matching path relative to `cwd`, or null.
+ */
+export function findQnxProjectMarker(cwd: string): string | null {
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: cwd, depth: 0 }];
+  let seen = 0;
+
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (++seen > QNX_MARKER_MAX_ENTRIES) return null;
+      const full = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (depth < QNX_MARKER_MAX_DEPTH && !QNX_MARKER_SKIP_DIRS.has(entry.name)) {
+          queue.push({ dir: full, depth: depth + 1 });
+        }
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      const rules = QNX_MARKER_RULES.filter((rule) => rule.file.test(entry.name));
+      if (rules.length === 0) continue;
+      try {
+        const head = readFileHead(full, QNX_MARKER_MAX_BYTES);
+        if (rules.some((rule) => rule.content.test(head))) {
+          return path.relative(cwd, full).replace(/\\/g, "/");
+        }
+      } catch {
+        // unreadable file, keep looking
+      }
+    }
+  }
+
+  return null;
+}
+
+export interface QnxTargetAddress {
+  host: string;
+  port: number;
+}
+
+/** Parses `host`, `host:port` or `[ipv6]:port`. Returns null when invalid. */
+export function parseQnxTargetAddress(value: string): QnxTargetAddress | null {
+  const match = /^(?:\[([0-9a-fA-F:.]+)\]|([A-Za-z0-9._-]+))(?::(\d{1,5}))?$/.exec(value.trim());
+  if (!match) return null;
+  const host = match[1] ?? match[2];
+  const port = match[3] ? Number.parseInt(match[3], 10) : QCONN_DEFAULT_PORT;
+  if (!host || host.startsWith("-") || port < 1 || port > 65535) return null;
+  return { host, port };
+}
+
+function readQnxTargetArg(argv: readonly string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg.startsWith("--qnx-target=")) return arg.slice("--qnx-target=".length);
+    if (arg === "--qnx-target") {
+      const next = argv[i + 1];
+      return next && !next.startsWith("-") ? next : "";
+    }
+  }
+  return undefined;
+}
+
+function isDirectory(target: string): boolean {
+  try {
+    return fs.statSync(target).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isRunnableFile(filePath: string, platform: NodeJS.Platform): boolean {
+  try {
+    if (!fs.statSync(filePath).isFile()) return false;
+    // Windows has no execute bit
+    if (platform !== "win32") fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pathEntries(
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): string[] {
+  const raw = env.PATH ?? (platform === "win32" ? env.Path : undefined) ?? "";
+  return raw.split(platform === "win32" ? ";" : ":").filter(Boolean);
+}
+
+export interface QnxSdpVersion {
+  /** e.g. 800 for 8.0.x, 710 for 7.1 */
+  value: number;
+  source: string;
+}
+
+/**
+ * Best-effort SDP version detection. First a numeric `_NTO_VERSION` define in
+ * the target headers, then a `qnx800`-style directory name. Returns null when
+ * neither is present.
+ */
+export function detectQnxSdpVersion(qnxHost: string, qnxTarget: string): QnxSdpVersion | null {
+  for (const header of ["nto_version.h", "neutrino.h"]) {
+    const headerPath = path.join(qnxTarget, "usr", "include", "sys", header);
+    try {
+      const match = /^[ \t]*#[ \t]*define[ \t]+_NTO_VERSION[ \t]+(\d{3})\b/m.exec(
+        fs.readFileSync(headerPath, "utf-8"),
+      );
+      if (match) return { value: Number(match[1]), source: `_NTO_VERSION in sys/${header}` };
+    } catch {
+      // header missing, try the next source
+    }
+  }
+
+  for (const dir of [qnxTarget, qnxHost]) {
+    const match = /(?:^|[\\/])qnx(\d{3})(?=$|[\\/_.-])/i.exec(dir);
+    if (match) return { value: Number(match[1]), source: "install directory name" };
+  }
+
+  return null;
+}
+
+interface QnxProblem {
+  message: string;
+  fix: string;
+}
+
+function checkQnxHostToolchain(
+  options: DoctorOptions,
+  required: boolean,
+  strict: boolean,
+): DiagnosticCheckResult {
+  const name = "QNX 8.0 Toolchain";
+  const env = options.env || process.env;
+  const platform = options.platform || process.platform;
+  const arch = options.arch || process.arch;
+  const homeDir = options.homeDir || os.homedir();
+
+  // `errors` mean the toolchain cannot be used, `warnings` are worth a look.
+  const errors: QnxProblem[] = [];
+  const warnings: QnxProblem[] = [];
+  const details: Record<string, unknown> = { platform, arch };
+
+  if (platform === "darwin" || (arch !== "x64" && (platform === "linux" || platform === "win32"))) {
+    (strict ? errors : warnings).push({
+      message: `QNX SDP 8.0 is not supported on ${platform === "darwin" ? "macOS" : `${arch}`} hosts`,
+      fix: "Use an x86_64 Linux or Windows 11 host (or an x86_64 Linux VM)",
+    });
+  }
+
+  const qnxHost = env.QNX_HOST?.trim() || "";
+  const qnxTarget = env.QNX_TARGET?.trim() || "";
+
+  if (!qnxHost && !qnxTarget) {
+    // A checkout with QNX files on a machine without the SDP can still be
+    // scanned, so this only fails when the user asked for it with --qnx.
+    (strict ? errors : warnings).push({
+      message: "QNX_HOST and QNX_TARGET are not set",
+      fix: QNX_ENV_DOC_FIX,
+    });
+  } else {
+    for (const [key, value] of [
+      ["QNX_HOST", qnxHost],
+      ["QNX_TARGET", qnxTarget],
+    ] as const) {
+      if (!value) {
+        errors.push({ message: `${key} is not set`, fix: QNX_ENV_DOC_FIX });
+      } else if (!isDirectory(value)) {
+        errors.push({
+          message: `${key} is not a directory: ${value}`,
+          fix: QNX_ENV_DOC_FIX,
+        });
+      } else {
+        details[key] = value;
+      }
+    }
+  }
+
+  if (details.QNX_HOST) {
+    const binDir = path.join(qnxHost, "usr", "bin");
+    const suffix = platform === "win32" ? ".exe" : "";
+
+    for (const tool of ["qcc", "q++"]) {
+      const toolPath = path.join(binDir, `${tool}${suffix}`);
+      if (isRunnableFile(toolPath, platform)) {
+        details[tool] = toolPath;
+        continue;
+      }
+      const windowsOnly = platform !== "win32" && fs.existsSync(path.join(binDir, `${tool}.exe`));
+      (tool === "qcc" ? errors : warnings).push({
+        message: windowsOnly
+          ? `${tool}: only the Windows ${tool}.exe exists in ${binDir}, but this host is ${platform}`
+          : `${tool} is missing or not executable at ${toolPath}`,
+        fix: windowsOnly
+          ? "Install the QNX host tools for Linux inside this Linux / WSL2 environment and source its qnxsdp-env.sh"
+          : "Install or repair the QNX host tools with QNX Software Center",
+      });
+    }
+
+    const normalize = (entry: string) => {
+      const resolved = path.resolve(entry);
+      return platform === "win32" ? resolved.toLowerCase() : resolved;
+    };
+    if (!pathEntries(env, platform).map(normalize).includes(normalize(binDir))) {
+      warnings.push({
+        message: `${binDir} is not on PATH`,
+        fix: QNX_ENV_DOC_FIX,
+      });
+    }
+  }
+
+  if (details.QNX_HOST && details.QNX_TARGET) {
+    const version = detectQnxSdpVersion(qnxHost, qnxTarget);
+    if (!version) {
+      warnings.push({
+        message: "could not confirm that this SDP is version 8.0",
+        fix: "Check the installed baseline in QNX Software Center",
+      });
+    } else {
+      details.sdpVersion = version.value;
+      details.sdpVersionSource = version.source;
+      if (Math.floor(version.value / 100) !== 8) {
+        (strict ? errors : warnings).push({
+          message: `SDP version ${version.value} found (${version.source}), expected 8.0`,
+          fix: "Source the environment script from a QNX SDP 8.0 install",
+        });
+      }
+    }
+
+    // Presence only. License files are never opened.
+    const configDir = env.QNX_CONFIGURATION_EXCLUSIVE?.trim() || path.join(homeDir, ".qnx");
+    if (isDirectory(configDir)) {
+      details.configDir = configDir;
+    } else {
+      warnings.push({
+        message: `QNX configuration directory not found: ${configDir}`,
+        fix: "Set up your QNX license with QNX Software Center, or point QNX_CONFIGURATION_EXCLUSIVE at the configuration directory",
+      });
+    }
+  }
+
+  const problems = [...errors, ...warnings];
+  if (problems.length === 0) {
+    return {
+      name,
+      status: "pass",
+      message: `SDP version ${details.sdpVersion} (from ${details.sdpVersionSource}), qcc and q++ found in ${path.join(qnxHost, "usr", "bin")}. License not checked.`,
+      details,
+    };
+  }
+
+  return {
+    name,
+    // Without a QNX project or --qnx, a stale environment must not fail doctor.
+    status: required && errors.length > 0 ? "fail" : "warn",
+    message: problems.map((p) => p.message).join("; "),
+    fix: [...new Set(problems.map((p) => p.fix))].join(". "),
+    details,
+  };
+}
+
+async function checkQnxTarget(options: DoctorOptions): Promise<DiagnosticCheckResult> {
+  const name = "QNX Target";
+  const env = options.env || process.env;
+  const platform = options.platform || process.platform;
+  const requested = readQnxTargetArg(options.argv || []);
+
+  if (requested !== undefined) {
+    const address = parseQnxTargetAddress(requested);
+    if (!address) {
+      return {
+        name,
+        status: "fail",
+        message: `Invalid --qnx-target value "${requested}"`,
+        fix: `Use --qnx-target=<host>[:port] (default port ${QCONN_DEFAULT_PORT})`,
+      };
+    }
+
+    const label = `${address.host}:${address.port}`;
+    try {
+      await (options.checkTcp ?? defaultCheckTcp)(address.host, address.port, 3000);
+      return {
+        name,
+        status: "pass",
+        message: `TCP connection to ${label} succeeded (the service behind the port was not verified)`,
+        details: { ...address },
+      };
+    } catch (err: unknown) {
+      return {
+        name,
+        status: "fail",
+        message: `Cannot connect to ${label}`,
+        fix: "Boot the QEMU image or hardware target, make sure qconn (or the service you chose) is listening, and check the address",
+        details: { ...address, error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  const suffix = platform === "win32" ? ".exe" : "";
+  const emulators = ["qemu-system-x86_64", "qemu-system-aarch64"].filter((binary) =>
+    pathEntries(env, platform).some((dir) =>
+      isRunnableFile(path.join(dir, `${binary}${suffix}`), platform),
+    ),
+  );
+
+  if (emulators.length > 0) {
+    return {
+      name,
+      status: "pass",
+      message: `QEMU found on PATH (${emulators.join(", ")}). No target was contacted.`,
+      details: { emulators },
+    };
+  }
+
+  return {
+    name,
+    status: "warn",
+    message: "No QEMU system emulator on PATH and no --qnx-target given",
+    fix: "Install QEMU for a virtual target, or pass --qnx-target=<host>[:port] to test a running target",
+    details: { emulators },
+  };
+}
+
+/**
+ * Runs the QNX checks only when they are relevant: `--qnx`, `--qnx-target`,
+ * QNX_HOST / QNX_TARGET in the environment, or QNX build files in the project.
+ * Returns an empty list otherwise.
+ */
+export async function checkQnxEnvironment(
+  options: DoctorOptions = {},
+): Promise<DiagnosticCheckResult[]> {
+  const env = options.env || process.env;
+  const argv = options.argv || [];
+
+  const strict = argv.includes("--qnx");
+  const hasTarget = readQnxTargetArg(argv) !== undefined;
+  const hasEnv = Boolean(env.QNX_HOST?.trim() || env.QNX_TARGET?.trim());
+  const marker = findQnxProjectMarker(options.cwd || process.cwd());
+
+  if (!strict && !hasTarget && !hasEnv && !marker) return [];
+
+  const toolchain = checkQnxHostToolchain(options, strict || marker !== null, strict);
+  if (marker) toolchain.details = { ...toolchain.details, projectMarker: marker };
+
+  return [toolchain, await checkQnxTarget(options)];
+}
+
+/**
  * Runs all CLI environment/git/config/AI checks independently and compiles a report.
  */
 export async function runDiagnostics(options: DoctorOptions = {}): Promise<DoctorReport> {
@@ -504,6 +932,17 @@ export async function runDiagnostics(options: DoctorOptions = {}): Promise<Docto
       status: "fail",
       message: `AI reachability diagnostic encountered unexpected error: ${err instanceof Error ? err.message : String(err)}`,
       fix: "Check your environment variables and network settings",
+    });
+  }
+
+  try {
+    checks.push(...(await checkQnxEnvironment(options)));
+  } catch (err: unknown) {
+    checks.push({
+      name: "QNX 8.0 Toolchain",
+      status: "warn",
+      message: `QNX diagnostic encountered unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+      fix: "Check QNX_HOST and QNX_TARGET",
     });
   }
 
@@ -529,18 +968,9 @@ export function formatDoctorReport(report: DoctorReport): string {
   lines.push("═".repeat(60));
 
   for (const check of report.checks) {
-    if (check.status === "pass") {
-      lines.push(`✅ [PASS] ${check.name}: ${check.message}`);
-    } else if (check.status === "warn") {
-      lines.push(`⚠️  [WARN] ${check.name}: ${check.message}`);
-      if (check.fix) {
-        lines.push(`   💡 Fix: ${check.fix}`);
-      }
-    } else {
-      lines.push(`❌ [FAIL] ${check.name}: ${check.message}`);
-      if (check.fix) {
-        lines.push(`   💡 Fix: ${check.fix}`);
-      }
+    lines.push(`${formatDiagnosticBadge(check.status)} ${check.name}: ${check.message}`);
+    if (check.status !== "pass" && check.fix) {
+      lines.push(`   💡 Fix: ${check.fix}`);
     }
   }
 
@@ -1245,9 +1675,12 @@ Description:
 - Redis connectivity (REDIS_URL or Upstash REST)
 - LLM API key or local AI endpoint presence
 - GitHub App permissions and webhook configuration (when credentials are set)
+- QNX SDP 8.0 host toolchain and target (for QNX projects, or with --qnx)
 
 Options:
-  --json       Output diagnostic report as JSON
-  -h, --help   Show this help message
+  --json                       Output diagnostic report as JSON
+  --qnx                        Require a working QNX SDP 8.0 toolchain
+  --qnx-target <host[:port]>   Test a TCP connection to a QNX target (default port 8000)
+  -h, --help                   Show this help message
 `);
 }

@@ -67,6 +67,7 @@ export default defineConfig({
           { text: "Deployment & Egress Hardening", link: "/deployment" },
           { text: "Safe Upgrade Guide", link: "/upgrade" },
           { text: "Database Backup & Restore", link: "/database-backup-restore" },
+          { text: "QNX SDP 8.0 Toolchain", link: "/qnx-toolchain" },
         ],
       },
       {
