@@ -178,6 +178,22 @@ describe("RepositoriesClient Component (#1870)", () => {
 
     render(<RepositoriesClient initialData={emptyData} />);
     expect(screen.getByText("No Connected Repositories")).toBeDefined();
+    expect(screen.getByText("Connect Repository Wizard")).toBeDefined();
     expect(screen.getByText("Go to Settings")).toBeDefined();
+
+    // Clicking Connect Repository Wizard in empty state opens the wizard
+    fireEvent.click(screen.getByTestId("empty-connect-repo-btn"));
+    expect(screen.getByTestId("connect-repo-wizard")).toBeDefined();
+  });
+
+  it("opens Connect Repository Wizard when header button is clicked", () => {
+    render(<RepositoriesClient initialData={mockData} />);
+
+    const connectBtn = screen.getByTestId("connect-repo-btn");
+    expect(connectBtn).toBeDefined();
+
+    fireEvent.click(connectBtn);
+    expect(screen.getByTestId("connect-repo-wizard")).toBeDefined();
+    expect(screen.getByText("Connect Repository Wizard")).toBeDefined();
   });
 });

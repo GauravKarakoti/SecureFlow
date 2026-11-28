@@ -18,12 +18,14 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TrendSparkline } from "@/components/repositories/trend-sparkline";
+import { ConnectRepositoryWizard } from "@/components/repositories/connect-repository-wizard";
 import { HEALTH_SCORE_FORMULA_DOCS } from "@/lib/repositories/health-score";
 import type { RepositoryHealthItem, RepositoriesOverviewData } from "@/lib/repositories/types";
 
@@ -43,6 +45,17 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
   const [showFormulaDocs, setShowFormulaDocs] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [connectWizardOpen, setConnectWizardOpen] = useState(false);
+
+  // Auto-open wizard if ?connect=true query param is present
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("connect") === "true" || params.get("connect") === "1") {
+        setConnectWizardOpen(true);
+      }
+    }
+  }, []);
 
   // Filter repositories
   const filteredRepos = useMemo(() => {
@@ -180,20 +193,33 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowFormulaDocs(!showFormulaDocs)}
-          className="border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800 text-xs font-mono gap-1.5 self-start sm:self-auto"
-        >
-          <Info className="w-3.5 h-3.5 text-primary" />
-          {showFormulaDocs ? "Hide Formula" : "Scoring Formula"}
-          {showFormulaDocs ? (
-            <ChevronUp className="w-3.5 h-3.5" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5" />
-          )}
-        </Button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setConnectWizardOpen(true)}
+            className="text-xs font-mono gap-1.5"
+            data-testid="connect-repo-btn"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Connect Repository
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFormulaDocs(!showFormulaDocs)}
+            className="border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800 text-xs font-mono gap-1.5"
+          >
+            <Info className="w-3.5 h-3.5 text-primary" />
+            {showFormulaDocs ? "Hide Formula" : "Scoring Formula"}
+            {showFormulaDocs ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* ─── Formula Documentation Collapsible ──────────────────────────── */}
@@ -388,9 +414,19 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
             Install the SecureFlow GitHub App or synchronize your repositories to view security
             health rankings.
           </p>
-          <div className="mt-5">
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => setConnectWizardOpen(true)}
+              className="font-mono text-xs gap-1.5"
+              data-testid="empty-connect-repo-btn"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Connect Repository Wizard
+            </Button>
             <Link href="/dashboard/settings">
-              <Button size="sm" variant="default" className="font-mono text-xs">
+              <Button size="sm" variant="outline" className="font-mono text-xs border-zinc-700">
                 Go to Settings
               </Button>
             </Link>
@@ -600,6 +636,13 @@ export default function RepositoriesClient({ initialData }: RepositoriesClientPr
           </div>
         </div>
       )}
+
+      {/* ─── Connect Repository Step-by-Step Wizard (#2230) ─────────────── */}
+      <ConnectRepositoryWizard
+        open={connectWizardOpen}
+        onOpenChange={setConnectWizardOpen}
+        initialRepositories={initialData.repositories}
+      />
     </div>
   );
 }
